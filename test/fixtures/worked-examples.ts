@@ -8,7 +8,7 @@ export const workedExamples: Record<string, unknown> = {
     name: 'House battery low',
     slug: 'house-battery-low',
     message: 'House battery voltage is low',
-    priority: 'fromZone',
+    priority: 'warning',
     signal: { path: 'electrical.batteries.house.voltage' },
     detector: {
       type: 'sustained',

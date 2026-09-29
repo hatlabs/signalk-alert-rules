@@ -182,7 +182,7 @@ export function ruleSchemas<N extends TSchema>(num: NumberField<N>) {
         [PATTERN_MESSAGE_KEY]: SLUG_MESSAGE
       }),
       message: Type.String({ minLength: 1, maxLength: 500 }),
-      priority: Type.Enum([...PRIORITIES, 'fromZone']),
+      priority: Type.Enum(PRIORITIES),
       latching: Type.Optional(Type.Boolean()),
       signal: Signal,
       detector: Detector,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { bandOf, higherPriority, resolveLimit, type Zone } from '../../src/engine/limits.js'
+import { resolveLimit, type Zone } from '../../src/engine/limits.js'
 
 const battery: Zone[] = [
   { upper: 11.5, state: 'alarm' },
@@ -58,40 +58,5 @@ describe('resolveLimit', () => {
     const result = resolveLimit({ kind: 'zone', level: 'alarm' }, 'below', coolant)
     expect(result.ok).toBe(false)
     expect(!result.ok && result.reason).toMatch(/no upper bound/)
-  })
-})
-
-describe('bandOf', () => {
-  it('lower bounds are inclusive, upper bounds exclusive, missing bounds unbounded', () => {
-    expect(bandOf(11.5, battery)).toBe('warn')
-    expect(bandOf(11.49, battery)).toBe('alarm')
-    expect(bandOf(-100, battery)).toBe('alarm')
-    expect(bandOf(12, battery)).toBeUndefined()
-    expect(bandOf(1000, coolant)).toBe('alarm')
-  })
-
-  it('the most severe of overlapping zones wins', () => {
-    expect(
-      bandOf(5, [
-        { lower: 0, upper: 10, state: 'warn' },
-        { lower: 4, upper: 6, state: 'emergency' }
-      ])
-    ).toBe('emergency')
-  })
-
-  it('treats null bounds as missing, as JSON meta carries them', () => {
-    expect(bandOf(1, [{ lower: null, upper: 2, state: 'alert' }])).toBe('alert')
-  })
-
-  it('ignores normal and nominal zones', () => {
-    expect(bandOf(13, battery)).toBeUndefined()
-  })
-})
-
-describe('higherPriority', () => {
-  it('orders caution < warning < alarm < emergency', () => {
-    expect(higherPriority('caution', 'warning')).toBe('warning')
-    expect(higherPriority('emergency', 'alarm')).toBe('emergency')
-    expect(higherPriority('alarm', undefined)).toBe('alarm')
   })
 })

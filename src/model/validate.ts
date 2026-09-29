@@ -418,12 +418,6 @@ function semanticErrors(rule: Rule, ctx: ValidationContext): ValidationError[] {
     errors.push(...signalErrors(gate.signal, pointer(at, 'signal'), bound, ctx))
     errors.push(...limitErrors(gate.limit, gate.signal, pointer(at, 'limit'), bound))
   })
-
-  const d = rule.detector
-  const zoneLimit = (d.type === 'sustained' || d.type === 'projection') && d.limit.kind === 'zone'
-  if (rule.priority === 'fromZone' && !zoneLimit) {
-    errors.push({ path: '/priority', message: 'priority from zone needs a zone limit' })
-  }
   return errors
 }
 

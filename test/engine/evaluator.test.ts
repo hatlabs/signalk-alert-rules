@@ -77,7 +77,7 @@ const batteryLow = valid({
   name: 'House battery low',
   slug: 'house-battery-low',
   message: 'House battery voltage is low',
-  priority: 'fromZone',
+  priority: 'warning',
   signal: { path: VOLTAGE },
   detector: {
     type: 'sustained',
@@ -87,36 +87,38 @@ const batteryLow = valid({
   }
 })
 
-describe('zone limits and priority', () => {
-  it('below the alarm level for the duration raises at alarm', () => {
-    const { at, log } = setup(batteryLow, { meta: { [VOLTAGE]: { zones: batteryZones } } })
-    at(0, VOLTAGE, 11.3)
-    at(29)
-    expect(log).toEqual([])
-    at(30)
-    expect(log).toEqual([[30, 'raise', '', 'alarm']])
+const batteryCritical = valid({
+  ...batteryLow,
+  name: 'House battery critical',
+  slug: 'house-battery-critical',
+  priority: 'alarm',
+  detector: { ...batteryLow.detector, limit: { kind: 'zone', level: 'alarm' } }
+})
+
+describe('zone limits', () => {
+  it('each zone level is a rule of its own with its own priority', () => {
+    const meta = { [VOLTAGE]: { zones: batteryZones } }
+    const warning = setup(batteryLow, { meta })
+    const alarm = setup(batteryCritical, { meta })
+    for (const s of [warning, alarm]) {
+      s.at(0, VOLTAGE, 11.3)
+      s.at(29)
+      s.at(30)
+    }
+    expect(warning.log).toEqual([[30, 'raise', '', 'warning']])
+    expect(alarm.log).toEqual([[30, 'raise', '', 'alarm']])
   })
 
-  it('priority holds at the most severe band while the value moves to a milder one', () => {
+  it('the warning rule stays active while the value is below the alarm threshold', () => {
     const { at, log, evaluator } = setup(batteryLow, {
       meta: { [VOLTAGE]: { zones: batteryZones } }
     })
-    at(0, VOLTAGE, 11.3)
-    at(30)
-    at(40, VOLTAGE, 11.8)
-    expect(log).toEqual([[30, 'raise', '', 'alarm']])
-    expect(evaluator.status().instances[0]).toMatchObject({ priority: 'alarm', band: 'warn' })
-  })
-
-  it('escalates when the value enters a more severe band', () => {
-    const { at, log } = setup(batteryLow, { meta: { [VOLTAGE]: { zones: batteryZones } } })
     at(0, VOLTAGE, 11.8)
     at(30)
     at(40, VOLTAGE, 11.3)
-    expect(log).toEqual([
-      [30, 'raise', '', 'warning'],
-      [40, 'reraise', '', 'alarm']
-    ])
+    at(100)
+    expect(log).toEqual([[30, 'raise', '', 'warning']])
+    expect(evaluator.status().instances[0]?.active).toBe(true)
   })
 
   it('a zone edit that removes the level makes the rule inactive and clears it', () => {
@@ -128,19 +130,19 @@ describe('zone limits and priority', () => {
     meta.set(VOLTAGE, { zones: [{ upper: 11.5, state: 'alarm' }] })
     at(31)
     expect(log).toEqual([
-      [30, 'raise', '', 'alarm'],
+      [30, 'raise', '', 'warning'],
       [31, 'clear', '']
     ])
     expect(evaluator.status().instances[0]?.inactive).toMatch(/no warn zone/)
   })
 
-  it('a projection with priority from zone raises at the limit level before the band is reached', () => {
+  it('a projection against a zone limit raises at its own priority', () => {
     const LEVEL = 'tanks.freshWater.0.currentLevel'
     const rule = valid({
       name: 'Fresh water running out',
       slug: 'fresh-water-running-out',
       message: 'Fresh water tank will be empty soon',
-      priority: 'fromZone',
+      priority: 'warning',
       signal: { path: LEVEL },
       detector: {
         type: 'projection',
@@ -155,10 +157,8 @@ describe('zone limits and priority', () => {
       { lower: 0.0525, upper: 0.1, state: 'warn' }
     ]
     const { at, log } = setup(rule, { meta: { [LEVEL]: { zones } } })
-    for (let t = 0; t <= 600; t += 10) at(t, LEVEL, 0.3 - t / 6000)
+    for (let t = 0; t <= 2400; t += 10) at(t, LEVEL, 0.3 - t / 6000)
     expect(log).toEqual([[600, 'raise', '', 'warning']])
-    for (let t = 610; t <= 2400; t += 10) at(t, LEVEL, 0.3 - t / 6000)
-    expect(log.at(-1)).toEqual([1490, 'reraise', '', 'alarm'])
   })
 })
 
@@ -276,7 +276,7 @@ describe('gates', () => {
   })
 
   it('an adopted alert is kept until the gate input reports', () => {
-    const { at, log } = setup(oilPressure, { adopted: [{ priority: 'alarm' }] })
+    const { at, log } = setup(oilPressure, { adopted: [{}] })
     at(0, OIL, 0)
     at(1000)
     expect(log).toEqual([])
@@ -489,16 +489,15 @@ describe('rule edits', () => {
     expect(log).toEqual([[31, 'clear', '']])
   })
 
-  it('a raised priority escalates an active alert, a lowered one waits for the next raise', () => {
+  it('a priority edit takes effect at the next raise', () => {
     const { evaluator, log, at } = raised()
     at(30)
     evaluator.update({ ...oilPressure, priority: 'emergency' })
-    evaluator.update({ ...oilPressure, priority: 'warning' })
-    expect(log).toEqual([[30, 'reraise', '', 'emergency']])
+    expect(log).toEqual([])
     at(40, OIL, 300000)
     at(50, OIL, 0)
     at(55)
-    expect(log.at(-1)).toEqual([55, 'raise', '', 'warning'])
+    expect(log.at(-1)).toEqual([55, 'raise', '', 'emergency'])
   })
 
   it('message and latching edits take effect at the next raise', () => {
@@ -537,7 +536,7 @@ describe('adopted alerts', () => {
       detector: { ...oilPressure.detector, clearDuration: 10 }
     } as Rule
     const { at, log } = setup(rule, {
-      adopted: [{ priority: 'alarm' }],
+      adopted: [{}],
       cached: [
         [RPM, 0],
         [OIL, 300000]
@@ -562,7 +561,7 @@ describe('adopted alerts', () => {
       ]
     })
     const { at, log, evaluator } = setup(rule, {
-      adopted: [{ segment: 'port', priority: 'warning' }]
+      adopted: [{ segment: 'port' }]
     })
     at(1, 'propulsion.starboard.coolantTemperature', 370)
     at(2, 'propulsion.port.coolantTemperature', 370)
@@ -590,7 +589,7 @@ describe('adopted alerts', () => {
         }
       ]
     })
-    const { at, log } = setup(rule, { adopted: [{ segment: 'port', priority: 'warning' }] })
+    const { at, log } = setup(rule, { adopted: [{ segment: 'port' }] })
     at(1, 'propulsion.starboard.revolutions', 30)
     at(100)
     expect(log).toEqual([])
@@ -598,11 +597,8 @@ describe('adopted alerts', () => {
     expect(log).toEqual([[101, 'clear', 'port']])
   })
 
-  it('an in-place edit that leaves priority alone does not re-raise an adopted lower priority', () => {
-    const { at, log, evaluator } = setup(
-      { ...oilPressure, gates: undefined },
-      { adopted: [{ priority: 'warning' }] }
-    )
+  it('an in-place edit of an adopted alert emits nothing', () => {
+    const { at, log, evaluator } = setup({ ...oilPressure, gates: undefined }, { adopted: [{}] })
     at(0, OIL, 0)
     evaluator.update({ ...oilPressure, gates: undefined, message: 'Check the oil' })
     at(10)
@@ -614,7 +610,7 @@ describe('adopted alerts', () => {
     const fresh = setup(depthTimeout, { settings })
     fresh.at(30)
     expect(fresh.log).toEqual([[30, 'raise', '', 'warning']])
-    const adopted = setup(depthTimeout, { settings, adopted: [{ priority: 'warning' }] })
+    const adopted = setup(depthTimeout, { settings, adopted: [{}] })
     adopted.at(100)
     expect(adopted.log).toEqual([])
   })
@@ -735,7 +731,7 @@ describe('zone changes and adopted gates', () => {
         }
       ]
     })
-    const { at, log } = setup(rule, { adopted: [{ segment: 'port', priority: 'warning' }] })
+    const { at, log } = setup(rule, { adopted: [{ segment: 'port' }] })
     at(1, 'propulsion.port.coolantTemperature', 340)
     at(10, 'propulsion.port.revolutions', 30)
     at(11, 'propulsion.port.coolantTemperature', 370)
@@ -765,7 +761,7 @@ describe('zone changes and adopted gates', () => {
       ]
     })
     const { at, log, evaluator } = setup(rule, {
-      adopted: [{ segment: 'port', priority: 'warning' }]
+      adopted: [{ segment: 'port' }]
     })
     at(1, 'propulsion.port.coolantTemperature', 370)
     at(2, 'propulsion.starboard.coolantTemperature', 370)

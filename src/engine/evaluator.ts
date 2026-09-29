@@ -1,5 +1,5 @@
 import type { SubscriptionManager } from '@signalk/server-api'
-import type { Limit, Priority, Rule, Signal, ZoneLevel } from '../model/rule.js'
+import type { Limit, Priority, Rule, Signal } from '../model/rule.js'
 import type { Clock } from './clock.js'
 import {
   AccumulatorDetector,
@@ -8,8 +8,7 @@ import {
   type DetectorSpec
 } from './detectors/index.js'
 import { Gate } from './gates.js'
-import { bandOf, higherPriority, resolveLimit, ZONE_PRIORITY, type Zone } from './limits.js'
-import { numeric } from './detectors/detector.js'
+import { resolveLimit, type Zone } from './limits.js'
 import {
   openSignal,
   type Instance,
@@ -43,7 +42,6 @@ export interface EvaluatorContext {
 export interface Adopted {
   /** The alert path's instance segment, for a wildcard rule. */
   segment?: string
-  priority: Priority
 }
 
 export type RuleEvent =
@@ -55,13 +53,7 @@ export type RuleEvent =
       rule: Rule
       value?: SignalValue
       limit?: number
-      band?: ZoneLevel
     }
-  /**
-   * The condition reached a higher priority while active, so the alert is
-   * raised again at it. Distinct from the server's lifecycle escalation.
-   */
-  | { type: 'reraise'; instance?: Instance; priority: Priority }
   | { type: 'clear'; instance?: Instance }
 
 export interface InstanceStatus {
@@ -69,10 +61,6 @@ export interface InstanceStatus {
   active: boolean
   inUse: boolean
   input: 'value' | 'unavailable' | 'neverSeen'
-  /** The priority held while active. */
-  priority?: Priority
-  /** The zone band the latest value is in. */
-  band?: ZoneLevel
   gateInputUnavailable: boolean
   /** Why the rule cannot evaluate this instance. */
   inactive?: string
@@ -94,8 +82,6 @@ interface Unit {
   /** The alert was adopted from core and has not cleared; never-seen gates hold for it. */
   adoptedAlert: boolean
   alerting: boolean
-  held?: Priority
-  band?: ZoneLevel
   limit?: number
   inUse: boolean
   inactive?: string
@@ -130,7 +116,6 @@ function structure(rule: Rule): string {
   return canonical({
     signal: rule.signal,
     gates: rule.gates ?? [],
-    fromZone: rule.priority === 'fromZone',
     detector: Object.fromEntries(
       Object.entries(rule.detector).filter(([key]) => fields.includes(key))
     )
@@ -151,9 +136,8 @@ function bind(path: string, instance: Instance | undefined): string {
 
 /**
  * Evaluates one rule on the self vessel: its signal per instance through a
- * detector, its gates, zone limits and priority. It reports raises,
- * re-raises at a higher priority and clears; emitting alerts is the caller's
- * job. A rule is in
+ * detector, its gates and zone limits. It reports raises and clears; what
+ * happens to the alert after that is core's lifecycle, not the evaluator's. A rule is in
  * use only while every gate holds. Out of use, a detector is dropped and
  * started afresh when the rule comes back into use, fed the last reading, so
  * durations count from then; an accumulator keeps its total and only its
@@ -164,7 +148,7 @@ export class RuleEvaluator {
   private gates: Map<string, Gate>[] = []
   private closers: (() => void)[] = []
   private readonly issues = new Set<string>()
-  private adopted: Map<string, Priority>
+  private adopted: Set<string>
   private carried = new Map<string, number>()
   private running = false
 
@@ -174,7 +158,7 @@ export class RuleEvaluator {
     private readonly onEvent: (event: RuleEvent) => void,
     adopted: readonly Adopted[] = []
   ) {
-    this.adopted = new Map(adopted.map((a) => [a.segment ?? '', a.priority]))
+    this.adopted = new Set(adopted.map((a) => a.segment ?? ''))
   }
 
   start(): void {
@@ -182,7 +166,7 @@ export class RuleEvaluator {
     this.running = true
     const gates = this.rule.gates ?? []
     this.gates = gates.map(() => new Map<string, Gate>())
-    for (const key of this.adopted.keys()) {
+    for (const key of this.adopted) {
       this.unit(key, key === '' ? undefined : { name: key, segment: key })
     }
     if (!isWildcard(this.rule.signal)) this.unit('')
@@ -238,24 +222,14 @@ export class RuleEvaluator {
       this.carried = this.totals(rule)
       this.remove()
       this.rule = rule
-      this.adopted = new Map()
+      this.adopted = new Set()
       this.units.clear()
       this.issues.clear()
       this.start()
       return
     }
-    const previous = this.rule.priority
     this.rule = rule
-    // Only an edit that raises the priority re-raises; an adopted alert held
-    // below the rule's priority stays as core has it.
-    const raised =
-      rule.priority !== 'fromZone' &&
-      previous !== 'fromZone' &&
-      higherPriority(previous, rule.priority) !== previous
-    for (const unit of this.units.values()) {
-      this.step(unit, now)
-      if (raised && rule.priority !== 'fromZone') this.reraise(unit, rule.priority)
-    }
+    for (const unit of this.units.values()) this.step(unit, now)
   }
 
   /** Stops evaluating without clearing: stop runs on every configuration save. */
@@ -279,8 +253,6 @@ export class RuleEvaluator {
         active: u.alerting,
         inUse: u.inUse,
         input: u.last === undefined ? 'neverSeen' : u.last.available ? 'value' : 'unavailable',
-        priority: u.held,
-        band: u.band,
         gateInputUnavailable: this.existingGatesOf(u).some((g) => g.inputUnavailable),
         inactive: u.inactive
       }))
@@ -290,14 +262,13 @@ export class RuleEvaluator {
   private unit(key: string, instance?: Instance): Unit {
     let unit = this.units.get(key)
     if (unit === undefined) {
-      const held = this.adopted.get(key)
+      const adopted = this.adopted.has(key)
       unit = {
         key,
         instance,
-        startActive: held !== undefined,
-        adoptedAlert: held !== undefined,
-        alerting: held !== undefined,
-        held,
+        startActive: adopted,
+        adoptedAlert: adopted,
+        alerting: adopted,
         inUse: false
       }
       this.units.set(key, unit)
@@ -351,12 +322,6 @@ export class RuleEvaluator {
       const gate = this.gates[i]?.get(isWildcard(model.signal) ? unit.key : '')
       return gate === undefined ? [] : [gate]
     })
-  }
-
-  /** The rule's detector when it compares against a limit. */
-  private limited() {
-    const d = this.rule.detector
-    return d.type === 'sustained' || d.type === 'projection' ? d : undefined
   }
 
   private zones(limit: Limit, signal: Signal, instance: Instance | undefined) {
@@ -415,7 +380,6 @@ export class RuleEvaluator {
       gates.find((g) => g.seen && g.issue !== undefined)?.issue ??
       (resolved.ok ? undefined : resolved.reason)
     unit.inactive = problem
-    this.updateBand(unit)
 
     const gatesHold = gates.every((g) =>
       g.seen ? g.holdsFor(unit.adoptedAlert) : unit.adoptedAlert
@@ -444,9 +408,6 @@ export class RuleEvaluator {
     }
     if (detector.active && !unit.alerting) this.raise(unit)
     else if (!detector.active && unit.alerting) this.clear(unit)
-    else if (unit.alerting && this.rule.priority === 'fromZone') {
-      this.reraise(unit, this.priority(unit))
-    }
   }
 
   /** Creates, reconfigures and feeds the unit's detector, and returns its transition. */
@@ -474,48 +435,21 @@ export class RuleEvaluator {
       : detector.sample(feed.reading, feed.replayed, now)
   }
 
-  private updateBand(unit: Unit): void {
-    const limit = this.limited()?.limit
-    const value = unit.last === undefined ? undefined : numeric(unit.last)
-    if (limit?.kind !== 'zone' || value === undefined) return
-    unit.band = bandOf(value, this.zones(limit, this.rule.signal, unit.instance))
-  }
-
-  private priority(unit: Unit): Priority {
-    if (this.rule.priority !== 'fromZone') return this.rule.priority
-    const limit = this.limited()?.limit
-    if (limit?.kind !== 'zone') throw new Error('priority from zone needs a zone limit')
-    const floor = ZONE_PRIORITY[limit.level]
-    return higherPriority(floor, unit.band === undefined ? undefined : ZONE_PRIORITY[unit.band])
-  }
-
   private raise(unit: Unit): void {
-    const priority = this.priority(unit)
     unit.alerting = true
-    unit.held = priority
     const value = unit.last?.available === true ? unit.last.value : undefined
     this.onEvent({
       type: 'raise',
       instance: unit.instance,
-      priority,
+      priority: this.rule.priority,
       rule: this.rule,
       value,
-      limit: unit.limit,
-      band: unit.band
+      limit: unit.limit
     })
-  }
-
-  /** Raises an active alert again when `priority` is above the one it holds. */
-  private reraise(unit: Unit, priority: Priority): void {
-    if (!unit.alerting || unit.held === undefined) return
-    if (higherPriority(unit.held, priority) === unit.held) return
-    unit.held = priority
-    this.onEvent({ type: 'reraise', instance: unit.instance, priority })
   }
 
   private clear(unit: Unit): void {
     unit.alerting = false
-    unit.held = undefined
     unit.startActive = false
     unit.adoptedAlert = false
     this.onEvent({ type: 'clear', instance: unit.instance })
