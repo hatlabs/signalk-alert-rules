@@ -60,10 +60,13 @@ describe('reconcile', () => {
     expect(result.activeByRule.get('user.coolant-high')).toEqual([{ segment: 'port' }])
   })
 
-  it('keeps held alerts for null heartbeats without starting their rules condition-active', () => {
-    const result = reconcile([alert('rules.user.oil-pressure-low', false)], PLUGIN, rules)
-    expect(result.kept).toHaveLength(1)
-    expect(result.activeByRule.size).toBe(0)
+  it('ignores alerts whose condition has ended, even when their rule is gone', () => {
+    const result = reconcile(
+      [alert('rules.user.oil-pressure-low', false), alert('rules.user.deleted-rule', false)],
+      PLUGIN,
+      rules
+    )
+    expect(result).toEqual({ kept: [], activeByRule: new Map(), orphaned: [] })
   })
 
   it('orphans alerts whose rule is gone or whose instance cannot belong to the rule', () => {
