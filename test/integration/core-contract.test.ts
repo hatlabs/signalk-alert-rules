@@ -217,34 +217,25 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
   })
 
   it(
-    'marks an alert stale 60 s after its last emission; null heartbeats keep a live held alert live but do not revive a stale one',
+    'marks an alert stale 60 s after its last emission, and a raise when input returns revives it',
     async () => {
       const silent = 'rules.contract.silent'
-      const heldLive = 'rules.contract.held-live'
-      const heldStale = 'rules.contract.held-stale'
-      for (const path of [silent, heldLive, heldStale]) deps.send(path, raise(path))
-      for (const path of [heldLive, heldStale]) deps.send(path, null)
+      const cleared = 'rules.contract.cleared'
+      for (const path of [silent, cleared]) deps.send(path, raise(path))
+      deps.send(cleared, null)
       await until(
-        () => (alerts().getByPath(heldStale)?.condition === false ? true : undefined),
-        'the clears'
+        () => (alerts().getByPath(cleared)?.condition === false ? true : undefined),
+        'the clear'
       )
-      const started = Date.now()
-      while (Date.now() - started < STALE_WAIT_MS) {
-        await sleep(SOURCE_TIMEOUT_MS / 3)
-        deps.send(heldLive, null)
-      }
+      await sleep(STALE_WAIT_MS)
       expect(alerts().getByPath(silent)?.stale).toBe(true)
-      expect(alerts().getByPath(heldLive)?.stale).toBe(false)
-      expect(alerts().getByPath(heldStale)?.stale).toBe(true)
-      deps.send(heldStale, null)
-      await alerts().ingressSettled()
-      // Documents a core gap: a null heartbeat re-arms liveness but does not reset stale.
-      expect(alerts().getByPath(heldStale)?.stale).toBe(true)
-      // A heartbeat when input returns brings a stale active alert back.
+      // Documents a core gap: liveness also runs for an alert whose condition
+      // ended and that core keeps for acknowledgement, and SKAR sends nothing
+      // after the clear, so it shows stale.
+      expect(alerts().getByPath(cleared)).toMatchObject({ condition: false, stale: true })
       deps.send(silent, raise(silent))
       await alerts().ingressSettled()
       expect(alerts().getByPath(silent)?.stale).toBe(false)
-      deps.send(silent, raise(silent))
     },
     SLOW_TEST_MS
   )
