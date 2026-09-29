@@ -2,6 +2,7 @@ import Type, { type Static, type TNumber, type TNumberOptions, type TSchema } fr
 
 export const MAX_DURATION_S = 24 * 3600
 export const MAX_RULES = 500
+export const MAX_INSTANCES = 64
 export const MAX_SLUG_LENGTH = 64
 export const MAX_COMBINATOR_INPUTS = 16
 export const MAX_GATES = 8
