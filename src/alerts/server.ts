@@ -1,0 +1,82 @@
+import type { Delta, Path, ServerAPI } from '@signalk/server-api'
+import { monotonic } from '../engine/clock.js'
+import type { PathMeta, TimeoutSettings } from '../engine/evaluator.js'
+import type { Zone } from '../engine/limits.js'
+import type { AlertsReader, CoreAlert } from './emitter.js'
+import { deltaPath } from './paths.js'
+import type { RunnerDeps } from './runner.js'
+
+// The published server-api types predate the core alerts API; these are the
+// parts of it SKAR reads.
+interface ServerWithAlerts {
+  alerts: AlertsReader
+}
+
+interface ServerSettings {
+  config?: { settings?: { enforceDataTimeouts?: boolean; useDefaultTimeouts?: boolean } }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isBound(value: unknown): boolean {
+  return value === undefined || value === null || typeof value === 'number'
+}
+
+function isZone(value: unknown): value is Zone {
+  return (
+    isRecord(value) &&
+    typeof value.state === 'string' &&
+    isBound(value.lower) &&
+    isBound(value.upper)
+  )
+}
+
+/** The meta fields the evaluator reads, keeping only well-formed values. */
+function pathMeta(value: unknown): PathMeta | undefined {
+  if (!isRecord(value)) return undefined
+  const { zones, timeout, updateContract } = value
+  return {
+    zones: Array.isArray(zones) ? zones.filter(isZone) : undefined,
+    timeout: typeof timeout === 'number' || typeof timeout === 'string' ? timeout : undefined,
+    updateContract: typeof updateContract === 'string' ? updateContract : undefined
+  }
+}
+
+/**
+ * The server's data-timeout settings. They are not a public plugin API: the
+ * plugin's app is a shallow copy of the server's, so `config.settings` is
+ * reachable. Undefined when they are not.
+ */
+function timeoutSettings(app: ServerAPI): TimeoutSettings | undefined {
+  const settings = (app as ServerAPI & ServerSettings).config?.settings
+  if (settings === undefined) return undefined
+  return {
+    enforce: settings.enforceDataTimeouts === true,
+    useDefaults: settings.useDefaultTimeouts !== false
+  }
+}
+
+/** The runner's view of the server, from the plugin's app. */
+export function serverDeps(app: ServerAPI, pluginId: string): RunnerDeps {
+  const alerts = (app as ServerAPI & ServerWithAlerts).alerts
+  return {
+    pluginId,
+    subscriptions: app.subscriptionmanager,
+    meta: (path) => pathMeta(app.getSelfPath(`${path}.meta`)),
+    timeoutSettings: () => timeoutSettings(app),
+    clock: monotonic,
+    wallClock: () => new Date(),
+    alerts: {
+      list: (): CoreAlert[] => alerts.list(),
+      getByPath: (path) => alerts.getByPath(path)
+    },
+    send: (path, value) => {
+      const delta: Partial<Delta> = {
+        updates: [{ values: [{ path: deltaPath(path) as Path, value }] }]
+      }
+      app.handleMessage(pluginId, delta)
+    }
+  }
+}
