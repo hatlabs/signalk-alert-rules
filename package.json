@@ -1,0 +1,64 @@
+{
+  "name": "signalk-alert-rules",
+  "version": "0.1.0",
+  "description": "Rule-based alert raiser for the Signal K alerts API: detectors, gates and zone limits.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "keywords": [
+    "signalk-node-server-plugin",
+    "signalk-category-notifications",
+    "signalk",
+    "alerts",
+    "alarms",
+    "rules"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src/ test/",
+    "lint:fix": "eslint --fix src/ test/",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
+    "typecheck": "tsc -p tsconfig.lint.json",
+    "ci": "npm run typecheck && npm run lint && npm run format:check && npm run test",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hatlabs/signalk-alert-rules.git"
+  },
+  "author": "Hat Labs Oy",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/hatlabs/signalk-alert-rules/issues"
+  },
+  "homepage": "https://github.com/hatlabs/signalk-alert-rules#readme",
+  "peerDependencies": {
+    "@signalk/server-api": "^2.10.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@signalk/server-api": "^2.33.0",
+    "@tsconfig/node22": "^22.0.6",
+    "@types/node": "^22.20.4",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
+    "lefthook": "^2.1.14",
+    "prettier": "^3.9.9",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.71.0",
+    "vitest": "^3.2.7"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "signalk-plugin-enabled-by-default": false
+}

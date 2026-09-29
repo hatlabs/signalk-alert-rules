@@ -1,0 +1,194 @@
+#!/usr/bin/env bash
+#
+# usage: ./run command [argument ...]
+#
+# Commands for signalk-alert-rules development.
+#
+
+set -o nounset
+set -o pipefail
+set -o errexit
+
+# Change the current directory to the project root.
+PROJECT_ROOT=${0%/*}
+if [[ $0 != $PROJECT_ROOT && $PROJECT_ROOT != "" ]]; then
+  cd "$PROJECT_ROOT"
+fi
+readonly PROJECT_ROOT=$(pwd)
+
+################################################################################
+# Build Commands
+
+function build {
+  #@ Compile the plugin into dist/
+  #@ Category: Build
+  npm run build
+}
+
+################################################################################
+# Quality Commands
+
+function test {
+  #@ Run the test suite
+  #@ Category: Quality
+  npm test -- "$@"
+}
+
+function lint {
+  #@ Lint sources and tests with ESLint
+  #@ Category: Quality
+  npm run lint
+}
+
+function format {
+  #@ Format sources and tests with Prettier
+  #@ Category: Quality
+  npm run format
+}
+
+function typecheck {
+  #@ Type-check sources and tests
+  #@ Category: Quality
+  npm run typecheck
+}
+
+function ci {
+  #@ Run all CI checks (typecheck, lint, format check, tests)
+  #@ Category: Quality
+  npm run ci
+}
+
+################################################################################
+# Setup Commands
+
+function install-hooks {
+  #@ Install git pre-commit hooks with lefthook
+  #@ Category: Setup
+  npx lefthook install
+}
+
+function bumpversion {
+  #@ Bump the version: bumpversion patch|minor|major
+  #@ Category: Setup
+  local part="${1:-}"
+  if [[ -z "$part" ]]; then
+    echo "Usage: ./run bumpversion patch|minor|major" >&2
+    return 1
+  fi
+  uvx bump-my-version bump "$part"
+  # npm owns the lockfile's root version; a text replace would also hit any
+  # dependency pinned at the same version string.
+  npm install --package-lock-only --ignore-scripts --silent
+  git add package-lock.json
+  git commit --amend --no-edit --no-verify
+}
+
+################################################################################
+# Deployment Commands
+
+function deploy {
+  #@ Build and copy the plugin into a Signal K server: deploy <host|local> <signalk-config-dir>
+  #@ Category: Deploy
+  local target="${1:-}" config_dir="${2:-}"
+  if [[ -z "$target" || -z "$config_dir" ]]; then
+    echo "Usage: ./run deploy <host|local> <signalk-config-dir>"
+    echo ""
+    echo "Builds locally and copies the plugin into <signalk-config-dir>/node_modules/,"
+    echo "the directory Signal K loads plugins from (\$HOME/.signalk by default)."
+    echo "A hostname deploys over ssh; 'local' copies on this machine."
+    echo "Restart Signal K afterwards to load the new build."
+    echo ""
+    echo "The copy is not recorded in the config directory's package.json, so a later"
+    echo "'npm install' there may remove it as extraneous."
+    return 1
+  fi
+
+  # The script runs from the project root, so a relative path would land inside the repo.
+  if [[ "$config_dir" != /* ]]; then
+    echo "The Signal K config directory must be an absolute path: $config_dir" >&2
+    return 1
+  fi
+
+  local pkg dest
+  pkg=$(node -p "require('./package.json').name")
+
+  echo "==> Building..."
+  build
+
+  # A mistyped config directory must fail rather than create a tree the server never scans.
+  if [[ "$target" == local || "$target" == localhost ]]; then
+    if [[ ! -d "$config_dir" ]]; then
+      echo "No such directory: $config_dir" >&2
+      return 1
+    fi
+    dest="${config_dir}/node_modules/${pkg}"
+    mkdir -p "$dest"
+  else
+    if ! ssh "$target" test -d "$config_dir"; then
+      echo "No such directory on ${target}: $config_dir" >&2
+      return 1
+    fi
+    dest="${target}:${config_dir}/node_modules/${pkg}"
+    ssh "$target" mkdir -p "${config_dir}/node_modules/${pkg}"
+  fi
+
+  echo "==> Copying to ${dest}..."
+  rsync -rlpt --delete dist/ "${dest}/dist/"
+  rsync -lpt package.json README.md LICENSE "${dest}/"
+
+  echo ""
+  echo "Deployed ${pkg} to ${dest}. Restart Signal K to load it."
+}
+
+################################################################################
+# Help System
+
+function help {
+  #@ Show this help message
+  #@ Category: Core
+  echo "Signal K Alert Rules - Development Commands"
+  echo "==========================================="
+  echo ""
+  echo "Available commands:"
+  echo ""
+
+  # Extract function definitions and their help comments
+  awk '/^function / {
+    fname = $2
+    sub(/[({].*/, "", fname)
+    getline
+    if ($0 ~ /#@/) {
+      desc = $0
+      sub(/.*#@ /, "", desc)
+      sub(/ *$/, "", desc)
+      getline
+      if ($0 ~ /#@ Category:/) {
+        cat = $0
+        sub(/.*Category: /, "", cat)
+        sub(/ *$/, "", cat)
+        if (!seen[cat]++) categories[++cat_count] = cat
+        commands[cat, ++cmd_count[cat]] = fname
+        descriptions[cat, cmd_count[cat]] = desc
+      }
+    }
+  }
+  END {
+    for (i = 1; i <= cat_count; i++) {
+      cat = categories[i]
+      print "\n" cat ":"
+      for (j = 1; j <= cmd_count[cat]; j++) {
+        printf "  %-25s %s\n", commands[cat, j], descriptions[cat, j]
+      }
+    }
+  }' "$0"
+
+  echo ""
+  echo "Usage: ./run <command> [arguments...]"
+  echo ""
+}
+
+################################################################################
+# Commands end.
+
+TIMEFORMAT=$'\nTask completed in %3lR'
+time "${@:-help}"

@@ -1,0 +1,91 @@
+# yaml-language-server: $schema=https://storage.googleapis.com/coderabbit_public_assets/schema.v2.json
+language: en-US
+
+# Under 250 characters — the schema's limit.
+tone_instructions: >-
+  Name the trigger, the code path, and the user-visible consequence for every
+  finding. If you cannot name one, do not raise it. No praise, no preamble, no
+  restating the diff. Silence beats a nitpick.
+
+reviews:
+  profile: assertive
+  poem: false
+  in_progress_fortune: false
+
+  auto_review:
+    enabled: true
+    drafts: false
+
+  high_level_summary_instructions: |
+    Write in present tense: "adds", not "added".
+    Lead with what changes for an operator relying on the alerts, not with the file list.
+    Do not restate the PR description back to the author.
+
+  pre_merge_checks:
+    title:
+      mode: warning
+      requirements: |
+        A reader who sees only the title should understand what the PR does.
+        Conventional-commit form: <type>(<scope>): <subject>, imperative mood.
+    # Quoted: bare `off` is a YAML 1.1 boolean, and this field takes a string.
+    description:
+      mode: "off"
+
+  tools:
+    github-checks:
+      timeout_ms: 600000
+    # `npm run lint` already gates every PR — a second opinion is duplicate noise.
+    eslint:
+      enabled: false
+    markdownlint:
+      enabled: false
+    languagetool:
+      enabled: false
+
+  path_filters:
+    - '!dist/**'
+    - '!package-lock.json'
+
+  path_instructions:
+    - path: '**/*'
+      instructions: |
+        ## Evidence, not impressions
+        Every finding states the trigger, the code path it runs through, and what
+        the operator sees. A finding you cannot express that way is not one.
+
+        ## Safety
+        This plugin raises alerts that crews rely on. Flag any path where a real
+        condition can end without its alert being raised, an active alert can be
+        cleared while its condition still holds, or an acknowledged alert can be
+        re-alerted without a new condition.
+
+        ## Comments
+        A comment explains why the code is the way it is, never what changed or
+        why it changed. Flag comments that narrate the change.
+
+        ## Do not ask for these
+        - **A CHANGELOG entry.** Release notes come from `git log`.
+        - **Acknowledging, silencing or escalating alerts from the plugin.** The
+          server's alerts API owns the alert lifecycle.
+        - **Clearing alerts on plugin stop.** Stop also runs on every
+          configuration save; clearing would re-alert the operator.
+
+        ## Scope
+        One logical change per PR. Flag substantial unrelated work and suggest a
+        separate PR. Do not ask for refactoring of code the PR merely touches.
+
+    - path: 'test/**/*.test.ts'
+      instructions: |
+        Value a test that fails when the production change is reverted. Flag
+        assertions on internals that an equivalent implementation would change.
+
+    - path: '**/*.md'
+      instructions: |
+        Documentation describes the current state, not development history. Flag
+        implementation-status language and build narratives.
+
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - AGENTS.md

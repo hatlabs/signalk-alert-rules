@@ -1,0 +1,62 @@
+name: Publish Release
+
+on:
+  release:
+    # `released` fires for a stable release and for a pre-release promoted to one;
+    # `published` would miss the promotion.
+    types: [released]
+
+permissions:
+  contents: read
+
+jobs:
+  npm-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Check release tag matches the package version
+        # A release cut before the version bump would otherwise find the old version
+        # on npm, skip publishing and still report success.
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION=$(cat VERSION)
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "${TAG#v}" != "$VERSION" ] || [ "$PKG_VERSION" != "$VERSION" ]; then
+            echo "Release tag $TAG, VERSION $VERSION and package.json $PKG_VERSION disagree" >&2
+            exit 1
+          fi
+
+      - name: Install pinned npm with trusted publishing support
+        # corepack rather than `npm install -g npm@latest`, so a broken bundled npm in
+        # the Node toolcache cannot fail the install step. npm shims are opt-in.
+        run: |
+          corepack enable npm
+          corepack prepare npm@11.14.1 --activate
+          test "$(npm --version)" = 11.14.1
+
+      - name: Check if version exists on npm
+        id: check
+        run: |
+          VERSION=$(cat VERSION)
+          if npm view signalk-alert-rules@"$VERSION" version 2>/dev/null; then
+            echo "Version $VERSION already published to npm, skipping"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and publish to npm
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+          npm publish
