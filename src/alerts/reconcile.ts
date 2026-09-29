@@ -10,19 +10,21 @@ export interface KeptAlert {
 }
 
 export interface Reconciliation {
-  /** SKAR's alerts that stay: the emitter takes each over. */
+  /** SKAR's active alerts that stay: the emitter takes each over. */
   kept: KeptAlert[]
   /** Per rule id, the instances whose evaluator starts condition-active. */
   activeByRule: Map<string, Adopted[]>
-  /** SKAR's alerts whose rule, or whose instance by definition, no longer exists. */
+  /** SKAR's active alerts whose rule, or whose instance by definition, no longer exists. */
   orphaned: CoreAlert[]
 }
 
 /**
- * Sorts the alerts core holds at start. SKAR's own alerts are adopted rather
- * than re-verified: a rule with an active alert starts condition-active, so
- * a restart neither re-alerts nor clears it. An instance is gone only when
- * the rule cannot have it at all, not when it has not reported yet.
+ * Sorts the alerts core holds at start. SKAR's own active alerts are adopted
+ * rather than re-verified: a rule with an active alert starts
+ * condition-active, so a restart neither re-alerts nor clears it. An alert
+ * whose condition has ended is core's until acknowledged, so it is ignored.
+ * An instance is gone only when the rule cannot have it at all, not when it
+ * has not reported yet.
  */
 export function reconcile(
   alerts: readonly CoreAlert[],
@@ -31,7 +33,8 @@ export function reconcile(
 ): Reconciliation {
   const result: Reconciliation = { kept: [], activeByRule: new Map(), orphaned: [] }
   for (const alert of alerts) {
-    const parsed = alert.$source === pluginId ? parseAlertPath(alert.path) : undefined
+    const parsed =
+      alert.$source === pluginId && alert.condition ? parseAlertPath(alert.path) : undefined
     if (parsed === undefined) continue
     const rule = rules.get(parsed.ruleId)
     if (rule === undefined || isWildcard(rule.signal) !== (parsed.segment !== undefined)) {
@@ -39,7 +42,6 @@ export function reconcile(
       continue
     }
     result.kept.push({ alert, ...parsed })
-    if (!alert.condition) continue
     const adopted: Adopted = parsed.segment === undefined ? {} : { segment: parsed.segment }
     result.activeByRule.set(parsed.ruleId, [
       ...(result.activeByRule.get(parsed.ruleId) ?? []),

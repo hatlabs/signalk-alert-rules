@@ -40,15 +40,13 @@ export interface EmitterDeps {
 /**
  * - pending: the condition is active but another source owns the path.
  * - active: raised; heartbeats repeat the raise.
- * - held: the condition exited and core keeps the alert for acknowledgement;
- *   heartbeats are null until core drops it.
  */
-type Phase = 'pending' | 'active' | 'held'
+type Phase = 'pending' | 'active'
 
 interface Slot {
   phase: Phase
-  /** What the alert is raised with; absent once held. */
-  value?: AlertValue
+  /** What the alert is raised with. */
+  value: AlertValue
   evidence: () => boolean
   lastBeat: number
   conflict?: string
@@ -57,7 +55,6 @@ interface Slot {
 export interface AlertStatus {
   /** Another source owns the alert path, so SKAR emits nothing for it. */
   conflict?: string
-  heldByCore: boolean
   /** No input evidence, so heartbeats have stopped and core will mark the alert stale. */
   awaitingInput: boolean
 }
@@ -65,7 +62,9 @@ export interface AlertStatus {
 /**
  * Turns rule conditions into core alerts through `alerts.*` delta ingress.
  * SKAR reports whether a condition is present; what happens to the alert
- * after that is core's lifecycle. So while a condition is active, a heartbeat
+ * after that is core's lifecycle. A clear reports that the condition ended
+ * and is the last thing SKAR says about the alert, even while core keeps it
+ * for acknowledgement. While a condition is active, a heartbeat
  * that finds the alert missing from core, or with its condition reported
  * ended, raises it again. Core does not check who owns a path, so before every
  * raise, heartbeat and clear the emitter reads the alert and does nothing if
@@ -85,22 +84,18 @@ export class AlertEmitter {
       this.activate(path, slot, value)
   }
 
-  clear(path: string, now: number): void {
+  clear(path: string): void {
     const slot = this.slots.get(path)
     if (slot === undefined) return
-    if (slot.phase === 'pending' || !this.checkOwnership(slot, this.deps.alerts.getByPath(path))) {
-      this.slots.delete(path)
-      return
+    this.slots.delete(path)
+    if (slot.phase === 'active' && this.checkOwnership(slot, this.deps.alerts.getByPath(path))) {
+      this.deps.send(path, null)
     }
-    if (slot.phase === 'active') this.deps.send(path, null)
-    slot.phase = 'held'
-    slot.value = undefined
-    slot.lastBeat = now
   }
 
   /**
-   * Takes over an alert core already holds for SKAR, without raising it. A
-   * live alert is heartbeated once at once, whatever the evidence: core
+   * Takes over an active alert core already holds for SKAR, without raising
+   * it. A live alert is heartbeated once at once, whatever the evidence: core
    * restores stored alerts without a liveness timer and arms one only on
    * delta ingress, so without this an adopted alert whose input never returns
    * would never go stale. An alert already stale is left alone, so it is not
@@ -111,31 +106,17 @@ export class AlertEmitter {
     const { priority, message, latching, data } = alert
     const value =
       data === undefined ? { priority, message, latching } : { priority, message, latching, data }
-    const slot: Slot = alert.condition
-      ? { phase: 'active', value, evidence, lastBeat: now }
-      : { phase: 'held', evidence, lastBeat: now }
-    this.slots.set(alert.path, slot)
-    if (!alert.stale) this.deps.send(alert.path, slot.value ?? null)
+    this.slots.set(alert.path, { phase: 'active', value, evidence, lastBeat: now })
+    if (!alert.stale) this.deps.send(alert.path, value)
   }
 
   beat(now: number): void {
     for (const [path, slot] of this.slots) {
       if (now - slot.lastBeat < HEARTBEAT_S) continue
       slot.lastBeat = now
-      const alert = this.deps.alerts.getByPath(path)
-      if (!this.checkOwnership(slot, alert)) continue
-      switch (slot.phase) {
-        case 'pending':
-          if (slot.value !== undefined) this.activate(path, slot, slot.value)
-          break
-        case 'active':
-          if (slot.evidence() && slot.value !== undefined) this.deps.send(path, slot.value)
-          break
-        case 'held':
-          if (alert === null) this.slots.delete(path)
-          else if (!alert.condition && slot.evidence()) this.deps.send(path, null)
-          break
-      }
+      if (!this.checkOwnership(slot, this.deps.alerts.getByPath(path))) continue
+      if (slot.phase === 'pending') this.activate(path, slot, slot.value)
+      else if (slot.evidence()) this.deps.send(path, slot.value)
     }
   }
 
@@ -144,7 +125,6 @@ export class AlertEmitter {
     if (slot === undefined) return undefined
     return {
       conflict: slot.conflict,
-      heldByCore: slot.phase === 'held',
       awaitingInput: !slot.evidence()
     }
   }

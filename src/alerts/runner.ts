@@ -60,7 +60,7 @@ export class RuleRunner {
       this.deps.pluginId,
       rules
     )
-    for (const alert of orphaned) if (alert.condition) this.deps.send(alert.path, null)
+    for (const alert of orphaned) this.deps.send(alert.path, null)
     for (const { alert, ruleId: id, segment } of kept) {
       this.emitter.adopt(alert, this.evidence(id, segment ?? ''), now)
     }
@@ -156,7 +156,7 @@ export class RuleRunner {
         now
       )
     } else {
-      this.emitter.clear(path.value, now)
+      this.emitter.clear(path.value)
     }
   }
 

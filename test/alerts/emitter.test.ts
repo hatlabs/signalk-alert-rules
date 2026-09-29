@@ -43,7 +43,7 @@ describe('alert emitter', () => {
     const { core, sent, emitter, evidence } = setup()
     emitter.raise(PATH, alarm, evidence, 0)
     expect(sent).toEqual([[PATH, alarm]])
-    emitter.clear(PATH, 5)
+    emitter.clear(PATH)
     expect(sent.at(-1)).toEqual([PATH, null])
     expect(core.getByPath(PATH)).toMatchObject({ condition: false, state: 'rtn-unacknowledged' })
   })
@@ -65,40 +65,32 @@ describe('alert emitter', () => {
     expect(core.alertings).toBe(1)
   })
 
-  it('a held alert is heartbeated with null and stays unacknowledged until acknowledged', () => {
+  it('a clear sends one null and forgets the alert, whatever core then does with it', () => {
     const { core, sent, emitter, evidence } = setup()
     emitter.raise(PATH, alarm, evidence, 0)
-    emitter.clear(PATH, 5)
+    emitter.clear(PATH)
     emitter.beat(5 + HEARTBEAT_S)
     emitter.beat(5 + 2 * HEARTBEAT_S)
-    expect(sent.slice(2)).toEqual([
-      [PATH, null],
+    expect(sent).toEqual([
+      [PATH, alarm],
       [PATH, null]
     ])
-    expect(emitter.status(PATH)?.heldByCore).toBe(true)
-    expect(core.getByPath(PATH)?.state).toBe('rtn-unacknowledged')
-    core.acknowledge(PATH)
-    emitter.beat(5 + 3 * HEARTBEAT_S)
-    emitter.beat(5 + 4 * HEARTBEAT_S)
-    expect(sent).toHaveLength(4)
     expect(emitter.status(PATH)).toBeUndefined()
+    expect(core.getByPath(PATH)?.state).toBe('rtn-unacknowledged')
   })
 
-  it('without input evidence it stops heartbeating, raise or null, so core can mark the alert stale', () => {
+  it('without input evidence it stops heartbeating, so core can mark the alert stale', () => {
     const { sent, emitter, evidence, setEvidence } = setup()
     emitter.raise(PATH, alarm, evidence, 0)
-    emitter.raise('rules.user.held', alarm, evidence, 0)
-    emitter.clear('rules.user.held', 0)
-    const before = sent.length
     setEvidence(false)
     emitter.beat(HEARTBEAT_S)
-    expect(sent).toHaveLength(before)
+    expect(sent).toHaveLength(1)
     expect(emitter.status(PATH)?.awaitingInput).toBe(true)
     setEvidence(true)
     emitter.beat(2 * HEARTBEAT_S)
-    expect(sent.slice(before)).toEqual([
+    expect(sent).toEqual([
       [PATH, alarm],
-      ['rules.user.held', null]
+      [PATH, alarm]
     ])
   })
 
@@ -133,7 +125,7 @@ describe('alert emitter', () => {
     const { core, sent, emitter, evidence } = setup()
     emitter.raise(PATH, alarm, evidence, 0)
     core.raiseFrom('other-plugin', PATH, 'emergency')
-    emitter.clear(PATH, 5)
+    emitter.clear(PATH)
     expect(sent).toHaveLength(1)
     expect(core.getByPath(PATH)?.condition).toBe(true)
   })
@@ -150,20 +142,6 @@ describe('alert emitter', () => {
     expect(sent).toEqual([[PATH, { ...alarm, message: 'old message' }]])
     expect(core.writes).toBe(writes)
     expect(core.alertings).toBe(1)
-  })
-
-  it('adopts a held alert with a null heartbeat and forgets it once core drops it', () => {
-    const { core, sent, emitter, evidence } = setup()
-    core.ingest(PLUGIN, PATH, alarm)
-    core.ingest(PLUGIN, PATH, null)
-    const held = core.getByPath(PATH)
-    if (held === null) throw new Error('not held')
-    emitter.adopt(held, evidence, 0)
-    expect(sent).toEqual([[PATH, null]])
-    expect(emitter.status(PATH)?.heldByCore).toBe(true)
-    core.acknowledge(PATH)
-    emitter.beat(HEARTBEAT_S)
-    expect(emitter.status(PATH)).toBeUndefined()
   })
 
   it('does not heartbeat an adopted alert core already marked stale, until evidence returns', () => {

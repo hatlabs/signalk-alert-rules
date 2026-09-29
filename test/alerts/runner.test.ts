@@ -165,6 +165,20 @@ describe('rule runner', () => {
     expect(sent).toEqual([['rules.user.deleted-rule', null]])
   })
 
+  it('leaves an alert whose condition ended to core across a restart, and raises it on re-entry', () => {
+    const core = coreWith(OIL_ALERT)
+    core.ingest(PLUGIN, OIL_ALERT, null)
+    const { at, run, sent } = setup([oil], { core })
+    at(0, OIL, 300000)
+    run(1, 3 * HEARTBEAT_S)
+    expect(sent).toEqual([])
+    expect(core.getByPath(OIL_ALERT)?.state).toBe('rtn-unacknowledged')
+    at(100, OIL, 0)
+    run(101, 105)
+    expect(sent.map(([, v]) => v?.priority)).toEqual(['alarm'])
+    expect(core.getByPath(OIL_ALERT)?.condition).toBe(true)
+  })
+
   it('an adopted sustained alert inside the hysteresis band stays active when inputs arrive late', () => {
     const core = coreWith(OIL_ALERT)
     const { at, run } = setup([oil], { core })
