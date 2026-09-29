@@ -60,5 +60,8 @@
     "README.md",
     "LICENSE"
   ],
-  "signalk-plugin-enabled-by-default": false
+  "signalk-plugin-enabled-by-default": false,
+  "dependencies": {
+    "typebox": "^1.3.34"
+  }
 }
