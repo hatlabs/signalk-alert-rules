@@ -18,17 +18,14 @@ type CountSpec = Extract<DetectorSpec, { type: 'count' }>
  * input is unavailable the state holds; events keep ageing out of the window
  * and are accounted for on the first sample after the input returns.
  */
-export class CountDetector extends ConditionDetector {
+export class CountDetector extends ConditionDetector<CountSpec> {
   private available = false
   private times: number[] = []
   private readonly events: EventWatcher
   private readonly holdUntil: number
 
-  constructor(
-    private readonly spec: CountSpec,
-    options: DetectorOptions
-  ) {
-    super(options)
+  constructor(spec: CountSpec, options: DetectorOptions) {
+    super(spec, options)
     this.events = new EventWatcher(spec.event, true)
     this.holdUntil = this.active ? options.start + spec.window : -Infinity
   }

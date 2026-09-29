@@ -20,16 +20,13 @@ type MatchSpec = Extract<DetectorSpec, { type: 'match' }>
  * start matches until it first reports, because the server marks only paths
  * it has seen.
  */
-export class MatchDetector extends ConditionDetector {
+export class MatchDetector extends ConditionDetector<MatchSpec> {
   private readonly events: EventWatcher | undefined
   private readonly timer = new Stopwatch()
   private seen = false
 
-  constructor(
-    private readonly spec: MatchSpec,
-    options: DetectorOptions
-  ) {
-    super(options)
+  constructor(spec: MatchSpec, options: DetectorOptions) {
+    super(spec, options)
     this.events =
       spec.op === 'changesTo' || spec.op === 'decreases'
         ? new EventWatcher({ op: spec.op, value: spec.value }, false)

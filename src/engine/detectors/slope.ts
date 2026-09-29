@@ -15,16 +15,18 @@ type TrendSpec = Extract<DetectorSpec, { type: 'slope' | 'projection' }>
  * a full window of available time is known, and holds its state while the
  * input is unavailable.
  */
-abstract class TrendDetector<S extends TrendSpec> extends ConditionDetector {
+abstract class TrendDetector<S extends TrendSpec> extends ConditionDetector<S> {
   private available = false
   private readonly samples: TrendWindow
 
-  constructor(
-    protected readonly spec: S,
-    options: DetectorOptions
-  ) {
-    super(options)
+  constructor(spec: S, options: DetectorOptions) {
+    super(spec, options)
     this.samples = new TrendWindow(spec.window)
+  }
+
+  override reconfigure(spec: DetectorSpec, now: number): Transition | undefined {
+    if (spec.type === 'slope' || spec.type === 'projection') this.samples.resize(spec.window)
+    return super.reconfigure(spec, now)
   }
 
   sample(reading: Reading, _replayed: boolean, now: number): Transition | undefined {

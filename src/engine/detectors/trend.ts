@@ -27,9 +27,16 @@ export interface Trend {
  */
 export class TrendWindow {
   private points: Point[] = []
-  private readonly spacing: number
+  private window = 0
+  private spacing = 0
 
-  constructor(private readonly window: number) {
+  constructor(window: number) {
+    this.resize(window)
+  }
+
+  /** Changes the window, keeping the points; a longer one waits until they span it. */
+  resize(window: number): void {
+    this.window = window
     this.spacing = window / MAX_WINDOW_SAMPLES
   }
 
