@@ -43,7 +43,7 @@ function holds(condition: StateCondition, value: SignalValue): boolean {
  * total is monotonic time, so time with the server off does not count. A
  * `resetOn` event needs a baseline, so a restored total survives a restart.
  */
-export class AccumulatorDetector extends ConditionDetector {
+export class AccumulatorDetector extends ConditionDetector<AccumulatorSpec> {
   private total: number
   private running = false
   private rate = 0
@@ -51,11 +51,8 @@ export class AccumulatorDetector extends ConditionDetector {
   private lastSample = -Infinity
   private readonly resetEvents: EventWatcher | undefined
 
-  constructor(
-    private readonly spec: AccumulatorSpec,
-    options: DetectorOptions
-  ) {
-    super(options)
+  constructor(spec: AccumulatorSpec, options: DetectorOptions) {
+    super(spec, options)
     this.total = options.accumulated ?? 0
     this.last = options.start
     this.resetEvents =

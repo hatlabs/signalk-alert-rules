@@ -30,6 +30,11 @@ export interface Detector {
   readonly active: boolean
   sample(reading: Reading, replayed: boolean, now: number): Transition | undefined
   tick(now: number): Transition | undefined
+  /**
+   * Applies new parameters of the same detector type in place, keeping timers
+   * and windows, and evaluates them at `now`.
+   */
+  reconfigure(spec: DetectorSpec, now: number): Transition | undefined
 }
 
 export function sameValue(a: SignalValue, b: SignalValue): boolean {
@@ -79,11 +84,14 @@ export class EventWatcher {
   }
 }
 
-/** Holds a detector's condition and reports the transitions of it. */
-export abstract class ConditionDetector implements Detector {
+/** Holds a detector's parameters and condition, and reports the transitions of it. */
+export abstract class ConditionDetector<S extends DetectorSpec> implements Detector {
   private isActive: boolean
 
-  constructor(options: DetectorOptions) {
+  constructor(
+    protected spec: S,
+    options: DetectorOptions
+  ) {
     this.isActive = options.active ?? false
   }
 
@@ -93,6 +101,19 @@ export abstract class ConditionDetector implements Detector {
 
   abstract sample(reading: Reading, replayed: boolean, now: number): Transition | undefined
   abstract tick(now: number): Transition | undefined
+
+  reconfigure(spec: DetectorSpec, now: number): Transition | undefined {
+    this.replaceSpec(spec)
+    return this.tick(now)
+  }
+
+  protected replaceSpec(spec: DetectorSpec): void {
+    if (spec.type !== this.spec.type) {
+      throw new Error(`cannot reconfigure a ${this.spec.type} detector as ${spec.type}`)
+    }
+    // Equal types make the variants equal.
+    this.spec = spec as S
+  }
 
   protected change(active: boolean): Transition | undefined {
     if (active === this.isActive) return undefined

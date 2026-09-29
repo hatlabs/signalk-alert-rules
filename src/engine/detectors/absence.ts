@@ -17,15 +17,12 @@ type AbsenceSpec = Extract<DetectorSpec, { type: 'absence' }>
  * is unavailable. A value seen live for the first time counts as an event, so
  * the first acknowledgement after a restart is not lost.
  */
-export class AbsenceDetector extends ConditionDetector {
+export class AbsenceDetector extends ConditionDetector<AbsenceSpec> {
   private readonly events: EventWatcher
   private readonly timer = new Stopwatch()
 
-  constructor(
-    private readonly spec: AbsenceSpec,
-    options: DetectorOptions
-  ) {
-    super(options)
+  constructor(spec: AbsenceSpec, options: DetectorOptions) {
+    super(spec, options)
     this.events = new EventWatcher(spec.event, true)
     this.timer.start(options.start)
   }
