@@ -278,9 +278,20 @@ describe('validateRule', () => {
       expect(paths(errors)).toEqual(['/detector/limit/path'])
     })
 
-    it('rejects priority from zone without a zone limit', () => {
+    it('rejects priority from zone: a rule has one priority', () => {
       expect(
-        paths(errorsOf(rule({ priority: 'fromZone', detector: minimalDetectors.sustained })))
+        paths(
+          errorsOf(
+            rule({
+              priority: 'fromZone',
+              detector: {
+                type: 'sustained',
+                direction: 'below',
+                limit: { kind: 'zone', level: 'warn' }
+              }
+            })
+          )
+        )
       ).toEqual(['/priority'])
     })
 
