@@ -61,6 +61,8 @@ export interface InstanceStatus {
   active: boolean
   inUse: boolean
   input: 'value' | 'unavailable' | 'neverSeen'
+  /** The alert was adopted from core at start and has not cleared since. */
+  adopted: boolean
   gateInputUnavailable: boolean
   /** Why the rule cannot evaluate this instance. */
   inactive?: string
@@ -122,7 +124,7 @@ function structure(rule: Rule): string {
   })
 }
 
-function isWildcard(signal: Signal): boolean {
+export function isWildcard(signal: Signal): boolean {
   return !('combinator' in signal) && signal.path.split('.').includes('*')
 }
 
@@ -253,6 +255,7 @@ export class RuleEvaluator {
         active: u.alerting,
         inUse: u.inUse,
         input: u.last === undefined ? 'neverSeen' : u.last.available ? 'value' : 'unavailable',
+        adopted: u.adoptedAlert,
         gateInputUnavailable: this.existingGatesOf(u).some((g) => g.inputUnavailable),
         inactive: u.inactive
       }))
