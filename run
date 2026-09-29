@@ -34,6 +34,13 @@ function test {
   npm test -- "$@"
 }
 
+function contract-test {
+  #@ Run the core alerts contract tests against a built server checkout (argument: its path)
+  #@ Category: Quality
+  local server=${1:?usage: ./run contract-test <built signalk-server checkout>}
+  SKAR_CONTRACT_SERVER=$(cd "$server" && pwd) npx vitest run test/integration
+}
+
 function lint {
   #@ Lint sources and tests with ESLint
   #@ Category: Quality
