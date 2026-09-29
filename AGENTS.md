@@ -10,7 +10,7 @@ Signal K server plugin (npm `signalk-alert-rules`, short name SKAR) that raises 
 
 ## Commands
 
-`./run help` lists them. `./run ci` runs typecheck, lint, format check and tests; the lefthook pre-commit hook runs the same checks (`./run install-hooks`).
+`./run help` lists them. `./run ci` runs typecheck, lint, format check and tests; the lefthook pre-commit hook runs the same checks (`./run install-hooks`). `./run contract-test <server>` runs `test/integration/core-contract.test.ts` against a built Signal K server checkout of the alerts branch; it pins the core alerts behaviour SKAR relies on, takes about three minutes because core's source timeout is a fixed 60 s, and is skipped everywhere else, CI included.
 
 ## Conventions
 
