@@ -12,6 +12,7 @@ import {
   type Signal
 } from './rule.js'
 import { RulesetSchema, USER_ORIGIN, type ParameterValues, type Ruleset } from './ruleset.js'
+import { RULES_PREFIX } from '../alerts/paths.js'
 
 /** A validation failure; `path` is a JSON pointer into the validated document. */
 export interface ValidationError {
@@ -453,7 +454,7 @@ export function validateRuleSet(
 
 /** The path, under `alerts.`, of the alert a rule (instance) raises. */
 export function alertPathFor(origin: string, slug: string, instance?: string): Result<string> {
-  const segments = ['rules', origin, slug, ...(instance === undefined ? [] : [instance])]
+  const segments = [RULES_PREFIX, origin, slug, ...(instance === undefined ? [] : [instance])]
   const path = segments.join('.')
   if (path.length > MAX_ALERT_PATH_LENGTH) {
     return fail([
