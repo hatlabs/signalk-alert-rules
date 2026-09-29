@@ -3,6 +3,7 @@
 // `signal` is the rule signal; `gate<N>` is the Nth gate's signal.
 
 import type { PathValueState, Value } from '@signalk/server-api'
+import type { PathMeta } from '../../src/engine/evaluator.js'
 import type { Reading } from '../../src/engine/signals.js'
 
 export interface Recorded {
@@ -21,6 +22,8 @@ export interface Expected {
 export interface WorkedExampleDeltas {
   /** Source ranking for the preferred-source filter, best first. */
   ranking?: string[]
+  /** Path meta, such as zones, the server would hold. */
+  meta?: Record<string, PathMeta>
   deltas: Recorded[]
   expected: Expected[]
 }
@@ -34,6 +37,14 @@ function value(v: Extract<Reading, { available: true }>['value']): Reading {
 
 export const workedExampleDeltas: Record<string, WorkedExampleDeltas> = {
   batteryLowFromZones: {
+    meta: {
+      'electrical.batteries.house.voltage': {
+        zones: [
+          { upper: 11.5, state: 'alarm' },
+          { lower: 11.5, upper: 12, state: 'warn' }
+        ]
+      }
+    },
     deltas: [
       { path: 'electrical.batteries.house.voltage', source: 'bmv.0', value: 12.4 },
       { path: 'electrical.batteries.house.voltage', source: 'bmv.0', value: 11.8 }
