@@ -436,6 +436,9 @@ export class Application {
         // total to a rule re-created with this slug.
         if (drops) this.checkpoint()
       } finally {
+        // Stored gate states are by gate index, so a rule re-created with this
+        // slug would inherit them for gates they were not taken from.
+        this.dropFrozenGates(id)
         if (own(this.controls.rules, id) !== undefined) {
           this.saveControls({ ...this.controls, rules: without(this.controls.rules, id) })
         }

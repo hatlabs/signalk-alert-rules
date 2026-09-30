@@ -1529,6 +1529,18 @@ describe('rule controls', () => {
       expect(second.alerts()).toContainEqual(['rules.user.coolant-high.starboard', true])
     })
 
+    it('a rule re-created under a deleted slug does not inherit its stored gate states', () => {
+      const s = frozenRunning()
+      expect(s.application.deleteRule('coolant-high', 'admin')).toBe(true)
+      expect(new Store(dir).load().controls.inputs[RPM]).toEqual({ since: WALL, actor: 'admin' })
+      const stopped = { ...gatedCoolant.gates[0], direction: 'below' }
+      expect(s.application.createRule({ ...gatedCoolant, gates: [stopped] }).ok).toBe(true)
+      // The engine runs, so the gate on a stopped engine takes that as its one reading.
+      s.at(5, RPM, 70)
+      s.at(5, COOLANT, 390)
+      expect(s.alerts()).toContainEqual(['rules.user.coolant-high', false])
+    })
+
     it('drops the stored gate states when the suppression ends', () => {
       const s = frozenRunning()
       s.application.endInputSuppression(RPM, 'admin')
