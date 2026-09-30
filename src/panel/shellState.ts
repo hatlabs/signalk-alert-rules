@@ -1,4 +1,4 @@
-import { SessionExpiredError, type PanelApi } from './api'
+import { SessionExpiredError, type PanelApi, type RuleEntry } from './api'
 
 /** What the shell shows in place of, or around, the views. */
 export type ShellView =
@@ -8,7 +8,7 @@ export type ShellView =
   | { kind: 'disabled' }
   | { kind: 'sessionExpired' }
   | { kind: 'failed'; error: string }
-  | { kind: 'ready'; ruleCount: number }
+  | { kind: 'ready'; rules: RuleEntry[]; evaluationEnabled: boolean }
 
 export interface ShellSnapshot {
   view: ShellView
@@ -33,7 +33,9 @@ export async function probe(api: PanelApi): Promise<ShellSnapshot> {
     securityEnabled = state.securityEnabled
     if (state.running) {
       const rules = await api.rules()
-      return { view: { kind: 'ready', ruleCount: rules.length }, securityEnabled }
+      // A running plugin always reports the switch; read its absence as the default, on.
+      const evaluationEnabled = state.evaluation?.enabled ?? true
+      return { view: { kind: 'ready', rules, evaluationEnabled }, securityEnabled }
     }
     if (!(await api.pluginEnabled())) return { view: { kind: 'disabled' }, securityEnabled }
     if (state.error !== undefined) {

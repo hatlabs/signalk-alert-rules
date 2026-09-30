@@ -192,7 +192,7 @@ export function Shell({ api }: ShellProps) {
     <div className="skar-panel">
       {securityEnabled === false && <SecurityWarning />}
       <Condition view={view} checkAgain={checkAgain} />
-      {view.kind === 'ready' && <Views ruleCount={view.ruleCount} />}
+      {view.kind === 'ready' && <Views ruleCount={view.rules.length} />}
     </div>
   )
 }

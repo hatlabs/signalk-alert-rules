@@ -3,7 +3,7 @@ import {
   SessionExpiredError,
   type PanelApi,
   type PluginState,
-  type RuleSummary
+  type RuleEntry
 } from '../../src/panel/api'
 import {
   DISABLED_POLL_INTERVAL_MS,
@@ -11,11 +11,12 @@ import {
   pollDelay,
   probe
 } from '../../src/panel/shellState'
+import { ruleEntry } from './fixtures'
 
 interface FakeServer {
   state?: PluginState | Error
   enabled?: boolean | Error
-  rules?: RuleSummary[] | Error
+  rules?: RuleEntry[] | Error
 }
 
 function fakeApi(server: FakeServer): PanelApi {
@@ -26,18 +27,22 @@ function fakeApi(server: FakeServer): PanelApi {
   return {
     state: () => answer(server.state),
     pluginEnabled: () => answer(server.enabled),
-    rules: () => answer(server.rules)
+    rules: () => answer(server.rules),
+    resetAccumulator: () => Promise.reject(new Error('not expected to be asked')),
+    setEvaluation: () => Promise.reject(new Error('not expected to be asked'))
   }
 }
 
-const rule: RuleSummary = { origin: 'user', slug: 'oil-pressure-low' }
+const rule = ruleEntry()
 
 describe('probe', () => {
-  it('is ready with the rule count while the plugin runs', async () => {
-    const snapshot = await probe(
-      fakeApi({ state: { running: true, securityEnabled: true }, rules: [rule] })
-    )
-    expect(snapshot).toEqual({ view: { kind: 'ready', ruleCount: 1 }, securityEnabled: true })
+  it('is ready with the rules and the evaluation switch while the plugin runs', async () => {
+    const state = { running: true, securityEnabled: true, evaluation: { enabled: false } }
+    const snapshot = await probe(fakeApi({ state, rules: [rule] }))
+    expect(snapshot).toEqual({
+      view: { kind: 'ready', rules: [rule], evaluationEnabled: false },
+      securityEnabled: true
+    })
   })
 
   it('is unreachable when /state cannot be fetched', async () => {
@@ -110,7 +115,7 @@ describe('pollDelay', () => {
     expect(pollDelay({ kind: 'restarting' })).toBe(POLL_INTERVAL_MS)
     expect(pollDelay({ kind: 'unreachable', reason: 'x' })).toBe(POLL_INTERVAL_MS)
     expect(pollDelay({ kind: 'failed', error: 'x' })).toBe(POLL_INTERVAL_MS)
-    expect(pollDelay({ kind: 'ready', ruleCount: 0 })).toBe(POLL_INTERVAL_MS)
+    expect(pollDelay({ kind: 'ready', rules: [], evaluationEnabled: true })).toBe(POLL_INTERVAL_MS)
   })
 
   it('stops polling once the session has expired', () => {

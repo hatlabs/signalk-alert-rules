@@ -26,7 +26,7 @@ const runningState = {
   issues: ['stored rule broken is not valid and does not run: /signal: required']
 }
 
-/** A rule entry as `GET /rules` answers it. */
+/** A rule entry as `GET /rules` answers it, as src/application.ts builds it. */
 const ruleEntry = {
   origin: 'user',
   slug: 'house-battery-low',
@@ -34,7 +34,7 @@ const ruleEntry = {
     name: 'House battery low',
     slug: 'house-battery-low',
     message: 'House battery voltage is low',
-    signal: { path: 'electrical.batteries.house.voltage' },
+    signal: { path: 'electrical.batteries.*.voltage' },
     detector: {
       type: 'sustained',
       direction: 'below',
@@ -42,9 +42,75 @@ const ruleEntry = {
       duration: 60,
       hysteresis: 0.2,
       clearDuration: 30
-    }
+    },
+    gates: [
+      {
+        signal: { path: 'electrical.chargers.shore.state' },
+        direction: 'below',
+        limit: { kind: 'fixed', value: 1 }
+      }
+    ]
   },
-  status: null
+  enabled: true,
+  note: 'Sender replaced in spring',
+  suppression: { since: '2026-09-30T12:00:00.000Z', actor: 'admin', autoEndAfter: 600 },
+  status: {
+    badge: 'suppressed',
+    suppression: { scope: 'rule', autoEndAfter: 600 },
+    subLabels: ['waitingForClear', 'gateInputUnavailable'],
+    issues: ['instance x.y was not admitted'],
+    errors: [],
+    instances: [
+      {
+        instance: { name: 'house', segment: 'house' },
+        active: false,
+        inUse: true,
+        input: 'value',
+        value: 12.1,
+        limit: 12.2,
+        progress: { kind: 'timer', toward: 'set', elapsed: 20, target: 60 },
+        gates: [{ holds: true, input: 'unavailable' }],
+        adopted: false,
+        clearFor: 3,
+        badge: 'suppressed',
+        suppression: { scope: 'rule', autoEndAfter: 600 },
+        subLabels: ['waitingForClear', 'gateInputUnavailable']
+      }
+    ]
+  }
+}
+
+/** An accumulator rule that is not evaluated, keeping its total. */
+const disabledAccumulator = {
+  origin: 'engine-pack',
+  slug: 'engine-hours',
+  rule: {
+    name: 'Engine service due',
+    slug: 'engine-hours',
+    message: 'Engine service is due',
+    priority: 'caution',
+    signal: {
+      combinator: 'max',
+      inputs: [{ path: 'propulsion.port.revolutions' }, { path: 'propulsion.stbd.revolutions' }]
+    },
+    detector: { type: 'accumulator', measure: 'time', limit: 360000 }
+  },
+  enabled: false,
+  status: {
+    badge: 'disabled',
+    reason: 'disabled',
+    subLabels: [],
+    issues: [],
+    errors: [],
+    instances: [
+      {
+        badge: 'disabled',
+        reason: 'disabled',
+        subLabels: [],
+        progress: { kind: 'total', total: 7200, limit: 360000 }
+      }
+    ]
+  }
 }
 
 /** The plugin route root as signalk-server answers it once the plugin was configured. */
@@ -103,8 +169,8 @@ describe('httpApi', () => {
     }
   })
 
-  it('fails on a status that is not OK', async () => {
-    const api = httpApi(fakeFetch({ [`${BASE}/rules`]: { status: 503, body: { error: 'x' } } }))
+  it('fails with the status when a response that is not OK gives no message', async () => {
+    const api = httpApi(fakeFetch({ [`${BASE}/rules`]: { status: 503, body: {} } }))
     await expect(api.rules()).rejects.toThrow(/503/)
     await expect(api.rules()).rejects.not.toBeInstanceOf(SessionExpiredError)
   })
@@ -120,9 +186,13 @@ describe('httpApi', () => {
   })
 
   describe('state', () => {
-    it('reads the state and ignores the fields the panel does not use yet', async () => {
+    it('reads the state and the evaluation switch', async () => {
       const api = httpApi(fakeFetch({ [`${BASE}/state`]: { body: runningState } }))
-      expect(await api.state()).toEqual({ running: true, securityEnabled: true })
+      expect(await api.state()).toEqual({
+        running: true,
+        securityEnabled: true,
+        evaluation: { enabled: true }
+      })
     })
 
     it('keeps the start error of a plugin that is not running', async () => {
@@ -143,18 +213,154 @@ describe('httpApi', () => {
   })
 
   describe('rules', () => {
-    it('reads origin and slug from each entry', async () => {
-      const second = { ...ruleEntry, slug: 'engine-hours', status: { badge: 'ok' } }
-      const api = httpApi(fakeFetch({ [`${BASE}/rules`]: { body: [ruleEntry, second] } }))
-      expect(await api.rules()).toEqual([
-        { origin: 'user', slug: 'house-battery-low' },
-        { origin: 'user', slug: 'engine-hours' }
-      ])
+    it('reads each entry with its rule, controls and status', async () => {
+      const api = httpApi(
+        fakeFetch({ [`${BASE}/rules`]: { body: [ruleEntry, disabledAccumulator] } })
+      )
+      const [battery, hours] = await api.rules()
+      expect(battery).toEqual({
+        origin: 'user',
+        slug: 'house-battery-low',
+        rule: {
+          name: 'House battery low',
+          detector: { type: 'sustained', direction: 'below', zoneLevel: 'warn' },
+          signal: { paths: ['electrical.batteries.*.voltage'] },
+          gates: [{ paths: ['electrical.chargers.shore.state'] }]
+        },
+        enabled: true,
+        note: 'Sender replaced in spring',
+        suppression: { since: '2026-09-30T12:00:00.000Z', actor: 'admin', autoEndAfter: 600 },
+        status: {
+          badge: 'suppressed',
+          suppression: { scope: 'rule', autoEndAfter: 600 },
+          subLabels: ['waitingForClear', 'gateInputUnavailable'],
+          issues: ['instance x.y was not admitted'],
+          errors: [],
+          instances: [
+            {
+              instance: { name: 'house', segment: 'house' },
+              badge: 'suppressed',
+              suppression: { scope: 'rule', autoEndAfter: 600 },
+              subLabels: ['waitingForClear', 'gateInputUnavailable'],
+              active: false,
+              input: 'value',
+              value: 12.1,
+              limit: 12.2,
+              progress: { kind: 'timer', toward: 'set', elapsed: 20, target: 60 },
+              gates: [{ holds: true, input: 'unavailable' }]
+            }
+          ]
+        }
+      })
+      expect(hours).toEqual({
+        origin: 'engine-pack',
+        slug: 'engine-hours',
+        rule: {
+          name: 'Engine service due',
+          priority: 'caution',
+          detector: { type: 'accumulator', measure: 'time' },
+          signal: {
+            combinator: 'max',
+            paths: ['propulsion.port.revolutions', 'propulsion.stbd.revolutions']
+          },
+          gates: []
+        },
+        enabled: false,
+        status: {
+          badge: 'disabled',
+          reason: 'disabled',
+          subLabels: [],
+          issues: [],
+          errors: [],
+          instances: [
+            {
+              badge: 'disabled',
+              reason: 'disabled',
+              subLabels: [],
+              progress: { kind: 'total', total: 7200, limit: 360000 },
+              gates: []
+            }
+          ]
+        }
+      })
+    })
+
+    it('reads a position value', async () => {
+      const position = { latitude: 60.1, longitude: 24.9 }
+      const entry = {
+        ...ruleEntry,
+        status: {
+          ...ruleEntry.status,
+          instances: [{ ...ruleEntry.status.instances[0], value: position }]
+        }
+      }
+      const api = httpApi(fakeFetch({ [`${BASE}/rules`]: { body: [entry] } }))
+      const [read] = await api.rules()
+      expect(read.status.instances[0].value).toEqual(position)
     })
 
     it('rejects an entry without a slug', async () => {
       const api = httpApi(fakeFetch({ [`${BASE}/rules`]: { body: [{ origin: 'user' }] } }))
       await expect(api.rules()).rejects.toThrow(/unexpected response from \/rules/)
+    })
+
+    it('rejects a badge the panel does not know', async () => {
+      const entry = { ...ruleEntry, status: { ...ruleEntry.status, badge: 'ok' } }
+      const api = httpApi(fakeFetch({ [`${BASE}/rules`]: { body: [entry] } }))
+      await expect(api.rules()).rejects.toThrow(/unexpected response from \/rules/)
+    })
+  })
+
+  describe('actions', () => {
+    const answered = { enabled: false, actor: 'admin', at: '2026-09-30T12:00:00.000Z' }
+
+    it('resets an accumulator with a JSON request and reads the entry it answers', async () => {
+      const fetchFn = fakeFetch({
+        [`${BASE}/rules/engine-pack/engine-hours/reset`]: { body: disabledAccumulator }
+      })
+      const entry = await httpApi(fetchFn).resetAccumulator('engine-pack', 'engine-hours')
+      expect(entry.slug).toBe('engine-hours')
+      const [, init] = fetchFn.mock.calls[0]
+      expect(init?.method).toBe('POST')
+      expect(new Headers(init?.headers).get('content-type')).toBe('application/json')
+      expect(init?.credentials).toBe('same-origin')
+    })
+
+    it('escapes the origin and slug in the path', async () => {
+      const fetchFn = fakeFetch({
+        [`${BASE}/rules/a%2Fb/c%3F/reset`]: { body: disabledAccumulator }
+      })
+      await httpApi(fetchFn).resetAccumulator('a/b', 'c?')
+      expect(fetchFn).toHaveBeenCalledOnce()
+    })
+
+    it('sets the evaluation switch and reads what it answers', async () => {
+      const fetchFn = fakeFetch({ [`${BASE}/evaluation`]: { body: answered } })
+      expect(await httpApi(fetchFn).setEvaluation(false)).toEqual({ enabled: false })
+      const [, init] = fetchFn.mock.calls[0]
+      expect(init?.method).toBe('PUT')
+      expect(init?.body).toBe(JSON.stringify({ enabled: false }))
+      expect(new Headers(init?.headers).get('content-type')).toBe('application/json')
+    })
+
+    it('fails with the error the server gives', async () => {
+      const api = httpApi(
+        fakeFetch({
+          [`${BASE}/rules/user/x/reset`]: {
+            status: 400,
+            body: { error: 'only an accumulator rule can be reset' }
+          }
+        })
+      )
+      await expect(api.resetAccumulator('user', 'x')).rejects.toThrow(
+        'only an accumulator rule can be reset'
+      )
+    })
+
+    it('reports an expired session', async () => {
+      const denied = { status: 401, body: { error: 'Unauthorized' } }
+      const api = httpApi(fakeFetch({ [`${BASE}/evaluation`]: denied }))
+      await expect(api.setEvaluation(true)).rejects.toBeInstanceOf(SessionExpiredError)
     })
   })
 

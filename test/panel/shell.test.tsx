@@ -7,15 +7,16 @@ import {
   SessionExpiredError,
   type PanelApi,
   type PluginState,
-  type RuleSummary
+  type RuleEntry
 } from '../../src/panel/api'
 import { Shell } from '../../src/panel/Shell'
 import { DISABLED_POLL_INTERVAL_MS, POLL_INTERVAL_MS } from '../../src/panel/shellState'
+import { ruleEntry } from './fixtures'
 
 interface Server {
   state: PluginState | Error
   enabled: boolean
-  rules: RuleSummary[]
+  rules: RuleEntry[]
 }
 
 function mockApi(server: Server) {
@@ -24,13 +25,17 @@ function mockApi(server: Server) {
       server.state instanceof Error ? Promise.reject(server.state) : Promise.resolve(server.state)
     ),
     pluginEnabled: vi.fn(() => Promise.resolve(server.enabled)),
-    rules: vi.fn(() => Promise.resolve(server.rules))
+    rules: vi.fn(() => Promise.resolve(server.rules)),
+    resetAccumulator: vi.fn((_origin: string, _slug: string) =>
+      Promise.reject(new Error('not expected'))
+    ),
+    setEvaluation: vi.fn((enabled: boolean) => Promise.resolve({ enabled }))
   } satisfies PanelApi
   return api
 }
 
 const running: PluginState = { running: true, securityEnabled: true }
-const rule: RuleSummary = { origin: 'user', slug: 'oil-pressure-low' }
+const rule = ruleEntry()
 
 function setVisibility(state: DocumentVisibilityState) {
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: state })
