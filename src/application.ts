@@ -434,6 +434,10 @@ export class Application {
     return { rulesets, problems: this.problems }
   }
 
+  ruleset(slug: string): RulesetEntry | undefined {
+    return this.rulesets().rulesets.find((r) => r.slug === slug)
+  }
+
   /**
    * Discovers the rulesets again and applies what changed: a new ruleset
    * appears disabled, an upgraded one is applied as at start, and a removed

@@ -1,8 +1,9 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import type { Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import express from 'express'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Plugin } from '@signalk/server-api'
@@ -73,11 +74,16 @@ interface Harness {
   user: string | undefined
 }
 
+/** The server's config directory, where it installs plugins with npm. */
+let configDir: string
+/** The plugin's data directory, laid out under the config directory as the server lays it out. */
 let dir: string
 let servers: Server[]
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'skar-api-'))
+  configDir = mkdtempSync(join(tmpdir(), 'skar-api-'))
+  dir = join(configDir, 'plugin-config-data', 'signalk-alert-rules')
+  mkdirSync(dir, { recursive: true })
   servers = []
   // Real timeouts stay, which the HTTP client needs.
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'performance', 'Date'] })
@@ -86,7 +92,7 @@ beforeEach(() => {
 afterEach(async () => {
   vi.useRealTimers()
   await Promise.all(servers.map((s) => new Promise((resolve) => s.close(resolve))))
-  rmSync(dir, { recursive: true, force: true })
+  rmSync(configDir, { recursive: true, force: true })
 })
 
 function storeRule(rule: { slug: string }): void {
@@ -663,5 +669,194 @@ describe('rule controls API', () => {
       h.call('GET', `${INPUT_SUPPRESSION}/preview`)
     ])
     expect(replies.map((r) => r.status)).toEqual([503, 503, 503, 503])
+  })
+})
+
+describe('rulesets API', () => {
+  const EXAMPLE = join(dirname(fileURLToPath(import.meta.url)), '../../examples/ruleset-example')
+  const HOUSE_VOLTAGE = 'electrical.batteries.house.voltage'
+  const LOW_ALERT = 'rules.batteries.low'
+
+  function installExample(): void {
+    cpSync(EXAMPLE, join(configDir, 'node_modules', 'signalk-alert-ruleset-example'), {
+      recursive: true
+    })
+  }
+
+  /** A provider package whose ruleset has the given rules, each a sustained rule on its own path. */
+  function installProvider(version: string, slugs: string[]): void {
+    const pkg = join(configDir, 'node_modules', 'provider')
+    mkdirSync(pkg, { recursive: true })
+    writeFileSync(
+      join(pkg, 'package.json'),
+      JSON.stringify({
+        name: 'provider',
+        version,
+        keywords: ['signalk-alert-ruleset'],
+        'signalk-alert-ruleset': 'ruleset.yaml'
+      })
+    )
+    const rules = slugs.flatMap((slug) => [
+      `  - name: ${slug}`,
+      `    slug: ${slug}`,
+      `    message: ${slug}`,
+      '    priority: warning',
+      `    signal: { path: test.${slug} }`,
+      '    detector: { type: sustained, direction: above, limit: { kind: fixed, value: 1 } }'
+    ])
+    writeFileSync(
+      join(pkg, 'ruleset.yaml'),
+      ['name: Provided', 'slug: provided', `version: "${version}"`, 'rules:', ...rules].join('\n')
+    )
+  }
+
+  it('lists a package ruleset disabled, then enables and tunes it, recording the actor', async () => {
+    installExample()
+    const h = await serve()
+    h.mock.subscriptionmanager.publish(HOUSE_VOLTAGE, 'src', 11)
+
+    const listed = await h.call('GET', '/rulesets')
+    expect(listed).toMatchObject({
+      status: 200,
+      body: {
+        rulesets: [
+          {
+            slug: 'batteries',
+            source: 'package signalk-alert-ruleset-example',
+            package: { name: 'signalk-alert-ruleset-example', version: '1.0.0' },
+            enabled: false,
+            values: {},
+            rules: ['low'],
+            missingPaths: [],
+            notices: []
+          }
+        ],
+        problems: []
+      }
+    })
+
+    const tuned = await h.call('PUT', '/rulesets/batteries/parameters', { delay: 5 })
+    expect(tuned).toMatchObject({ status: 200, body: { values: { delay: 5 } } })
+    const enabled = await h.call('PUT', '/rulesets/batteries/enabled', { enabled: true })
+    expect(enabled).toMatchObject({ status: 200, body: { enabled: true } })
+
+    at(4)
+    expect(core(h).list()).toEqual([])
+    at(1)
+    expect(core(h).getByPath(LOW_ALERT)?.condition).toBe(true)
+
+    const rule = await h.call('GET', '/rules/batteries/low')
+    expect(rule.body).toMatchObject({
+      origin: 'batteries',
+      ruleset: {
+        name: 'Battery monitoring',
+        version: '1.0.0',
+        package: { name: 'signalk-alert-ruleset-example', version: '1.0.0' }
+      },
+      status: { badge: 'alertActive' }
+    })
+    expect((await h.call('GET', '/log')).body).toMatchObject([
+      { actor: 'admin', action: 'enable', ruleset: 'batteries' },
+      { actor: 'admin', action: 'parameters', ruleset: 'batteries' }
+    ])
+  })
+
+  it('a ruleset installed after start appears after a rescan without restarting other rules', async () => {
+    storeRule(oil)
+    const h = await serve()
+    h.mock.subscriptionmanager.publish(OIL, 'src', 0)
+    at(3)
+
+    installExample()
+    mkdirSync(join(dir, 'rulesets'))
+    writeFileSync(join(dir, 'rulesets', 'broken.yaml'), 'name: Broken\nrules: [\n')
+    const rescanned = await h.call('POST', '/rulesets/rescan')
+
+    expect(rescanned).toMatchObject({
+      status: 200,
+      body: {
+        rulesets: [{ slug: 'batteries', enabled: false }],
+        problems: [{ source: 'file broken.yaml', line: expect.any(Number) as number }]
+      }
+    })
+    at(1)
+    expect(core(h).list()).toEqual([])
+    at(1)
+    expect(core(h).getByPath(OIL_ALERT)?.condition).toBe(true)
+    expect((await h.call('GET', '/log')).body).toMatchObject([{ actor: 'admin', action: 'rescan' }])
+  })
+
+  it('an upgrade clears a removed rule; its notice survives a restart until dismissed', async () => {
+    installProvider('1', ['kept', 'removed'])
+    const h = await serve()
+    h.mock.subscriptionmanager.publish('test.kept', 'src', 2)
+    h.mock.subscriptionmanager.publish('test.removed', 'src', 2)
+    await h.call('PUT', '/rulesets/provided/enabled', { enabled: true })
+    at(1)
+    expect(core(h).getByPath('rules.provided.removed')?.condition).toBe(true)
+
+    installProvider('2', ['kept'])
+    await h.call('POST', '/rulesets/rescan')
+    expect(core(h).getByPath('rules.provided.removed')?.condition).toBe(false)
+    expect(core(h).getByPath('rules.provided.kept')?.condition).toBe(true)
+
+    await h.restart()
+    expect((await h.call('GET', '/rulesets')).body).toMatchObject({
+      rulesets: [
+        {
+          version: '2',
+          enabled: true,
+          notices: [{ message: expect.stringContaining('rule removed') as string }]
+        }
+      ]
+    })
+
+    expect((await h.call('DELETE', '/rulesets/provided/notices')).status).toBe(204)
+    expect((await h.call('GET', '/rulesets')).body).toMatchObject({
+      rulesets: [{ notices: [] }]
+    })
+    expect((await h.call('GET', '/log')).body).toMatchObject([
+      { actor: 'admin', action: 'dismiss', ruleset: 'provided' },
+      { actor: 'admin', action: 'rescan' },
+      { actor: 'admin', action: 'enable', ruleset: 'provided' }
+    ])
+  })
+
+  it('answers the error paths', async () => {
+    installExample()
+    const h = await serve()
+    const replies = await Promise.all([
+      h.call('PUT', '/rulesets/nope/enabled', { enabled: true }),
+      h.call('PUT', '/rulesets/nope/parameters', {}),
+      h.call('DELETE', '/rulesets/nope/notices'),
+      h.call('PUT', '/rulesets/batteries/enabled', { enabled: 'yes' }),
+      h.call('PUT', '/rulesets/batteries/parameters', { lowVoltage: 20 })
+    ])
+    expect(replies.map((r) => r.status)).toEqual([404, 404, 404, 400, 400])
+    expect(replies[4].body).toMatchObject({ errors: [{ path: '/values/lowVoltage' }] })
+  })
+
+  it('rejects every ruleset change without a JSON content type', async () => {
+    installExample()
+    const h = await serve()
+    const form = { 'content-type': 'application/x-www-form-urlencoded' }
+    const replies = await Promise.all([
+      h.call('POST', '/rulesets/rescan', undefined, {}),
+      h.call('PUT', '/rulesets/batteries/enabled', 'enabled=true', form),
+      h.call('PUT', '/rulesets/batteries/parameters', 'delay=5', form),
+      h.call('DELETE', '/rulesets/batteries/notices', undefined, {})
+    ])
+    expect(replies.map((r) => r.status)).toEqual([415, 415, 415, 415])
+    expect((await h.call('GET', '/log')).body).toEqual([])
+  })
+
+  it('answers 503 while the plugin is not running', async () => {
+    const h = await serve({ withAlerts: false })
+    const replies = await Promise.all([
+      h.call('GET', '/rulesets'),
+      h.call('POST', '/rulesets/rescan'),
+      h.call('PUT', '/rulesets/batteries/enabled', { enabled: true })
+    ])
+    expect(replies.map((r) => r.status)).toEqual([503, 503, 503])
   })
 })

@@ -307,6 +307,66 @@ export function registerRoutes(router: IRouter, ctx: ApiContext): void {
   )
 
   router.get(
+    '/rulesets',
+    running((skar, _req, res) => {
+      res.json(skar.rulesets())
+    })
+  )
+
+  router.post(
+    '/rulesets/rescan',
+    requireJson,
+    running((skar, req, res) => {
+      res.json(skar.rescan(actorOf(req)))
+    })
+  )
+
+  const rulesetControlled = (
+    res: Response,
+    skar: Application,
+    outcome: ControlOutcome,
+    slug: string
+  ) => {
+    if (outcome === 'ok') res.json(skar.ruleset(slug))
+    else notFound(res, 'such ruleset')
+  }
+
+  router.put(
+    '/rulesets/:slug/enabled',
+    requireJson,
+    running((skar, req, res) => {
+      const body: unknown = req.body
+      if (!isRecord(body) || typeof body.enabled !== 'boolean') {
+        invalid(res, [{ path: '/enabled', message: 'must be a boolean' }])
+        return
+      }
+      const { slug } = req.params
+      rulesetControlled(res, skar, skar.setRulesetEnabled(slug, body.enabled, actorOf(req)), slug)
+    })
+  )
+
+  router.put(
+    '/rulesets/:slug/parameters',
+    requireJson,
+    running((skar, req, res) => {
+      const { slug } = req.params
+      const outcome = skar.setRulesetParameters(slug, req.body, actorOf(req))
+      if (outcome.ok) res.json(skar.ruleset(slug))
+      else if (outcome.reason === 'invalid') invalid(res, outcome.errors)
+      else notFound(res, 'such ruleset')
+    })
+  )
+
+  router.delete(
+    '/rulesets/:slug/notices',
+    requireJson,
+    running((skar, req, res) => {
+      if (skar.dismissNotices(req.params.slug, actorOf(req)) === 'ok') res.status(204).end()
+      else notFound(res, 'such ruleset')
+    })
+  )
+
+  router.get(
     '/suppressions/inputs/:path/preview',
     running((skar, req, res) => {
       const { path } = req.params
