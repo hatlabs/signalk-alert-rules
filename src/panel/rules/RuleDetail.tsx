@@ -7,6 +7,7 @@ import {
   describeInput,
   describePriority,
   discardedTotals,
+  formatTime,
   markers,
   ruleDisplay,
   type RuleDisplay
@@ -135,7 +136,9 @@ export function RuleDetail({
         {entry.note !== undefined && <Fact term="Note">{entry.note}</Fact>}
         {entry.suppression !== undefined && (
           <Fact term="Suppressed">
-            since {entry.suppression.since} by {entry.suppression.actor}
+            since{' '}
+            <time dateTime={entry.suppression.since}>{formatTime(entry.suppression.since)}</time> by{' '}
+            {entry.suppression.actor}
             {entry.suppression.note === undefined ? '' : `: ${entry.suppression.note}`}
           </Fact>
         )}

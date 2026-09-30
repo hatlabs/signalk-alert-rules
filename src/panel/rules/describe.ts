@@ -128,6 +128,11 @@ export function formatDuration(seconds: number): string {
   return `${String(Math.round(seconds))} s`
 }
 
+/** A timestamp from the server, in the operator's local time. */
+export function formatTime(iso: string): string {
+  return new Date(iso).toLocaleString()
+}
+
 /** How a rule's values, limits and accumulated totals are shown. */
 export interface RuleDisplay {
   value: (value: SignalValue) => string

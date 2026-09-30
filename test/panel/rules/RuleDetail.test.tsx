@@ -164,8 +164,13 @@ describe('RuleDetail', () => {
         status: { badge: 'suppressed', suppression: { scope: 'rule' } }
       })
     )
-    expect(screen.getByRole('definition', { name: /suppressed/i }).textContent).toBe(
-      'since 2026-09-30T12:00:00.000Z by skipper: sender being replaced'
+    const since = '2026-09-30T12:00:00.000Z'
+    const fact = screen.getByRole('definition', { name: /suppressed/i })
+    expect(fact.textContent).toBe(
+      `since ${new Date(since).toLocaleString()} by skipper: sender being replaced`
+    )
+    expect(within(fact).getByText(new Date(since).toLocaleString()).getAttribute('datetime')).toBe(
+      since
     )
   })
 

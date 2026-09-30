@@ -3,7 +3,7 @@ import type { PanelApi, RuleEntry, Suppression } from '../api'
 import { failureMessage } from '../failure'
 import type { PathSource } from '../paths/selfPaths'
 import { Confirm, useConfirmation } from '../rules/Confirm'
-import { formatDuration, plural, ruleName } from '../rules/describe'
+import { formatDuration, formatTime, plural, ruleName } from '../rules/describe'
 import { SUB_LABEL_TEXT } from '../rules/StatusBadge'
 import { SuppressButton } from './SuppressButton'
 
@@ -95,7 +95,7 @@ function SuppressionRow({
           )}
         </td>
         <td>
-          <time dateTime={s.since}>{new Date(s.since).toLocaleString()}</time>
+          <time dateTime={s.since}>{formatTime(s.since)}</time>
         </td>
         <td>{s.actor}</td>
         <td>{s.note ?? ''}</td>
