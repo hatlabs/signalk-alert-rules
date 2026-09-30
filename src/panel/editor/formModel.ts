@@ -360,12 +360,9 @@ function parsed(text: string): number | undefined {
 
 function durationFrom(seconds: number | undefined): DurationField {
   if (seconds === undefined) return noDuration()
-  const unit: DurationUnit =
-    seconds >= 3600 && seconds % 3600 === 0
-      ? 'h'
-      : seconds >= 60 && seconds % 60 === 0
-        ? 'min'
-        : 's'
+  const whole = (u: DurationUnit) =>
+    seconds >= DURATION_FACTORS[u] && seconds % DURATION_FACTORS[u] === 0
+  const unit: DurationUnit = (['h', 'min'] as const).find(whole) ?? 's'
   return { amount: String(seconds / DURATION_FACTORS[unit]), unit }
 }
 
