@@ -650,15 +650,13 @@ export class RuleEvaluator {
 
   /** Accumulator totals to carry into a restarted rule with the same measure. */
   private totals(next: Rule): Map<string, number> {
-    const current = this.rule.detector
-    const edited = next.detector
-    if (
-      current.type !== 'accumulator' ||
-      edited.type !== 'accumulator' ||
-      current.measure !== edited.measure
-    ) {
-      return new Map()
-    }
-    return this.accumulators()
+    return carriesTotals(this.rule, next) ? this.accumulators() : new Map<string, number>()
   }
+}
+
+/** Whether an edit keeps an accumulator's total: it is still an accumulator of the same measure. */
+export function carriesTotals(current: Rule, next: Rule): boolean {
+  const a = current.detector
+  const b = next.detector
+  return a.type === 'accumulator' && b.type === 'accumulator' && a.measure === b.measure
 }

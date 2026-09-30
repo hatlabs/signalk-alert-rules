@@ -1,4 +1,5 @@
 import {
+  carriesTotals,
   RuleEvaluator,
   type Adopted,
   type EvaluatorContext,
@@ -66,6 +67,8 @@ export class RuleRunner {
   private readonly entries = new Map<string, LoadedRule>()
   private readonly evaluators = new Map<string, RuleEvaluator>()
   private readonly errors = new Map<string, Set<string>>()
+  /** Rules whose evaluator threw at start; an edit starts them again. */
+  private readonly failed = new Set<string>()
 
   /**
    * @param accumulated accumulator totals restored from the store, by rule id
@@ -129,11 +132,19 @@ export class RuleRunner {
   /** Applies an edited rule, or starts a new one. */
   update(entry: LoadedRule): void {
     const id = idOf(entry)
+    const previous = this.entries.get(id)
     this.entries.set(id, entry)
     this.errors.delete(id)
     const evaluator = this.evaluators.get(id)
-    if (evaluator === undefined) {
-      this.startRule(id, entry, undefined, undefined)
+    if (evaluator === undefined || this.failed.has(id)) {
+      this.failed.delete(id)
+      const carried =
+        evaluator !== undefined &&
+        previous !== undefined &&
+        carriesTotals(previous.rule, entry.rule)
+          ? evaluator.accumulators()
+          : undefined
+      this.startRule(id, entry, undefined, carried)
       return
     }
     evaluator.update(entry.rule)
@@ -152,6 +163,7 @@ export class RuleRunner {
     this.evaluators.delete(id)
     this.entries.delete(id)
     this.errors.delete(id)
+    this.failed.delete(id)
   }
 
   /** Accumulator totals by rule id and instance segment, for the store's checkpoint. */
@@ -205,7 +217,17 @@ export class RuleRunner {
       accumulated
     )
     this.evaluators.set(id, evaluator)
-    evaluator.start()
+    // One rule failing to start, such as on a meta read that throws, must not
+    // keep the others from starting. The stopped evaluator stays for its
+    // status and its restored accumulator totals; like any stop, it clears
+    // nothing.
+    try {
+      evaluator.start()
+    } catch (err) {
+      evaluator.stop()
+      this.failed.add(id)
+      this.error(id, `failed to start: ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 
   private error(id: string, message: string): void {

@@ -349,7 +349,7 @@ For each rule SKAR keeps a status. An error in one rule is recorded in its statu
 Per rule:
 
 - `badge`, with `reason` when it is `errored` or `inactive`, and `subLabels` (below).
-- `errors`: what makes the rule errored, such as an evaluation that threw or a subscription the server refused. An evaluation error stays until the rule is edited, a subscription error until an edit restarts the rule.
+- `errors`: what makes the rule errored, such as an evaluation that threw, a start that threw, or a subscription the server refused. An evaluation or start error stays until the rule is edited, a subscription error until an edit restarts the rule. A rule that fails to start does not evaluate; the other rules start as usual.
 - `issues`: conditions that do not stop the rule, such as a wildcard instance that was not admitted.
 - `instances`: one entry per instance, a single one for a rule without a wildcard.
 

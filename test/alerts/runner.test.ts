@@ -746,6 +746,64 @@ describe('rule status', () => {
     expect(runner.status('user.house-battery-low')).toMatchObject({ badge: 'idle', errors: [] })
   })
 
+  it('a rule that throws at start is errored while the others run, until it is edited', () => {
+    let broken = true
+    const meta = {
+      get [VOLTAGE](): PathMeta {
+        if (broken) throw new Error('meta unreadable')
+        return batteryZones
+      }
+    }
+    const { at, run, runner, sent } = setup([batteryLow, oil], { meta })
+    expect(runner.status('user.house-battery-low')).toMatchObject({
+      badge: 'errored',
+      reason: 'failed to start: meta unreadable'
+    })
+    at(0, OIL, 0)
+    at(0, VOLTAGE, 11.8)
+    run(1, 6)
+    expect(sent.map(([path]) => path)).toEqual([OIL_ALERT])
+
+    broken = false
+    runner.update({ origin: 'user', rule: batteryLow })
+    expect(runner.status('user.house-battery-low')).toMatchObject({ errors: [] })
+    at(7, VOLTAGE, 11.8)
+    run(8, 12)
+    expect(sent.map(([path]) => path)).toEqual([OIL_ALERT, BATTERY_ALERT])
+  })
+
+  it('a failed start keeps the restored accumulator total for the checkpoint', () => {
+    const hours = valid({
+      name: 'Engine hours',
+      slug: 'engine-hours',
+      message: 'Engine service due',
+      priority: 'caution',
+      signal: { path: RPM },
+      detector: { type: 'accumulator', measure: 'time', limit: 100 }
+    })
+    const failing = new FakeSubscriptionManager()
+    failing.subscribe = () => {
+      throw new Error('subscriptions unavailable')
+    }
+    const runner = new RuleRunner(
+      {
+        pluginId: PLUGIN,
+        subscriptions: failing,
+        meta: () => undefined,
+        timeoutSettings: () => undefined,
+        clock: () => 0,
+        wallClock: () => new Date(),
+        alerts: new FakeAlertsCore(),
+        send: () => undefined
+      },
+      [{ origin: 'user', rule: hours }],
+      new Map([['user.engine-hours', new Map([['', 42]])]])
+    )
+    runner.start()
+    expect(runner.status('user.engine-hours')?.badge).toBe('errored')
+    expect(runner.accumulators()).toEqual(new Map([['user.engine-hours', new Map([['', 42]])]]))
+  })
+
   it('reports gate input unavailable on a gate that keeps holding', () => {
     const { at, runner } = setup([gatedOil])
     at(0, RPM, 30)
