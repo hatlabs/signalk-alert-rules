@@ -119,6 +119,27 @@ describe('RuleDetail', () => {
     expect(start.textContent).toMatch(/gate 1: holds/i)
   })
 
+  it('shows the priority an active instance is at, and none for an inactive one', () => {
+    renderDetail({
+      ...batteries,
+      status: {
+        ...batteries.status,
+        instances: [
+          instance({
+            instance: { name: 'house', segment: 'house' },
+            badge: 'alertActive',
+            active: true,
+            level: 'alarm',
+            priority: 'alarm'
+          }),
+          instance({ instance: { name: 'start', segment: 'start' }, priority: 'warn' })
+        ]
+      }
+    })
+    expect(cell(rowOf('house'), 'Status').textContent).toMatch(/at alarm$/)
+    expect(cell(rowOf('start'), 'Status').textContent).not.toMatch(/\bat\b/)
+  })
+
   it('says values are in SI units', () => {
     renderDetail(batteries)
     expect(screen.getByText(/values are in SI units/i)).toBeTruthy()

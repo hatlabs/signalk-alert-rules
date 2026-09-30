@@ -285,6 +285,25 @@ describe('httpApi', () => {
       })
     })
 
+    it('reads the zone level and priority of an active instance', async () => {
+      const entry = {
+        ...ruleEntry,
+        status: {
+          ...ruleEntry.status,
+          instances: [
+            { ...ruleEntry.status.instances[0], active: true, level: 'alarm', priority: 'alarm' }
+          ]
+        }
+      }
+      const api = httpApi(fakeFetch({ [`${BASE}/rules`]: { body: [entry] } }))
+      const [read] = await api.rules()
+      expect(read.status.instances[0]).toMatchObject({
+        active: true,
+        level: 'alarm',
+        priority: 'alarm'
+      })
+    })
+
     it('reads a position value', async () => {
       const position = { latitude: 60.1, longitude: 24.9 }
       const entry = {
