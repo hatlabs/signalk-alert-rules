@@ -1,0 +1,50 @@
+{
+  "name": "Engine RPM mismatch",
+  "slug": "engine-rpm-mismatch",
+  "message": "Port and starboard engine speeds differ",
+  "priority": "caution",
+  "signal": {
+    "combinator": "absDifference",
+    "inputs": [
+      {
+        "path": "propulsion.port.revolutions"
+      },
+      {
+        "path": "propulsion.starboard.revolutions"
+      }
+    ]
+  },
+  "detector": {
+    "type": "sustained",
+    "direction": "above",
+    "limit": {
+      "kind": "fixed",
+      "value": 3
+    },
+    "duration": 30
+  },
+  "gates": [
+    {
+      "signal": {
+        "path": "propulsion.port.revolutions"
+      },
+      "direction": "above",
+      "limit": {
+        "kind": "fixed",
+        "value": 8
+      },
+      "duration": 10
+    },
+    {
+      "signal": {
+        "path": "propulsion.starboard.revolutions"
+      },
+      "direction": "above",
+      "limit": {
+        "kind": "fixed",
+        "value": 8
+      },
+      "duration": 10
+    }
+  ]
+}

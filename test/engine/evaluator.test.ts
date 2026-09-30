@@ -250,6 +250,29 @@ describe('zone limits', () => {
     expect(evaluator.status().instances[0]?.inactive).toMatch(/no warn zone/)
   })
 
+  it('on a path zoned on both sides, a below rule raises and escalates on the low-side zones only', () => {
+    const twoSided: Zone[] = [
+      { upper: 11.5, state: 'alarm' },
+      { lower: 11.5, upper: 12, state: 'warn' },
+      { lower: 12, upper: 14.4, state: 'normal' },
+      { lower: 14.4, upper: 14.8, state: 'warn' },
+      { lower: 14.8, upper: 16, state: 'alarm' }
+    ]
+    const { at, log, evaluator } = setup(escalating, { meta: { [VOLTAGE]: { zones: twoSided } } })
+    at(0, VOLTAGE, 13)
+    at(100)
+    expect(log).toEqual([])
+    at(110, VOLTAGE, 11.8)
+    at(140)
+    at(150, VOLTAGE, 11.3)
+    at(180)
+    expect(log).toEqual([
+      [140, 'raise', '', 'warning'],
+      [180, 'priority', '', 'alarm']
+    ])
+    expect(evaluator.status().instances[0]).toMatchObject({ level: 'alarm', priority: 'alarm' })
+  })
+
   it('a projection against a zone limit alerts at its named level and does not escalate', () => {
     const LEVEL = 'tanks.freshWater.0.currentLevel'
     const rule = valid({

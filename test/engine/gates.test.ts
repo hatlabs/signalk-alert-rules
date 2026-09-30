@@ -111,4 +111,41 @@ describe('gate', () => {
     expect(g.holds).toBe(false)
     expect(g.issue).toMatch(/no alarm zone/)
   })
+
+  it('a zone limit pointing at the unzoned side of a path does not hold', () => {
+    const rpm = (): Zone[] => [
+      { lower: 3200, upper: 3600, state: 'warn' },
+      { lower: 3600, upper: 4000, state: 'alarm' }
+    ]
+    const g = gate(
+      { ...running, direction: 'below', limit: { kind: 'zone', level: 'warn' }, duration: 0 },
+      { zones: rpm }
+    )
+    g.sample(v(1000), false, 0)
+    expect(g.holds).toBe(false)
+    expect(g.issue).toMatch(/no warn zone on the low side/)
+  })
+
+  it('a zone limit on a path zoned on both sides takes only its own side', () => {
+    const zones = (): Zone[] => [
+      { upper: 11.5, state: 'alarm' },
+      { lower: 14.8, upper: 20, state: 'alarm' }
+    ]
+    const low = gate(
+      { ...running, direction: 'below', limit: { kind: 'zone', level: 'alarm' }, duration: 0 },
+      { zones }
+    )
+    const high = gate(
+      { ...running, limit: { kind: 'zone', level: 'alarm' }, duration: 0 },
+      { zones }
+    )
+    low.sample(v(12.8), false, 0)
+    high.sample(v(12.8), false, 0)
+    expect(low.holds).toBe(false)
+    expect(high.holds).toBe(false)
+    low.sample(v(11), false, 1)
+    high.sample(v(15), false, 1)
+    expect(low.holds).toBe(true)
+    expect(high.holds).toBe(true)
+  })
 })

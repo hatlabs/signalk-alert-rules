@@ -31,7 +31,7 @@ export interface PathInfo {
 
 /**
  * Checks that need the server's knowledge of a path run only when `pathInfo`
- * answers for it; the signal layer repeats them once the path reports.
+ * answers for it. Nothing repeats them when the path reports.
  */
 export interface ValidationContext {
   pathInfo?: (path: string) => PathInfo | undefined

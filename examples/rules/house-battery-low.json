@@ -1,0 +1,19 @@
+{
+  "name": "House battery low",
+  "slug": "house-battery-low",
+  "message": "House battery voltage is low",
+  "signal": {
+    "path": "electrical.batteries.house.voltage"
+  },
+  "detector": {
+    "type": "sustained",
+    "direction": "below",
+    "limit": {
+      "kind": "zone",
+      "level": "warn"
+    },
+    "duration": 60,
+    "hysteresis": 0.2,
+    "clearDuration": 30
+  }
+}
