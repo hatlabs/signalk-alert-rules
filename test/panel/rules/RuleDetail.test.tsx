@@ -222,8 +222,8 @@ describe('RuleDetail', () => {
     const reset = renderDetail(engineHours)
     fireEvent.click(screen.getByRole('button', { name: /reset accumulator/i }))
     const dialog = screen.getByRole('alertdialog')
-    expect(dialog.textContent).toMatch(/port: 7200 s/)
-    expect(dialog.textContent).toMatch(/stbd: 3600 s/)
+    expect(dialog.textContent).toMatch(/port: 2 h/)
+    expect(dialog.textContent).toMatch(/stbd: 60 min/)
     expect(dialog.textContent).toMatch(/clears its active alerts/i)
     expect(reset).not.toHaveBeenCalled()
     await act(async () => {

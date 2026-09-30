@@ -1,5 +1,5 @@
 import type { GateStatus, InputState, InstanceStatus, Progress } from '../api'
-import { formatValue } from './describe'
+import { formatDuration, type RuleDisplay } from './describe'
 import { StatusBadge } from './StatusBadge'
 
 const INPUT_TEXT: Readonly<Record<InputState, string>> = {
@@ -12,16 +12,16 @@ export function instanceName(i: InstanceStatus): string {
   return i.instance?.name ?? i.instance?.segment ?? ''
 }
 
-function valueText(i: InstanceStatus): string {
-  if (i.value !== undefined) return formatValue(i.value)
+function valueText(i: InstanceStatus, display: RuleDisplay): string {
+  if (i.value !== undefined) return display.value(i.value)
   return i.input === undefined ? '' : INPUT_TEXT[i.input]
 }
 
-function ProgressCell({ progress, totalUnit }: { progress?: Progress; totalUnit?: string }) {
+function ProgressCell({ progress, display }: { progress?: Progress; display: RuleDisplay }) {
   if (progress === undefined) return null
   switch (progress.kind) {
     case 'timer': {
-      const text = `${formatValue(progress.elapsed, 's')} of ${formatValue(progress.target, 's')} toward ${progress.toward}`
+      const text = `${formatDuration(progress.elapsed)} of ${formatDuration(progress.target)} toward ${progress.toward}`
       return (
         <>
           <progress value={progress.elapsed} max={progress.target} aria-label={text} />{' '}
@@ -38,7 +38,7 @@ function ProgressCell({ progress, totalUnit }: { progress?: Progress; totalUnit?
     case 'total':
       return (
         <span>
-          {formatValue(progress.total, totalUnit)} of {formatValue(progress.limit, totalUnit)}
+          {display.total(progress.total)} of {display.total(progress.limit)}
         </span>
       )
   }
@@ -52,12 +52,11 @@ function gateText(gate: GateStatus, index: number): string {
 
 export interface InstanceTableProps {
   instances: InstanceStatus[]
-  /** The unit of an accumulator's total, when the panel knows it. */
-  totalUnit?: string
+  display: RuleDisplay
 }
 
 /** One row per instance: its status, value, limit, progress and gate states. */
-export function InstanceTable({ instances, totalUnit }: InstanceTableProps) {
+export function InstanceTable({ instances, display }: InstanceTableProps) {
   const named = instances.some((i) => i.instance !== undefined)
   return (
     <div className="table-responsive">
@@ -82,10 +81,10 @@ export function InstanceTable({ instances, totalUnit }: InstanceTableProps) {
                   <div className="skar-instance-summary">at {i.priority}</div>
                 )}
               </td>
-              <td>{valueText(i)}</td>
-              <td>{i.limit === undefined ? '' : formatValue(i.limit)}</td>
+              <td>{valueText(i, display)}</td>
+              <td>{i.limit === undefined ? '' : display.value(i.limit)}</td>
               <td>
-                <ProgressCell progress={i.progress} totalUnit={totalUnit} />
+                <ProgressCell progress={i.progress} display={display} />
               </td>
               <td>
                 {i.gates.map((gate, n) => (

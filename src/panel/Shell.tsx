@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type Ref } from 'react'
 import type { PanelApi } from './api'
+import type { PathSource } from './paths/selfPaths'
 import { activeAlerts, ClearAllAlerts } from './rules/ClearAllAlerts'
 import { EvaluationOffBanner } from './rules/EvaluationOffBanner'
 import { RuleDetail } from './rules/RuleDetail'
@@ -13,6 +14,7 @@ import {
   type ShellSnapshot,
   type ShellView
 } from './shellState'
+import { useUnits } from './signalUnits'
 
 const TABS = [
   { id: 'rules', label: 'Rules' },
@@ -24,6 +26,8 @@ type Tab = (typeof TABS)[number]['id']
 
 export interface ShellProps {
   api: PanelApi
+  /** The server's paths and their units, for display units and the path picker. */
+  paths: PathSource
 }
 
 /**
@@ -247,12 +251,14 @@ function useLocationHash(): string {
 interface ViewsProps {
   api: PanelApi
   view: ReadyView
+  paths: PathSource
   /** Probes again at once, so the views show the outcome of an action. */
   refresh: () => void
 }
 
-function Views({ api, view, refresh }: ViewsProps) {
+function Views({ api, view, paths, refresh }: ViewsProps) {
   const { rules, evaluationEnabled, issues } = view
+  const { units } = useUnits(paths)
   const [tab, setTab] = useState<Tab>('rules')
   const current = TABS.find((t) => t.id === tab) ?? TABS[0]
   const hash = useLocationHash()
@@ -301,6 +307,7 @@ function Views({ api, view, refresh }: ViewsProps) {
           entry={entry}
           backHref={backHref}
           headingRef={heading}
+          units={units}
           reset={async () => {
             await api.resetAccumulator(entry.origin, entry.slug)
             refresh()
@@ -386,7 +393,7 @@ function Views({ api, view, refresh }: ViewsProps) {
   )
 }
 
-export function Shell({ api }: ShellProps) {
+export function Shell({ api, paths }: ShellProps) {
   const [snapshot, ready, checkAgain] = useSnapshot(api)
   const { view, securityEnabled } = snapshot
 
@@ -398,7 +405,7 @@ export function Shell({ api }: ShellProps) {
         stale={ready !== undefined && view.kind !== 'ready'}
         checkAgain={checkAgain}
       />
-      {ready !== undefined && <Views api={api} view={ready} refresh={checkAgain} />}
+      {ready !== undefined && <Views api={api} view={ready} paths={paths} refresh={checkAgain} />}
     </div>
   )
 }

@@ -1,7 +1,15 @@
 import { useId, type ReactNode, type Ref } from 'react'
 import type { RuleEntry } from '../api'
+import { NO_UNITS, type UnitLookup } from '../signalUnits'
 import { Confirm, useConfirmation } from './Confirm'
-import { describeDetector, describeInput, describePriority, formatValue, markers } from './describe'
+import {
+  describeDetector,
+  describeInput,
+  describePriority,
+  markers,
+  ruleDisplay,
+  type RuleDisplay
+} from './describe'
 import { InstanceTable, instanceName } from './InstanceTable'
 import { StatusBadge } from './StatusBadge'
 
@@ -13,11 +21,10 @@ export interface RuleDetailProps {
   reset: () => Promise<void>
   /** The rule's heading, which takes focus when the operator navigates to it. */
   headingRef?: Ref<HTMLHeadingElement>
-}
-
-/** An accumulator measuring time totals seconds; an integral's unit depends on its input. */
-function totalUnit(entry: RuleEntry): string | undefined {
-  return entry.rule.detector.measure === 'time' ? 's' : undefined
+  /** The units of the rule's paths; without them values are shown in SI. */
+  units?: UnitLookup
+  /** Opens the rule in the authoring form; absent where the rule cannot be edited. */
+  edit?: () => void
 }
 
 function Fact({ term, children }: { term: string; children: ReactNode }) {
@@ -31,14 +38,13 @@ function Fact({ term, children }: { term: string; children: ReactNode }) {
 }
 
 /** What a reset discards: each instance's total, or the one total of a plain rule. */
-function DiscardedTotals({ entry }: { entry: RuleEntry }) {
-  const unit = totalUnit(entry)
+function DiscardedTotals({ entry, display }: { entry: RuleEntry; display: RuleDisplay }) {
   const totals = entry.status.instances.flatMap((i) =>
     i.progress?.kind === 'total' ? [{ name: instanceName(i), total: i.progress.total }] : []
   )
   if (totals.length === 0) return <p>There is no accumulated total yet.</p>
   if (totals.length === 1 && totals[0].name === '') {
-    return <p>This discards the total of {formatValue(totals[0].total, unit)}.</p>
+    return <p>This discards the total of {display.total(totals[0].total)}.</p>
   }
   return (
     <>
@@ -46,7 +52,7 @@ function DiscardedTotals({ entry }: { entry: RuleEntry }) {
       <ul>
         {totals.map(({ name, total }) => (
           <li key={name}>
-            {name}: {formatValue(total, unit)}
+            {name}: {display.total(total)}
           </li>
         ))}
       </ul>
@@ -55,11 +61,19 @@ function DiscardedTotals({ entry }: { entry: RuleEntry }) {
 }
 
 /** One rule with its status and per-instance rows: the target of an alert's link. */
-export function RuleDetail({ entry, backHref, reset, headingRef }: RuleDetailProps) {
+export function RuleDetail({
+  entry,
+  backHref,
+  reset,
+  headingRef,
+  units = NO_UNITS,
+  edit
+}: RuleDetailProps) {
   const confirmation = useConfirmation()
   const { rule, status } = entry
   const errorsId = useId()
   const isAccumulator = rule.detector.type === 'accumulator'
+  const display = ruleDisplay(rule, units)
 
   return (
     <div className="skar-rule-detail">
@@ -116,11 +130,15 @@ export function RuleDetail({ entry, backHref, reset, headingRef }: RuleDetailPro
           ))}
         </ul>
       )}
-      <InstanceTable instances={status.instances} totalUnit={totalUnit(entry)} />
-      <p className="form-text">Values are in SI units.</p>
+      <InstanceTable instances={status.instances} display={display} />
+      {display.si && <p className="form-text">Values are in SI units.</p>}
       <div className="skar-actions">
-        {/* The authoring form comes later; the entry point is visible but inert until then. */}
-        <button type="button" className="btn btn-outline-primary btn-sm me-2" disabled>
+        <button
+          type="button"
+          className="btn btn-outline-primary btn-sm me-2"
+          disabled={edit === undefined}
+          onClick={edit}
+        >
           Edit
         </button>
         {isAccumulator && (
@@ -145,7 +163,7 @@ export function RuleDetail({ entry, backHref, reset, headingRef }: RuleDetailPro
           }}
           onCancel={confirmation.close}
         >
-          <DiscardedTotals entry={entry} />
+          <DiscardedTotals entry={entry} display={display} />
           <p className="mb-0">
             The rule clears its active alerts and accumulates again from zero. This cannot be
             undone.

@@ -1,4 +1,6 @@
 import { BADGES, type RuleEntry, type RuleInfo, type SignalValue } from '../api'
+import { signalMeasure, type Measure, type UnitLookup } from '../signalUnits'
+import { fromSI } from '../units'
 import { BADGE_LOOK } from './StatusBadge'
 
 export const USER_ORIGIN = 'user'
@@ -49,16 +51,65 @@ export function markers(entry: RuleEntry): string[] {
   return shown
 }
 
+function formatNumber(value: number): string {
+  const rounded = Math.abs(value) >= 100 ? value.toFixed(1) : value.toPrecision(4)
+  return Number.isInteger(value) ? String(value) : String(Number(rounded))
+}
+
+function withUnit(shown: string, unit: string): string {
+  return unit === '' ? shown : `${shown} ${unit}`
+}
+
 /**
- * A value as the panel shows it. Values stay in SI units until display-unit
- * conversion lands; this is the one place that has to change for it.
+ * A value as the panel shows it: an SI number converted by `measure` and
+ * labelled with its unit, or as it is without one.
  */
-export function formatValue(value: SignalValue, unit?: string): string {
+export function formatValue(value: SignalValue, measure?: Measure): string {
   if (typeof value === 'object') {
     return `${value.latitude.toFixed(5)}, ${value.longitude.toFixed(5)}`
   }
   if (typeof value !== 'number') return String(value)
-  const rounded = Math.abs(value) >= 100 ? value.toFixed(1) : value.toPrecision(4)
-  const shown = Number.isInteger(value) ? String(value) : String(Number(rounded))
-  return unit === undefined ? shown : `${shown} ${unit}`
+  if (measure === undefined) return formatNumber(value)
+  const unit = measure.kind === 'ratio' ? '' : measure.unit.symbol
+  return withUnit(formatNumber(fromSI(measure.kind, value, measure.unit)), unit)
+}
+
+const MINUTE = 60
+const HOUR = 3600
+
+/** Seconds in the largest unit that keeps the number readable: timers and running time. */
+export function formatDuration(seconds: number): string {
+  if (Math.abs(seconds) >= 2 * HOUR) return `${formatNumber(seconds / HOUR)} h`
+  if (Math.abs(seconds) >= 2 * MINUTE) return `${formatNumber(seconds / MINUTE)} min`
+  return `${formatNumber(seconds)} s`
+}
+
+/** How a rule's values, limits and accumulated totals are shown. */
+export interface RuleDisplay {
+  value: (value: SignalValue) => string
+  total: (total: number) => string
+  /** No display unit applies to the rule's values, so they are shown in SI. */
+  si: boolean
+}
+
+/**
+ * A rule's status carries SI numbers without units, so the unit comes from
+ * the meta of the paths its signal reads.
+ */
+export function ruleDisplay(rule: RuleInfo, units: UnitLookup): RuleDisplay {
+  const measure = signalMeasure(rule.signal, units)
+  const integral = measure.kind === 'ratio' ? '' : measure.unit.symbol
+  const total =
+    rule.detector.measure === 'time'
+      ? formatDuration
+      : (v: number) =>
+          withUnit(
+            formatNumber(fromSI('interval', v, measure.unit)),
+            integral === '' ? '' : `${integral}·s`
+          )
+  return {
+    value: (v) => formatValue(v, measure),
+    total,
+    si: measure.kind !== 'ratio' && measure.unit.si
+  }
 }
