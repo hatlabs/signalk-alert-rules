@@ -103,13 +103,9 @@ function problemOf(source: string, err: unknown): DiscoveryProblem {
   return { source, message: err instanceof Error ? err.message : String(err) }
 }
 
-function byName(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0
-}
-
 async function listDir(dir: string): Promise<string[]> {
   try {
-    return (await readdir(dir)).filter((name) => !name.startsWith('.')).sort(byName)
+    return (await readdir(dir)).filter((name) => !name.startsWith('.')).sort()
   } catch (err) {
     const { code } = err as NodeJS.ErrnoException
     if (code === 'ENOENT' || code === 'ENOTDIR') return []
