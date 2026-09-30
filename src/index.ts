@@ -68,35 +68,47 @@ export default function createPlugin(app: ServerAPI): Plugin {
       application = running
       const status =
         running.issues.length === 0 ? 'Running' : `Running; ${running.issues.join('; ')}`
-      // A disk that stays full fails every checkpoint: report the failure
-      // once, and the recovery.
-      let checkpointFailed = false
-      const checkpoint = () => {
-        try {
-          running.checkpoint()
-        } catch (err) {
-          if (checkpointFailed) return
-          checkpointFailed = true
-          const text = `Could not save accumulator totals: ${errorMessage(err)}`
-          app.error(text)
-          app.setPluginError(text)
-          return
-        }
-        if (checkpointFailed) {
-          checkpointFailed = false
-          app.setPluginStatus(status)
+      // A disk that stays full fails every write, each tick or checkpoint:
+      // report the failure once, and the recovery. An exception escaping a
+      // timer would take the whole server down.
+      const reportingOnce = (describe: (err: unknown) => string, run: () => void) => {
+        let failed = false
+        return () => {
+          try {
+            run()
+          } catch (err) {
+            if (failed) return
+            failed = true
+            const text = describe(err)
+            app.error(text)
+            app.setPluginError(text)
+            return
+          }
+          if (failed) {
+            failed = false
+            app.setPluginStatus(status)
+          }
         }
       }
       timers = [
-        setInterval(() => {
-          // An exception escaping a timer would take the whole server down.
-          try {
-            running.tick()
-          } catch (err) {
-            app.error(`Evaluation failed: ${errorMessage(err)}`)
-          }
-        }, TICK_MS),
-        setInterval(checkpoint, CHECKPOINT_MS)
+        setInterval(
+          reportingOnce(
+            (err) => `Evaluation failed: ${errorMessage(err)}`,
+            () => {
+              running.tick()
+            }
+          ),
+          TICK_MS
+        ),
+        setInterval(
+          reportingOnce(
+            (err) => `Could not save accumulator totals: ${errorMessage(err)}`,
+            () => {
+              running.checkpoint()
+            }
+          ),
+          CHECKPOINT_MS
+        )
       ]
       for (const issue of running.issues) app.error(issue)
       app.setPluginStatus(status)

@@ -7,7 +7,7 @@ import type { Value } from '@signalk/server-api'
 import { Application, LOG_LIMIT } from '../src/application.js'
 import type { RunnerDeps } from '../src/alerts/runner.js'
 import { serverDeps } from '../src/alerts/server.js'
-import { Store, type Checkpoints } from '../src/store/store.js'
+import { Store, type Checkpoints, type Controls } from '../src/store/store.js'
 import { FakeAlertsCore } from './helpers/FakeAlertsCore.js'
 import { MockServerAPI } from './helpers/MockServerAPI.js'
 
@@ -1129,6 +1129,41 @@ describe('rule controls', () => {
       at(659)
       expect(application.suppressions()).toHaveLength(1)
       at(660)
+      expect(application.suppressions()).toEqual([])
+    })
+
+    it('an auto-end that cannot be saved stays, is retried, and does not hold back the others', () => {
+      /** Refuses the write that would end the oil rule's suppression while `full`. */
+      class FullForOil extends Store {
+        full = true
+        override saveControls(controls: Controls): void {
+          // A rule back at its default controls has no entry.
+          const ending = !Object.hasOwn(controls.rules, 'user.oil-pressure-low')
+          if (this.full && ending) throw new Error('no space left on device')
+          super.saveControls(controls)
+        }
+      }
+      stored(oil)
+      stored(coolant)
+      const store = new FullForOil(dir)
+      const { application, at } = setup(store)
+      at(0, OIL, 200000)
+      at(0, COOLANT, 300)
+      application.suppressRule('user', 'oil-pressure-low', { autoEndAfter: 10 }, 'admin')
+      application.suppressRule('user', 'coolant-high', { autoEndAfter: 10 }, 'admin')
+
+      expect(() => {
+        at(10)
+      }).toThrow(/user\.oil-pressure-low.*no space left on device/)
+      expect(application.suppressions()).toMatchObject([
+        { scope: 'rule', rule: 'user.oil-pressure-low' }
+      ])
+      expect(() => {
+        at(11)
+      }).toThrow(/no space left/)
+
+      store.full = false
+      at(12)
       expect(application.suppressions()).toEqual([])
     })
 

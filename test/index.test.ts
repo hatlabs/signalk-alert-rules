@@ -286,6 +286,35 @@ describe('plugin', () => {
     await plugin.stop()
   })
 
+  it('logs an auto-end it cannot save once and restores the status when the disk recovers', async () => {
+    storeRule(hours)
+    const suppression = { since: '2026-09-30T12:00:00.000Z', actor: 'admin', autoEndAfter: 5 }
+    writeFileSync(
+      join(dir, 'controls.json'),
+      JSON.stringify({ rules: { 'user.engine-hours': { enabled: true, suppression } }, inputs: {} })
+    )
+    const app = new MockServerAPI(true, dir)
+    const plugin = createPlugin(app.asServerAPI())
+    plugin.start({}, () => undefined)
+    const running = app.pluginStatus
+    app.subscriptionmanager.publish(RPM, 'src', 30)
+    // A directory where the file belongs makes the rename fail.
+    rmSync(join(dir, 'controls.json'))
+    mkdirSync(join(dir, 'controls.json', 'blocker'), { recursive: true })
+
+    vi.advanceTimersByTime(60_000)
+    expect(app.pluginError).toMatch(/could not end a suppression by itself/)
+    expect(app.errors).toEqual([expect.stringMatching(/user\.engine-hours/)])
+
+    rmSync(join(dir, 'controls.json'), { recursive: true })
+    vi.advanceTimersByTime(1_000)
+    expect(app.pluginError).toBeUndefined()
+    expect(app.pluginStatus).toBe(running)
+    expect(new Store(dir).load().controls.rules).toEqual({})
+
+    await plugin.stop()
+  })
+
   it('logs a failing checkpoint once and restores the status when the disk recovers', async () => {
     storeRule(hours)
     storeRule({ ...hours, slug: 'genset-hours', priority: 'loud' })

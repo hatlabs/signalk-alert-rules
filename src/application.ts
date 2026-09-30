@@ -28,7 +28,7 @@ import type {
   Store,
   Suppression
 } from './store/store.js'
-import { isRecord, own } from './util.js'
+import { errorMessage, isRecord, own } from './util.js'
 
 /** How often rules are evaluated: detector durations resolve to this. */
 export const TICK_MS = 1000
@@ -258,7 +258,10 @@ export class Application {
     if (this.evaluationSwitch.enabled) this.startRunner(true)
   }
 
-  /** Evaluates, then ends the suppressions whose condition has stayed clear long enough. */
+  /**
+   * Evaluates, then ends the suppressions whose condition has stayed clear
+   * long enough. Throws when one of those ends cannot be saved.
+   */
   tick(): void {
     this.runner?.tick()
     this.endClearedSuppressions()
@@ -656,17 +659,29 @@ export class Application {
    * Ends each suppression with an auto-end whose condition has stayed clear
    * for its time: for a rule, every instance of it; for an input, every
    * instance it suppresses directly, those whose detector or combinator
-   * reads the path. Gates reading the path do not count.
+   * reads the path. Gates reading the path do not count. One that cannot be
+   * saved stays for the next tick and does not keep the others from ending;
+   * the failures are thrown once the pass is done.
    */
   private endClearedSuppressions(): void {
     const runner = this.runner
     if (runner === undefined) return
+    const failures: string[] = []
+    const end = (what: string, action: () => void) => {
+      try {
+        action()
+      } catch (err) {
+        failures.push(`${what}: ${errorMessage(err)}`)
+      }
+    }
     for (const [id, { enabled, suppression }] of Object.entries(this.controls.rules)) {
       const after = suppression?.autoEndAfter
       if (after === undefined || !enabled) continue
       const instances = runner.status(id)?.instances ?? []
       if (stayedClearFor(instances) >= after) {
-        this.endSuppressionOf(id, AUTO_END_ACTOR)
+        end(id, () => {
+          this.endSuppressionOf(id, AUTO_END_ACTOR)
+        })
       }
     }
     for (const [path, { autoEndAfter }] of Object.entries(this.controls.inputs)) {
@@ -677,8 +692,13 @@ export class Application {
         return instances.filter((row) => signalPaths(rule.signal, row.instance).includes(path))
       })
       if (stayedClearFor(direct) >= autoEndAfter) {
-        this.endInputSuppression(path, AUTO_END_ACTOR)
+        end(path, () => {
+          this.endInputSuppression(path, AUTO_END_ACTOR)
+        })
       }
+    }
+    if (failures.length > 0) {
+      throw new Error(`could not end a suppression by itself: ${failures.join('; ')}`)
     }
   }
 
