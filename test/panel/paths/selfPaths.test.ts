@@ -122,6 +122,23 @@ describe('parseSelfPaths', () => {
     expect(paths.find((p) => p.path === 'navigation.state')?.units).toBeUndefined()
   })
 
+  it('lists the sources reporting each path, from its per-source values', () => {
+    const paths = parseSelfPaths({
+      navigation: {
+        position: {
+          value: { latitude: 60.1, longitude: 24.9 },
+          $source: 'gnss.bow',
+          values: {
+            'gnss.bow': { value: { latitude: 60.1, longitude: 24.9 } },
+            'gnss.stern': { value: { latitude: 60.1, longitude: 24.9 } }
+          }
+        },
+        state: { value: 'motoring', $source: 'x' }
+      }
+    })
+    expect(paths.map((p) => p.sources)).toEqual([['gnss.bow', 'gnss.stern'], ['x']])
+  })
+
   it('ignores malformed meta rather than failing the list', () => {
     const paths = parseSelfPaths({
       a: { value: 1, meta: { units: 3, displayName: {}, displayUnits: { formula: 4 } } }

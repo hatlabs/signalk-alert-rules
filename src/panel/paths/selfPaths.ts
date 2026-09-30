@@ -10,6 +10,8 @@ export interface PathEntry {
   /** The SI unit from meta, when the path declares one. */
   units?: string
   unit: DisplayUnit
+  /** The `$source`s reporting the path, for a rule input restricted to one. */
+  sources?: string[]
 }
 
 /** What the path picker and unit fields ask of the server; tests substitute their own. */
@@ -56,13 +58,25 @@ function entry(path: string, node: Record<string, unknown>): PathEntry {
   const units = unitMeta(meta)
   const displayName = optionalString(meta.displayName)
   const description = optionalString(meta.description)
+  const sources = sourcesOf(node)
   return {
     path,
     ...(displayName === undefined ? {} : { displayName }),
     ...(description === undefined ? {} : { description }),
     ...(units.units === undefined ? {} : { units: units.units }),
-    unit: displayUnit(units)
+    unit: displayUnit(units),
+    ...(sources.length === 0 ? {} : { sources })
   }
+}
+
+/**
+ * The server keeps a path's reading from each source under `values` once a
+ * second source reports it; a path with one source carries only `$source`.
+ */
+function sourcesOf(node: Record<string, unknown>): string[] {
+  if (isRecord(node.values)) return Object.keys(node.values).sort()
+  const only = optionalString(node.$source)
+  return only === undefined ? [] : [only]
 }
 
 /** The readable paths in a `GET /signalk/v1/api/vessels/self` body, sorted by path. */
