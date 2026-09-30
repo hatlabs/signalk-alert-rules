@@ -140,6 +140,19 @@ describe('RuleDetail', () => {
     expect(cell(rowOf('start'), 'Status').textContent).not.toMatch(/\bat\b/)
   })
 
+  it('shows the event count toward the limit', () => {
+    renderDetail(
+      ruleEntry({
+        rule: { detector: { type: 'count' } },
+        status: {
+          instances: [instance({ progress: { kind: 'events', count: 2, limit: 5 } })]
+        }
+      })
+    )
+    const row = screen.getAllByRole('row')[1]
+    expect(cell(row, 'Progress').textContent).toBe('2 of 5 events')
+  })
+
   it('says values are in SI units', () => {
     renderDetail(batteries)
     expect(screen.getByText(/values are in SI units/i)).toBeTruthy()
