@@ -25,7 +25,7 @@ import {
   signalPaths,
   suppressionOf,
   type SuppressionScope,
-  type Suppressions
+  type SuppressionSource
 } from './suppression.js'
 import {
   bindPath,
@@ -251,7 +251,7 @@ export class RuleEvaluator {
     private readonly onEvent: (event: RuleEvent) => void,
     adopted: readonly Adopted[] = [],
     accumulated: ReadonlyMap<string, number> = new Map(),
-    private readonly suppressions: Suppressions = NO_SUPPRESSIONS
+    private readonly source: SuppressionSource = { id: '', suppressions: NO_SUPPRESSIONS }
   ) {
     this.adopted = new Set(adopted.map((a) => a.segment ?? ''))
     this.carried = new Map(accumulated)
@@ -468,7 +468,9 @@ export class RuleEvaluator {
         () => this.zones(model.limit, model.signal, bound()),
         this.ctx.clock(),
         () =>
-          signalPaths(model.signal, bound()).some((p) => this.suppressions.path(p) !== undefined)
+          signalPaths(model.signal, bound()).some(
+            (p) => this.source.suppressions.path(p) !== undefined
+          )
       )
       byKey.set(k, gate)
     }
@@ -562,7 +564,7 @@ export class RuleEvaluator {
   }
 
   private suppression(unit: Unit): SuppressionScope | undefined {
-    return suppressionOf(this.suppressions, this.rule.signal, unit.instance)
+    return suppressionOf(this.source, this.rule.signal, unit.instance)
   }
 
   private step(unit: Unit, now: number, feed?: Sample): void {

@@ -5,12 +5,11 @@ import {
   type LoadedRule,
   type RunnerDeps,
   type RunnerInstanceStatus,
-  type RunnerRuleStatus,
-  type RunnerSuppressions
+  type RunnerRuleStatus
 } from './alerts/runner.js'
 import type { Progress } from './engine/detectors/index.js'
 import { carriesTotals, structuralChanges } from './engine/evaluator.js'
-import { readsPath, signalPaths } from './engine/suppression.js'
+import { readsPath, signalPaths, type Suppressions } from './engine/suppression.js'
 import { MAX_RULES, type Rule } from './model/rule.js'
 import { USER_ORIGIN } from './model/ruleset.js'
 import { validateRule, type ValidationError } from './model/validate.js'
@@ -202,7 +201,7 @@ export class Application {
    * then.
    */
   private readonly suppressedAt = new Map<string, number>()
-  private readonly suppressionsInForce: RunnerSuppressions = {
+  private readonly suppressionsInForce: Suppressions = {
     rule: (id) => own(this.controls.rules, id)?.suppression,
     path: (path) => own(this.controls.inputs, path)
   }

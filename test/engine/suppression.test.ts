@@ -74,7 +74,7 @@ function setup(rule: Rule) {
     (e) => log.push([now, e.type, e.instance?.segment ?? '']),
     [],
     new Map(),
-    controls
+    { id: 'user.' + rule.slug, suppressions: controls }
   )
   evaluator.start()
   return {

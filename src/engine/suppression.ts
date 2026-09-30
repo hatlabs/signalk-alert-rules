@@ -12,9 +12,10 @@ export interface ActiveSuppression {
   autoEndAfter?: number
 }
 
-/** The suppressions in force for one rule, read at each evaluation. */
+/** The suppressions in force, read at each evaluation. */
 export interface Suppressions {
-  rule(): ActiveSuppression | undefined
+  /** The suppression of a rule, by its id `<origin>.<slug>`. */
+  rule(id: string): ActiveSuppression | undefined
   /** The suppression of an exact concrete path. */
   path(path: string): ActiveSuppression | undefined
 }
@@ -22,6 +23,12 @@ export interface Suppressions {
 export const NO_SUPPRESSIONS: Suppressions = {
   rule: () => undefined,
   path: () => undefined
+}
+
+/** Where an evaluator reads its rule's suppressions: the rule's id and the suppressions in force. */
+export interface SuppressionSource {
+  id: string
+  suppressions: Suppressions
 }
 
 /**
@@ -54,11 +61,11 @@ export function readsPath(
  * of the first input path it reads that is suppressed.
  */
 export function suppressionOf(
-  suppressions: Suppressions,
+  { id, suppressions }: SuppressionSource,
   signal: Signal,
   instance: Instance | undefined
 ): SuppressionScope | undefined {
-  const rule = ruleScope(suppressions.rule())
+  const rule = ruleScope(suppressions.rule(id))
   if (rule !== undefined) return rule
   for (const path of signalPaths(signal, instance)) {
     const input = suppressions.path(path)

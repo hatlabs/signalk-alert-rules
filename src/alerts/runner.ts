@@ -6,7 +6,7 @@ import {
   type InstanceStatus,
   type RuleEvent
 } from '../engine/evaluator.js'
-import { ruleScope, type ActiveSuppression } from '../engine/suppression.js'
+import { NO_SUPPRESSIONS, ruleScope, type Suppressions } from '../engine/suppression.js'
 import { priorityOf, type Priority, type Rule } from '../model/rule.js'
 import { alertPathFor } from '../model/validate.js'
 import { statusBadge, type Verdict } from './badge.js'
@@ -35,14 +35,6 @@ export interface LoadedRule {
   origin: string
   rule: Rule
 }
-
-/** The suppressions in force, by rule id and by exact concrete path. */
-export interface RunnerSuppressions {
-  rule(id: string): ActiveSuppression | undefined
-  path(path: string): ActiveSuppression | undefined
-}
-
-const NONE: RunnerSuppressions = { rule: () => undefined, path: () => undefined }
 
 export type RunnerInstanceStatus = InstanceStatus & Partial<AlertStatus> & Verdict
 
@@ -89,7 +81,7 @@ export class RuleRunner {
     private readonly deps: RunnerDeps,
     rules: readonly LoadedRule[],
     private readonly accumulated: ReadonlyMap<string, ReadonlyMap<string, number>> = new Map(),
-    private readonly suppressions: RunnerSuppressions = NONE
+    private readonly suppressions: Suppressions = NO_SUPPRESSIONS
   ) {
     this.emitter = new AlertEmitter(deps)
     for (const entry of rules) this.entries.set(idOf(entry), entry)
@@ -283,7 +275,7 @@ export class RuleRunner {
       },
       adopted,
       accumulated,
-      { rule: () => this.suppressions.rule(id), path: (path) => this.suppressions.path(path) }
+      { id, suppressions: this.suppressions }
     )
     this.evaluators.set(id, evaluator)
     // One rule failing to start, such as on a meta read that throws, must not

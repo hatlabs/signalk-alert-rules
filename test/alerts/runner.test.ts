@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import type { PathValueState, Value } from '@signalk/server-api'
 import { HEARTBEAT_S, type AlertValue } from '../../src/alerts/emitter.js'
-import { RuleRunner, type LoadedRule, type RunnerSuppressions } from '../../src/alerts/runner.js'
-import type { ActiveSuppression } from '../../src/engine/suppression.js'
+import { RuleRunner, type LoadedRule } from '../../src/alerts/runner.js'
+import type { ActiveSuppression, Suppressions } from '../../src/engine/suppression.js'
 import type { PathMeta } from '../../src/engine/evaluator.js'
 import type { Rule } from '../../src/model/rule.js'
 import { validateRule } from '../../src/model/validate.js'
@@ -103,7 +103,7 @@ function setup(
     cached?: [string, Value][]
     /** Accumulator totals restored from the store, by rule id and instance segment. */
     accumulated?: Map<string, Map<string, number>>
-    suppressions?: RunnerSuppressions
+    suppressions?: Suppressions
   } = {}
 ) {
   const sm = new FakeSubscriptionManager()
