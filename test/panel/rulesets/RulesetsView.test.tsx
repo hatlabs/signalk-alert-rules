@@ -348,7 +348,11 @@ describe('RulesetsView', () => {
         problems: []
       })
       fireEvent.click(screen.getByRole('button', { name: 'Reset lowVoltage to default' }))
-      expect((field('lowVoltage') as HTMLInputElement).value).toBe('12')
+      const low = field('lowVoltage')
+      expect((low as HTMLInputElement).value).toBe('12')
+      // The server applies the stored 11 V until the save.
+      const hint = document.getElementById(low.getAttribute('aria-describedby') ?? '')
+      expect(hint?.textContent).toContain('The default 12 V applies once saved.')
       fireEvent.click(screen.getByRole('button', { name: 'Save parameters' }))
       await settle()
       expect(api.setParameters).toHaveBeenCalledWith('batteries', { prefix: 'x.y' })

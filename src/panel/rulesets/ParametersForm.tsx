@@ -13,7 +13,19 @@ export interface ParametersFormProps {
   save: (values: Values) => Promise<void>
 }
 
-function hint(p: Parameter, unit: DisplayUnit, atDefault: boolean): string {
+/**
+ * `resetting` is a field back at the default while the server still applies
+ * the stored value.
+ */
+type Standing = 'set' | 'default' | 'resetting'
+
+const defaultWording: Record<Standing, (value: string) => string> = {
+  set: (v) => `Default ${v}.`,
+  default: (v) => `Uses the default ${v}.`,
+  resetting: (v) => `The default ${v} applies once saved.`
+}
+
+function hint(p: Parameter, unit: DisplayUnit, standing: Standing): string {
   const withUnit = (v: number | string) =>
     p.type === 'number' && unit.symbol !== ''
       ? `${shownValue(p, v, unit)} ${unit.symbol}`
@@ -29,7 +41,7 @@ function hint(p: Parameter, unit: DisplayUnit, atDefault: boolean): string {
           : undefined
   return [
     p.description === undefined ? undefined : p.description.replace(/\.?$/, '.'),
-    `${atDefault ? 'Uses the default' : 'Default'} ${withUnit(p.default)}.`,
+    defaultWording[standing](withUnit(p.default)),
     range
   ]
     .filter((s): s is string => s !== undefined)
@@ -127,7 +139,11 @@ export function ParametersForm({ ruleset, unitOf, save }: ParametersFormProps) {
               <Field
                 label={p.name}
                 pointer={`/${p.name}`}
-                hint={hint(p, unit, atDefault)}
+                hint={hint(
+                  p,
+                  unit,
+                  !atDefault ? 'set' : initial[p.name] === undefined ? 'default' : 'resetting'
+                )}
                 {...(p.type === 'number' ? { unit: unitLabel('absolute', unit) } : {})}
               >
                 {(control) => (
