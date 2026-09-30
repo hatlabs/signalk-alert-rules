@@ -69,56 +69,61 @@ function notFound(res: Response, what: string): void {
  */
 export function registerRoutes(router: IRouter, ctx: ApiContext): void {
   const running =
-    (handler: (app: Application, req: Request, res: Response) => void): RequestHandler =>
+    (handler: (skar: Application, req: Request, res: Response) => void): RequestHandler =>
     (req, res) => {
-      const app = ctx.application()
-      if (app === undefined) {
+      const skar = ctx.application()
+      if (skar === undefined) {
         res.status(503).json({ error: 'the plugin is not running', ...ctx.state() })
         return
       }
       try {
-        handler(app, req, res)
+        handler(skar, req, res)
       } catch (err) {
         res.status(500).json({ error: errorMessage(err) })
       }
     }
 
-  const saved = (res: Response, app: Application, outcome: SaveOutcome, created: boolean) => {
+  const respondSaved = (
+    res: Response,
+    skar: Application,
+    outcome: SaveOutcome,
+    created: boolean
+  ) => {
     if (outcome.ok) {
-      res.status(created ? 201 : 200).json(app.rule(USER_ORIGIN, outcome.value.slug))
+      res.status(created ? 201 : 200).json(skar.rule(USER_ORIGIN, outcome.value.slug))
       return
     }
     editRefused(res, outcome)
   }
 
   router.get('/state', (_req, res) => {
-    const app = ctx.application()
+    const skar = ctx.application()
     res.json({
-      running: app !== undefined,
+      running: skar !== undefined,
       ...ctx.state(),
-      ...(app === undefined ? {} : { evaluation: app.evaluation, issues: app.issues })
+      ...(skar === undefined ? {} : { evaluation: skar.evaluation, issues: skar.issues })
     })
   })
 
   router.get(
     '/rules',
-    running((app, _req, res) => {
-      res.json(app.rules())
+    running((skar, _req, res) => {
+      res.json(skar.rules())
     })
   )
 
   router.post(
     '/rules',
     requireJson,
-    running((app, req, res) => {
-      saved(res, app, app.createRule(req.body), true)
+    running((skar, req, res) => {
+      respondSaved(res, skar, skar.createRule(req.body), true)
     })
   )
 
   router.get(
     '/rules/:origin/:slug',
-    running((app, req, res) => {
-      const entry: RuleEntry | undefined = app.rule(req.params.origin, req.params.slug)
+    running((skar, req, res) => {
+      const entry: RuleEntry | undefined = skar.rule(req.params.origin, req.params.slug)
       if (entry === undefined) notFound(res, 'such rule')
       else res.json(entry)
     })
@@ -127,16 +132,16 @@ export function registerRoutes(router: IRouter, ctx: ApiContext): void {
   router.put(
     '/rules/user/:slug',
     requireJson,
-    running((app, req, res) => {
-      saved(res, app, app.replaceRule(req.params.slug, req.body), false)
+    running((skar, req, res) => {
+      respondSaved(res, skar, skar.replaceRule(req.params.slug, req.body), false)
     })
   )
 
   router.post(
     '/rules/user/:slug/preview',
     requireJson,
-    running((app, req, res) => {
-      const outcome = app.previewRule(req.params.slug, req.body)
+    running((skar, req, res) => {
+      const outcome = skar.previewRule(req.params.slug, req.body)
       if (outcome.ok) res.json(outcome.value)
       else editRefused(res, outcome)
     })
@@ -145,8 +150,8 @@ export function registerRoutes(router: IRouter, ctx: ApiContext): void {
   router.delete(
     '/rules/user/:slug',
     requireJson,
-    running((app, req, res) => {
-      if (app.deleteRule(req.params.slug, actorOf(req))) res.status(204).end()
+    running((skar, req, res) => {
+      if (skar.deleteRule(req.params.slug, actorOf(req))) res.status(204).end()
       else notFound(res, 'such rule')
     })
   )
@@ -154,11 +159,11 @@ export function registerRoutes(router: IRouter, ctx: ApiContext): void {
   router.post(
     '/rules/:origin/:slug/reset',
     requireJson,
-    running((app, req, res) => {
+    running((skar, req, res) => {
       const { origin, slug } = req.params
-      switch (app.resetAccumulator(origin, slug, actorOf(req))) {
+      switch (skar.resetAccumulator(origin, slug, actorOf(req))) {
         case 'reset':
-          res.json(app.rule(origin, slug))
+          res.json(skar.rule(origin, slug))
           break
         case 'notFound':
           notFound(res, 'such rule')
@@ -171,29 +176,29 @@ export function registerRoutes(router: IRouter, ctx: ApiContext): void {
 
   router.get(
     '/evaluation',
-    running((app, _req, res) => {
-      res.json(app.evaluation)
+    running((skar, _req, res) => {
+      res.json(skar.evaluation)
     })
   )
 
   router.put(
     '/evaluation',
     requireJson,
-    running((app, req, res) => {
+    running((skar, req, res) => {
       const body: unknown = req.body
       if (!isRecord(body) || typeof body.enabled !== 'boolean') {
         invalid(res, [{ path: '/enabled', message: 'must be a boolean' }])
         return
       }
-      app.setEvaluation(body.enabled, actorOf(req))
-      res.json(app.evaluation)
+      skar.setEvaluation(body.enabled, actorOf(req))
+      res.json(skar.evaluation)
     })
   )
 
   router.get(
     '/log',
-    running((app, _req, res) => {
-      res.json(app.log())
+    running((skar, _req, res) => {
+      res.json(skar.log())
     })
   )
 }

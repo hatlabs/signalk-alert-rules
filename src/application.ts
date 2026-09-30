@@ -185,13 +185,13 @@ export class Application {
     const result = validateRule(input)
     if (!result.ok) return { ok: false, reason: 'invalid', errors: result.errors }
     if (this.stored.has(result.value.slug)) return { ok: false, reason: 'exists' }
-    return this.saved(this.saveRule(result.value))
+    return this.toSaveOutcome(this.saveRule(result.value))
   }
 
   /** Replaces the stored user rule `slug` with an input of the same slug. */
   replaceRule(slug: string, input: unknown): SaveOutcome {
     const checked = this.checkEdit(slug, input)
-    return checked.ok ? this.saved(this.saveRule(checked.value)) : checked
+    return checked.ok ? this.toSaveOutcome(this.saveRule(checked.value)) : checked
   }
 
   /** What replacing the user rule `slug` with the input would do, without doing it. */
@@ -279,7 +279,7 @@ export class Application {
     return result
   }
 
-  private saved(result: Result<Rule>): SaveOutcome {
+  private toSaveOutcome(result: Result<Rule>): SaveOutcome {
     return result.ok ? result : { ok: false, reason: 'invalid', errors: result.errors }
   }
 
