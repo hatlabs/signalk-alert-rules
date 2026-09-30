@@ -4,12 +4,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Value } from '@signalk/server-api'
-import { Application } from '../src/application.js'
+import { Application, LOG_LIMIT } from '../src/application.js'
 import { serverDeps } from '../src/alerts/server.js'
 import { Store } from '../src/store/store.js'
+import { FakeAlertsCore } from './helpers/FakeAlertsCore.js'
 import { MockServerAPI } from './helpers/MockServerAPI.js'
 
 const PLUGIN = 'signalk-alert-rules'
+const WALL = '2026-09-30T12:00:00.000Z'
 const OIL = 'propulsion.main.oilPressure'
 const COOLANT = 'propulsion.main.coolantTemperature'
 const RPM = 'propulsion.main.revolutions'
@@ -64,10 +66,14 @@ function stored(rule: Record<string, unknown> & { slug: string }): void {
   writeFileSync(join(dir, 'rules', `${rule.slug}.json`), JSON.stringify(rule))
 }
 
-function setup(store = new Store(dir)) {
-  const server = new MockServerAPI(true, dir)
+function setup(store = new Store(dir), core = new FakeAlertsCore()) {
+  const server = new MockServerAPI(true, dir, core)
   let now = 0
-  const deps = { ...serverDeps(server.asServerAPI(), PLUGIN), clock: () => now }
+  const deps = {
+    ...serverDeps(server.asServerAPI(), PLUGIN),
+    clock: () => now,
+    wallClock: () => new Date(WALL)
+  }
   const application = new Application(deps, store)
   application.start()
   const alerts = () => server.core.list().map((a) => [a.path, a.condition] as [string, boolean])
@@ -153,7 +159,7 @@ describe('application', () => {
     at(5)
     expect(alerts()).toHaveLength(2)
 
-    expect(application.deleteRule('oil-pressure-low')).toBe(true)
+    expect(application.deleteRule('oil-pressure-low', 'admin')).toBe(true)
     expect(existsSync(join(dir, 'rules', 'oil-pressure-low.json'))).toBe(false)
     expect(new Map(alerts())).toEqual(
       new Map([
@@ -161,7 +167,7 @@ describe('application', () => {
         ['rules.user.coolant-high', true]
       ])
     )
-    expect(application.deleteRule('oil-pressure-low')).toBe(false)
+    expect(application.deleteRule('oil-pressure-low', 'admin')).toBe(false)
   })
 
   it('skips and reports an invalid stored rule while the others run, and can delete it', () => {
@@ -176,7 +182,7 @@ describe('application', () => {
     at(5)
     expect(alerts()).toEqual([['rules.user.oil-pressure-low', true]])
 
-    expect(application.deleteRule('coolant-high')).toBe(true)
+    expect(application.deleteRule('coolant-high', 'admin')).toBe(true)
     expect(existsSync(join(dir, 'rules', 'coolant-high.json'))).toBe(false)
   })
 
@@ -204,8 +210,8 @@ describe('application', () => {
       'user.genset-hours': { '': 50 }
     })
 
-    application.deleteRule('genset-hours')
-    application.deleteRule('engine-hours')
+    application.deleteRule('genset-hours', 'admin')
+    application.deleteRule('engine-hours', 'admin')
     application.checkpoint()
     expect(new Store(dir).load().accumulators).toEqual({})
   })
@@ -231,5 +237,235 @@ describe('application', () => {
       actor: 'admin',
       at: '2026-09-30T12:00:00Z'
     })
+  })
+})
+
+describe('application operator actions', () => {
+  const OIL_ALERT = 'rules.user.oil-pressure-low'
+  // Not caution: core drops a cleared caution alert, which the tests read back.
+  const shortHours = { ...hours, priority: 'warning', detector: { ...hours.detector, limit: 10 } }
+
+  it('evaluation off clears every alert SKAR owns, stops evaluating and records the actor', () => {
+    stored(oil)
+    const core = new FakeAlertsCore()
+    const { application, at } = setup(undefined, core)
+    at(0, OIL, 0)
+    at(5)
+    // An owned alert the emitter does not hold, such as one whose rule's
+    // clear was lost, and another source's alert under the same prefix.
+    core.ingest(PLUGIN, 'rules.user.lost', { priority: 'alarm', message: 'x', latching: false })
+    core.raiseFrom('other-plugin', 'rules.user.foreign')
+
+    application.setEvaluation(false, 'admin')
+
+    const active = core.list().filter((a) => a.condition)
+    expect(active.map((a) => a.path)).toEqual(['rules.user.foreign'])
+    expect(application.evaluation).toEqual({ enabled: false, actor: 'admin', at: WALL })
+    expect(new Store(dir).load().evaluation).toEqual(application.evaluation)
+    expect(application.log()).toEqual([
+      { at: WALL, actor: 'admin', action: 'evaluation', enabled: false }
+    ])
+
+    const writes = core.writes
+    at(6, OIL, 0)
+    at(100)
+    expect(core.writes).toBe(writes)
+    expect(application.rules()[0]?.status).toBeNull()
+  })
+
+  it('a stored evaluation off is honoured at start: nothing is evaluated or cleared', () => {
+    stored(oil)
+    new Store(dir).saveEvaluation({ enabled: false, actor: 'admin', at: WALL })
+    const core = new FakeAlertsCore()
+    core.ingest(PLUGIN, OIL_ALERT, { priority: 'alarm', message: 'x', latching: false })
+    const writes = core.writes
+    const { at } = setup(undefined, core)
+    at(0, OIL, 0)
+    at(100)
+    expect(core.writes).toBe(writes)
+    expect(core.list().map((a) => [a.path, a.condition])).toEqual([[OIL_ALERT, true]])
+  })
+
+  it('evaluation on starts every rule fresh, clearing rather than adopting an alert core holds', () => {
+    stored(oil)
+    new Store(dir).saveEvaluation({ enabled: false })
+    const core = new FakeAlertsCore()
+    core.ingest(PLUGIN, OIL_ALERT, { priority: 'alarm', message: 'x', latching: false })
+    const { application, at } = setup(undefined, core)
+
+    at(10, OIL, 0)
+    application.setEvaluation(true, 'admin')
+    expect(core.getByPath(OIL_ALERT)?.condition).toBe(false)
+    at(14)
+    expect(core.getByPath(OIL_ALERT)?.condition).toBe(false)
+    at(15)
+    expect(core.getByPath(OIL_ALERT)?.condition).toBe(true)
+    expect(application.log().map((e) => e.action)).toEqual(['evaluation'])
+  })
+
+  it('setting the evaluation switch to its current value changes and records nothing', () => {
+    const { application } = setup()
+    application.setEvaluation(true, 'admin')
+    expect(application.evaluation).toEqual({ enabled: true })
+    expect(application.log()).toEqual([])
+  })
+
+  it('accumulator totals are kept while evaluation is off, and edits while off keep them', () => {
+    stored(hours)
+    const { application, at } = setup()
+    at(0, RPM, 30)
+    at(20)
+    application.setEvaluation(false, 'admin')
+    at(50)
+    expect(application.saveRule({ ...hours, message: 'Service the engine' }).ok).toBe(true)
+    application.checkpoint()
+    expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 20 } })
+
+    // Turned on at 50 s, the rule starts from the cached value: still running.
+    application.setEvaluation(true, 'admin')
+    at(70)
+    application.checkpoint()
+    expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 40 } })
+  })
+
+  it("an accumulator reset clears the rule's alert, zeroes its stored total and records the actor", () => {
+    stored(shortHours)
+    new Store(dir).saveCheckpoints({ 'user.engine-hours': { '': 8 } })
+    const { application, at, alerts } = setup()
+    at(0, RPM, 30)
+    at(2)
+    expect(alerts()).toEqual([['rules.user.engine-hours', true]])
+
+    expect(application.resetAccumulator('user', 'engine-hours', 'skipper')).toBe('reset')
+    expect(alerts()).toEqual([['rules.user.engine-hours', false]])
+    expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 0 } })
+    expect(application.log()).toEqual([
+      { at: WALL, actor: 'skipper', action: 'reset', rule: 'user.engine-hours' }
+    ])
+
+    // It keeps accumulating from zero and raises again at the limit.
+    at(11)
+    expect(alerts()).toEqual([['rules.user.engine-hours', false]])
+    at(12)
+    expect(alerts()).toEqual([['rules.user.engine-hours', true]])
+  })
+
+  it('an accumulator reset while evaluation is off zeroes the retained total', () => {
+    stored(hours)
+    const { application, at } = setup()
+    at(0, RPM, 30)
+    at(20)
+    application.setEvaluation(false, 'admin')
+    expect(application.resetAccumulator('user', 'engine-hours', 'admin')).toBe('reset')
+    expect(new Store(dir).load().accumulators).toEqual({})
+  })
+
+  it('refuses to reset a rule that is not an accumulator or does not exist', () => {
+    stored(oil)
+    const { application } = setup()
+    expect(application.resetAccumulator('user', 'oil-pressure-low', 'admin')).toBe('notAccumulator')
+    expect(application.resetAccumulator('user', 'missing', 'admin')).toBe('notFound')
+    expect(application.resetAccumulator('some-ruleset', 'oil-pressure-low', 'admin')).toBe(
+      'notFound'
+    )
+    expect(application.log()).toEqual([])
+  })
+
+  it('deleting a rule records the actor', () => {
+    stored(oil)
+    const { application } = setup()
+    application.deleteRule('oil-pressure-low', 'admin')
+    expect(application.log()).toEqual([
+      { at: WALL, actor: 'admin', action: 'delete', rule: 'user.oil-pressure-low' }
+    ])
+    expect(new Store(dir).load().log).toEqual([...application.log()].reverse())
+  })
+
+  it('keeps the most recent log entries, newest first', () => {
+    // Hundreds of flushed writes would take seconds.
+    const { application } = setup(new Store(dir, { ...fs, fsyncSync: () => undefined }))
+    for (let i = 0; i < LOG_LIMIT + 5; i++) application.setEvaluation(i % 2 === 1, 'admin')
+    const log = application.log()
+    expect(log).toHaveLength(LOG_LIMIT)
+    // The last action, the 205th, turned evaluation off.
+    expect(log[0]).toMatchObject({ enabled: false })
+    expect(new Store(dir).load().log).toHaveLength(LOG_LIMIT)
+  })
+
+  it('previews an edit that clears the active alert, and one re-evaluated in place', () => {
+    stored(oil)
+    const { application, at } = setup()
+    at(0, OIL, 0)
+    at(5)
+
+    const retyped = { ...oil, detector: { type: 'match', op: 'equals', value: 0 } }
+    const clearing = application.previewRule('oil-pressure-low', retyped)
+    expect(clearing).toMatchObject({
+      ok: true,
+      value: { restarts: true, activeAlerts: 1, clearsActiveAlert: true }
+    })
+    if (clearing.ok) expect(clearing.value.changes).toContain('detector.type')
+
+    const limit = { ...oil, detector: { ...oil.detector, limit: { kind: 'fixed', value: 90000 } } }
+    expect(application.previewRule('oil-pressure-low', limit)).toEqual({
+      ok: true,
+      value: { restarts: false, changes: [], activeAlerts: 1, clearsActiveAlert: false }
+    })
+    // A preview changes nothing.
+    expect(application.userRules()[0]).toMatchObject({ detector: { type: 'sustained' } })
+  })
+
+  it('a structural edit of a rule without an active alert restarts it and clears nothing', () => {
+    stored(oil)
+    const { application } = setup()
+    const reversed = { ...oil, detector: { ...oil.detector, direction: 'above' } }
+    expect(application.previewRule('oil-pressure-low', reversed)).toEqual({
+      ok: true,
+      value: {
+        restarts: true,
+        changes: ['detector.direction'],
+        activeAlerts: 0,
+        clearsActiveAlert: false
+      }
+    })
+  })
+
+  it('create refuses an existing slug; replace and preview need an existing rule with the same slug', () => {
+    stored(oil)
+    const { application } = setup()
+    expect(application.createRule(oil)).toEqual({ ok: false, reason: 'exists' })
+    expect(application.createRule({ ...oil, priority: 'loud' })).toMatchObject({
+      ok: false,
+      reason: 'invalid'
+    })
+    expect(application.replaceRule('coolant-high', coolant)).toEqual({
+      ok: false,
+      reason: 'notFound'
+    })
+    expect(application.replaceRule('oil-pressure-low', coolant)).toEqual({
+      ok: false,
+      reason: 'slugMismatch'
+    })
+    expect(application.previewRule('coolant-high', coolant)).toEqual({
+      ok: false,
+      reason: 'notFound'
+    })
+    expect(application.createRule(coolant)).toMatchObject({ ok: true })
+    expect(application.replaceRule('coolant-high', { ...coolant, message: 'Hot' })).toMatchObject({
+      ok: true
+    })
+  })
+
+  it('lists every rule with its origin, slug and status', () => {
+    stored(oil)
+    const { application, at } = setup()
+    at(0, OIL, 0)
+    at(5)
+    const [entry] = application.rules()
+    expect(entry).toMatchObject({ origin: 'user', slug: 'oil-pressure-low', rule: oil })
+    expect(entry.status?.badge).toBe('alertActive')
+    expect(application.rule('user', 'oil-pressure-low')?.status?.badge).toBe('alertActive')
+    expect(application.rule('user', 'missing')).toBeUndefined()
+    expect(application.rule('ruleset', 'oil-pressure-low')).toBeUndefined()
   })
 })

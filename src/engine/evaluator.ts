@@ -175,17 +175,30 @@ function canonical(value: unknown): string {
 // A zone limit's named level is structural too: re-evaluated in place, an
 // active alert would at once report the new level, which the value may never
 // have entered, while its detector waits out the clear duration.
-function structure(rule: Rule): string {
+function structure(rule: Rule): Record<string, unknown> {
   const fields: readonly string[] = ['type', ...STRUCTURAL[rule.detector.type]]
-  return canonical({
+  return {
     signal: rule.signal,
     gates: rule.gates ?? [],
     latching: rule.latching ?? false,
-    level: zoneLimitOf(rule)?.level ?? null,
-    detector: Object.fromEntries(
-      Object.entries(rule.detector).filter(([key]) => fields.includes(key))
+    'detector.limit.level': zoneLimitOf(rule)?.level,
+    ...Object.fromEntries(
+      Object.entries(rule.detector)
+        .filter(([key]) => fields.includes(key))
+        .map(([key, value]) => [`detector.${key}`, value])
     )
-  })
+  }
+}
+
+/**
+ * The parts of a rule an edit changes that make it clear and restart, named
+ * by field path; empty for an edit re-evaluated in place.
+ */
+export function structuralChanges(current: Rule, next: Rule): string[] {
+  const a = structure(current)
+  const b = structure(next)
+  const parts = new Set([...Object.keys(a), ...Object.keys(b)])
+  return [...parts].filter((part) => canonical(a[part]) !== canonical(b[part]))
 }
 
 export function isWildcard(signal: Signal): boolean {
@@ -287,7 +300,7 @@ export class RuleEvaluator {
       return
     }
     const now = this.ctx.clock()
-    if (structure(rule) !== structure(this.rule)) {
+    if (structuralChanges(this.rule, rule).length > 0) {
       this.carried = this.totals(rule)
       this.remove()
       this.rule = rule
@@ -307,6 +320,21 @@ export class RuleEvaluator {
     this.running = false
     for (const close of this.closers) close()
     this.closers = []
+  }
+
+  /**
+   * Zeroes an accumulator rule's totals, restored ones included, and clears
+   * its alerts. A running rule goes on accumulating from zero.
+   */
+  reset(): void {
+    this.carried.clear()
+    for (const unit of this.units.values()) {
+      if (unit.alerting) this.clear(unit)
+      unit.detector = undefined
+    }
+    if (!this.running) return
+    const now = this.ctx.clock()
+    for (const unit of this.units.values()) this.step(unit, now)
   }
 
   /** Clears the rule's alerts and stops, for a deleted rule. */

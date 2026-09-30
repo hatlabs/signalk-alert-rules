@@ -17,7 +17,7 @@ import {
   type AlertsReader,
   type EmitterDeps
 } from './emitter.js'
-import { ruleId } from './paths.js'
+import { parseAlertPath, ruleId } from './paths.js'
 import { reconcile } from './reconcile.js'
 
 export interface RunnerDeps extends EvaluatorContext, EmitterDeps {
@@ -83,14 +83,19 @@ export class RuleRunner {
     for (const entry of rules) this.entries.set(idOf(entry), entry)
   }
 
-  start(): void {
+  /**
+   * @param adopt whether active alerts SKAR already has in core are adopted;
+   *   without it they are cleared and every rule starts from nothing.
+   */
+  start(adopt = true): void {
     const now = this.deps.clock()
     const rules = new Map([...this.entries].map(([id, e]) => [id, e.rule]))
-    const { kept, activeByRule, toClear } = reconcile(
-      this.deps.alerts.list(),
-      this.deps.pluginId,
-      rules
-    )
+    const reconciled = reconcile(this.deps.alerts.list(), this.deps.pluginId, rules)
+    const { activeByRule } = reconciled
+    const kept = adopt ? reconciled.kept : []
+    const toClear = adopt
+      ? reconciled.toClear
+      : [...reconciled.toClear, ...reconciled.kept.map((k) => k.alert)]
     for (const alert of toClear) this.deps.send(alert.path, null)
     for (const { alert, ruleId: id, segment } of kept) {
       const rule = this.entries.get(id)?.rule
@@ -108,7 +113,8 @@ export class RuleRunner {
       )
     }
     for (const [id, entry] of this.entries) {
-      this.startRule(id, entry, activeByRule.get(id), this.accumulated.get(id))
+      const adopted = adopt ? activeByRule.get(id) : undefined
+      this.startRule(id, entry, adopted, this.accumulated.get(id))
     }
   }
 
@@ -155,6 +161,29 @@ export class RuleRunner {
       const path = alertPathFor(entry.origin, entry.rule.slug, instance?.segment)
       if (path.ok) this.emitter.revise(path.value, header(entry.rule, instance?.name, priority))
     }
+  }
+
+  /**
+   * Stops evaluating and clears every active alert SKAR owns: those it
+   * heartbeats, and any other active alert core holds under SKAR's prefix
+   * from SKAR, such as one whose clear was lost. For turning evaluation off;
+   * the runner is not started again.
+   */
+  clearAll(): void {
+    this.stop()
+    const owned = this.deps.alerts
+      .list()
+      .filter(
+        (a) =>
+          a.$source === this.deps.pluginId && a.condition && parseAlertPath(a.path) !== undefined
+      )
+    const cleared = new Set(this.emitter.clearAll())
+    for (const { path } of owned) if (!cleared.has(path)) this.deps.send(path, null)
+  }
+
+  /** Zeroes an accumulator rule's totals and clears its alerts. */
+  reset(id: string): void {
+    this.evaluators.get(id)?.reset()
   }
 
   /** Clears a rule's alerts and forgets it, for a deleted rule. */
