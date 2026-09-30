@@ -1,5 +1,14 @@
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { emptyForm, emptyGate, setMode, type RuleForm } from '../../../src/panel/editor/formModel'
+import type { Rule } from '../../../src/model/rule'
+import {
+  emptyForm,
+  emptyGate,
+  fromRule,
+  setMode,
+  type RuleForm
+} from '../../../src/panel/editor/formModel'
 import {
   attachErrors,
   fieldPointers,
@@ -7,6 +16,20 @@ import {
   sectionApplies
 } from '../../../src/panel/editor/sections'
 import { NO_UNITS } from '../../../src/panel/signalUnits'
+
+const EXAMPLES = join(import.meta.dirname, '../../../examples/rules')
+
+function examples(): [string, Rule][] {
+  return readdirSync(EXAMPLES)
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => [f, JSON.parse(readFileSync(join(EXAMPLES, f), 'utf8')) as Rule])
+}
+
+/** The JSON pointer of every value in `value` that holds no other value. */
+function leafPointers(value: unknown, at = ''): string[] {
+  if (typeof value !== 'object' || value === null) return [at]
+  return Object.entries(value).flatMap(([key, child]) => leafPointers(child, `${at}/${key}`))
+}
 
 function form(edit: (f: RuleForm) => void = () => undefined): RuleForm {
   const f = emptyForm()
@@ -103,6 +126,12 @@ describe('attachErrors', () => {
 })
 
 describe('fieldPointers', () => {
+  // A stored value with no field would take a server error the form cannot show on its field.
+  it.each(examples())('has a field for every value of %s', (_, rule) => {
+    const fields = fieldPointers(fromRule(rule, NO_UNITS))
+    expect(leafPointers(rule).filter((p) => !fields.includes(p))).toEqual([])
+  })
+
   it('lists the fields a sustained fixed-limit rule shows', () => {
     const f = form((f) => {
       f.detector.type = 'sustained'
