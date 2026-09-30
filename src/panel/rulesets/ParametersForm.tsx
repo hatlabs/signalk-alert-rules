@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type SyntheticEvent } from 'react'
 import { RuleRejectedError, type FieldError } from '../api'
+import { failureMessage } from '../failure'
 import { Field, FieldErrors } from '../editor/fields'
 import { unitLabel, type DisplayUnit } from '../units'
 import type { Parameter, RulesetEntry } from './api'
@@ -89,7 +90,7 @@ export function ParametersForm({ ruleset, unitOf, save }: ParametersFormProps) {
       await save(outcome.values)
     } catch (err) {
       if (err instanceof RuleRejectedError && err.errors.length > 0) refuse(err.errors)
-      else setFailure(err instanceof Error ? err.message : String(err))
+      else setFailure(failureMessage(err))
     } finally {
       setBusy(false)
     }

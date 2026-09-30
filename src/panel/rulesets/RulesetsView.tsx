@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import type { RuleEntry } from '../api'
+import { failureMessage } from '../failure'
 import type { PathList } from '../paths/selfPaths'
 import { displayUnit } from '../units'
 import type { DiscoveryProblem, Parameter, RulesetEntry, RulesetListing, RulesetsApi } from './api'
@@ -79,7 +80,7 @@ export function RulesetsView({
 
   useEffect(() => {
     read(() => api.list()).catch((err: unknown) => {
-      setFailure(`Cannot read the rulesets: ${err instanceof Error ? err.message : String(err)}`)
+      setFailure(`Cannot read the rulesets: ${failureMessage(err)}`)
     })
   }, [api, rules, read])
 
@@ -100,7 +101,7 @@ export function RulesetsView({
         refresh()
       })
       .catch((err: unknown) => {
-        setFailure(`The rescan failed: ${err instanceof Error ? err.message : String(err)}`)
+        setFailure(`The rescan failed: ${failureMessage(err)}`)
       })
       .finally(() => {
         setRescanning(false)

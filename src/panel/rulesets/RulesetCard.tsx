@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import type { RuleEntry } from '../api'
+import { failureMessage } from '../failure'
 import { StatusBadge } from '../rules/StatusBadge'
 import type { DisplayUnit } from '../units'
 import type { Parameter, RulesetEntry, RulesetsApi } from './api'
@@ -128,7 +129,7 @@ export function RulesetCard({
     try {
       await action()
     } catch (err) {
-      setFailure(err instanceof Error ? err.message : String(err))
+      setFailure(failureMessage(err))
     }
   }
 

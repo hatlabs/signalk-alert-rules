@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { RuleRejectedError, type RuleEntry } from '../../../src/panel/api'
+import { RuleRejectedError, SessionExpiredError, type RuleEntry } from '../../../src/panel/api'
 import type { PathList } from '../../../src/panel/paths/selfPaths'
 import type { RulesetEntry, RulesetListing, RulesetsApi } from '../../../src/panel/rulesets/api'
 import { RulesetsView } from '../../../src/panel/rulesets/RulesetsView'
@@ -144,6 +144,14 @@ describe('RulesetsView', () => {
       'true'
     )
     expect(refresh).toHaveBeenCalled()
+  })
+
+  it('tells the operator to log in again when the session has expired', async () => {
+    const { api } = await show({ rulesets: [ruleset({ enabled: false })], problems: [] })
+    api.setEnabled.mockRejectedValueOnce(new SessionExpiredError())
+    fireEvent.click(screen.getByRole('switch', { name: 'Enabled' }))
+    await settle()
+    expect(screen.getByRole('alert').textContent).toMatch(/log in as an administrator/)
   })
 
   it('lists a malformed ruleset with its reason and line', async () => {
