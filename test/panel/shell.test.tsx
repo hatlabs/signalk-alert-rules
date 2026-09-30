@@ -12,7 +12,7 @@ import {
 import type { PathSource } from '../../src/panel/paths/selfPaths'
 import { Shell } from '../../src/panel/Shell'
 import { DISABLED_POLL_INTERVAL_MS, POLL_INTERVAL_MS } from '../../src/panel/shellState'
-import { instance, noAuthoring, noControls, ruleEntry } from './fixtures'
+import { instance, noAuthoring, noControls, noRulesets, ruleEntry } from './fixtures'
 
 interface Server {
   state: PluginState | Error
@@ -73,7 +73,7 @@ describe('Shell', () => {
   function renderShell(server: Server) {
     vi.useFakeTimers()
     const api = mockApi(server)
-    render(<Shell api={api} paths={noPaths} />)
+    render(<Shell api={api} rulesets={noRulesets} paths={noPaths} />)
     return api
   }
 
@@ -225,7 +225,7 @@ describe('Shell', () => {
           })
         : Promise.resolve(Response.json({ running: true, securityEnabled: true }))
     )
-    render(<Shell api={httpApi(fetchFn)} paths={noPaths} />)
+    render(<Shell api={httpApi(fetchFn)} rulesets={noRulesets} paths={noPaths} />)
     await tick(REQUEST_TIMEOUT_MS)
     expect(screen.getByRole('alert').textContent).toMatch(/cannot reach.*retrying/i)
     hang = false
@@ -267,7 +267,7 @@ describe('Shell', () => {
           answerFirst = resolve
         })
     )
-    render(<Shell api={api} paths={noPaths} />)
+    render(<Shell api={api} rulesets={noRulesets} paths={noPaths} />)
     setVisibility('hidden')
     setVisibility('visible')
     await settle()
@@ -314,7 +314,7 @@ describe('Shell rules', () => {
   async function renderShell(server: Server) {
     vi.useFakeTimers()
     const api = mockApi(server)
-    render(<Shell api={api} paths={noPaths} />)
+    render(<Shell api={api} rulesets={noRulesets} paths={noPaths} />)
     await settle()
     return api
   }

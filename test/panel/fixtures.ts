@@ -1,4 +1,5 @@
 import type { InstanceStatus, PanelApi, RuleEntry } from '../../src/panel/api'
+import type { RulesetsApi } from '../../src/panel/rulesets/api'
 
 const notExpected = () => Promise.reject(new Error('not expected to be asked'))
 
@@ -33,6 +34,15 @@ export const noControls: Pick<
   suppressInput: notExpected,
   endInputSuppression: notExpected,
   previewInputSuppression: notExpected
+}
+
+/** The ruleset routes of a server with no ruleset, for tests that change none. */
+export const noRulesets: RulesetsApi = {
+  list: () => Promise.resolve({ rulesets: [], problems: [] }),
+  rescan: notExpected,
+  setEnabled: notExpected,
+  setParameters: notExpected,
+  dismissNotices: notExpected
 }
 
 /** An idle instance with a value, to override per test. */

@@ -1,5 +1,6 @@
 import { httpApi } from './api'
 import { httpPathSource } from './paths/selfPaths'
+import { httpRulesetsApi } from './rulesets/api'
 import { Shell } from './Shell'
 import './panel.css'
 
@@ -15,9 +16,10 @@ export interface PluginConfigurationPanelProps {
 }
 
 const api = httpApi()
+const rulesets = httpRulesetsApi()
 // Created once, so the path list is not fetched again on every render.
 const paths = httpPathSource()
 
 export default function PluginConfigurationPanel(_props: PluginConfigurationPanelProps) {
-  return <Shell api={api} paths={paths} />
+  return <Shell api={api} rulesets={rulesets} paths={paths} />
 }

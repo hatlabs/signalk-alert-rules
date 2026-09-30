@@ -1,5 +1,6 @@
 import { useId, type ReactNode, type Ref } from 'react'
 import type { RuleEntry } from '../api'
+import { ProvidedBy } from '../rulesets/ProvidedBy'
 import { NO_UNITS, type UnitLookup } from '../signalUnits'
 import { Confirm, useConfirmation } from './Confirm'
 import {
@@ -40,6 +41,8 @@ export interface RuleDetailProps {
   setNote?: (note: string) => Promise<void>
   /** Suppresses the rule or one of its inputs; absent where suppression is not offered. */
   suppression?: SuppressContext
+  /** Shows the ruleset that provides the rule. */
+  openRuleset?: () => void
 }
 
 function Fact({ term, children }: { term: string; children: ReactNode }) {
@@ -85,7 +88,8 @@ export function RuleDetail({
   instanceRef,
   setEnabled,
   setNote,
-  suppression
+  suppression,
+  openRuleset
 }: RuleDetailProps) {
   const confirmation = useConfirmation()
   const { rule, status } = entry
@@ -109,6 +113,7 @@ export function RuleDetail({
           </span>
         ))}
       </p>
+      {entry.ruleset !== undefined && <ProvidedBy source={entry.ruleset} open={openRuleset} />}
       <StatusBadge status={status} />
       {status.errors.length > 0 && (
         <>

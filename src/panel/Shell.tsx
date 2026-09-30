@@ -9,6 +9,8 @@ import { EvaluationOffBanner } from './rules/EvaluationOffBanner'
 import { RuleDetail } from './rules/RuleDetail'
 import { hashWithRule, parseRuleFragment, type RuleRef } from './rules/ruleLink'
 import { RulesView } from './rules/RulesView'
+import type { RulesetsApi } from './rulesets/api'
+import { RulesetsView } from './rulesets/RulesetsView'
 import {
   pollDelay,
   probe,
@@ -31,6 +33,7 @@ type Tab = (typeof TABS)[number]['id']
 
 export interface ShellProps {
   api: PanelApi
+  rulesets: RulesetsApi
   /** The server's paths and their units, for display units and the path picker. */
   paths: PathSource
 }
@@ -267,6 +270,7 @@ function useLocationHash(): [string, (next: string) => void] {
 
 interface ViewsProps {
   api: PanelApi
+  rulesets: RulesetsApi
   view: ReadyView
   paths: PathSource
   /** Probes again at once, so the views show the outcome of an action. */
@@ -276,9 +280,11 @@ interface ViewsProps {
 /** What the authoring form is open on. */
 type EditorTarget = { kind: 'new' } | { kind: 'edit'; origin: string; slug: string }
 
-function Views({ api, view, paths, refresh }: ViewsProps) {
+function Views({ api, rulesets, view, paths, refresh }: ViewsProps) {
   const { rules, evaluationEnabled, issues } = view
-  const { units } = useUnits(paths)
+  const { units, paths: pathList } = useUnits(paths)
+  // The ruleset a rule's detail view opened the Rulesets view on.
+  const [shownRuleset, setShownRuleset] = useState<string | undefined>(undefined)
   const [editor, setEditor] = useState<EditorTarget | undefined>(undefined)
   const [dirty, setDirty] = useState(false)
   const [pendingTab, setPendingTab] = useState<Tab | undefined>(undefined)
@@ -334,6 +340,7 @@ function Views({ api, view, paths, refresh }: ViewsProps) {
 
   const showTab = (next: Tab) => {
     closeEditor()
+    setShownRuleset(undefined)
     setTab(next)
     // A rule link that the hash already names would otherwise change nothing when followed.
     // The operator chose the tab, so the list this leaves behind must not take focus later.
@@ -431,6 +438,14 @@ function Views({ api, view, paths, refresh }: ViewsProps) {
             refresh()
           }}
           suppression={suppression}
+          openRuleset={
+            entry.ruleset === undefined
+              ? undefined
+              : () => {
+                  setShownRuleset(entry.origin)
+                  setTab('rulesets')
+                }
+          }
         />
       )
     }
@@ -539,12 +554,22 @@ function Views({ api, view, paths, refresh }: ViewsProps) {
             refresh={refresh}
           />
         )}
+        {tab === 'rulesets' && (
+          <RulesetsView
+            api={rulesets}
+            rules={rules}
+            paths={pathList}
+            ruleHref={(origin, slug) => hashWithRule(hash, { origin, slug })}
+            refresh={refresh}
+            focusSlug={shownRuleset}
+          />
+        )}
       </div>
     </>
   )
 }
 
-export function Shell({ api, paths }: ShellProps) {
+export function Shell({ api, rulesets, paths }: ShellProps) {
   const [snapshot, ready, checkAgain] = useSnapshot(api)
   const { view, securityEnabled } = snapshot
 
@@ -556,7 +581,9 @@ export function Shell({ api, paths }: ShellProps) {
         stale={ready !== undefined && view.kind !== 'ready'}
         checkAgain={checkAgain}
       />
-      {ready !== undefined && <Views api={api} view={ready} paths={paths} refresh={checkAgain} />}
+      {ready !== undefined && (
+        <Views api={api} rulesets={rulesets} view={ready} paths={paths} refresh={checkAgain} />
+      )}
     </div>
   )
 }

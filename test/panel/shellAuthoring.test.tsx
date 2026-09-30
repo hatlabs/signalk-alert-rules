@@ -13,7 +13,7 @@ import {
 import type { PathSource } from '../../src/panel/paths/selfPaths'
 import { Shell } from '../../src/panel/Shell'
 import { displayUnit } from '../../src/panel/units'
-import { noControls, ruleEntry } from './fixtures'
+import { noControls, noRulesets, ruleEntry } from './fixtures'
 
 const EXAMPLES = join(import.meta.dirname, '../../examples/rules')
 const stored = JSON.parse(readFileSync(join(EXAMPLES, 'house-battery-low.json'), 'utf8')) as Rule
@@ -65,7 +65,7 @@ function mockApi(rules: RuleEntry[]) {
 
 function renderShell(rules: RuleEntry[]) {
   const api = mockApi(rules)
-  render(<Shell api={api} paths={paths} />)
+  render(<Shell api={api} rulesets={noRulesets} paths={paths} />)
   return api
 }
 
