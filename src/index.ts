@@ -69,24 +69,27 @@ export default function createPlugin(app: ServerAPI): Plugin {
       const status =
         running.issues.length === 0 ? 'Running' : `Running; ${running.issues.join('; ')}`
       // A disk that stays full fails every write, each tick or checkpoint:
-      // report the failure once, and the recovery. An exception escaping a
-      // timer would take the whole server down.
+      // report the failure once, and the recovery. The reporters share one
+      // plugin status, so one recovering must not hide the other's failure.
+      // An exception escaping a timer would take the whole server down.
+      const failures = new Map<symbol, string>()
       const reportingOnce = (describe: (err: unknown) => string, run: () => void) => {
-        let failed = false
+        const key = Symbol()
         return () => {
           try {
             run()
           } catch (err) {
-            if (failed) return
-            failed = true
+            if (failures.has(key)) return
             const text = describe(err)
+            failures.set(key, text)
             app.error(text)
             app.setPluginError(text)
             return
           }
-          if (failed) {
-            failed = false
-            app.setPluginStatus(status)
+          if (failures.delete(key)) {
+            const remaining = [...failures.values()].at(-1)
+            if (remaining === undefined) app.setPluginStatus(status)
+            else app.setPluginError(remaining)
           }
         }
       }
