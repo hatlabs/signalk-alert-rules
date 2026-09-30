@@ -631,6 +631,23 @@ describe('application accumulator totals across edits', () => {
     expect(total()).toBe(120)
   })
 
+  it('replacing a stored rule whose file names another slug with the same measure keeps its total', () => {
+    fs.mkdirSync(join(dir, 'rules'), { recursive: true })
+    writeFileSync(
+      join(dir, 'rules', 'engine-hours.json'),
+      JSON.stringify({ ...hours, slug: 'other-hours' })
+    )
+    new Store(dir).saveCheckpoints({ [ID]: { '': 100 } })
+    const { application, at } = setup()
+    expect(application.issues.join('\n')).toMatch(/engine-hours has the slug other-hours/)
+
+    expect(application.replaceRule(hours.slug, hours).ok).toBe(true)
+    at(0, RPM, 30)
+    at(20)
+    application.checkpoint()
+    expect(total()).toBe(120)
+  })
+
   it('with evaluation off, the replaced rule keeps the total until evaluation is on', () => {
     stored(brokenHours)
     new Store(dir).saveCheckpoints({ [ID]: { '': 100 } })
