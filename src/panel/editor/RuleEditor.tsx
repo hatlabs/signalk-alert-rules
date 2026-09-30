@@ -231,9 +231,10 @@ function EditorForm({ api, paths, units, editing, onSaved, onClose, onDirtyChang
         className="skar-rule-form"
         aria-label={editing === undefined ? 'New rule' : `Edit ${editing.entry.rule.name}`}
         noValidate
+        // Enter in a field, or a tablet keyboard's Go, submits a form; a rule
+        // half edited would be saved and the form closed, so only the button saves.
         onSubmit={(event) => {
           event.preventDefault()
-          void save()
         }}
       >
         <h3 ref={headingRef} tabIndex={-1} className="h5">
@@ -479,7 +480,12 @@ function EditorForm({ api, paths, units, editing, onSaved, onClose, onDirtyChang
 
         <div className="skar-actions">
           {shown.has('name') && (
-            <button type="submit" className="btn btn-primary btn-sm me-2" disabled={busy}>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm me-2"
+              disabled={busy}
+              onClick={() => void save()}
+            >
               {editing === undefined ? 'Create rule' : 'Save changes'}
             </button>
           )}

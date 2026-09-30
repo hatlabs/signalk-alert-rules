@@ -356,6 +356,18 @@ describe('RuleEditor, editing', () => {
     })
   })
 
+  it('saves nothing on Enter in a field; only the Save button saves', async () => {
+    const { api, onSaved } = renderEditor({ entry: active, rule: battery })
+    const hysteresis = await screen.findByRole('textbox', { name: 'Hysteresis' })
+    type(hysteresis, '0.3')
+    // What a browser does on Enter, or a tablet keyboard's Go, in a text field.
+    fireEvent.submit(screen.getByRole('form'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(api.previewRule).not.toHaveBeenCalled()
+    expect(api.updateRule).not.toHaveBeenCalled()
+    expect(onSaved).not.toHaveBeenCalled()
+  })
+
   it('names the accumulated total an edit discards', async () => {
     const hours = example('engine-service-due')
     const entry = ruleEntry({
