@@ -88,6 +88,24 @@ details:not([open]) > .skar-section-heading {
   margin-top: 1rem;
 }
 
+/* Paths are long, so the chips wrap rather than widen the page at 768 px. */
+.skar-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.skar-chips .btn {
+  max-width: 100%;
+  text-align: left;
+}
+
+.skar-suppress {
+  margin-top: 1rem;
+}
+
 /* Kept away from the per-rule actions so it is not hit by mistake. */
 .skar-danger-zone {
   margin-top: 2rem;

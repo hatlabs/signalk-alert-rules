@@ -18,6 +18,7 @@ import {
   type ShellView
 } from './shellState'
 import { useUnits } from './signalUnits'
+import type { SuppressContext } from './suppression/SuppressButton'
 
 const TABS = [
   { id: 'rules', label: 'Rules' },
@@ -366,6 +367,8 @@ function Views({ api, view, paths, refresh }: ViewsProps) {
     )
   }
 
+  const suppression: SuppressContext = { api, rules, paths, done: refresh }
+
   const setEvaluation = async (enabled: boolean) => {
     await api.setEvaluation(enabled)
     refresh()
@@ -408,6 +411,7 @@ function Views({ api, view, paths, refresh }: ViewsProps) {
             await api.setNote(entry.origin, entry.slug, note)
             refresh()
           }}
+          suppression={suppression}
         />
       )
     }
@@ -441,6 +445,7 @@ function Views({ api, view, paths, refresh }: ViewsProps) {
         <RulesView
           rules={rules}
           ruleHref={(origin, slug) => hashWithRule(hash, { origin, slug })}
+          suppression={suppression}
           onNew={() => {
             setEditor({ kind: 'new' })
           }}

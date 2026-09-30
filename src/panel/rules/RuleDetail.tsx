@@ -12,6 +12,7 @@ import {
   type RuleDisplay
 } from './describe'
 import { InstanceTable, isLinked } from './InstanceTable'
+import { InputChips, SuppressButton, type SuppressContext } from '../suppression/SuppressButton'
 import { EnableToggle, NoteEditor } from './RuleControls'
 import { StatusBadge } from './StatusBadge'
 
@@ -35,6 +36,8 @@ export interface RuleDetailProps {
   setEnabled?: (enabled: boolean) => Promise<void>
   /** Sets the rule's note, an empty one removing it; a rejection is shown. */
   setNote?: (note: string) => Promise<void>
+  /** Suppresses the rule or one of its inputs; absent where suppression is not offered. */
+  suppression?: SuppressContext
 }
 
 function Fact({ term, children }: { term: string; children: ReactNode }) {
@@ -79,7 +82,8 @@ export function RuleDetail({
   instance,
   instanceRef,
   setEnabled,
-  setNote
+  setNote,
+  suppression
 }: RuleDetailProps) {
   const confirmation = useConfirmation()
   const { rule, status } = entry
@@ -135,6 +139,7 @@ export function RuleDetail({
           </Fact>
         )}
       </dl>
+      {suppression !== undefined && <InputChips entry={entry} context={suppression} />}
       {status.issues.length > 0 && (
         <ul className="skar-issues">
           {status.issues.map((issue) => (
@@ -164,6 +169,9 @@ export function RuleDetail({
         >
           Edit
         </button>
+        {suppression !== undefined && (
+          <SuppressButton target={{ kind: 'rule', entry }} context={suppression} />
+        )}
         {setEnabled !== undefined && <EnableToggle entry={entry} setEnabled={setEnabled} />}
         {setNote !== undefined && <NoteEditor entry={entry} setNote={setNote} />}
         {isAccumulator && (

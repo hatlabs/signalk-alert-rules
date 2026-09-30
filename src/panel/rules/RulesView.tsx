@@ -9,6 +9,9 @@ import {
   markers,
   USER_ORIGIN
 } from './describe'
+import type { SuppressContext } from '../suppression/SuppressButton'
+import { SuppressDialog } from '../suppression/SuppressDialog'
+import { useConfirmation } from './Confirm'
 import { BADGE_LOOK, StatusBadge } from './StatusBadge'
 
 export interface RulesViewProps {
@@ -17,7 +20,11 @@ export interface RulesViewProps {
   ruleHref: (origin: string, slug: string) => string
   /** Opens the authoring form on a new rule. */
   onNew?: () => void
+  /** Suppresses a rule from its row; absent where suppression is not offered. */
+  suppression?: SuppressContext
 }
+
+const COLUMNS = 5
 
 function matches(entry: RuleEntry, text: string, badge: Badge | ''): boolean {
   if (badge !== '' && entry.status.badge !== badge) return false
@@ -39,32 +46,75 @@ function byOrigin(rules: RuleEntry[]): [string, RuleEntry[]][] {
   )
 }
 
-function RuleRow({ entry, href }: { entry: RuleEntry; href: string }) {
+function RuleRow({
+  entry,
+  href,
+  suppression
+}: {
+  entry: RuleEntry
+  href: string
+  suppression?: SuppressContext
+}) {
   const shownMarkers = markers(entry)
+  const dialog = useConfirmation()
   return (
-    <tr>
-      <td>
-        <a href={href}>{entry.rule.name}</a>
-        {shownMarkers.map((marker) => (
-          <span key={marker} className="badge text-bg-light skar-marker">
-            {marker}
-          </span>
-        ))}
-      </td>
-      <td>
-        <StatusBadge status={entry.status} />
-        {isWildcard(entry.rule) && (
-          <div className="skar-instance-summary">{instanceSummary(entry)}</div>
+    <>
+      <tr>
+        <td>
+          <a href={href}>{entry.rule.name}</a>
+          {shownMarkers.map((marker) => (
+            <span key={marker} className="badge text-bg-light skar-marker">
+              {marker}
+            </span>
+          ))}
+        </td>
+        <td>
+          <StatusBadge status={entry.status} />
+          {isWildcard(entry.rule) && (
+            <div className="skar-instance-summary">{instanceSummary(entry)}</div>
+          )}
+        </td>
+        <td>{describeDetector(entry.rule.detector)}</td>
+        <td className="skar-path">{describeInput(entry.rule.signal)}</td>
+        <td>{describePriority(entry.rule)}</td>
+        {suppression !== undefined && (
+          <td>
+            <button
+              ref={dialog.trigger}
+              type="button"
+              className="btn btn-outline-secondary btn-sm"
+              aria-label={`Suppress ${entry.rule.name}`}
+              disabled={dialog.open}
+              onClick={dialog.show}
+            >
+              Suppress…
+            </button>
+          </td>
         )}
-      </td>
-      <td>{describeDetector(entry.rule.detector)}</td>
-      <td className="skar-path">{describeInput(entry.rule.signal)}</td>
-      <td>{describePriority(entry.rule)}</td>
-    </tr>
+      </tr>
+      {suppression !== undefined && dialog.open && (
+        // The dialog gets a row of its own, right under the rule it suppresses.
+        <tr>
+          <td colSpan={COLUMNS + 1}>
+            <SuppressDialog
+              target={{ kind: 'rule', entry }}
+              api={suppression.api}
+              rules={suppression.rules}
+              paths={suppression.paths}
+              onDone={() => {
+                dialog.close()
+                suppression.done()
+              }}
+              onCancel={dialog.close}
+            />
+          </td>
+        </tr>
+      )}
+    </>
   )
 }
 
-function RuleTable({ rules, ruleHref }: Omit<RulesViewProps, 'onNew'>) {
+function RuleTable({ rules, ruleHref, suppression }: Omit<RulesViewProps, 'onNew'>) {
   return (
     <div className="table-responsive">
       <table className="table table-sm align-middle skar-rules">
@@ -75,11 +125,21 @@ function RuleTable({ rules, ruleHref }: Omit<RulesViewProps, 'onNew'>) {
             <th scope="col">Detector</th>
             <th scope="col">Input</th>
             <th scope="col">Priority</th>
+            {suppression !== undefined && (
+              <th scope="col">
+                <span className="visually-hidden">Actions</span>
+              </th>
+            )}
           </tr>
         </thead>
         <tbody>
           {rules.map((entry) => (
-            <RuleRow key={entry.slug} entry={entry} href={ruleHref(entry.origin, entry.slug)} />
+            <RuleRow
+              key={entry.slug}
+              entry={entry}
+              href={ruleHref(entry.origin, entry.slug)}
+              suppression={suppression}
+            />
           ))}
         </tbody>
       </table>
@@ -88,7 +148,7 @@ function RuleTable({ rules, ruleHref }: Omit<RulesViewProps, 'onNew'>) {
 }
 
 /** The rule list: filters, then the rules grouped by origin. */
-export function RulesView({ rules, ruleHref, onNew }: RulesViewProps) {
+export function RulesView({ rules, ruleHref, onNew, suppression }: RulesViewProps) {
   const [text, setText] = useState('')
   const [badge, setBadge] = useState<Badge | ''>('')
   const filterId = useId()
@@ -149,12 +209,12 @@ export function RulesView({ rules, ruleHref, onNew }: RulesViewProps) {
           origin === USER_ORIGIN ? (
             <div key={origin} role="group" aria-label="Your rules">
               <h3 className="h6">Your rules</h3>
-              <RuleTable rules={entries} ruleHref={ruleHref} />
+              <RuleTable rules={entries} ruleHref={ruleHref} suppression={suppression} />
             </div>
           ) : (
             <details key={origin} open aria-label={`Ruleset ${origin}`}>
               <summary className="h6">Ruleset {origin}</summary>
-              <RuleTable rules={entries} ruleHref={ruleHref} />
+              <RuleTable rules={entries} ruleHref={ruleHref} suppression={suppression} />
             </details>
           )
         )
