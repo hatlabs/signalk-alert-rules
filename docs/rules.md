@@ -418,7 +418,7 @@ The badge is the first of these that applies, most important first:
 | `disabled` | the rule is not evaluated; `reason` is `disabled`, `ruleset is disabled`, or `evaluation is off` while [evaluation](api.md#evaluation-switch) is off |
 | `suppressed` | the rule, or the instance's input path, is suppressed; `suppression` gives the scope |
 | `errored` | the rule has an error (rule level only) |
-| `inactive` | the rule cannot evaluate the instance: a ruleset rule whose paths the server has not had (rule level, reason `ruleset path missing`), a zone level missing, a timeout rule the server can never time out, a timeout rule on a boolean or string path, an angular combination of an input not in radians, an alert path that would be invalid |
+| `inactive` | the rule cannot evaluate the instance: a ruleset rule whose paths the server has not had (rule level, reason `ruleset path missing`, or `starts at the next tick` once they have appeared), a zone level missing, a timeout rule the server can never time out, a timeout rule on a boolean or string path, an angular combination of an input not in radians, an alert path that would be invalid |
 | `alertActive` | the alert is active |
 | `gatedOff` | a gate does not hold |
 | `inputUnavailable` | the input is unavailable |
@@ -432,7 +432,7 @@ A rule's badge is `suppressed` when the rule itself is suppressed, else `errored
 - `waitingForClear`: an active alert whose condition is timing its `clearDuration`, or a suppression that ends by itself once the condition has stayed clear.
 - `awaitingInput`: an active alert without input evidence (see [Heartbeat and input evidence](#heartbeat-and-input-evidence)).
 
-A rule that is not evaluated, because it or its ruleset is disabled or evaluation is off, has the `disabled` badge with its reason, no errors or issues, and one instance row per accumulator total it keeps: `badge`, `reason`, `subLabels`, `progress` as `{ "kind": "total", "total", "limit" }`, and for a wildcard rule `instance` with the `segment` only. A ruleset rule waiting for its paths is not evaluated either: it has the `inactive` badge with the reason `ruleset path missing`, one issue per missing path, and the same rows.
+A rule that is not evaluated, because it or its ruleset is disabled or evaluation is off, has the `disabled` badge with its reason, no errors or issues, and one instance row per accumulator total it keeps: `badge`, `reason`, `subLabels`, `progress` as `{ "kind": "total", "total", "limit" }`, and for a wildcard rule `instance` with the `segment` only. A ruleset rule waiting for its paths is not evaluated either: it has the `inactive` badge with the reason `ruleset path missing`, one issue per missing path, and the same rows. Between its paths appearing and the next evaluation tick the reason is `starts at the next tick`, with no issues.
 
 ## Worked examples
 

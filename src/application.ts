@@ -49,7 +49,11 @@ export const LOG_LIMIT = 200
 export const AUTO_END_ACTOR = 'auto-end'
 
 export type NotEvaluatedReason =
-  'disabled' | 'ruleset is disabled' | 'evaluation is off' | 'ruleset path missing'
+  | 'disabled'
+  | 'ruleset is disabled'
+  | 'evaluation is off'
+  | 'ruleset path missing'
+  | 'starts at the next tick'
 
 /** A row of a rule that is not evaluated: one per accumulator total it keeps. */
 export interface NotEvaluatedInstance extends Verdict {
@@ -182,6 +186,11 @@ interface RulesetState {
 
 const NO_RULESETS: DiscoveryResult = { rulesets: [], problems: [] }
 
+/** The paths a rule reads, as one comparable value. */
+function pathSet(rule: Rule): string {
+  return JSON.stringify(rulePaths(rule).sort())
+}
+
 function toMaps(checkpoints: Checkpoints): Map<string, Map<string, number>> {
   return new Map(
     Object.entries(checkpoints).map(([id, totals]) => [id, new Map(Object.entries(totals))])
@@ -216,7 +225,9 @@ function notEvaluated(
   issues: string[] = []
 ): NotEvaluatedStatus {
   const badge: NotEvaluatedStatus['badge'] =
-    reason === 'ruleset path missing' ? 'inactive' : 'disabled'
+    reason === 'ruleset path missing' || reason === 'starts at the next tick'
+      ? 'inactive'
+      : 'disabled'
   const d = rule.detector
   const instances =
     d.type !== 'accumulator'
@@ -278,9 +289,11 @@ export class Application {
   private readonly presence: PathPresence
   /**
    * Ruleset rules that have had all their paths in this run, or whose alert
-   * core held at start. A rule never goes back to inactive in the run.
+   * core held at start, with the paths they had them for. A rule does not go
+   * back to inactive in the run until a parameter change, upgrade or return
+   * points it at other paths.
    */
-  private readonly present = new Set<string>()
+  private readonly present = new Map<string, string>()
   private readonly suppressionsInForce: Suppressions = {
     rule: (id) => own(this.controls.rules, id)?.suppression,
     path: (path) => own(this.controls.inputs, path)
@@ -340,9 +353,10 @@ export class Application {
     // the alert keeps a restart from clearing it before the paths report.
     for (const alert of this.deps.alerts.list()) {
       const owned = ownedActiveAlert(alert, this.deps.pluginId)
-      if (owned !== undefined && !owned.ruleId.startsWith(`${USER_ORIGIN}.`)) {
-        this.present.add(owned.ruleId)
-      }
+      if (owned === undefined) continue
+      const { origin, slug } = ruleRef(owned.ruleId)
+      const rule = origin === USER_ORIGIN ? undefined : this.find(origin, slug)
+      if (rule !== undefined) this.present.set(owned.ruleId, pathSet(rule))
     }
     if (this.evaluationSwitch.enabled) this.startRunner(true)
   }
@@ -355,7 +369,11 @@ export class Application {
   tick(): void {
     this.presence.prune()
     for (const [origin, { rules }] of this.rulesetsBySlug) {
-      for (const rule of rules.values()) this.sync(origin, rule)
+      for (const rule of rules.values()) {
+        const id = ruleId(origin, rule.slug)
+        if (this.missingPaths(id, rule).length === 0) this.present.set(id, pathSet(rule))
+        this.sync(origin, rule)
+      }
     }
     this.runner?.tick()
     this.endClearedSuppressions()
@@ -480,6 +498,7 @@ export class Application {
     const { parameters, rules } = resolved.value
     if (JSON.stringify(parameters) === JSON.stringify(control.parameters)) return { ok: true }
     this.saveControls(this.withRuleset(slug, { ...control, parameters }))
+    this.presence.watch(rules.flatMap(rulePaths))
     let drops = false
     for (const rule of rules) {
       const previous = state.rules.get(rule.slug)
@@ -577,6 +596,8 @@ export class Application {
     const carries = carriesTotals(previous, rule)
     const drops = this.hasTotal(id) && !carries
     if (structuralChanges(previous, rule).includes('gates')) this.dropFrozenGates(id)
+    // Stopped first, so a total the edit drops is not retained on the way out.
+    if (!this.shouldRun(origin, rule)) this.stopRule(id)
     if (!carries) this.retained.delete(id)
     if (this.runner?.has(id) === true) this.runner.update({ origin, rule })
     else this.sync(origin, rule)
@@ -1053,6 +1074,8 @@ export class Application {
     }
     if (this.runner === undefined) return notEvaluated(rule, totals, 'evaluation is off')
     const missing = this.missingPaths(id, rule).map((path) => `path ${path} has not been seen`)
+    // Its paths have appeared since the last tick, which starts it.
+    if (missing.length === 0) return notEvaluated(rule, totals, 'starts at the next tick')
     return notEvaluated(rule, totals, 'ruleset path missing', missing)
   }
 
@@ -1108,16 +1131,10 @@ export class Application {
     }
   }
 
-  /**
-   * The paths of a ruleset rule the server has not had in this run. Once it
-   * has had them all the rule counts as present for the rest of the run, so
-   * that it never goes back to inactive.
-   */
+  /** The paths of a ruleset rule the server has not had in this run; none for a rule present with these paths. */
   private missingPaths(id: string, rule: Rule): string[] {
-    if (this.present.has(id)) return []
-    const missing = rulePaths(rule).filter((path) => !this.presence.has(path))
-    if (missing.length === 0) this.present.add(id)
-    return missing
+    if (this.present.get(id) === pathSet(rule)) return []
+    return rulePaths(rule).filter((path) => !this.presence.has(path))
   }
 
   private rulesetEnabled(slug: string): boolean {

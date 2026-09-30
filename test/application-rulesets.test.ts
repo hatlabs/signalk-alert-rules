@@ -389,6 +389,62 @@ describe('rulesets in the application', () => {
       expect(alerts()).toEqual([['rules.batteries.silent', true]])
     })
 
+    it('starts once the path a parameter change points it at appears', () => {
+      const { application, at, alerts } = setup({ rulesets: [batteries('1.0.0', [low])] })
+      application.setRulesetEnabled('batteries', true, 'admin')
+      at(0)
+      expect(application.rule('batteries', 'low')?.status.badge).toBe('inactive')
+
+      application.setRulesetParameters(
+        'batteries',
+        { prefix: 'electrical.batteries.start' },
+        'admin'
+      )
+      at(1, START_VOLTAGE, 11)
+      at(2)
+      at(10)
+
+      expect(alerts()).toEqual([[LOW, true]])
+    })
+
+    it('goes inactive again when a parameter change points it at a path not seen', () => {
+      const { application, at, alerts } = setup({ rulesets: [batteries('1.0.0', [silent])] })
+      at(0, VOLTAGE, 12.5)
+      application.setRulesetEnabled('batteries', true, 'admin')
+      at(1)
+      expect(application.rule('batteries', 'silent')?.status.badge).not.toBe('inactive')
+
+      application.setRulesetParameters(
+        'batteries',
+        { prefix: 'electrical.batteries.start' },
+        'admin'
+      )
+      expect(application.rule('batteries', 'silent')?.status.badge).toBe('inactive')
+      at(2)
+      at(40)
+
+      expect(alerts()).toEqual([])
+      expect(application.rule('batteries', 'silent')?.status).toMatchObject({
+        badge: 'inactive',
+        reason: 'ruleset path missing',
+        issues: [`path ${START_VOLTAGE} has not been seen`]
+      })
+      expect(application.rulesets().rulesets[0]?.missingPaths).toEqual([START_VOLTAGE])
+    })
+
+    it('says it starts at the next tick once its paths have appeared', () => {
+      const { application, at } = setup({ rulesets: [batteries('1.0.0', [silent])] })
+      application.setRulesetEnabled('batteries', true, 'admin')
+      at(0)
+      at(1, VOLTAGE, 12.5)
+
+      expect(application.rule('batteries', 'silent')?.status).toMatchObject({
+        badge: 'inactive',
+        reason: 'starts at the next tick',
+        issues: []
+      })
+    })
+
     it('lists the missing paths of a disabled ruleset too', () => {
       const { application } = setup({ rulesets: [batteries()] })
       expect(application.rulesets().rulesets[0]?.missingPaths).toEqual([VOLTAGE, TEMPERATURE])
