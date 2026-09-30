@@ -92,7 +92,7 @@ function RuleList({
               <a href={ruleHref(ruleset.slug, slug)}>{entry?.rule.name ?? slug}</a>
               {entry !== undefined && <StatusBadge status={entry.status} />}
               {missing.length > 0 && (
-                <div className="skar-path skar-status-detail">Missing: {missing.join(', ')}</div>
+                <div className="skar-path skar-status-detail">{missing.join('; ')}</div>
               )}
             </li>
           )

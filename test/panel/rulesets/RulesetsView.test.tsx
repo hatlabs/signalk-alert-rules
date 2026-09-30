@@ -224,7 +224,7 @@ describe('RulesetsView', () => {
       status: {
         badge: 'inactive',
         reason: 'ruleset path missing',
-        issues: ['electrical.batteries.house.voltage']
+        issues: ['path electrical.batteries.house.voltage has not been seen']
       }
     })
     await show(
@@ -240,7 +240,9 @@ describe('RulesetsView', () => {
       '#rule=batteries/low'
     )
     expect(row.textContent).toContain('ruleset path missing')
-    expect(row.textContent).toContain('electrical.batteries.house.voltage')
+    expect(within(row).getByText(/has not been seen/).textContent).toBe(
+      'path electrical.batteries.house.voltage has not been seen'
+    )
   })
 
   it('shows the missing paths of a disabled ruleset, whose rules do not say', async () => {
