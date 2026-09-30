@@ -327,6 +327,38 @@ describe('application operator actions', () => {
     expect(application.rules()[0]?.status).toBeNull()
   })
 
+  it('evaluation off stops evaluating and keeps the totals when its alerts cannot be cleared', () => {
+    stored(oil)
+    stored(hours)
+    const core = new FakeAlertsCore()
+    const { application, at } = setup(undefined, core)
+    at(0, OIL, 0)
+    at(0, RPM, 30)
+    at(10)
+    vi.spyOn(core, 'list').mockImplementation(() => {
+      throw new Error('alerts unavailable')
+    })
+
+    expect(() => {
+      application.setEvaluation(false, 'admin')
+    }).toThrow('alerts unavailable')
+    expect(application.evaluation.enabled).toBe(false)
+    expect(new Store(dir).load().evaluation.enabled).toBe(false)
+    expect(application.log()).toEqual([
+      { at: WALL, actor: 'admin', action: 'evaluation', enabled: false }
+    ])
+
+    const writes = core.writes
+    at(11, OIL, 0)
+    at(11, RPM, 30)
+    at(100)
+    expect(core.writes).toBe(writes)
+    expect(application.rules().map((r) => r.status)).toEqual([null, null])
+    application.checkpoint()
+    const totals: Partial<Checkpoints> = new Store(dir).load().accumulators
+    expect(totals['user.engine-hours']?.['']).toBe(10)
+  })
+
   it('a stored evaluation off is honoured at start: nothing is evaluated or cleared', () => {
     stored(oil)
     new Store(dir).saveEvaluation({ enabled: false, actor: 'admin', at: WALL })

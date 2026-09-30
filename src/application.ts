@@ -340,16 +340,24 @@ export class Application {
       this.startRunner(false, () => {
         this.store.saveEvaluation(next)
       })
-    } else {
-      this.store.saveEvaluation(next)
-      if (this.runner !== undefined) {
-        for (const [id, totals] of this.runner.accumulators()) this.retained.set(id, totals)
-        this.runner.clearAll()
-        this.runner = undefined
+      this.evaluationSwitch = next
+      this.record({ at, actor, action: 'evaluation', enabled })
+      return
+    }
+    this.store.saveEvaluation(next)
+    this.evaluationSwitch = next
+    const runner = this.runner
+    this.runner = undefined
+    // Evaluation is off even when its alerts cannot be cleared: the runner
+    // is dropped and its totals retained before the clear can throw.
+    try {
+      this.record({ at, actor, action: 'evaluation', enabled })
+    } finally {
+      if (runner !== undefined) {
+        for (const [id, totals] of runner.accumulators()) this.retained.set(id, totals)
+        runner.clearAll()
       }
     }
-    this.evaluationSwitch = next
-    this.record({ at, actor, action: 'evaluation', enabled })
   }
 
   /**
