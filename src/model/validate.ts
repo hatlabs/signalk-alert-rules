@@ -14,6 +14,7 @@ import {
 } from './rule.js'
 import { RulesetSchema, USER_ORIGIN, type ParameterValues, type Ruleset } from './ruleset.js'
 import { RULES_PREFIX } from '../alerts/paths.js'
+import { isRecord } from '../util.js'
 
 /** A validation failure; `path` is a JSON pointer into the validated document. */
 export interface ValidationError {
@@ -67,10 +68,6 @@ const ANGULAR_COMBINATORS: ReadonlySet<CombinatorKind> = new Set([
 
 function fail<T>(errors: ValidationError[]): Result<T> {
   return { ok: false, errors }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function pointer(at: string, key: string | number): string {

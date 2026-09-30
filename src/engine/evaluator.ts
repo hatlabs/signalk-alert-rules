@@ -29,6 +29,7 @@ import {
   type Sample,
   type SignalValue
 } from './signals.js'
+import { errorMessage } from '../util.js'
 
 export type { InputState }
 
@@ -258,7 +259,7 @@ export class RuleEvaluator {
         this.issues.add(message)
       },
       onError: (err: unknown) => {
-        this.errors.add(err instanceof Error ? err.message : String(err))
+        this.errors.add(errorMessage(err))
       }
     })
     gates.forEach((gate, i) => {

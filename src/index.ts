@@ -3,6 +3,7 @@ import { Application, CHECKPOINT_MS, TICK_MS } from './application.js'
 import { registerRoutes } from './api/routes.js'
 import { serverDeps } from './alerts/server.js'
 import { Store } from './store/store.js'
+import { errorMessage } from './util.js'
 
 const PLUGIN_ID = 'signalk-alert-rules'
 
@@ -27,8 +28,6 @@ function securityEnabled(app: ServerAPI): boolean | null {
   return typeof isDummy === 'function' ? !isDummy() : null
 }
 
-const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
-
 export default function createPlugin(app: ServerAPI): Plugin {
   let application: Application | undefined
   let startError: string | undefined
@@ -43,7 +42,7 @@ export default function createPlugin(app: ServerAPI): Plugin {
     try {
       running.checkpoint()
     } catch (err) {
-      const text = `Could not save accumulator totals: ${message(err)}`
+      const text = `Could not save accumulator totals: ${errorMessage(err)}`
       app.error(text)
       app.setPluginError(text)
     }
@@ -65,7 +64,7 @@ export default function createPlugin(app: ServerAPI): Plugin {
       try {
         running = new Application(serverDeps(app, PLUGIN_ID), new Store(app.getDataDirPath()))
       } catch (err) {
-        fail(`Cannot read the data directory: ${message(err)}`)
+        fail(`Cannot read the data directory: ${errorMessage(err)}`)
         return
       }
       running.start()
@@ -76,7 +75,7 @@ export default function createPlugin(app: ServerAPI): Plugin {
           try {
             running.tick()
           } catch (err) {
-            app.error(`Evaluation failed: ${message(err)}`)
+            app.error(`Evaluation failed: ${errorMessage(err)}`)
           }
         }, TICK_MS),
         setInterval(() => {
@@ -100,7 +99,7 @@ export default function createPlugin(app: ServerAPI): Plugin {
       try {
         running.stop()
       } catch (err) {
-        app.error(`Could not save accumulator totals: ${message(err)}`)
+        app.error(`Could not save accumulator totals: ${errorMessage(err)}`)
       }
     },
 

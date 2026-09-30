@@ -2,6 +2,7 @@ import type { IRouter, NextFunction, Request, RequestHandler, Response } from 'e
 import type { Application, RuleEntry, SaveOutcome } from '../application.js'
 import { USER_ORIGIN } from '../model/ruleset.js'
 import type { ValidationError } from '../model/validate.js'
+import { errorMessage, isRecord } from '../util.js'
 
 /** The actor recorded for a request that carries no authenticated user. */
 export const UNAUTHENTICATED = 'unauthenticated'
@@ -49,10 +50,6 @@ function requireJson(req: Request, res: Response, next: NextFunction): void {
   res.status(415).json({ error: 'the request must have Content-Type: application/json' })
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
 function invalid(res: Response, errors: ValidationError[]): void {
   res.status(400).json({ error: 'invalid request body', errors })
 }
@@ -82,7 +79,7 @@ export function registerRoutes(router: IRouter, ctx: ApiContext): void {
       try {
         handler(app, req, res)
       } catch (err) {
-        res.status(500).json({ error: err instanceof Error ? err.message : String(err) })
+        res.status(500).json({ error: errorMessage(err) })
       }
     }
 

@@ -1,6 +1,7 @@
 import * as nodeFs from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { SLUG_PATTERN, type Rule } from '../model/rule.js'
+import { errorMessage, isRecord } from '../util.js'
 
 /**
  * The file operations the store uses, so a test can make a write fail midway.
@@ -55,10 +56,6 @@ const LOG_FILE = 'log.json'
 const JSON_SUFFIX = '.json'
 const TMP_SUFFIX = '.tmp'
 const SLUG = new RegExp(SLUG_PATTERN)
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
 
 function isEvaluationSwitch(value: unknown): value is EvaluationSwitch {
   return (
@@ -192,7 +189,7 @@ export class Store {
       if (accepts(value)) return value
       problem = 'unexpected content'
     } catch (err) {
-      problem = err instanceof Error ? err.message : String(err)
+      problem = errorMessage(err)
     }
     const aside = `${name}.corrupt-${new Date().toISOString().replaceAll(':', '-')}`
     this.fs.renameSync(path, join(this.dir, aside))

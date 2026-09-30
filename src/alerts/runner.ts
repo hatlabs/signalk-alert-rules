@@ -19,6 +19,7 @@ import {
 } from './emitter.js'
 import { parseAlertPath, ruleId } from './paths.js'
 import { reconcile } from './reconcile.js'
+import { errorMessage } from '../util.js'
 
 export interface RunnerDeps extends EvaluatorContext, EmitterDeps {
   pluginId: string
@@ -124,7 +125,7 @@ export class RuleRunner {
       try {
         evaluator.tick()
       } catch (err) {
-        this.error(id, `evaluation failed: ${err instanceof Error ? err.message : String(err)}`)
+        this.error(id, `evaluation failed: ${errorMessage(err)}`)
       }
     }
     this.emitter.beat(this.deps.clock())
@@ -255,7 +256,7 @@ export class RuleRunner {
     } catch (err) {
       evaluator.stop()
       this.failed.add(id)
-      this.error(id, `failed to start: ${err instanceof Error ? err.message : String(err)}`)
+      this.error(id, `failed to start: ${errorMessage(err)}`)
     }
   }
 

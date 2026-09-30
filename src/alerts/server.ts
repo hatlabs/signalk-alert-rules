@@ -5,6 +5,7 @@ import type { Zone } from '../engine/limits.js'
 import type { AlertsReader, CoreAlert } from './emitter.js'
 import { deltaPath } from './paths.js'
 import type { RunnerDeps } from './runner.js'
+import { isRecord } from '../util.js'
 
 // The published server-api types predate the core alerts API; these are the
 // parts of it SKAR reads.
@@ -14,10 +15,6 @@ interface ServerWithAlerts {
 
 interface ServerSettings {
   config?: { settings?: { enforceDataTimeouts?: boolean; useDefaultTimeouts?: boolean } }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function isBound(value: unknown): boolean {
