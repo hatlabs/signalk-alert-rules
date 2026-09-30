@@ -44,17 +44,18 @@ SKAR serves its rules, their status and its operator actions under the plugin's 
 
 ```json
 {
-  "origin": "user",
-  "slug": "oil-pressure-low",
+  "origin": "batteries",
+  "slug": "low",
   "ruleset": { "name": "Battery monitoring", "version": "1.0.0", "package": { "name": "signalk-alert-ruleset-example", "version": "1.0.0" } },
   "rule": { ... },
   "enabled": true,
-  "note": "Sender replaced in spring",
+  "note": "Monitor replaced in spring",
   "suppression": { "since": "2026-09-30T12:00:00.000Z", "actor": "admin", "autoEndAfter": 600 },
   "status": { ... }
 }
 ```
 
+- `origin` and `slug`: here a rule of the ruleset `batteries`; a user rule has the origin `user` and no `ruleset`.
 - `ruleset`: for a ruleset rule only, the ruleset's name and version and, for one from a package, the package's name and version.
 - `rule`: for a ruleset rule, the rule as the ruleset's parameter values resolve it.
 - `enabled`, `note` and `suppression`: the rule's [controls](#rule-controls); `note` and `suppression` are absent when the rule has none. `suppression` is the rule's own; an input suppression shows in `status` only.
