@@ -1341,6 +1341,57 @@ describe('rule controls', () => {
       expect(application.log()[0]).toMatchObject({ actor: 'auto-end', path: RPM })
     })
 
+    it('auto-ends by the wildcard instance it suppresses, not the others', () => {
+      stored({ ...oil, signal: { path: 'propulsion.*.oilPressure' } })
+      const { application, at } = setup()
+      const PORT = 'propulsion.port.oilPressure'
+      at(0, PORT, 200000)
+      at(0, 'propulsion.starboard.oilPressure', 0)
+      application.suppressInput(PORT, { autoEndAfter: 30 }, 'admin')
+      at(29)
+      expect(application.suppressions()).toHaveLength(1)
+      // Starboard's low pressure goes on; it is not what the suppression is about.
+      at(30)
+      expect(application.suppressions()).toEqual([])
+    })
+
+    it('the preview lists only the wildcard instance whose gate reads the path', () => {
+      const eachCoolant = {
+        ...gatedCoolant,
+        signal: { path: 'propulsion.*.coolantTemperature' },
+        gates: [{ ...gatedCoolant.gates[0], signal: { path: 'propulsion.*.revolutions' } }]
+      }
+      stored(eachCoolant)
+      const { application, at } = setup()
+      at(0, 'propulsion.port.revolutions', 20)
+      at(0, 'propulsion.starboard.revolutions', 0)
+      at(0, 'propulsion.port.coolantTemperature', 300)
+      at(0, 'propulsion.starboard.coolantTemperature', 300)
+      expect(application.previewInputSuppression('propulsion.port.revolutions').freezes).toEqual([
+        {
+          rule: 'user.coolant-high',
+          origin: 'user',
+          slug: 'coolant-high',
+          gate: 0,
+          states: [{ instance: 'port', holds: true }]
+        }
+      ])
+    })
+
+    it.each(['__proto__', 'constructor', 'toString'])(
+      'suppresses and ends a path named like an Object property: %s',
+      (path) => {
+        const first = setup()
+        expect(first.application.endInputSuppression(path, 'admin')).toBe(false)
+        first.application.suppressInput(path, {}, 'admin')
+        first.application.stop()
+        const second = setup(new Store(dir), first.server.core)
+        expect(second.application.suppressions()).toMatchObject([{ scope: 'input', path }])
+        expect(second.application.endInputSuppression(path, 'admin')).toBe(true)
+        expect(new Store(dir).load().controls.inputs).toEqual({})
+      }
+    )
+
     it('a clear before it started does not count toward its auto-end', () => {
       stored(rpmHigh)
       const { application, at } = setup()

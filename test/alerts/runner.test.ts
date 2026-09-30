@@ -945,6 +945,31 @@ describe('suppression', () => {
     })
   })
 
+  it('applying a suppression reaches every rule when one fails to evaluate', () => {
+    let broken = false
+    const meta = {
+      get [VOLTAGE](): PathMeta {
+        if (broken) throw new Error('meta unreadable')
+        return batteryZones
+      }
+    }
+    const c = controls()
+    const { at, runner, core } = setup([batteryLow, oil], { meta, suppressions: c.suppressions })
+    at(0, VOLTAGE, 12.6)
+    at(0, OIL, 0)
+    at(5)
+    expect(core.getByPath(OIL_ALERT)?.condition).toBe(true)
+    broken = true
+    c.rules.set('user.oil-pressure-low', {})
+    expect(() => {
+      runner.refresh()
+    }).not.toThrow()
+    expect(core.getByPath(OIL_ALERT)?.condition).toBe(false)
+    expect(runner.status('user.house-battery-low')?.errors).toEqual([
+      'evaluation failed: meta unreadable'
+    ])
+  })
+
   it('ending a suppression raises an alert whose condition holds as a new alert', () => {
     const c = controls()
     c.rules.set('user.oil-pressure-low', {})

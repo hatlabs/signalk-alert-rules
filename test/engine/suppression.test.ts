@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { Value } from '@signalk/server-api'
-import { RuleEvaluator } from '../../src/engine/evaluator.js'
+import { RuleEvaluator, type PathMeta } from '../../src/engine/evaluator.js'
 import {
   signalPaths,
   type ActiveSuppression,
@@ -58,7 +58,7 @@ class Controls implements Suppressions {
   }
 }
 
-function setup(rule: Rule) {
+function setup(rule: Rule, meta: (path: string) => PathMeta | undefined = () => undefined) {
   const sm = new FakeSubscriptionManager()
   const controls = new Controls()
   let now = 0
@@ -67,7 +67,7 @@ function setup(rule: Rule) {
     rule,
     {
       subscriptions: sm,
-      meta: () => undefined,
+      meta,
       timeoutSettings: () => undefined,
       clock: () => now
     },
@@ -199,6 +199,38 @@ describe('input suppression', () => {
     ])
   })
 
+  it('freezes only the gate of the wildcard instance whose path it is', () => {
+    const eachCoolant = valid({
+      ...oilLow,
+      slug: 'coolant-high-each',
+      signal: { path: 'propulsion.*.coolantTemperature' },
+      detector: { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 368 } },
+      gates: [
+        {
+          signal: { path: 'propulsion.*.revolutions' },
+          direction: 'above',
+          limit: { kind: 'fixed', value: 8 }
+        }
+      ]
+    })
+    const STBD_RPM = 'propulsion.starboard.revolutions'
+    const { at, apply, controls, log } = setup(eachCoolant)
+    at(0, RPM, 20)
+    at(0, STBD_RPM, 20)
+    at(0, 'propulsion.port.coolantTemperature', 380)
+    at(0, 'propulsion.starboard.coolantTemperature', 380)
+    controls.paths.set(RPM, {})
+    apply(1)
+    // Both engines stop: only the starboard gate follows.
+    at(2, RPM, 0)
+    at(2, STBD_RPM, 0)
+    expect(log).toEqual([
+      [0, 'raise', 'port'],
+      [0, 'raise', 'starboard'],
+      [2, 'clear', 'starboard']
+    ])
+  })
+
   it('freezes a gate that does not hold as not holding', () => {
     const { at, controls, log } = setup(coolantHigh)
     at(0, RPM, 0)
@@ -253,6 +285,51 @@ describe('clear time', () => {
     at(100, RPM, 20)
     at(110)
     expect(instances()[0]?.clearFor).toBe(20)
+  })
+
+  it('an event restarts the count, although its detector is not active after it', () => {
+    const stopped = valid({
+      ...oilLow,
+      slug: 'engine-stopped',
+      signal: { path: 'propulsion.port.state' },
+      detector: { type: 'match', op: 'changesTo', value: 'stopped' }
+    })
+    const { at, instances } = setup(stopped)
+    at(0, 'propulsion.port.state', 'started')
+    at(20)
+    expect(instances()[0]?.clearFor).toBe(20)
+    at(30, 'propulsion.port.state', 'stopped')
+    expect(instances()[0]?.clearFor).toBeUndefined()
+    at(40)
+    at(50)
+    expect(instances()[0]?.clearFor).toBe(10)
+  })
+
+  it('an instance the rule cannot evaluate is not clear: the count restarts', () => {
+    let zones = [{ upper: 50, state: 'warn' }]
+    const zoned = valid({
+      name: 'Oil pressure in warn zone',
+      slug: 'oil-pressure-warn',
+      message: 'Oil pressure low',
+      signal: { path: OIL },
+      detector: {
+        type: 'sustained',
+        direction: 'below',
+        limit: { kind: 'zone', level: 'warn' }
+      }
+    })
+    const { at, instances } = setup(zoned, () => ({ zones }))
+    at(0, OIL, 200)
+    at(10)
+    expect(instances()[0]?.clearFor).toBe(10)
+    zones = []
+    at(20)
+    expect(instances()[0]).toMatchObject({ inactive: 'the path has no warn zone' })
+    expect(instances()[0]?.clearFor).toBeUndefined()
+    zones = [{ upper: 50, state: 'warn' }]
+    at(30)
+    at(35)
+    expect(instances()[0]?.clearFor).toBe(5)
   })
 
   it('does not start counting while a gate does not hold', () => {

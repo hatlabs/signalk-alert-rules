@@ -89,6 +89,13 @@ describe('store', () => {
   const since = { since: '2026-09-30T12:00:00.000Z', actor: 'admin' }
   it.each([
     ['a rule control', { rules: { 'user.oil': { enabled: 'no' } }, inputs: {} }],
+    ['no inputs', { rules: {} }],
+    ['inputs as a list', { rules: {}, inputs: [] }],
+    ['an input suppression without its actor', { rules: {}, inputs: { 'a.b': { since: 'x' } } }],
+    [
+      'an input suppression with a text autoEndAfter',
+      { rules: {}, inputs: { 'a.b': { ...since, autoEndAfter: '60' } } }
+    ],
     [
       'a frozen gate state',
       { rules: {}, inputs: { 'a.b': { ...since, frozen: { 'user.oil': { '0': { '': 'yes' } } } } } }

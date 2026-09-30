@@ -618,6 +618,18 @@ describe('rule controls API', () => {
     expect((await h.call('GET', '/log')).body).toEqual([])
   })
 
+  it.each([
+    [0, 400],
+    [0.001, 200],
+    [86400, 200],
+    [86400.001, 400],
+    ['600', 400]
+  ])('takes an autoEndAfter of %s with %i', async (autoEndAfter, status) => {
+    storeRule(oil)
+    const h = await serve()
+    expect((await h.call('PUT', RULE_SUPPRESSION, { autoEndAfter })).status).toBe(status)
+  })
+
   it('ending a suppression that is not in force answers 204 and records nothing', async () => {
     storeRule(oil)
     const h = await serve()
