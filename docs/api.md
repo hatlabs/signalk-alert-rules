@@ -178,6 +178,17 @@ The last 200 actions, newest first, kept in the data directory:
 - `securityEnabled`: whether the server enforces security; `null` when SKAR cannot tell.
 - `evaluation` and `issues`, while running: the evaluation switch, and the problems found while loading the data directory, such as a stored rule that no longer validates or cannot be read. Such a rule is not listed in `GET /rules`; it can be replaced with `PUT` or deleted.
 
+### Rule links
+
+The configuration panel opens a rule's detail view from a link, such as one an alert carries. The admin UI routes with its own hash, so the rule rides as a second fragment after the panel's route:
+
+```
+/admin/#/apps/configuration/signalk-alert-rules#rule=<origin>/<slug>
+```
+
+- `origin` and `slug` are each percent-encoded as `encodeURIComponent` does. A slug contains no slash and an origin, a scoped package name, may, so the slug is what follows the last `/`.
+- A link to a rule that is not listed, because it was deleted or no longer validates, shows that the rule was not found.
+
 ## Errors
 
 Errors answer `{ "error": "<message>" }`. A body that fails validation answers 400 and adds `errors`, a list of `{ "path", "message" }` with a JSON pointer to each offending field.
