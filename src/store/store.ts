@@ -157,6 +157,7 @@ export class Store {
   deleteRule(slug: string): void {
     checkSlug(slug)
     this.fs.rmSync(join(this.dir, RULES_DIR, slug + JSON_SUFFIX), { force: true })
+    this.syncDir(join(this.dir, RULES_DIR))
   }
 
   saveEvaluation(evaluation: EvaluationSwitch): void {
@@ -242,8 +243,8 @@ export class Store {
   }
 
   /**
-   * Flushes the rename itself, so a power cut right after a save cannot bring
-   * back the old file or lose a new one. Windows cannot open a directory.
+   * Flushes a rename or removal itself, so a power cut right after a save or
+   * delete cannot bring back the old file or lose a new one. Windows cannot open a directory.
    */
   private syncDir(dir: string): void {
     if (process.platform === 'win32') return

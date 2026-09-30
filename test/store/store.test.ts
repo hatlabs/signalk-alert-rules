@@ -118,6 +118,29 @@ describe('store', () => {
     expect(new Store(dir).load().rules).toEqual([])
   })
 
+  it.skipIf(process.platform === 'win32')('flushes the rules directory after a delete', () => {
+    const synced: string[] = []
+    const opened = new Map<number, string>()
+    const recording: FileSystem = {
+      ...fs,
+      openSync: ((path: string, flags: string) => {
+        const fd = fs.openSync(path, flags)
+        opened.set(fd, path)
+        return fd
+      }) as FileSystem['openSync'],
+      fsyncSync: (fd) => {
+        synced.push(opened.get(fd) ?? '')
+        fs.fsyncSync(fd)
+      }
+    }
+    const store = new Store(dir, recording)
+    store.load()
+    store.saveRule(oil)
+    synced.length = 0
+    store.deleteRule('oil-pressure-low')
+    expect(synced).toEqual([join(dir, 'rules')])
+  })
+
   it('refuses a slug that could name a file outside the rules directory', () => {
     const store = new Store(dir)
     store.load()
