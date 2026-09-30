@@ -321,6 +321,9 @@ export function matchTakesDuration(op: MatchOp | ''): boolean {
 /** How a field of `quantity` converts for a signal measured by `measure`. */
 function kindFor(quantity: 'value' | 'interval' | 'slope', measure: Measure): QuantityKind {
   if (quantity === 'value') return measure.kind
+  // A ratio's unit is unit one, so its slope still converts from the per
+  // minute its field is labelled in.
+  if (quantity === 'slope') return 'slope'
   if (measure.kind === 'ratio') return 'ratio'
   return quantity
 }

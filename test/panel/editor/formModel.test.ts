@@ -145,6 +145,22 @@ describe('unit storage', () => {
     })
   })
 
+  it('stores a ratio slope of 0.6 /min as 0.01 per second, and shows it back per minute', () => {
+    const form = authored((f) => {
+      Object.assign(f, { name: 'r', slug: 'r', message: 'm', priority: 'warning' })
+      f.signal = setCombinator(setMode(f.signal, 'combine'), 'ratio')
+      f.signal.slots[0].path = 'propulsion.port.revolutions'
+      f.signal.slots[1].path = 'propulsion.starboard.revolutions'
+      f.detector.type = 'slope'
+      f.detector.trend = 'rising'
+      f.detector.slopeLimit = '0.6'
+      f.detector.window = { amount: '1', unit: 'min' }
+    })
+    const rule = saved(form)
+    expect(rule.detector).toMatchObject({ limit: 0.01 })
+    expect(fromRule(rule, displayed).detector.slopeLimit).toBe('0.6')
+  })
+
   it('gives back a stored value the user did not change, though its display is rounded', () => {
     const rule: Rule = {
       name: 'r',
