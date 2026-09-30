@@ -86,8 +86,43 @@ describe('store', () => {
     expect(new Store(dir).load().controls).toEqual(controls)
   })
 
+  it('round-trips ruleset controls', () => {
+    const store = new Store(dir)
+    store.load()
+    const controls = {
+      rules: { 'batteries.low': { enabled: false } },
+      inputs: {},
+      rulesets: {
+        batteries: {
+          enabled: true,
+          parameters: { lowVoltage: 11.5, prefix: 'electrical.batteries.start' },
+          version: '1.1.0',
+          rules: ['low', 'high'],
+          notices: [{ at: '2026-09-30T12:00:00.000Z', message: 'rule gone was removed' }]
+        },
+        engines: { enabled: false, parameters: {}, version: '1', rules: [], notices: [] }
+      }
+    }
+    store.saveControls(controls)
+    expect(new Store(dir).load().controls).toEqual(controls)
+  })
+
+  const ruleset = { enabled: true, parameters: {}, version: '1', rules: [], notices: [] }
   const since = { since: '2026-09-30T12:00:00.000Z', actor: 'admin' }
   it.each([
+    ['rulesets as a list', { rules: {}, inputs: {}, rulesets: [] }],
+    [
+      'a ruleset without its version',
+      { rules: {}, inputs: {}, rulesets: { a: { ...ruleset, version: undefined } } }
+    ],
+    [
+      'a ruleset parameter that is neither number nor string',
+      { rules: {}, inputs: {}, rulesets: { a: { ...ruleset, parameters: { x: true } } } }
+    ],
+    [
+      'a ruleset notice without its message',
+      { rules: {}, inputs: {}, rulesets: { a: { ...ruleset, notices: [{ at: 'x' }] } } }
+    ],
     ['a rule control', { rules: { 'user.oil': { enabled: 'no' } }, inputs: {} }],
     ['no inputs', { rules: {} }],
     ['inputs as a list', { rules: {}, inputs: [] }],
@@ -127,7 +162,17 @@ describe('store', () => {
       { at: '2026-09-30T12:06:00.000Z', actor: 'admin', action: 'suppress', rule: 'user.oil' },
       { at: '2026-09-30T12:07:00.000Z', actor: 'auto-end', action: 'unsuppress', rule: 'user.oil' },
       { at: '2026-09-30T12:08:00.000Z', actor: 'admin', action: 'suppress', path: 'a.b' },
-      { at: '2026-09-30T12:09:00.000Z', actor: 'admin', action: 'unsuppress', path: 'a.b' }
+      { at: '2026-09-30T12:09:00.000Z', actor: 'admin', action: 'unsuppress', path: 'a.b' },
+      { at: '2026-09-30T12:10:00.000Z', actor: 'admin', action: 'rescan' },
+      { at: '2026-09-30T12:11:00.000Z', actor: 'admin', action: 'enable', ruleset: 'batteries' },
+      { at: '2026-09-30T12:12:00.000Z', actor: 'admin', action: 'disable', ruleset: 'batteries' },
+      {
+        at: '2026-09-30T12:13:00.000Z',
+        actor: 'admin',
+        action: 'parameters',
+        ruleset: 'batteries'
+      },
+      { at: '2026-09-30T12:14:00.000Z', actor: 'admin', action: 'dismiss', ruleset: 'batteries' }
     ] as const
     store.saveLog([...log])
     expect(new Store(dir).load().log).toEqual(log)

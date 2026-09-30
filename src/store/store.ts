@@ -57,15 +57,35 @@ export interface RuleControl {
   suppression?: Suppression
 }
 
+/** Something an upgrade or rescan changed that the operator should know, kept until dismissed. */
+export interface RulesetNotice {
+  at: string
+  message: string
+}
+
+/** An operator's settings for one ruleset, with what was loaded last to tell what an upgrade changed. */
+export interface RulesetControl {
+  enabled: boolean
+  /** Values the operator set, by parameter name; the rest take their defaults. */
+  parameters: Record<string, number | string>
+  version: string
+  /** Slugs of the rules last loaded. */
+  rules: string[]
+  notices: RulesetNotice[]
+}
+
 export interface Controls {
   /** By rule id, `<origin>.<slug>`. */
   rules: Record<string, RuleControl>
   /** By exact concrete path. */
   inputs: Record<string, InputSuppression>
+  /** By ruleset slug; a ruleset without an entry is disabled. Absent when no ruleset was ever seen. */
+  rulesets?: Record<string, RulesetControl>
 }
 
 const RULE_ACTIONS = ['delete', 'reset', 'enable', 'disable', 'note'] as const
 const SUPPRESSION_ACTIONS = ['suppress', 'unsuppress'] as const
+const RULESET_ACTIONS = ['enable', 'disable', 'parameters', 'dismiss'] as const
 
 /** An operator action that changed what SKAR raises, with who did it and when. */
 export type LogEntry = { at: string; actor: string } & (
@@ -73,6 +93,8 @@ export type LogEntry = { at: string; actor: string } & (
   | { action: (typeof SUPPRESSION_ACTIONS)[number]; rule: string }
   | { action: (typeof SUPPRESSION_ACTIONS)[number]; path: string }
   | { action: 'evaluation'; enabled: boolean }
+  | { action: (typeof RULESET_ACTIONS)[number]; ruleset: string }
+  | { action: 'rescan' }
 )
 
 export interface StoreContents {
@@ -156,13 +178,36 @@ function isRuleControl(value: unknown): value is RuleControl {
   )
 }
 
+function isNotice(value: unknown): value is RulesetNotice {
+  return isRecord(value) && typeof value.at === 'string' && typeof value.message === 'string'
+}
+
+const isParameterValues = recordOf(
+  (v): v is number | string =>
+    typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v))
+)
+
+function isRulesetControl(value: unknown): value is RulesetControl {
+  return (
+    isRecord(value) &&
+    typeof value.enabled === 'boolean' &&
+    isParameterValues(value.parameters) &&
+    typeof value.version === 'string' &&
+    Array.isArray(value.rules) &&
+    value.rules.every((slug) => typeof slug === 'string') &&
+    Array.isArray(value.notices) &&
+    value.notices.every(isNotice)
+  )
+}
+
 function isControls(value: unknown): value is Controls {
   return (
     isRecord(value) &&
     isRecord(value.rules) &&
     Object.values(value.rules).every(isRuleControl) &&
     isRecord(value.inputs) &&
-    Object.values(value.inputs).every(isInputSuppression)
+    Object.values(value.inputs).every(isInputSuppression) &&
+    (value.rulesets === undefined || recordOf(isRulesetControl)(value.rulesets))
   )
 }
 
@@ -173,6 +218,8 @@ function isLogEntry(value: unknown): value is LogEntry {
   if (!isRecord(value) || typeof value.at !== 'string' || typeof value.actor !== 'string') {
     return false
   }
+  if (value.action === 'rescan') return true
+  if (isOneOf(RULESET_ACTIONS, value.action) && typeof value.ruleset === 'string') return true
   if (isOneOf(RULE_ACTIONS, value.action)) return typeof value.rule === 'string'
   if (isOneOf(SUPPRESSION_ACTIONS, value.action)) {
     return typeof value.rule === 'string' || typeof value.path === 'string'
@@ -198,8 +245,9 @@ function checkSlug(slug: string): void {
  *   rewrites another;
  * - `evaluation.json`: the evaluation switch;
  * - `accumulators.json`: accumulator totals, rewritten whole at each checkpoint;
- * - `controls.json`: per-rule enable, note and suppression, and input
- *   suppressions, rewritten whole at each change;
+ * - `controls.json`: per-rule enable, note and suppression, input
+ *   suppressions, and per-ruleset enable, parameter values and notices,
+ *   rewritten whole at each change;
  * - `log.json`: the recent operator actions, rewritten whole at each action.
  *
  * Every write goes to a temporary file in the same directory, is flushed to
