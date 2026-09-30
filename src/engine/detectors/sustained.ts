@@ -1,6 +1,13 @@
 import { Stopwatch } from '../clock.js'
 import type { Reading } from '../signals.js'
-import { ConditionDetector, numeric, type DetectorSpec, type Transition } from './detector.js'
+import {
+  ConditionDetector,
+  numeric,
+  timerProgress,
+  type DetectorSpec,
+  type Progress,
+  type Transition
+} from './detector.js'
 
 type SustainedSpec = Extract<DetectorSpec, { type: 'sustained' }>
 
@@ -43,6 +50,12 @@ export class SustainedDetector extends ConditionDetector<SustainedSpec> {
 
   tick(now: number): Transition | undefined {
     return this.timer.running ? this.evaluate(now) : undefined
+  }
+
+  override progress(now: number): Progress | undefined {
+    return this.active
+      ? timerProgress(this.timer, 'clear', this.spec.clearDuration, now)
+      : timerProgress(this.timer, 'set', this.spec.duration, now)
   }
 
   private beyond(value: number): boolean {

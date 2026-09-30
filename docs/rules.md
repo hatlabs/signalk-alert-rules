@@ -94,7 +94,7 @@ Each input subscribes through the server's subscription manager, which replays t
 
 - Combinators do not nest, and their inputs have no wildcard.
 - `distance` and `positionSpread` take only paths whose last segment is `position`, and positions combine only through them.
-- `angular: true` is accepted on `difference`, `absDifference`, `spread` and `mean`, and makes them treat values as angles in radians: a difference wraps to [-π, π), so 358° and 3° are 5° apart; `mean` is the circular mean, unavailable when the inputs cancel out; `spread` is the smallest arc holding every angle. When the rule is validated with the server's path information and the server knows an input's units, anything but `rad` is rejected. The check is not repeated when the path reports.
+- `angular: true` is accepted on `difference`, `absDifference`, `spread` and `mean`, and makes them treat values as angles in radians: a difference wraps to [-π, π), so 358° and 3° are 5° apart; `mean` is the circular mean, unavailable when the inputs cancel out; `spread` is the smallest arc holding every angle. When the rule is validated with the server's path information and the server knows an input's units, anything but `rad` is rejected. A rule saved before its inputs report is checked again whenever it evaluates: once an input's `meta.units` is anything but `rad`, the rule is inactive with the reason "`<path>`: angular combination needs radians, the path is in `<units>`", and an active alert is cleared.
 - The combined value exists once every input has reported, and is recomputed whenever any input reports. It is unavailable while any input is unavailable, and timed out when any unavailable input is timed out.
 
 ## Detectors
@@ -123,7 +123,7 @@ A replayed value only sets the baseline. An unavailable reading leaves the basel
 
 - `equals`, `notEquals` (`value` required): active once the value has matched for `duration` (default 0). A non-matching value resets the timer; an unavailable input pauses it.
 - `changesTo` (`value` required), `decreases`: a momentary condition at the event, with no duration. A device reporting for the first time after start raises nothing, since there is no previous value.
-- `timedOut` (no `value`, `duration` required and above 0): a *timeout rule*. Active once the input has carried core's timed-out marker for `duration`, or has not been seen at all for `duration` since the rule came into use (core marks only paths it has seen). Any value ends it. A timeout rule watches a single path, not a combined signal, and is rejected on a path the server reports as boolean or string, when the rule is validated with the server's path information; the check is not repeated when the path reports. It is inactive, with the reason in its status, when the server does not enforce data timeouts, when the path declares an update contract other than `periodic`, when its `meta.timeout` is 0 or less, or when it has no `meta.timeout` and the server's default timeouts are off.
+- `timedOut` (no `value`, `duration` required and above 0): a *timeout rule*. Active once the input has carried core's timed-out marker for `duration`, or has not been seen at all for `duration` since the rule came into use (core marks only paths it has seen). Any value ends it. A timeout rule watches a single path, not a combined signal, and is rejected on a path the server reports as boolean or string, when the rule is validated with the server's path information. A rule saved before its path reports is checked when a value arrives: once the path has reported a boolean or a string, the rule is inactive with the reason "core never times out boolean paths" (or string paths). It is also inactive, with the reason in its status, when the server does not enforce data timeouts, when the path declares an update contract other than `periodic`, when its `meta.timeout` is 0 or less, or when it has no `meta.timeout` and the server's default timeouts are off.
 
 ### sustained
 
@@ -147,7 +147,7 @@ Active when the value, extended along the trend of the last `window` seconds (as
 
 `measure` (`time` or `integral`), `while`, `resetOn`, `limit`.
 
-Accumulates while the input is available and `while` holds: seconds for `time`, the value integrated over seconds for `integral`. A value holds until the next sample. `while` is `{ "op": "above" | "below" | "equals" | "notEquals", "value": ... }`; `above` and `below` need a number. The condition becomes active when the total reaches `limit` and stays active until a `resetOn` event sets the total to zero. Without `resetOn` it never ends. Only time while the server runs counts. Without `while`, an input that stops reporting without a timed-out marker keeps accumulating.
+Accumulates while the input is available and `while` holds: seconds for `time`, the value integrated over seconds for `integral`. A value holds until the next sample. `while` is `{ "op": "above" | "below" | "equals" | "notEquals", "value": ... }`; `above` and `below` need a number. The condition becomes active when the total reaches `limit` and stays active until a `resetOn` event sets the total to zero. Without `resetOn` it never ends. Only time while the server runs counts. Totals survive a plugin or server restart: SKAR saves them every 60 s and when the plugin stops, so a crash loses at most the last minute. Without `while`, an input that stops reporting without a timed-out marker keeps accumulating.
 
 ### count
 
@@ -279,7 +279,7 @@ The keys of `data`, written at each raise:
 | `valueAtRaise` | when the input had a value | the signal's value at the raise: a number, string, boolean or position |
 | `raisedAt` | always | the wall-clock time of the raise, ISO 8601 |
 
-Data holds only what changes rarely, so repeats of the alert cause no store writes. The zone level held, the current priority and whether the input has a value are in SKAR's rule status (see [Status](#status)), not in the alert. Live values and time beyond the limit are not reported yet (see [Decided, not yet implemented](#decided-not-yet-implemented)).
+Data holds only what changes rarely, so repeats of the alert cause no store writes. The zone level held, the current priority, the live value, the limit in force and timer progress are in SKAR's rule status (see [Status](#status)), not in the alert.
 
 ### Heartbeat and input evidence
 
@@ -310,20 +310,22 @@ An adopted alert ends by its rule's clear criterion or a gate not holding, like 
 
 ### Stopping
 
-Stopping the plugin never clears alerts. Stop runs on every configuration save, enable, disable and server shutdown, and SKAR cannot tell them apart; clearing would re-alert the operator each time. On a server without the alerts API the plugin reports an error and evaluates nothing.
+Stopping the plugin never clears alerts. Stop runs on every configuration save, enable, disable and server shutdown, and SKAR cannot tell them apart; clearing would re-alert the operator each time. On a server without the alerts API the plugin reports an error and evaluates nothing. To clear all of SKAR's alerts, turn evaluation off through the [REST API](api.md#evaluation-switch).
 
 ## Edits
 
-The engine applies an edited rule in place of the running one, without restarting the plugin or other rules. The REST API that delivers edits is not yet implemented (see below).
+An edited rule saved through the [REST API](api.md) replaces the running one without restarting the plugin or other rules. The API can preview an edit, saying whether it would clear an active alert.
 
 | Edit | Effect on an active alert |
 |---|---|
-| signal (paths, sources, combinator, `angular`), gates, `latching`, detector `type`; a match's `op` or `value`; `direction`; an accumulator's `measure`, `while` or `resetOn`; a count's or absence's `event` | cleared, and the rule restarts from nothing; it raises again once its condition holds |
-| limits (a fixed value, or a zone limit's `level` or `path`), `duration`, `clearDuration`, `hysteresis`, `window`, `horizon`, `within`, a count's or accumulator's `limit` | re-evaluated in place; timers and windows are kept, and the current value is checked against the new limit before any timer counts |
+| signal (paths, sources, combinator, `angular`), gates, `latching`, detector `type`; a match's `op` or `value`; `direction`; a zone limit's `level`; an accumulator's `measure`, `while` or `resetOn`; a count's or absence's `event` | cleared, and the rule restarts from nothing; it raises again once its condition holds |
+| limits (a fixed value, or a zone limit's `path`), `duration`, `clearDuration`, `hysteresis`, `window`, `horizon`, `within`, a count's or accumulator's `limit` | re-evaluated in place; timers and windows are kept, and the current value is checked against the new limit before any timer counts |
 | `message`, `priority` | sent with the next emission; core decides whether it re-alerts |
-| delete | cleared |
+| delete, accumulator reset | cleared |
 
-A restarted accumulator keeps its total when its `measure` is unchanged.
+A restarted accumulator keeps its total when its `measure` is unchanged. An edit or delete that discards a total saves the totals at once, so a restart cannot give the old total to the new rule.
+
+A zone limit's `level` changes what the alert means, so it restarts the rule. Re-evaluated in place, an active alert would report the new level at once, while its detector waits out `clearDuration`, although the value may never have entered that level. After the restart the rule raises at the new level only once the value has been in it for `duration`.
 
 ## Resource bounds
 
@@ -342,7 +344,63 @@ A restarted accumulator keeps its total when its `measure` is unchanged.
 
 ## Status
 
-For each rule SKAR keeps a status: issues (such as a rejected instance or an evaluation error) and, per instance, whether its alert is active, whether the rule is in use, whether the input has a value, is unavailable or has never been seen, whether the alert was adopted, whether a gate input is unavailable, the zone level and priority of an active alert, whether the alert is awaiting input, and why the rule is inactive when it cannot evaluate (a zone level missing, a timeout rule the server can never time out). An error in one rule is recorded in its status and does not stop the others.
+For each rule SKAR keeps a status. An error in one rule is recorded in its status and does not stop the others. Values are in SI units; converting them to display units is the reader's job.
+
+Per rule:
+
+- `badge`, with `reason` when it is `errored` or `inactive`, and `subLabels` (below).
+- `errors`: what makes the rule errored, such as an evaluation that threw, a start that threw, or a subscription the server refused. An evaluation or start error stays until the rule is edited, a subscription error until an edit restarts the rule. A rule that fails to start does not evaluate; the other rules start as usual.
+- `issues`: conditions that do not stop the rule, such as a wildcard instance that was not admitted.
+- `instances`: one entry per instance, a single one for a rule without a wildcard.
+
+Per instance:
+
+| Field | Meaning |
+|---|---|
+| `instance` | `name` and `segment`, for a wildcard rule |
+| `badge`, `reason`, `subLabels` | the instance's own status |
+| `active` | the alert is active |
+| `inUse` | every gate holds and the rule can evaluate |
+| `input` | `value`, `unavailable` or `neverSeen` |
+| `value` | the signal's current value, while it has one; a combined signal's combined value |
+| `limit` | a sustained or projection rule's limit in force; for a zone limit, the named level's threshold |
+| `progress` | how far the detector is toward its next transition (below) |
+| `gates` | per gate, in the rule's order: `holds`, and `input` as above |
+| `adopted` | the alert was adopted at restart and has not cleared since |
+| `level`, `priority` | the zone level and priority of an active alert |
+| `awaitingInput` | an alert without input evidence, whose heartbeat has stopped |
+| `inactive` | why the rule cannot evaluate this instance |
+
+`progress` is one of:
+
+- `{ "kind": "timer", "toward": "set" | "clear", "elapsed", "target" }`: seconds of a duration timer, pauses excluded. Sustained times `duration` toward set and `clearDuration` toward clear; a match with a `duration`, a timeout rule, and absence (toward `within`) time toward set. It is absent while no timer runs.
+- `{ "kind": "events", "count", "limit" }`: a count's events in its window; it sets when `count` exceeds `limit`.
+- `{ "kind": "total", "total", "limit" }`: an accumulator's total.
+
+Slope and projection report no progress.
+
+### Badge
+
+The badge is the first of these that applies, most important first:
+
+| Badge | When |
+|---|---|
+| `errored` | the rule has an error (rule level only) |
+| `inactive` | the rule cannot evaluate the instance: a zone level missing, a timeout rule the server can never time out, a timeout rule on a boolean or string path, an angular combination of an input not in radians, an alert path that would be invalid |
+| `alertActive` | the alert is active |
+| `gatedOff` | a gate does not hold |
+| `inputUnavailable` | the input is unavailable |
+| `neverSeen` | the input has not been seen since start |
+| `timerRunning` | a duration timer runs toward setting the condition |
+| `idle` | none of the above |
+
+A rule's badge is the most important of its instances' badges, and its reason that instance's reason; a wildcard rule with no instance yet is `neverSeen`. A rule's sub-labels are those of any of its instances:
+
+- `gateInputUnavailable`: a gate's input is unavailable; the gate keeps its last state.
+- `waitingForClear`: an active alert whose condition is timing its `clearDuration`.
+- `awaitingInput`: an active alert without input evidence (see [Heartbeat and input evidence](#heartbeat-and-input-evidence)).
+
+Disabled and suppressed rules are not implemented yet; they will rank above `errored`.
 
 ## Worked examples
 
@@ -364,10 +422,9 @@ Each rule in [`examples/rules`](../examples/rules) runs in `test/examples.test.t
 
 ## Decided, not yet implemented
 
-The plan (issue 1) has decided the following; later units implement them. Until the store lands, the plugin loads no rules and evaluates nothing.
+The plan (issue 1) has decided the following; later units implement them. User rules are stored in the plugin's data directory (`rules/<slug>.json`, validated at start; an invalid one is skipped and named in the plugin status) and managed through the [REST API](api.md).
 
-- **Store and REST API** ([Unit 7](https://github.com/hatlabs/signalk-alert-rules/issues/8)): rules stored in SKAR's data directory behind SKAR's own admin-only REST API, applied per rule without restarting the plugin; accumulator totals persisted, checkpointed every 60 s and on stop; a status route reporting each instance's live values and time beyond the limit; how an edit of a zone limit's named level reaches an active alert.
-- **Enable and suppression** ([Unit 8](https://github.com/hatlabs/signalk-alert-rules/issues/9)): per-rule enable, suppression per rule and per input path with a note, ending manually or after the alert clears, recording the acting user; disabling, suppressing and accumulator reset clear the rule's alert; a gate whose input is suppressed keeps its last state; clearing all of SKAR's alerts together with disabling evaluation.
+- **Enable and suppression** ([Unit 8](https://github.com/hatlabs/signalk-alert-rules/issues/9)): per-rule enable, suppression per rule and per input path with a note, ending manually or after the alert clears, recording the acting user; disabling and suppressing clear the rule's alert; a gate whose input is suppressed keeps its last state.
 - **Rulesets** ([Unit 9](https://github.com/hatlabs/signalk-alert-rules/issues/10)): discovery from installed packages (keyword `signalk-alert-ruleset`) and a drop-in directory, YAML files, rulesets starting disabled, user overrides that survive upgrades, a rule inactive while its paths are missing, and an upgrade that removes a rule clearing its alert.
 - **Panel** ([Unit 12](https://github.com/hatlabs/signalk-alert-rules/issues/13), [Unit 13](https://github.com/hatlabs/signalk-alert-rules/issues/14)): a confirmation before any edit that clears an active alert, and a link from the alert to its rule, under a documented key in alert data.
 - **Zone and timeout proposals** ([Unit 10](https://github.com/hatlabs/signalk-alert-rules/issues/11), after the MVP).

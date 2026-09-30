@@ -3,8 +3,10 @@ import type { Reading } from '../signals.js'
 import {
   ConditionDetector,
   EventWatcher,
+  timerProgress,
   type DetectorOptions,
   type DetectorSpec,
+  type Progress,
   type Transition
 } from './detector.js'
 
@@ -44,6 +46,10 @@ export class AbsenceDetector extends ConditionDetector<AbsenceSpec> {
 
   tick(now: number): Transition | undefined {
     return this.timer.running ? this.evaluate(now) : undefined
+  }
+
+  override progress(now: number): Progress | undefined {
+    return this.active ? undefined : timerProgress(this.timer, 'set', this.spec.within, now)
   }
 
   private evaluate(now: number): Transition | undefined {

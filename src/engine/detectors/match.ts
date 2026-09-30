@@ -4,8 +4,10 @@ import {
   ConditionDetector,
   EventWatcher,
   sameValue,
+  timerProgress,
   type DetectorOptions,
   type DetectorSpec,
+  type Progress,
   type Transition
 } from './detector.js'
 
@@ -61,6 +63,11 @@ export class MatchDetector extends ConditionDetector<MatchSpec> {
 
   tick(now: number): Transition | undefined {
     return this.timer.running ? this.evaluate(now) : undefined
+  }
+
+  override progress(now: number): Progress | undefined {
+    if (this.active || this.events !== undefined) return undefined
+    return timerProgress(this.timer, 'set', this.spec.duration, now)
   }
 
   /** Whether the reading matches, or undefined when it can say nothing. */

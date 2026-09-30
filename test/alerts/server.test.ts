@@ -88,11 +88,17 @@ describe('server adapter', () => {
     expect(deps.meta('x')).toBeUndefined()
   })
 
+  it('reads the units of a path', () => {
+    const deps = serverDeps(app({ getSelfPath: () => ({ units: 'rad' }) }).app, 'p')
+    expect(deps.meta('x')?.units).toBe('rad')
+  })
+
   it('drops malformed zones and meta fields', () => {
     const deps = serverDeps(
       app({
         getSelfPath: () => ({
           zones: [{ upper: 11, state: 'alarm' }, { upper: 'high', state: 'warn' }, 'zone'],
+          units: 1,
           timeout: {},
           updateContract: 5
         })
@@ -101,6 +107,7 @@ describe('server adapter', () => {
     )
     expect(deps.meta('x')).toEqual({
       zones: [{ upper: 11, state: 'alarm' }],
+      units: undefined,
       timeout: undefined,
       updateContract: undefined
     })

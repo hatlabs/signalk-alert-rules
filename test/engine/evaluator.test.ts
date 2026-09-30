@@ -25,6 +25,8 @@ interface Options {
   meta?: Record<string, PathMeta>
   settings?: TimeoutSettings
   adopted?: Adopted[]
+  /** Accumulator totals restored from the store, by instance segment. */
+  accumulated?: Map<string, number>
   /** Values already in the server's delta cache when the rule starts. */
   cached?: [string, Value][]
 }
@@ -50,7 +52,8 @@ function setup(rule: Rule, options: Options = {}) {
       const key = e.instance?.segment ?? ''
       log.push(e.type === 'clear' ? [now, e.type, key] : [now, e.type, key, e.priority])
     },
-    options.adopted
+    options.adopted,
+    options.accumulated
   )
   for (const [path, value] of options.cached ?? []) sm.publish(path, 'src', value)
   evaluator.start()
@@ -210,6 +213,59 @@ describe('zone limits', () => {
       [31, 'priority', '', 'warning']
     ])
     expect(evaluator.status().instances[0]).toMatchObject({ level: 'warn', priority: 'warning' })
+  })
+
+  describe('an edit of the named level clears and restarts', () => {
+    const graded = {
+      meta: {
+        [VOLTAGE]: {
+          zones: [
+            { upper: 11.5, state: 'alarm' },
+            { lower: 11.5, upper: 12, state: 'warn' },
+            { lower: 12, upper: 12.4, state: 'alert' }
+          ]
+        }
+      }
+    }
+    const watchAlert = valid({
+      ...batteryLow,
+      detector: {
+        ...batteryLow.detector,
+        limit: { kind: 'zone', level: 'alert' },
+        hysteresis: 0.1,
+        clearDuration: 60
+      }
+    })
+    const raiseToWarn = (rule: Rule): Rule =>
+      ({ ...rule, detector: { ...rule.detector, limit: { kind: 'zone', level: 'warn' } } }) as Rule
+
+    it('and a value only in the old level raises nothing at the new one', () => {
+      const { at, log, evaluator } = setup(watchAlert, graded)
+      at(0, VOLTAGE, 12.2)
+      at(30)
+      at(40)
+      evaluator.update(raiseToWarn(watchAlert))
+      for (let t = 41; t <= 200; t++) at(t)
+      expect(log).toEqual([
+        [30, 'raise', '', 'caution'],
+        [40, 'clear', '']
+      ])
+      expect(evaluator.status().instances[0]).toMatchObject({ active: false, limit: 12 })
+    })
+
+    it('and a value in the new level raises at it once the duration has run again', () => {
+      const { at, log, evaluator } = setup(watchAlert, graded)
+      at(0, VOLTAGE, 11.8)
+      at(30)
+      at(40)
+      evaluator.update(raiseToWarn(watchAlert))
+      for (let t = 41; t <= 100; t++) at(t)
+      expect(log).toEqual([
+        [30, 'raise', '', 'warning'],
+        [40, 'clear', ''],
+        [70, 'raise', '', 'warning']
+      ])
+    })
   })
 
   it('a gate with a zone limit uses only the level it names', () => {
@@ -390,7 +446,7 @@ describe('gates', () => {
     expect(log).toEqual([])
     expect(evaluator.status().instances[0]).toMatchObject({
       inUse: false,
-      gateInputUnavailable: true
+      gates: [{ holds: false, input: 'unavailable' }]
     })
   })
 
@@ -403,7 +459,7 @@ describe('gates', () => {
     at(30, OIL, 0)
     at(35)
     expect(log).toEqual([[35, 'raise', '', 'alarm']])
-    expect(evaluator.status().instances[0]?.gateInputUnavailable).toBe(true)
+    expect(evaluator.status().instances[0]?.gates).toEqual([{ holds: true, input: 'unavailable' }])
   })
 
   it('a gate input never seen since start does not hold', () => {
@@ -456,6 +512,80 @@ const depthTimeout = valid({
   priority: 'warning',
   signal: { path: DEPTH },
   detector: { type: 'match', op: 'timedOut', duration: 30 }
+})
+
+describe('checks when a path reports', () => {
+  const HDG_A = 'navigation.headingMagnetic'
+  const HDG_B = 'navigation.headingTrue'
+  const compasses = valid({
+    name: 'Compasses disagree',
+    slug: 'compasses-disagree',
+    message: 'Compasses disagree',
+    priority: 'caution',
+    signal: {
+      combinator: 'absDifference',
+      angular: true,
+      inputs: [{ path: HDG_A }, { path: HDG_B }]
+    },
+    detector: { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 0.1 } }
+  })
+
+  it('an angular combination whose input reports units other than radians is inactive', () => {
+    const { at, log, evaluator } = setup(compasses, {
+      meta: { [HDG_A]: { units: 'rad' }, [HDG_B]: { units: 'deg' } }
+    })
+    at(0, HDG_A, 0.1)
+    at(0, HDG_B, 90)
+    expect(log).toEqual([])
+    expect(evaluator.status().instances[0]?.inactive).toBe(
+      `${HDG_B}: angular combination needs radians, the path is in deg`
+    )
+  })
+
+  it('units that arrive after the values make an active angular rule inactive and clear it', () => {
+    const { at, log, evaluator, meta } = setup(compasses)
+    at(0, HDG_A, 0.1)
+    at(0, HDG_B, 1.5)
+    expect(log).toEqual([[0, 'raise', '', 'caution']])
+    meta.set(HDG_B, { units: 'deg' })
+    at(1)
+    expect(log).toEqual([
+      [0, 'raise', '', 'caution'],
+      [1, 'clear', '']
+    ])
+    expect(evaluator.status().instances[0]?.inactive).toMatch(/needs radians/)
+  })
+
+  it('an angular combination in radians evaluates', () => {
+    const { at, log, evaluator } = setup(compasses, {
+      meta: { [HDG_A]: { units: 'rad' }, [HDG_B]: { units: 'rad' } }
+    })
+    at(0, HDG_A, 0.1)
+    at(0, HDG_B, 1.5)
+    expect(log).toEqual([[0, 'raise', '', 'caution']])
+    expect(evaluator.status().instances[0]?.inactive).toBeUndefined()
+  })
+
+  it.each([
+    ['boolean', true],
+    ['string', 'ok']
+  ])(
+    'a timeout rule whose path reports a %s value is inactive, and its adopted alert clears',
+    (type, value) => {
+      const { at, log, evaluator } = setup(depthTimeout, { adopted: [{}] })
+      at(5, DEPTH, value)
+      expect(log).toEqual([[5, 'clear', '']])
+      expect(evaluator.status().instances[0]?.inactive).toBe(`core never times out ${type} paths`)
+      at(100, DEPTH, null, TIMED_OUT)
+      expect(log).toHaveLength(1)
+    }
+  )
+
+  it('a timeout rule on a numeric path evaluates', () => {
+    const { at, evaluator } = setup(depthTimeout)
+    at(0, DEPTH, 7.3)
+    expect(evaluator.status().instances[0]?.inactive).toBeUndefined()
+  })
 })
 
 describe('timeout rules', () => {
@@ -804,6 +934,53 @@ describe('restarts and status', () => {
     return s
   }
 
+  it('continues from a restored accumulator total', () => {
+    const { at, log, evaluator } = setup(genset, { accumulated: new Map([['', 90]]) })
+    expect(evaluator.accumulators()).toEqual(new Map([['', 90]]))
+    at(0, RPM, 30)
+    at(9)
+    expect(log).toEqual([])
+    at(10)
+    expect(log).toEqual([[10, 'raise', '', 'caution']])
+    expect(evaluator.accumulators()).toEqual(new Map([['', 100]]))
+  })
+
+  it("reports each instance's total, keeping restored ones not yet seen", () => {
+    const hours = valid({ ...genset, signal: { path: 'propulsion.*.revolutions' } })
+    const { at, evaluator } = setup(hours, {
+      accumulated: new Map([
+        ['port', 40],
+        ['starboard', 7]
+      ])
+    })
+    at(0, 'propulsion.port.revolutions', 30)
+    at(0, 'propulsion.centre.revolutions', 30)
+    at(20)
+    expect(evaluator.accumulators()).toEqual(
+      new Map([
+        ['port', 60],
+        ['starboard', 7],
+        ['centre', 20]
+      ])
+    )
+  })
+
+  it('a structural edit keeps a restored total of an instance not yet seen', () => {
+    const hours = valid({ ...genset, signal: { path: 'propulsion.*.revolutions' } })
+    const { evaluator } = setup(hours, { accumulated: new Map([['port', 40]]) })
+    evaluator.update({
+      ...hours,
+      detector: { ...hours.detector, while: { op: 'above', value: 0 } }
+    } as Rule)
+    expect(evaluator.accumulators()).toEqual(new Map([['port', 40]]))
+  })
+
+  it('reports no totals for a rule that is not an accumulator', () => {
+    const { at, evaluator } = setup({ ...oilPressure, gates: undefined })
+    at(0, OIL, 0)
+    expect(evaluator.accumulators()).toEqual(new Map())
+  })
+
   it('a structural edit keeps an accumulator total with the same measure', () => {
     const { at, log, evaluator } = running(genset)
     evaluator.update({
@@ -943,5 +1120,107 @@ describe('zone changes and adopted gates', () => {
     expect(evaluator.status().instances.find((i) => i.instance?.segment === 'port')?.active).toBe(
       true
     )
+  })
+})
+
+describe('live status', () => {
+  it('reports the value, the limit, the timer toward set and toward clear, and each gate', () => {
+    const rule = valid({
+      ...oilPressure,
+      detector: { ...oilPressure.detector, hysteresis: 50000, clearDuration: 10 }
+    })
+    const { at, evaluator } = setup(rule)
+    at(0, RPM, 30)
+    at(0, OIL, 300000)
+    at(10)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      value: 300000,
+      limit: 100000,
+      gates: [{ holds: true, input: 'value' }]
+    })
+    expect(evaluator.status().instances[0]?.progress).toBeUndefined()
+    at(12, OIL, 90000)
+    at(15)
+    expect(evaluator.status().instances[0]?.progress).toEqual({
+      kind: 'timer',
+      toward: 'set',
+      elapsed: 3,
+      target: 5
+    })
+    at(17)
+    at(20, OIL, 200000)
+    at(24)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      active: true,
+      value: 200000,
+      progress: { kind: 'timer', toward: 'clear', elapsed: 4, target: 10 }
+    })
+  })
+
+  it('a gate input never seen does not hold, and one gone unavailable keeps its state', () => {
+    const { at, evaluator } = setup(oilPressure)
+    at(0, OIL, 300000)
+    expect(evaluator.status().instances[0]?.gates).toEqual([{ holds: false, input: 'neverSeen' }])
+    at(1, RPM, 30)
+    at(11)
+    at(12, RPM, null)
+    expect(evaluator.status().instances[0]?.gates).toEqual([{ holds: true, input: 'unavailable' }])
+  })
+
+  it('reports the zone limit resolved to its threshold', () => {
+    const { at, evaluator } = setup(batteryLow, { meta: { [VOLTAGE]: { zones: batteryZones } } })
+    at(0, VOLTAGE, 12.6)
+    expect(evaluator.status().instances[0]).toMatchObject({ value: 12.6, limit: 12 })
+  })
+
+  it('an unavailable input reports no value', () => {
+    const { at, evaluator } = setup(batteryLow, { meta: { [VOLTAGE]: { zones: batteryZones } } })
+    at(0, VOLTAGE, 12.6)
+    at(1, VOLTAGE, null)
+    expect(evaluator.status().instances[0]).toMatchObject({ input: 'unavailable' })
+    expect(evaluator.status().instances[0]?.value).toBeUndefined()
+  })
+
+  it('reports an accumulator total while its rule is out of use', () => {
+    const rule = valid({
+      ...oilPressure,
+      detector: { type: 'accumulator', measure: 'time', limit: 100 }
+    })
+    const { at, evaluator } = setup(rule)
+    at(0, RPM, 0)
+    at(0, OIL, 300000)
+    at(40)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      inUse: false,
+      progress: { kind: 'total', total: 40, limit: 100 }
+    })
+  })
+
+  it('reports a subscription failure as an error', () => {
+    class Failing extends FakeSubscriptionManager {
+      override subscribe(...args: Parameters<FakeSubscriptionManager['subscribe']>): void {
+        args[2](new Error('subscription refused'))
+      }
+    }
+    const evaluator = new RuleEvaluator(
+      oilPressure,
+      {
+        subscriptions: new Failing(),
+        meta: () => undefined,
+        timeoutSettings: () => ENFORCED,
+        clock: () => 0
+      },
+      () => undefined
+    )
+    evaluator.start()
+    expect(evaluator.status()).toMatchObject({ errors: ['subscription refused'], issues: [] })
+  })
+
+  it('reports the input and adoption of one instance without building the status', () => {
+    const { at, evaluator } = setup(oilPressure, { adopted: [{}] })
+    expect(evaluator.evidence('')).toEqual({ input: 'neverSeen', adopted: true })
+    at(0, OIL, 0)
+    expect(evaluator.evidence('')).toEqual({ input: 'value', adopted: true })
+    expect(evaluator.evidence('port')).toBeUndefined()
   })
 })

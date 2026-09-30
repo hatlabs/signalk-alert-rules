@@ -558,7 +558,7 @@ function run(scenario: Scenario): Result {
   for (const { rule } of rules) {
     const status = runner.status(ruleId(ORIGIN, rule.slug))
     units += status?.instances.length ?? 0
-    if ((status?.issues.length ?? 0) > 0) issues++
+    if ((status?.issues.length ?? 0) + (status?.errors.length ?? 0) > 0) issues++
   }
   runner.stop()
   return {

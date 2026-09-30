@@ -1,4 +1,5 @@
 import type { Detector as DetectorModel, Event, Limit } from '../../model/rule.js'
+import type { Stopwatch } from '../clock.js'
 import type { Reading, SignalValue } from '../signals.js'
 
 /**
@@ -11,6 +12,16 @@ type WithResolvedLimit<D> = D extends { limit: Limit } ? Omit<D, 'limit'> & { li
 
 /** A detector definition whose limit has been resolved to an SI value. */
 export type DetectorSpec = WithResolvedLimit<DetectorModel>
+
+/**
+ * How far a detector is toward its next transition, for status: a duration
+ * timer in seconds (paused time excluded), the events in a count's window, or
+ * an accumulator's total.
+ */
+export type Progress =
+  | { kind: 'timer'; toward: 'set' | 'clear'; elapsed: number; target: number }
+  | { kind: 'events'; count: number; limit: number }
+  | { kind: 'total'; total: number; limit: number }
 
 export interface DetectorOptions {
   /** The monotonic time the detector was created. */
@@ -35,6 +46,23 @@ export interface Detector {
    * and windows, and evaluates them at `now`.
    */
   reconfigure(spec: DetectorSpec, now: number): Transition | undefined
+  /** How far it is toward its next transition at `now`, without changing state. */
+  progress(now: number): Progress | undefined
+}
+
+/**
+ * A duration timer's progress, or undefined while it is not timing: stopped
+ * and at zero, or with nothing to wait for.
+ */
+export function timerProgress(
+  timer: Stopwatch,
+  toward: 'set' | 'clear',
+  target: number | undefined,
+  now: number
+): Progress | undefined {
+  const elapsed = timer.elapsed(now)
+  if (target === undefined || target <= 0 || (!timer.running && elapsed === 0)) return undefined
+  return { kind: 'timer', toward, elapsed, target }
 }
 
 export function sameValue(a: SignalValue, b: SignalValue): boolean {
@@ -101,6 +129,10 @@ export abstract class ConditionDetector<S extends DetectorSpec> implements Detec
 
   abstract sample(reading: Reading, replayed: boolean, now: number): Transition | undefined
   abstract tick(now: number): Transition | undefined
+
+  progress(_now: number): Progress | undefined {
+    return undefined
+  }
 
   reconfigure(spec: DetectorSpec, now: number): Transition | undefined {
     this.replaceSpec(spec)

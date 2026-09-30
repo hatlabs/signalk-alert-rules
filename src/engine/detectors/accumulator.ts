@@ -5,6 +5,7 @@ import {
   sameValue,
   type DetectorOptions,
   type DetectorSpec,
+  type Progress,
   type Transition
 } from './detector.js'
 
@@ -98,11 +99,20 @@ export class AccumulatorDetector extends ConditionDetector<AccumulatorSpec> {
     return this.change(false)
   }
 
+  override progress(now: number): Progress {
+    return { kind: 'total', total: this.total + this.pending(now), limit: this.spec.limit }
+  }
+
   private advance(now: number): void {
+    this.total += this.pending(now)
+    this.last = now
+  }
+
+  /** What has accumulated since the last sample or tick. */
+  private pending(now: number): number {
     const end =
       this.spec.while === undefined ? now : Math.min(now, this.lastSample + ACCUMULATOR_HOLD_S)
-    if (this.running && end > this.last) this.total += this.rate * (end - this.last)
-    this.last = now
+    return this.running && end > this.last ? this.rate * (end - this.last) : 0
   }
 
   private evaluate(): Transition | undefined {

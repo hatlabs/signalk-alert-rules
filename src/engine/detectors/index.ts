@@ -6,7 +6,7 @@ import { MatchDetector } from './match.js'
 import { ProjectionDetector, SlopeDetector } from './slope.js'
 import { SustainedDetector } from './sustained.js'
 
-export type { Detector, DetectorOptions, DetectorSpec, Transition } from './detector.js'
+export type { Detector, DetectorOptions, DetectorSpec, Progress, Transition } from './detector.js'
 export { AccumulatorDetector }
 
 export function createDetector(spec: DetectorSpec, options: DetectorOptions): Detector {

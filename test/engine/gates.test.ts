@@ -25,7 +25,7 @@ function gate(model: GateModel, options: { adopted?: boolean; zones?: () => Zone
       return g.seen
     },
     get inputUnavailable() {
-      return g.inputUnavailable
+      return g.input === 'unavailable'
     },
     get issue() {
       return g.issue

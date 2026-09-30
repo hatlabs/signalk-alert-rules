@@ -4,6 +4,7 @@ import {
   EventWatcher,
   type DetectorOptions,
   type DetectorSpec,
+  type Progress,
   type Transition
 } from './detector.js'
 
@@ -43,6 +44,11 @@ export class CountDetector extends ConditionDetector<CountSpec> {
 
   tick(now: number): Transition | undefined {
     return this.available ? this.evaluate(now) : undefined
+  }
+
+  override progress(now: number): Progress {
+    const count = this.times.filter((t) => t > now - this.spec.window).length
+    return { kind: 'events', count, limit: this.spec.limit }
   }
 
   private evaluate(now: number): Transition | undefined {

@@ -1,7 +1,7 @@
 import { isWildcard, type Adopted } from '../engine/evaluator.js'
 import type { Rule } from '../model/rule.js'
 import type { CoreAlert } from './emitter.js'
-import { parseAlertPath } from './paths.js'
+import { parseAlertPath, type ParsedAlertPath } from './paths.js'
 
 export interface KeptAlert {
   alert: CoreAlert
@@ -23,6 +23,15 @@ export interface Reconciliation {
 }
 
 /**
+ * The rule and instance of an active alert SKAR raised under its own prefix;
+ * undefined for any other alert, including another source's under the same
+ * prefix.
+ */
+export function ownedActiveAlert(alert: CoreAlert, pluginId: string): ParsedAlertPath | undefined {
+  return alert.$source === pluginId && alert.condition ? parseAlertPath(alert.path) : undefined
+}
+
+/**
  * Sorts the alerts core holds at start. SKAR's own active alerts are adopted
  * rather than re-verified: a rule with an active alert starts
  * condition-active, so a restart neither re-alerts nor clears it. An alert
@@ -39,8 +48,7 @@ export function reconcile(
 ): Reconciliation {
   const result: Reconciliation = { kept: [], activeByRule: new Map(), toClear: [] }
   for (const alert of alerts) {
-    const parsed =
-      alert.$source === pluginId && alert.condition ? parseAlertPath(alert.path) : undefined
+    const parsed = ownedActiveAlert(alert, pluginId)
     if (parsed === undefined) continue
     const rule = rules.get(parsed.ruleId)
     if (

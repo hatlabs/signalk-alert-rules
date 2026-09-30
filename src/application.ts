@@ -1,0 +1,414 @@
+import { ruleId } from './alerts/paths.js'
+import {
+  RuleRunner,
+  type LoadedRule,
+  type RunnerDeps,
+  type RunnerRuleStatus
+} from './alerts/runner.js'
+import { carriesTotals, structuralChanges } from './engine/evaluator.js'
+import { MAX_RULES, type Rule } from './model/rule.js'
+import { USER_ORIGIN } from './model/ruleset.js'
+import { validateRule, type ValidationError } from './model/validate.js'
+import type { Checkpoints, EvaluationSwitch, LogEntry, Store } from './store/store.js'
+import { isRecord } from './util.js'
+
+/** How often rules are evaluated: detector durations resolve to this. */
+export const TICK_MS = 1000
+
+/** How often accumulator totals are saved, bounding what a crash loses. */
+export const CHECKPOINT_MS = 60_000
+
+/** How many operator actions the log keeps. */
+export const LOG_LIMIT = 200
+
+/** A rule with what identifies it and its status; the status is null while evaluation is off. */
+export interface RuleEntry {
+  origin: string
+  slug: string
+  rule: Rule
+  status: RunnerRuleStatus | null
+}
+
+export type SaveOutcome =
+  | { ok: true; value: Rule }
+  | { ok: false; reason: 'invalid'; errors: ValidationError[] }
+  | { ok: false; reason: 'exists' | 'notFound' | 'slugMismatch' }
+
+/** What saving an edit would do to the running rule, per the edit semantics. */
+export interface EditPreview {
+  /** The edit clears and restarts the rule. */
+  restarts: boolean
+  /** The changed parts that make it restart, by field path. */
+  changes: string[]
+  /** Instances of the rule whose alert is active now. */
+  activeAlerts: number
+  /**
+   * The restart clears an active alert. An edit applied in place can still
+   * clear one at the next evaluation; this does not count it.
+   */
+  clearsActiveAlert: boolean
+  /** The rule has an accumulator total above zero, running or retained, that saving the edit would discard. */
+  discardsTotal: boolean
+}
+
+export type PreviewOutcome = { ok: true; value: EditPreview } | Exclude<SaveOutcome, { ok: true }>
+
+export type ResetOutcome = 'reset' | 'notFound' | 'notAccumulator'
+
+function toMaps(checkpoints: Checkpoints): Map<string, Map<string, number>> {
+  return new Map(
+    Object.entries(checkpoints).map(([id, totals]) => [id, new Map(Object.entries(totals))])
+  )
+}
+
+/**
+ * SKAR's running state: the stored rules, the evaluation switch, the
+ * operator action log and, while evaluation is on, the runner evaluating the
+ * rules. Every change is persisted first and then applied to the one rule it
+ * concerns, so other rules keep their timers; a change the store fails to
+ * write is not applied.
+ */
+export class Application {
+  /** Problems found while loading, for the plugin status. */
+  readonly issues: string[]
+  private evaluationSwitch: EvaluationSwitch
+  private runner: RuleRunner | undefined
+  private readonly rulesBySlug = new Map<string, Rule>()
+  /** Slugs of stored rule files, loaded or not, so a skipped one can be deleted. */
+  private readonly stored: Set<string>
+  /**
+   * Checkpointed totals of rules the runner does not hold: a stored rule that
+   * no longer validates, kept until the rule is deleted or saved again, and
+   * every rule's while evaluation is off.
+   */
+  private readonly retained: Map<string, Map<string, number>>
+  /**
+   * The measure of each stored rule file that did not load but is written as
+   * an accumulator, so a valid replacement of the same measure keeps its total.
+   */
+  private readonly unloadedMeasures = new Map<string, string>()
+  /** Oldest first, as stored. */
+  private readonly actions: LogEntry[]
+  /** The totals last written, serialised; undefined until a checkpoint succeeds. */
+  private lastCheckpoint: string | undefined
+
+  constructor(
+    private readonly deps: RunnerDeps,
+    private readonly store: Store
+  ) {
+    const contents = store.load()
+    this.issues = [...contents.issues]
+    this.evaluationSwitch = contents.evaluation
+    this.actions = contents.log
+    // A rule file that could not be read is still on disk: a create must not overwrite it.
+    this.stored = new Set([...contents.rules.map((r) => r.slug), ...contents.unreadableRules])
+    for (const { slug, value } of contents.rules) {
+      const result = validateRule(value)
+      const detector = isRecord(value) && isRecord(value.detector) ? value.detector : undefined
+      if (
+        (!result.ok || result.value.slug !== slug) &&
+        detector?.type === 'accumulator' &&
+        typeof detector.measure === 'string'
+      ) {
+        this.unloadedMeasures.set(slug, detector.measure)
+      }
+      if (!result.ok) {
+        const errors = result.errors.map((e) => `${e.path || '/'} ${e.message}`).join('; ')
+        this.issues.push(`stored rule ${slug} is not valid and does not run: ${errors}`)
+      } else if (result.value.slug !== slug) {
+        this.issues.push(`stored rule ${slug} has the slug ${result.value.slug} and does not run`)
+      } else {
+        this.rulesBySlug.set(slug, result.value)
+      }
+    }
+    this.retained = toMaps(contents.accumulators)
+  }
+
+  get evaluation(): EvaluationSwitch {
+    return this.evaluationSwitch
+  }
+
+  /**
+   * Starts evaluating, adopting the alerts SKAR already has in core. With
+   * evaluation off nothing is evaluated and nothing is cleared: the alerts
+   * were cleared when it was turned off.
+   */
+  start(): void {
+    if (this.evaluationSwitch.enabled) this.startRunner(true)
+  }
+
+  tick(): void {
+    this.runner?.tick()
+  }
+
+  /**
+   * Saves accumulator totals that changed since the last successful save;
+   * throws when the store cannot write them. Unchanged totals are not
+   * rewritten, to spare flash storage a flushed write every minute.
+   */
+  checkpoint(): void {
+    const totals = new Map([...this.retained, ...(this.runner?.accumulators() ?? [])])
+    const checkpoints = Object.fromEntries(
+      [...totals].map(([id, t]) => [id, Object.fromEntries(t)])
+    )
+    const text = JSON.stringify(checkpoints)
+    if (text === this.lastCheckpoint) return
+    this.store.saveCheckpoints(checkpoints)
+    this.lastCheckpoint = text
+  }
+
+  /**
+   * Checkpoints and stops evaluating. Alerts are left in place: stop runs on
+   * every configuration save.
+   */
+  stop(): void {
+    try {
+      this.checkpoint()
+    } finally {
+      this.runner?.stop()
+    }
+  }
+
+  userRules(): Rule[] {
+    return [...this.rulesBySlug.values()]
+  }
+
+  rules(): RuleEntry[] {
+    return this.userRules().map((rule) => this.entry(rule))
+  }
+
+  rule(origin: string, slug: string): RuleEntry | undefined {
+    const rule = origin === USER_ORIGIN ? this.rulesBySlug.get(slug) : undefined
+    return rule === undefined ? undefined : this.entry(rule)
+  }
+
+  /** The operator action log, newest first. */
+  log(): LogEntry[] {
+    return [...this.actions].reverse()
+  }
+
+  /** Creates or replaces the user rule with a validated rule's slug; throws when the store cannot write. */
+  private saveRule(rule: Rule): SaveOutcome {
+    if (!this.rulesBySlug.has(rule.slug) && this.rulesBySlug.size >= MAX_RULES) {
+      const message = `at most ${String(MAX_RULES)} rules`
+      return { ok: false, reason: 'invalid', errors: [{ path: '', message }] }
+    }
+    const id = this.idOf(rule.slug)
+    const carries = this.carriesTotal(rule)
+    const drops = this.hasTotal(id) && !carries
+    this.store.saveRule(rule)
+    this.stored.add(rule.slug)
+    this.unloadedMeasures.delete(rule.slug)
+    // While evaluation is off an edit keeps the total, as the runner would.
+    if (!carries) this.retained.delete(id)
+    this.rulesBySlug.set(rule.slug, rule)
+    if (this.runner !== undefined) {
+      // While evaluation is on, only a rule the runner does not hold has a
+      // retained total; the runner takes it over.
+      const retained = this.retained.get(id)
+      this.retained.delete(id)
+      this.runner.update({ origin: USER_ORIGIN, rule }, retained)
+    }
+    // Written now: the next checkpoint could come after a restart that would
+    // give the old total to the new rule.
+    if (drops) this.checkpoint()
+    return { ok: true, value: rule }
+  }
+
+  /**
+   * Whether saving the rule keeps the accumulator total its slug has: an
+   * edit of a loaded rule per the edit semantics, or the replacement of a
+   * stored rule that did not load, by the accumulator measure its file names.
+   */
+  private carriesTotal(rule: Rule): boolean {
+    const previous = this.rulesBySlug.get(rule.slug)
+    if (previous !== undefined) return carriesTotals(previous, rule)
+    return (
+      rule.detector.type === 'accumulator' &&
+      this.unloadedMeasures.get(rule.slug) === rule.detector.measure
+    )
+  }
+
+  /** Whether the rule has an accumulator total, running or retained. */
+  private hasTotal(id: string): boolean {
+    return this.totalsOf(id) !== undefined
+  }
+
+  /** Whether the rule has an accumulator total above zero: one an operator would lose. */
+  private hasNonZeroTotal(id: string): boolean {
+    return [...(this.totalsOf(id)?.values() ?? [])].some((total) => total !== 0)
+  }
+
+  private totalsOf(id: string): ReadonlyMap<string, number> | undefined {
+    return this.retained.get(id) ?? this.runner?.accumulators().get(id)
+  }
+
+  /** Saves a new user rule; a stored rule file with its slug, valid or not, makes it exist. */
+  createRule(input: unknown): SaveOutcome {
+    const result = validateRule(input)
+    if (!result.ok) return { ok: false, reason: 'invalid', errors: result.errors }
+    if (this.stored.has(result.value.slug)) return { ok: false, reason: 'exists' }
+    return this.saveRule(result.value)
+  }
+
+  /** Replaces the stored user rule `slug` with an input of the same slug. */
+  replaceRule(slug: string, input: unknown): SaveOutcome {
+    const checked = this.checkEdit(slug, input)
+    return checked.ok ? this.saveRule(checked.value) : checked
+  }
+
+  /** What replacing the user rule `slug` with the input would do, without doing it. */
+  previewRule(slug: string, input: unknown): PreviewOutcome {
+    const checked = this.checkEdit(slug, input)
+    if (!checked.ok) return checked
+    const current = this.rulesBySlug.get(slug)
+    // A stored rule that did not validate is not running: saving starts it.
+    const changes = current === undefined ? [] : structuralChanges(current, checked.value)
+    const status = this.runner?.status(this.idOf(slug))
+    const activeAlerts = status?.instances.filter((i) => i.active).length ?? 0
+    const restarts = changes.length > 0 || this.runner?.failedToStart(this.idOf(slug)) === true
+    return {
+      ok: true,
+      value: {
+        restarts,
+        changes,
+        activeAlerts,
+        clearsActiveAlert: restarts && activeAlerts > 0,
+        discardsTotal: this.hasNonZeroTotal(this.idOf(slug)) && !this.carriesTotal(checked.value)
+      }
+    }
+  }
+
+  /**
+   * Deletes a stored user rule and clears its alerts. False when there is no
+   * such rule; throws when the store cannot delete it.
+   */
+  deleteRule(slug: string, actor: string): boolean {
+    if (!this.stored.has(slug)) return false
+    const id = this.idOf(slug)
+    const drops = this.hasTotal(id)
+    this.store.deleteRule(slug)
+    this.stored.delete(slug)
+    this.unloadedMeasures.delete(slug)
+    this.retained.delete(id)
+    if (this.rulesBySlug.delete(slug)) this.runner?.remove(id)
+    // Logged first: the delete is applied even when the checkpoint fails.
+    try {
+      this.record({ at: this.now(), actor, action: 'delete', rule: id })
+    } finally {
+      // Written now: a restart before the next checkpoint would give the old
+      // total to a rule re-created with this slug.
+      if (drops) this.checkpoint()
+    }
+    return true
+  }
+
+  /**
+   * Zeroes an accumulator rule's total, restored and stored ones included,
+   * and clears its alerts. Throws when the store cannot write the total.
+   */
+  resetAccumulator(origin: string, slug: string, actor: string): ResetOutcome {
+    const rule = origin === USER_ORIGIN ? this.rulesBySlug.get(slug) : undefined
+    if (rule === undefined) return 'notFound'
+    if (rule.detector.type !== 'accumulator') return 'notAccumulator'
+    const id = this.idOf(slug)
+    this.runner?.reset(id)
+    this.retained.delete(id)
+    // Logged first: the reset is applied even when the checkpoint fails.
+    try {
+      this.record({ at: this.now(), actor, action: 'reset', rule: id })
+    } finally {
+      // Written now: the next checkpoint could come after a restart that
+      // would bring back the old total.
+      this.checkpoint()
+    }
+    return 'reset'
+  }
+
+  /**
+   * Turns evaluation off, clearing every alert SKAR owns, or on, starting
+   * every rule from nothing. Accumulator totals are kept either way. Setting
+   * the current value does nothing. Throws when the store cannot write.
+   */
+  setEvaluation(enabled: boolean, actor: string): void {
+    if (enabled === this.evaluationSwitch.enabled) return
+    const at = this.now()
+    const next = { enabled, actor, at }
+    if (enabled) {
+      // Saved only once the runner has started, so a runner that cannot
+      // start leaves evaluation off rather than on with nothing evaluated.
+      this.startRunner(false, () => {
+        this.store.saveEvaluation(next)
+      })
+      this.evaluationSwitch = next
+      this.record({ at, actor, action: 'evaluation', enabled })
+      return
+    }
+    this.store.saveEvaluation(next)
+    this.evaluationSwitch = next
+    const runner = this.runner
+    this.runner = undefined
+    // Evaluation is off even when its alerts cannot be cleared: the runner
+    // is dropped and its totals retained before the clear can throw.
+    try {
+      this.record({ at, actor, action: 'evaluation', enabled })
+    } finally {
+      if (runner !== undefined) {
+        for (const [id, totals] of runner.accumulators()) this.retained.set(id, totals)
+        runner.clearAll()
+      }
+    }
+  }
+
+  /**
+   * Starts a runner on the stored rules and, once `commit` has succeeded too,
+   * hands it their retained totals. On a throw from either, nothing changes:
+   * a runner that failed to start holds no totals, so keeping it would let
+   * the next checkpoint drop them.
+   */
+  private startRunner(adopt: boolean, commit?: () => void): void {
+    const ids = new Set([...this.rulesBySlug.keys()].map((slug) => this.idOf(slug)))
+    const accumulated = new Map([...this.retained].filter(([id]) => ids.has(id)))
+    const runner = new RuleRunner(this.deps, this.loaded(), accumulated)
+    runner.start(adopt)
+    try {
+      commit?.()
+    } catch (err) {
+      runner.stop()
+      throw err
+    }
+    for (const id of accumulated.keys()) this.retained.delete(id)
+    this.runner = runner
+  }
+
+  private checkEdit(slug: string, input: unknown): SaveOutcome {
+    if (!this.stored.has(slug)) return { ok: false, reason: 'notFound' }
+    const result = validateRule(input)
+    if (!result.ok) return { ok: false, reason: 'invalid', errors: result.errors }
+    if (result.value.slug !== slug) return { ok: false, reason: 'slugMismatch' }
+    return result
+  }
+
+  private record(entry: LogEntry): void {
+    this.actions.push(entry)
+    this.actions.splice(0, this.actions.length - LOG_LIMIT)
+    this.store.saveLog(this.actions)
+  }
+
+  private now(): string {
+    return this.deps.wallClock().toISOString()
+  }
+
+  private entry(rule: Rule): RuleEntry {
+    const status = this.runner?.status(this.idOf(rule.slug)) ?? null
+    return { origin: USER_ORIGIN, slug: rule.slug, rule, status }
+  }
+
+  private idOf(slug: string): string {
+    return ruleId(USER_ORIGIN, slug)
+  }
+
+  private loaded(): LoadedRule[] {
+    return [...this.rulesBySlug.values()].map((rule) => ({ origin: USER_ORIGIN, rule }))
+  }
+}

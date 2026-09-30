@@ -14,6 +14,7 @@ import {
 } from './rule.js'
 import { RulesetSchema, USER_ORIGIN, type ParameterValues, type Ruleset } from './ruleset.js'
 import { RULES_PREFIX } from '../alerts/paths.js'
+import { isRecord } from '../util.js'
 
 /** A validation failure; `path` is a JSON pointer into the validated document. */
 export interface ValidationError {
@@ -31,10 +32,20 @@ export interface PathInfo {
 
 /**
  * Checks that need the server's knowledge of a path run only when `pathInfo`
- * answers for it. Nothing repeats them when the path reports.
+ * answers for it. A rule saved before its path reports passes them; the
+ * evaluator repeats them when the path's meta or first value arrives and
+ * reports a failing rule as inactive, with the same wording.
  */
 export interface ValidationContext {
   pathInfo?: (path: string) => PathInfo | undefined
+}
+
+export function angularUnitsMessage(units: string): string {
+  return `angular combination needs radians, the path is in ${units}`
+}
+
+export function timeoutValueTypeMessage(valueType: 'boolean' | 'string'): string {
+  return `core never times out ${valueType} paths`
 }
 
 const MAX_ALERT_PATH_LENGTH = 255
@@ -57,10 +68,6 @@ const ANGULAR_COMBINATORS: ReadonlySet<CombinatorKind> = new Set([
 
 function fail<T>(errors: ValidationError[]): Result<T> {
   return { ok: false, errors }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function pointer(at: string, key: string | number): string {
@@ -286,10 +293,7 @@ function signalErrors(
     } else if (signal.angular === true) {
       const units = ctx.pathInfo?.(input.path)?.units
       if (units !== undefined && units !== 'rad') {
-        errors.push({
-          path: inputAt,
-          message: `angular combination needs radians, the path is in ${units}`
-        })
+        errors.push({ path: inputAt, message: angularUnitsMessage(units) })
       }
     }
   })
@@ -400,7 +404,7 @@ function timeoutTypeErrors(rule: Rule, ctx: ValidationContext): ValidationError[
     return []
   const valueType = ctx.pathInfo?.(rule.signal.path)?.valueType
   if (valueType === 'boolean' || valueType === 'string') {
-    return [{ path: '/signal/path', message: `core never times out ${valueType} paths` }]
+    return [{ path: '/signal/path', message: timeoutValueTypeMessage(valueType) }]
   }
   return []
 }

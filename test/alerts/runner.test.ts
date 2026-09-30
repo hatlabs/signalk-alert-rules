@@ -100,6 +100,8 @@ function setup(
     meta?: Record<string, PathMeta>
     /** Values already in the server's delta cache, replayed when the runner subscribes. */
     cached?: [string, Value][]
+    /** Accumulator totals restored from the store, by rule id and instance segment. */
+    accumulated?: Map<string, Map<string, number>>
   } = {}
 ) {
   const sm = new FakeSubscriptionManager()
@@ -121,7 +123,8 @@ function setup(
         core.ingest(PLUGIN, path, value)
       }
     },
-    loaded
+    loaded,
+    options.accumulated
   )
   for (const [path, value] of options.cached ?? []) sm.publish(path, 'src', value)
   runner.start()
@@ -542,6 +545,46 @@ describe('rule runner', () => {
     expect(runner.status('user.oil-pressure-low')).toBeDefined()
   })
 
+  it('restores accumulator totals per rule and reports them for checkpoints', () => {
+    const hours = valid({
+      name: 'Engine hours',
+      slug: 'engine-hours',
+      message: 'Engine service due',
+      priority: 'caution',
+      signal: { path: 'propulsion.main.revolutions' },
+      detector: { type: 'accumulator', measure: 'time', limit: 100 }
+    })
+    const { at, run, runner, sent } = setup([hours, oil], {
+      accumulated: new Map([
+        ['user.engine-hours', new Map([['', 95]])],
+        ['user.deleted-rule', new Map([['', 5]])]
+      ])
+    })
+    at(0, 'propulsion.main.revolutions', 30)
+    run(1, 4)
+    expect(runner.accumulators()).toEqual(new Map([['user.engine-hours', new Map([['', 99]])]]))
+    run(5, 5)
+    expect(sent.map(([path]) => path)).toEqual(['rules.user.engine-hours'])
+  })
+
+  it('a rule added while running reports its accumulator total', () => {
+    const { at, runner } = setup([])
+    runner.update({
+      origin: 'user',
+      rule: valid({
+        name: 'Engine hours',
+        slug: 'engine-hours',
+        message: 'Engine service due',
+        priority: 'caution',
+        signal: { path: 'propulsion.main.revolutions' },
+        detector: { type: 'accumulator', measure: 'time', limit: 100 }
+      })
+    })
+    at(0, 'propulsion.main.revolutions', 30)
+    at(7)
+    expect(runner.accumulators()).toEqual(new Map([['user.engine-hours', new Map([['', 7]])]]))
+  })
+
   it('stopping clears nothing', () => {
     const { at, run, runner, sent } = setup([oil])
     at(0, OIL, 0)
@@ -570,6 +613,298 @@ describe('rule runner', () => {
     const { at, sent, runner } = setup([rule])
     at(0, `tanks.fuel.${'x'.repeat(260)}.currentLevel`, 0.05)
     expect(sent).toEqual([])
-    expect(runner.status('user.tank-low')?.issues.join()).toMatch(/longer than/)
+    expect(runner.status('user.tank-low')).toMatchObject({ badge: 'inactive', errors: [] })
+    expect(runner.status('user.tank-low')?.reason).toMatch(/longer than/)
+    expect(runner.status('user.tank-low')?.instances[0]?.inactive).toMatch(/longer than/)
+  })
+})
+
+describe('rule status', () => {
+  const OIL_ID = 'user.oil-pressure-low'
+
+  it('a wildcard rule with one instance active and one gated off reports each instance', () => {
+    const rule = valid({
+      ...coolant,
+      gates: [
+        {
+          signal: { path: 'propulsion.*.revolutions' },
+          direction: 'above',
+          limit: { kind: 'fixed', value: 8 }
+        }
+      ]
+    })
+    const { at, runner } = setup([rule])
+    at(0, 'propulsion.port.revolutions', 30)
+    at(0, 'propulsion.starboard.revolutions', 0)
+    at(1, 'propulsion.port.coolantTemperature', 370)
+    at(1, 'propulsion.starboard.coolantTemperature', 371)
+    const status = runner.status('user.coolant-high')
+    expect(status).toMatchObject({ badge: 'alertActive', subLabels: [], errors: [], issues: [] })
+    const byName = new Map(status?.instances.map((i) => [i.instance?.name, i]))
+    expect(byName.get('port')).toMatchObject({
+      badge: 'alertActive',
+      subLabels: [],
+      active: true,
+      value: 370,
+      limit: 368,
+      gates: [{ holds: true, input: 'value' }],
+      awaitingInput: false
+    })
+    expect(byName.get('starboard')).toMatchObject({
+      badge: 'gatedOff',
+      active: false,
+      value: 371,
+      limit: 368,
+      gates: [{ holds: false, input: 'value' }]
+    })
+  })
+
+  type Step = (s: ReturnType<typeof setup>) => void
+  it.each<[string, Rule, Step]>([
+    [
+      'idle',
+      oil,
+      ({ at }) => {
+        at(0, OIL, 300000)
+      }
+    ],
+    [
+      'timerRunning',
+      oil,
+      ({ at }) => {
+        at(0, OIL, 0)
+        at(2)
+      }
+    ],
+    [
+      'neverSeen',
+      oil,
+      ({ at }) => {
+        at(2)
+      }
+    ],
+    [
+      'inputUnavailable',
+      oil,
+      ({ at }) => {
+        at(0, OIL, null)
+      }
+    ],
+    [
+      'gatedOff',
+      gatedOil,
+      ({ at }) => {
+        at(0, RPM, 0)
+        at(0, OIL, 0)
+      }
+    ],
+    [
+      'alertActive',
+      oil,
+      ({ at, run }) => {
+        at(0, OIL, 0)
+        run(1, 5)
+      }
+    ]
+  ])('reports %s', (badge, rule, step) => {
+    const s = setup([rule])
+    step(s)
+    expect(s.runner.status(OIL_ID)).toMatchObject({ badge, subLabels: [] })
+    expect(s.runner.status(OIL_ID)?.reason).toBeUndefined()
+  })
+
+  it('reports inactive with the reason', () => {
+    const { at, runner } = setup([batteryLow], {
+      meta: { [VOLTAGE]: { zones: [{ upper: 11.5, state: 'alarm' }] } }
+    })
+    at(0, VOLTAGE, 12.6)
+    expect(runner.status('user.house-battery-low')).toMatchObject({
+      badge: 'inactive',
+      reason: 'the path has no warn zone'
+    })
+  })
+
+  it('reports errored with the evaluation error, until the rule is edited', () => {
+    let broken = false
+    const meta = {
+      get [VOLTAGE](): PathMeta {
+        if (broken) throw new Error('meta unreadable')
+        return batteryZones
+      }
+    }
+    const { at, runner } = setup([batteryLow], { meta })
+    at(0, VOLTAGE, 12.6)
+    broken = true
+    at(1)
+    expect(runner.status('user.house-battery-low')).toMatchObject({
+      badge: 'errored',
+      reason: 'evaluation failed: meta unreadable',
+      errors: ['evaluation failed: meta unreadable']
+    })
+    broken = false
+    runner.update({ origin: 'user', rule: batteryLow })
+    expect(runner.status('user.house-battery-low')).toMatchObject({ badge: 'idle', errors: [] })
+  })
+
+  it('a rule that throws at start is errored while the others run, until it is edited', () => {
+    let broken = true
+    const meta = {
+      get [VOLTAGE](): PathMeta {
+        if (broken) throw new Error('meta unreadable')
+        return batteryZones
+      }
+    }
+    const { at, run, runner, sent } = setup([batteryLow, oil], { meta })
+    expect(runner.status('user.house-battery-low')).toMatchObject({
+      badge: 'errored',
+      reason: 'failed to start: meta unreadable'
+    })
+    at(0, OIL, 0)
+    at(0, VOLTAGE, 11.8)
+    run(1, 6)
+    expect(sent.map(([path]) => path)).toEqual([OIL_ALERT])
+
+    broken = false
+    runner.update({ origin: 'user', rule: batteryLow })
+    expect(runner.status('user.house-battery-low')).toMatchObject({ errors: [] })
+    at(7, VOLTAGE, 11.8)
+    run(8, 12)
+    expect(sent.map(([path]) => path)).toEqual([OIL_ALERT, BATTERY_ALERT])
+  })
+
+  describe('a rule that failed to start with an adopted alert', () => {
+    const failing = () => {
+      const core = new FakeAlertsCore()
+      core.ingest(PLUGIN, BATTERY_ALERT, {
+        priority: 'warning',
+        message: 'House battery voltage is low',
+        latching: false
+      })
+      const meta = {
+        get [VOLTAGE](): PathMeta {
+          throw new Error('meta unreadable')
+        }
+      }
+      const env = setup([batteryLow], { core, meta })
+      expect(env.runner.failedToStart('user.house-battery-low')).toBe(true)
+      expect(core.getByPath(BATTERY_ALERT)?.condition).toBe(true)
+      return env
+    }
+
+    it('clears the alert when edited', () => {
+      const { core, run, runner, sent } = failing()
+      runner.update({ origin: 'user', rule: { ...batteryLow, message: 'Check the battery' } })
+      expect(core.getByPath(BATTERY_ALERT)?.condition).toBe(false)
+      const cleared = sent.length
+      run(1, 120)
+      expect(sent.slice(cleared)).toEqual([])
+    })
+
+    it('clears the alert when deleted', () => {
+      const { core, run, runner, sent } = failing()
+      runner.remove('user.house-battery-low')
+      expect(core.getByPath(BATTERY_ALERT)?.condition).toBe(false)
+      const cleared = sent.length
+      run(1, 120)
+      expect(sent.slice(cleared)).toEqual([])
+    })
+  })
+
+  describe('an accumulator rule that failed to start with a restored total', () => {
+    const HOURS_ID = 'user.engine-hours'
+    const hours = valid({
+      name: 'Engine hours',
+      slug: 'engine-hours',
+      message: 'Engine service due',
+      priority: 'caution',
+      signal: { path: RPM },
+      detector: { type: 'accumulator', measure: 'time', limit: 100 }
+    })
+    const failing = () => {
+      const subscriptions = new FakeSubscriptionManager()
+      subscriptions.subscribe = () => {
+        throw new Error('subscriptions unavailable')
+      }
+      const runner = new RuleRunner(
+        {
+          pluginId: PLUGIN,
+          subscriptions,
+          meta: () => undefined,
+          timeoutSettings: () => undefined,
+          clock: () => 0,
+          wallClock: () => new Date(),
+          alerts: new FakeAlertsCore(),
+          send: () => undefined
+        },
+        [{ origin: 'user', rule: hours }],
+        new Map([[HOURS_ID, new Map([['', 42]])]])
+      )
+      runner.start()
+      expect(runner.failedToStart(HOURS_ID)).toBe(true)
+      return runner
+    }
+
+    it('keeps the total for the checkpoint', () => {
+      const runner = failing()
+      expect(runner.status(HOURS_ID)?.badge).toBe('errored')
+      expect(runner.accumulators()).toEqual(new Map([[HOURS_ID, new Map([['', 42]])]]))
+    })
+
+    it('keeps the total across an edit that carries it', () => {
+      const runner = failing()
+      runner.update({ origin: 'user', rule: { ...hours, message: 'Service the engine' } })
+      expect(runner.accumulators().get(HOURS_ID)).toEqual(new Map([['', 42]]))
+    })
+
+    it('drops the total on a measure change', () => {
+      const runner = failing()
+      const integral = valid({
+        ...hours,
+        detector: { type: 'accumulator', measure: 'integral', limit: 100 }
+      })
+      runner.update({ origin: 'user', rule: integral })
+      expect(runner.accumulators().get(HOURS_ID)?.get('') ?? 0).toBe(0)
+    })
+  })
+
+  it('reports gate input unavailable on a gate that keeps holding', () => {
+    const { at, runner } = setup([gatedOil])
+    at(0, RPM, 30)
+    at(0, OIL, 300000)
+    at(10)
+    at(11, RPM, null)
+    expect(runner.status(OIL_ID)).toMatchObject({
+      badge: 'idle',
+      subLabels: ['gateInputUnavailable']
+    })
+  })
+
+  it('reports waiting for clear while an active alert times its clear duration', () => {
+    const { at, run, runner } = setup([oil])
+    at(0, OIL, 0)
+    run(1, 5)
+    at(6, OIL, 200000)
+    at(8)
+    expect(runner.status(OIL_ID)).toMatchObject({
+      badge: 'alertActive',
+      subLabels: ['waitingForClear']
+    })
+    expect(runner.status(OIL_ID)?.instances[0]?.progress).toEqual({
+      kind: 'timer',
+      toward: 'clear',
+      elapsed: 2,
+      target: 10
+    })
+  })
+
+  it('reports awaiting input for an active alert whose input went unavailable', () => {
+    const { at, run, runner } = setup([oil])
+    at(0, OIL, 0)
+    run(1, 5)
+    at(6, OIL, null)
+    expect(runner.status(OIL_ID)).toMatchObject({
+      badge: 'alertActive',
+      subLabels: ['awaitingInput']
+    })
   })
 })

@@ -8,27 +8,35 @@ import {
   type Signal,
   type ZoneLevel
 } from '../model/rule.js'
+import { angularUnitsMessage, timeoutValueTypeMessage } from '../model/validate.js'
 import type { Clock } from './clock.js'
 import {
   AccumulatorDetector,
   createDetector,
   type Detector,
   type DetectorOptions,
-  type DetectorSpec
+  type DetectorSpec,
+  type Progress
 } from './detectors/index.js'
 import { Gate } from './gates.js'
 import { resolveLimit, severerLevels, severity, type Zone } from './limits.js'
 import {
+  inputState,
   openSignal,
+  type InputState,
   type Instance,
   type Reading,
   type Sample,
   type SignalValue
 } from './signals.js'
+import { errorMessage } from '../util.js'
+
+export type { InputState }
 
 /** The parts of a path's `meta` the evaluator reads. */
 export interface PathMeta {
   zones?: Zone[] | null
+  units?: string
   timeout?: number | string
   updateContract?: string
 }
@@ -70,14 +78,27 @@ export type RuleEvent =
   | { type: 'priority'; instance?: Instance; priority: Priority }
   | { type: 'clear'; instance?: Instance }
 
+export interface GateStatus {
+  /** Whether the gate holds for this instance, as the rule reads it. */
+  holds: boolean
+  input: InputState
+}
+
 export interface InstanceStatus {
   instance?: Instance
   active: boolean
   inUse: boolean
-  input: 'value' | 'unavailable' | 'neverSeen'
+  input: InputState
+  /** The signal's current value in SI units, while it has one; a combined signal's combined value. */
+  value?: SignalValue
+  /** The limit in force, in SI units; a zone limit's named-level threshold. */
+  limit?: number
+  /** How far the detector is toward its next transition. */
+  progress?: Progress
+  /** One entry per gate of the rule, in its order. */
+  gates: GateStatus[]
   /** The alert was adopted from core at start and has not cleared since. */
   adopted: boolean
-  gateInputUnavailable: boolean
   /** The most severe zone level an active zone-limit alert holds. */
   level?: ZoneLevel
   /** The priority an active alert has now. */
@@ -87,7 +108,10 @@ export interface InstanceStatus {
 }
 
 export interface RuleStatus {
+  /** Conditions that do not stop the rule, such as a rejected wildcard instance. */
   issues: string[]
+  /** Subscription failures, which leave the rule without its input. */
+  errors: string[]
   instances: InstanceStatus[]
 }
 
@@ -100,6 +124,8 @@ interface Unit extends Track {
   key: string
   instance?: Instance
   last?: Reading
+  /** The last value the input had, which outlives an unavailable reading. */
+  lastValue?: SignalValue
   /** Detectors of the zone levels more severe than the rule's own. */
   levels: Map<ZoneLevel, Track>
   /** The most severe zone level the active alert holds, for a zone-limit rule. */
@@ -147,16 +173,33 @@ function canonical(value: unknown): string {
   )
 }
 
-function structure(rule: Rule): string {
+// A zone limit's named level is structural too: re-evaluated in place, an
+// active alert would at once report the new level, which the value may never
+// have entered, while its detector waits out the clear duration.
+function structure(rule: Rule): Record<string, unknown> {
   const fields: readonly string[] = ['type', ...STRUCTURAL[rule.detector.type]]
-  return canonical({
+  return {
     signal: rule.signal,
     gates: rule.gates ?? [],
     latching: rule.latching ?? false,
-    detector: Object.fromEntries(
-      Object.entries(rule.detector).filter(([key]) => fields.includes(key))
+    'detector.limit.level': zoneLimitOf(rule)?.level,
+    ...Object.fromEntries(
+      Object.entries(rule.detector)
+        .filter(([key]) => fields.includes(key))
+        .map(([key, value]) => [`detector.${key}`, value])
     )
-  })
+  }
+}
+
+/**
+ * The parts of a rule an edit changes that make it clear and restart, named
+ * by field path; empty for an edit re-evaluated in place.
+ */
+export function structuralChanges(current: Rule, next: Rule): string[] {
+  const a = structure(current)
+  const b = structure(next)
+  const parts = new Set([...Object.keys(a), ...Object.keys(b)])
+  return [...parts].filter((part) => canonical(a[part]) !== canonical(b[part]))
 }
 
 export function isWildcard(signal: Signal): boolean {
@@ -185,6 +228,7 @@ export class RuleEvaluator {
   private gates: Map<string, Gate>[] = []
   private closers: (() => void)[] = []
   private readonly issues = new Set<string>()
+  private readonly errors = new Set<string>()
   private adopted: Set<string>
   private carried = new Map<string, number>()
   private running = false
@@ -193,9 +237,11 @@ export class RuleEvaluator {
     private rule: Rule,
     private readonly ctx: EvaluatorContext,
     private readonly onEvent: (event: RuleEvent) => void,
-    adopted: readonly Adopted[] = []
+    adopted: readonly Adopted[] = [],
+    accumulated: ReadonlyMap<string, number> = new Map()
   ) {
     this.adopted = new Set(adopted.map((a) => a.segment ?? ''))
+    this.carried = new Map(accumulated)
   }
 
   start(): void {
@@ -213,7 +259,7 @@ export class RuleEvaluator {
         this.issues.add(message)
       },
       onError: (err: unknown) => {
-        this.issues.add(err instanceof Error ? err.message : String(err))
+        this.errors.add(errorMessage(err))
       }
     })
     gates.forEach((gate, i) => {
@@ -255,13 +301,14 @@ export class RuleEvaluator {
       return
     }
     const now = this.ctx.clock()
-    if (structure(rule) !== structure(this.rule)) {
+    if (structuralChanges(this.rule, rule).length > 0) {
       this.carried = this.totals(rule)
       this.remove()
       this.rule = rule
       this.adopted = new Set()
       this.units.clear()
       this.issues.clear()
+      this.errors.clear()
       this.start()
       return
     }
@@ -276,27 +323,74 @@ export class RuleEvaluator {
     this.closers = []
   }
 
+  /**
+   * Zeroes an accumulator rule's totals, restored ones included, and clears
+   * its alerts. A running rule goes on accumulating from zero.
+   */
+  reset(): void {
+    this.carried.clear()
+    for (const unit of this.units.values()) {
+      if (unit.alerting) this.clear(unit)
+      unit.detector = undefined
+    }
+    if (!this.running) return
+    const now = this.ctx.clock()
+    for (const unit of this.units.values()) this.step(unit, now)
+  }
+
   /** Clears the rule's alerts and stops, for a deleted rule. */
   remove(): void {
     for (const unit of this.units.values()) if (unit.alerting) this.clear(unit)
     this.stop()
   }
 
+  /**
+   * An accumulator rule's totals by instance segment, for the store's
+   * checkpoint. An instance restored but not seen since start keeps its
+   * restored total, so a checkpoint before it reports does not lose it.
+   */
+  accumulators(): Map<string, number> {
+    if (this.rule.detector.type !== 'accumulator') return new Map()
+    const totals = new Map(this.carried)
+    for (const unit of this.units.values()) {
+      if (unit.detector instanceof AccumulatorDetector) {
+        totals.set(unit.key, unit.detector.accumulated)
+      }
+    }
+    return totals
+  }
+
   status(): RuleStatus {
+    const now = this.ctx.clock()
     return {
       issues: [...this.issues],
+      errors: [...this.errors],
       instances: [...this.units.values()].map((u) => ({
         instance: u.instance,
         active: u.alerting,
         inUse: u.inUse,
-        input: u.last === undefined ? 'neverSeen' : u.last.available ? 'value' : 'unavailable',
+        input: inputState(u.last),
+        value: u.last?.available === true ? u.last.value : undefined,
+        limit: u.limit,
+        progress: u.detector?.progress(now),
+        gates: this.gateStatus(u),
         adopted: u.adoptedAlert,
-        gateInputUnavailable: this.existingGatesOf(u).some((g) => g.inputUnavailable),
         level: u.alerting ? u.level : undefined,
         priority: u.alerting ? priorityOf(this.rule, u.level) : undefined,
         inactive: u.inactive
       }))
     }
+  }
+
+  /**
+   * What an instance's input evidence depends on, read without building the
+   * status: the heartbeat asks for it for every active alert.
+   */
+  evidence(segment: string): Pick<InstanceStatus, 'input' | 'adopted'> | undefined {
+    const unit = this.units.get(segment)
+    return unit === undefined
+      ? undefined
+      : { input: inputState(unit.last), adopted: unit.adoptedAlert }
   }
 
   private unit(key: string, instance?: Instance): Unit {
@@ -323,6 +417,7 @@ export class RuleEvaluator {
   private onSignal(sample: Sample): void {
     const unit = this.unit(sample.instance?.segment ?? '', sample.instance)
     unit.last = sample.reading
+    if (sample.reading.available) unit.lastValue = sample.reading.value
     this.step(unit, this.ctx.clock(), sample)
   }
 
@@ -359,11 +454,18 @@ export class RuleEvaluator {
     return (this.rule.gates ?? []).map((_, i) => this.gate(i, unit.key, unit.instance))
   }
 
-  private existingGatesOf(unit: Unit): Gate[] {
-    return (this.rule.gates ?? []).flatMap((model, i) => {
+  /** The gates as the unit reads them, without creating any. */
+  private gateStatus(unit: Unit): GateStatus[] {
+    return (this.rule.gates ?? []).map((model, i) => {
       const gate = this.gates[i]?.get(isWildcard(model.signal) ? unit.key : '')
-      return gate === undefined ? [] : [gate]
+      return gate === undefined
+        ? { holds: unit.adoptedAlert, input: 'neverSeen' }
+        : { holds: this.holds(gate, unit), input: gate.input }
     })
+  }
+
+  private holds(gate: Gate, unit: Unit): boolean {
+    return gate.seen ? gate.holdsFor(unit.adoptedAlert) : unit.adoptedAlert
   }
 
   private zones(limit: Limit, signal: Signal, instance: Instance | undefined) {
@@ -393,11 +495,26 @@ export class RuleEvaluator {
     return { ok: true, spec: { ...d, limit: resolved.value }, limit: resolved.value, levels }
   }
 
+  /** An angular combination of an input the server reports in units other than radians. */
+  private unitsProblem(): string | undefined {
+    const signal = this.rule.signal
+    if (!('combinator' in signal) || signal.angular !== true) return undefined
+    for (const input of signal.inputs) {
+      const units = this.ctx.meta(input.path)?.units
+      if (units !== undefined && units !== 'rad') {
+        return `${input.path}: ${angularUnitsMessage(units)}`
+      }
+    }
+    return undefined
+  }
+
   private timeoutProblem(unit: Unit): string | undefined {
     const d = this.rule.detector
     if (d.type !== 'match' || d.op !== 'timedOut' || 'combinator' in this.rule.signal) {
       return undefined
     }
+    if (typeof unit.lastValue === 'boolean') return timeoutValueTypeMessage('boolean')
+    if (typeof unit.lastValue === 'string') return timeoutValueTypeMessage('string')
     const settings = this.ctx.timeoutSettings()
     if (settings !== undefined && !settings.enforce) {
       return 'the server does not enforce data timeouts'
@@ -426,13 +543,13 @@ export class RuleEvaluator {
     const gates = this.gatesOf(unit)
     const problem =
       this.timeoutProblem(unit) ??
+      this.unitsProblem() ??
       gates.find((g) => g.seen && g.issue !== undefined)?.issue ??
       (resolved.ok ? undefined : resolved.reason)
     unit.inactive = problem
+    unit.limit = resolved.ok ? resolved.limit : undefined
 
-    const gatesHold = gates.every((g) =>
-      g.seen ? g.holdsFor(unit.adoptedAlert) : unit.adoptedAlert
-    )
+    const gatesHold = gates.every((g) => this.holds(g, unit))
     if (problem !== undefined || !gatesHold || !resolved.ok) {
       unit.inUse = false
       if (resolved.ok && resolved.spec.type === 'accumulator') {
@@ -445,7 +562,6 @@ export class RuleEvaluator {
       return
     }
     unit.inUse = true
-    unit.limit = resolved.limit
     const transition = this.drive(unit, resolved, now, feed)
     this.driveLevels(unit, resolved.levels, now, feed)
     const detector = unit.detector
@@ -563,21 +679,13 @@ export class RuleEvaluator {
 
   /** Accumulator totals to carry into a restarted rule with the same measure. */
   private totals(next: Rule): Map<string, number> {
-    const current = this.rule.detector
-    const edited = next.detector
-    const carried = new Map<string, number>()
-    if (
-      current.type !== 'accumulator' ||
-      edited.type !== 'accumulator' ||
-      current.measure !== edited.measure
-    ) {
-      return carried
-    }
-    for (const unit of this.units.values()) {
-      if (unit.detector instanceof AccumulatorDetector) {
-        carried.set(unit.key, unit.detector.accumulated)
-      }
-    }
-    return carried
+    return carriesTotals(this.rule, next) ? this.accumulators() : new Map<string, number>()
   }
+}
+
+/** Whether an edit keeps an accumulator's total: it is still an accumulator of the same measure. */
+export function carriesTotals(current: Rule, next: Rule): boolean {
+  const a = current.detector
+  const b = next.detector
+  return a.type === 'accumulator' && b.type === 'accumulator' && a.measure === b.measure
 }

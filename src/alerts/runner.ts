@@ -1,4 +1,5 @@
 import {
+  carriesTotals,
   RuleEvaluator,
   type Adopted,
   type EvaluatorContext,
@@ -7,6 +8,7 @@ import {
 } from '../engine/evaluator.js'
 import { priorityOf, type Priority, type Rule } from '../model/rule.js'
 import { alertPathFor } from '../model/validate.js'
+import { statusBadge, type Verdict } from './badge.js'
 import {
   AlertEmitter,
   type AlertHeader,
@@ -16,7 +18,8 @@ import {
   type EmitterDeps
 } from './emitter.js'
 import { ruleId } from './paths.js'
-import { reconcile } from './reconcile.js'
+import { ownedActiveAlert, reconcile } from './reconcile.js'
+import { errorMessage } from '../util.js'
 
 export interface RunnerDeps extends EvaluatorContext, EmitterDeps {
   pluginId: string
@@ -32,10 +35,13 @@ export interface LoadedRule {
   rule: Rule
 }
 
-export type RunnerInstanceStatus = InstanceStatus & Partial<AlertStatus>
+export type RunnerInstanceStatus = InstanceStatus & Partial<AlertStatus> & Verdict
 
-export interface RunnerRuleStatus {
+export interface RunnerRuleStatus extends Verdict {
+  /** Conditions that do not stop the rule, such as a rejected wildcard instance. */
   issues: string[]
+  /** Failures that make the rule errored, such as an evaluation that threw. */
+  errors: string[]
   instances: RunnerInstanceStatus[]
 }
 
@@ -61,24 +67,36 @@ export class RuleRunner {
   private readonly emitter: AlertEmitter
   private readonly entries = new Map<string, LoadedRule>()
   private readonly evaluators = new Map<string, RuleEvaluator>()
-  private readonly issues = new Map<string, Set<string>>()
+  private readonly errors = new Map<string, Set<string>>()
+  /** Rules whose evaluator threw at start; an edit starts them again. */
+  private readonly failed = new Set<string>()
 
+  /**
+   * @param accumulated accumulator totals restored from the store, by rule id
+   *   and instance segment; applied to the rules started by `start`.
+   */
   constructor(
     private readonly deps: RunnerDeps,
-    rules: readonly LoadedRule[]
+    rules: readonly LoadedRule[],
+    private readonly accumulated: ReadonlyMap<string, ReadonlyMap<string, number>> = new Map()
   ) {
     this.emitter = new AlertEmitter(deps)
     for (const entry of rules) this.entries.set(idOf(entry), entry)
   }
 
-  start(): void {
+  /**
+   * @param adopt whether active alerts SKAR already has in core are adopted;
+   *   without it they are cleared and every rule starts from nothing.
+   */
+  start(adopt = true): void {
     const now = this.deps.clock()
     const rules = new Map([...this.entries].map(([id, e]) => [id, e.rule]))
-    const { kept, activeByRule, toClear } = reconcile(
-      this.deps.alerts.list(),
-      this.deps.pluginId,
-      rules
-    )
+    const reconciled = reconcile(this.deps.alerts.list(), this.deps.pluginId, rules)
+    const { activeByRule } = reconciled
+    const kept = adopt ? reconciled.kept : []
+    const toClear = adopt
+      ? reconciled.toClear
+      : [...reconciled.toClear, ...reconciled.kept.map((k) => k.alert)]
     for (const alert of toClear) this.deps.send(alert.path, null)
     for (const { alert, ruleId: id, segment } of kept) {
       const rule = this.entries.get(id)?.rule
@@ -95,7 +113,10 @@ export class RuleRunner {
         now
       )
     }
-    for (const [id, entry] of this.entries) this.startRule(id, entry, activeByRule.get(id))
+    for (const [id, entry] of this.entries) {
+      const adopted = adopt ? activeByRule.get(id) : undefined
+      this.startRule(id, entry, adopted, this.accumulated.get(id))
+    }
   }
 
   tick(): void {
@@ -104,7 +125,7 @@ export class RuleRunner {
       try {
         evaluator.tick()
       } catch (err) {
-        this.issue(id, `evaluation failed: ${err instanceof Error ? err.message : String(err)}`)
+        this.error(id, `evaluation failed: ${errorMessage(err)}`)
       }
     }
     this.emitter.beat(this.deps.clock())
@@ -115,14 +136,32 @@ export class RuleRunner {
     for (const evaluator of this.evaluators.values()) evaluator.stop()
   }
 
-  /** Applies an edited rule, or starts a new one. */
-  update(entry: LoadedRule): void {
+  /**
+   * Applies an edited rule, or starts a new one.
+   *
+   * @param accumulated accumulator totals a rule the runner does not hold
+   *   starts with, by instance segment.
+   */
+  update(entry: LoadedRule, accumulated?: ReadonlyMap<string, number>): void {
     const id = idOf(entry)
+    const previous = this.entries.get(id)
     this.entries.set(id, entry)
-    this.issues.delete(id)
+    this.errors.delete(id)
     const evaluator = this.evaluators.get(id)
-    if (evaluator === undefined) {
-      this.startRule(id, entry, undefined)
+    if (evaluator === undefined || this.failed.has(id)) {
+      this.failed.delete(id)
+      let carried = evaluator === undefined ? accumulated : undefined
+      if (
+        evaluator !== undefined &&
+        previous !== undefined &&
+        carriesTotals(previous.rule, entry.rule)
+      ) {
+        carried = evaluator.accumulators()
+      }
+      // The new evaluator starts without adoption, so the failed one's adopted
+      // alerts would otherwise be heartbeated with nothing to clear them.
+      evaluator?.remove()
+      this.startRule(id, entry, undefined, carried)
       return
     }
     evaluator.update(entry.rule)
@@ -135,12 +174,48 @@ export class RuleRunner {
     }
   }
 
+  /**
+   * Stops evaluating and clears every active alert SKAR owns: those it
+   * heartbeats, and any other active alert core holds under SKAR's prefix
+   * from SKAR, such as one whose clear was lost. For turning evaluation off;
+   * the runner is not started again.
+   */
+  clearAll(): void {
+    this.stop()
+    const owned = this.deps.alerts
+      .list()
+      .filter((a) => ownedActiveAlert(a, this.deps.pluginId) !== undefined)
+    const cleared = new Set(this.emitter.clearAll())
+    for (const { path } of owned) if (!cleared.has(path)) this.deps.send(path, null)
+  }
+
+  /** Zeroes an accumulator rule's totals and clears its alerts. */
+  reset(id: string): void {
+    this.evaluators.get(id)?.reset()
+  }
+
   /** Clears a rule's alerts and forgets it, for a deleted rule. */
   remove(id: string): void {
     this.evaluators.get(id)?.remove()
     this.evaluators.delete(id)
     this.entries.delete(id)
-    this.issues.delete(id)
+    this.errors.delete(id)
+    this.failed.delete(id)
+  }
+
+  /** Whether the rule's evaluator threw at start, so any edit starts it again. */
+  failedToStart(id: string): boolean {
+    return this.failed.has(id)
+  }
+
+  /** Accumulator totals by rule id and instance segment, for the store's checkpoint. */
+  accumulators(): Map<string, Map<string, number>> {
+    const totals = new Map<string, Map<string, number>>()
+    for (const [id, evaluator] of this.evaluators) {
+      const rule = evaluator.accumulators()
+      if (rule.size > 0) totals.set(id, rule)
+    }
+    return totals
   }
 
   status(id: string): RunnerRuleStatus | undefined {
@@ -148,35 +223,59 @@ export class RuleRunner {
     const evaluator = this.evaluators.get(id)
     if (entry === undefined || evaluator === undefined) return undefined
     const status = evaluator.status()
+    const errors = [...status.errors, ...(this.errors.get(id) ?? [])]
+    const instances = status.instances.map((instance) => {
+      const path = alertPathFor(entry.origin, entry.rule.slug, instance.instance?.segment)
+      if (!path.ok) return { ...instance, inactive: instance.inactive ?? path.errors[0]?.message }
+      const alert = this.emitter.status(path.value)
+      return alert === undefined
+        ? instance
+        : { ...instance, ...alert, awaitingInput: !this.hasEvidence(entry.rule, instance) }
+    })
+    const verdict = statusBadge(errors, instances)
     return {
-      issues: [...status.issues, ...(this.issues.get(id) ?? [])],
-      instances: status.instances.map((instance) => {
-        const path = alertPathFor(entry.origin, entry.rule.slug, instance.instance?.segment)
-        const alert = path.ok ? this.emitter.status(path.value) : undefined
-        return alert === undefined
-          ? instance
-          : { ...instance, ...alert, awaitingInput: !this.hasEvidence(entry.rule, instance) }
-      })
+      badge: verdict.badge,
+      ...(verdict.reason === undefined ? {} : { reason: verdict.reason }),
+      subLabels: verdict.subLabels,
+      issues: status.issues,
+      errors,
+      instances: instances.map((instance, i) => ({ ...instance, ...verdict.instances[i] }))
     }
   }
 
-  private startRule(id: string, entry: LoadedRule, adopted: Adopted[] | undefined): void {
+  private startRule(
+    id: string,
+    entry: LoadedRule,
+    adopted: Adopted[] | undefined,
+    accumulated: ReadonlyMap<string, number> | undefined
+  ): void {
     const evaluator = new RuleEvaluator(
       entry.rule,
       this.deps,
       (event) => {
         this.onEvent(id, event)
       },
-      adopted
+      adopted,
+      accumulated
     )
     this.evaluators.set(id, evaluator)
-    evaluator.start()
+    // One rule failing to start, such as on a meta read that throws, must not
+    // keep the others from starting. The stopped evaluator stays for its
+    // status and its restored accumulator totals; like any stop, it clears
+    // nothing.
+    try {
+      evaluator.start()
+    } catch (err) {
+      evaluator.stop()
+      this.failed.add(id)
+      this.error(id, `failed to start: ${errorMessage(err)}`)
+    }
   }
 
-  private issue(id: string, message: string): void {
-    const issues = this.issues.get(id) ?? new Set<string>()
-    issues.add(message)
-    this.issues.set(id, issues)
+  private error(id: string, message: string): void {
+    const errors = this.errors.get(id) ?? new Set<string>()
+    errors.add(message)
+    this.errors.set(id, errors)
   }
 
   private onEvent(id: string, event: RuleEvent): void {
@@ -184,11 +283,9 @@ export class RuleRunner {
     if (entry === undefined) return
     const now = this.deps.clock()
     const segment = event.instance?.segment
+    // An instance whose alert path is invalid shows as inactive in status.
     const path = alertPathFor(entry.origin, entry.rule.slug, segment)
-    if (!path.ok) {
-      for (const error of path.errors) this.issue(id, error.message)
-      return
-    }
+    if (!path.ok) return
     switch (event.type) {
       case 'raise':
         this.emitter.raise(
@@ -225,10 +322,7 @@ export class RuleRunner {
   private evidence(id: string, segment: string): () => boolean {
     return () => {
       const rule = this.entries.get(id)?.rule
-      const instance = this.evaluators
-        .get(id)
-        ?.status()
-        .instances.find((i) => (i.instance?.segment ?? '') === segment)
+      const instance = this.evaluators.get(id)?.evidence(segment)
       return rule !== undefined && instance !== undefined && this.hasEvidence(rule, instance)
     }
   }
@@ -243,7 +337,7 @@ export class RuleRunner {
    * so an absence rule has evidence unless its input is unavailable and a
    * timeout rule always has it.
    */
-  private hasEvidence(rule: Rule, instance: InstanceStatus): boolean {
+  private hasEvidence(rule: Rule, instance: Pick<InstanceStatus, 'input' | 'adopted'>): boolean {
     const d = rule.detector
     if (d.type === 'match' && d.op === 'timedOut') return true
     if (instance.adopted && d.type !== 'absence') return instance.input === 'value'
