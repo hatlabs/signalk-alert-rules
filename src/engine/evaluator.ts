@@ -37,7 +37,7 @@ import {
   type Sample,
   type SignalValue
 } from './signals.js'
-import { errorMessage } from '../util.js'
+import { errorMessage, own } from '../util.js'
 
 export type { InputState }
 
@@ -309,6 +309,8 @@ export class RuleEvaluator {
   refresh(): void {
     if (!this.running) return
     const now = this.ctx.clock()
+    // A gate whose freeze has ended thaws on its next tick.
+    for (const byKey of this.gates) for (const gate of byKey.values()) gate.tick(now)
     for (const unit of this.units.values()) this.step(unit, now)
   }
 
@@ -467,14 +469,37 @@ export class RuleEvaluator {
         model,
         () => this.zones(model.limit, model.signal, bound()),
         this.ctx.clock(),
-        () =>
-          signalPaths(model.signal, bound()).some(
-            (p) => this.source.suppressions.path(p) !== undefined
-          )
+        () => {
+          const states = this.frozenStates(i, bound())
+          if (states === undefined) return undefined
+          // A shared gate of a wildcard rule has a state per rule instance,
+          // which all agree unless an instance holds an adopted alert.
+          const all = Object.values(states)
+          if (all.length === 0) return {}
+          return { holds: own(states, bound()?.name ?? '') ?? all.every(Boolean) }
+        }
       )
       byKey.set(k, gate)
     }
     return gate
+  }
+
+  /**
+   * The states stored for gate `i` with the suppression of a path it reads
+   * for the instance, by rule instance name; undefined while none is suppressed.
+   */
+  private frozenStates(
+    i: number,
+    instance: Instance | undefined
+  ): Record<string, boolean> | undefined {
+    const model = (this.rule.gates ?? [])[i]
+    for (const path of signalPaths(model.signal, instance)) {
+      const suppression = this.source.suppressions.path(path)
+      if (suppression === undefined) continue
+      const rule = own(suppression.frozen ?? {}, this.source.id) ?? {}
+      return own(rule, String(i)) ?? {}
+    }
+    return undefined
   }
 
   private gatesOf(unit: Unit): Gate[] {
@@ -487,11 +512,15 @@ export class RuleEvaluator {
       const gate = this.gates[i]?.get(isWildcard(model.signal) ? unit.key : '')
       return gate === undefined
         ? { holds: unit.adoptedAlert, input: 'neverSeen' }
-        : { holds: this.holds(gate, unit), input: gate.input }
+        : { holds: this.holds(gate, i, unit), input: gate.input }
     })
   }
 
-  private holds(gate: Gate, unit: Unit): boolean {
+  /** Whether gate `i` holds for the unit: frozen at its stored state, or as the gate reads. */
+  private holds(gate: Gate, i: number, unit: Unit): boolean {
+    const states = this.frozenStates(i, unit.instance)
+    const stored = states === undefined ? undefined : own(states, unit.instance?.name ?? '')
+    if (stored !== undefined) return stored
     return gate.seen ? gate.holdsFor(unit.adoptedAlert) : unit.adoptedAlert
   }
 
@@ -585,7 +614,7 @@ export class RuleEvaluator {
     unit.inactive = problem
     unit.limit = resolved.ok ? resolved.limit : undefined
 
-    const gatesHold = gates.every((g) => this.holds(g, unit))
+    const gatesHold = gates.every((g, i) => this.holds(g, i, unit))
     if (problem !== undefined || !gatesHold || !resolved.ok) {
       unit.inUse = false
       if (resolved.ok && resolved.spec.type === 'accumulator') {

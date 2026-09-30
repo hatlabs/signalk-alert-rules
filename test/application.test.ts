@@ -1230,5 +1230,88 @@ describe('rule controls', () => {
       expect(second.alerts()).toContainEqual(['rules.user.rpm-high', false])
       expect(second.application.suppressions()).toMatchObject([{ scope: 'input', path: RPM }])
     })
+
+    /**
+     * Suppresses the tach path while the engine runs, then lets the coolant
+     * alert clear, so a later raise needs the frozen gate to hold.
+     */
+    function frozenRunning() {
+      const s = running()
+      s.application.suppressInput(RPM, {}, 'admin')
+      s.at(1, COOLANT, 300)
+      expect(s.alerts()).toContainEqual(['rules.user.coolant-high', false])
+      return s
+    }
+
+    /** The engine seems to stop, but the gate is frozen holding: coolant 390 alerts. */
+    function expectFrozenHolding(s: ReturnType<typeof setup>, t: number) {
+      s.at(t, RPM, 0)
+      s.at(t, COOLANT, 390)
+      expect(s.alerts()).toContainEqual(['rules.user.coolant-high', true])
+    }
+
+    it('stores the gate states it freezes with the suppression', () => {
+      frozenRunning()
+      expect(new Store(dir).load().controls.inputs[RPM]).toMatchObject({
+        frozen: { 'user.coolant-high': { '0': { '': true } } }
+      })
+    })
+
+    it('a gate keeps its frozen state across a plugin restart', () => {
+      const first = frozenRunning()
+      first.application.stop()
+      const second = setup(new Store(dir), first.server.core)
+      expectFrozenHolding(second, 10)
+    })
+
+    it('a gate keeps its frozen state across evaluation off and on', () => {
+      const s = frozenRunning()
+      s.application.setEvaluation(false, 'admin')
+      s.application.setEvaluation(true, 'admin')
+      expectFrozenHolding(s, 10)
+    })
+
+    it('a gate keeps its frozen state across disable and enable', () => {
+      const s = frozenRunning()
+      s.application.setEnabled('user', 'coolant-high', false, 'admin')
+      s.application.setEnabled('user', 'coolant-high', true, 'admin')
+      expectFrozenHolding(s, 10)
+    })
+
+    it('a gate keeps its frozen state across a structural edit', () => {
+      const s = frozenRunning()
+      const edited = { ...gatedCoolant, gates: [{ ...gatedCoolant.gates[0], hysteresis: 1 }] }
+      expect(s.application.previewRule('coolant-high', edited)).toMatchObject({
+        ok: true,
+        value: { restarts: true }
+      })
+      expect(s.application.replaceRule('coolant-high', edited).ok).toBe(true)
+      expectFrozenHolding(s, 10)
+    })
+
+    it('a gate with no stored state takes one reading and then freezes', () => {
+      stored(gatedCoolant)
+      const s = setup()
+      s.application.setEvaluation(false, 'admin')
+      s.application.suppressInput(RPM, {}, 'admin')
+      s.application.setEvaluation(true, 'admin')
+      s.at(1, RPM, 70)
+      expectFrozenHolding(s, 2)
+    })
+
+    it('drops the stored gate states when the suppression ends', () => {
+      const s = frozenRunning()
+      s.application.endInputSuppression(RPM, 'admin')
+      expect(new Store(dir).load().controls.inputs).toEqual({})
+      s.at(5, RPM, 0)
+      s.at(5, COOLANT, 390)
+      expect(s.alerts()).toContainEqual(['rules.user.coolant-high', false])
+    })
+
+    it('the suppression as listed does not carry the stored gate states', () => {
+      const s = running()
+      expect(s.application.suppressInput(RPM, {}, 'admin')).not.toHaveProperty('frozen')
+      expect(s.application.suppressions()[0]).not.toHaveProperty('frozen')
+    })
   })
 })

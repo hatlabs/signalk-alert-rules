@@ -72,20 +72,31 @@ describe('store', () => {
         'halpi.board-temperature': { enabled: true }
       },
       inputs: {
-        'propulsion.main.revolutions': { since: '2026-09-30T12:00:00.000Z', actor: 'admin' }
+        'propulsion.main.revolutions': {
+          since: '2026-09-30T12:00:00.000Z',
+          actor: 'admin',
+          frozen: {
+            'user.coolant-high': { '0': { '': true } },
+            'user.wild': { '1': { port: false } }
+          }
+        }
       }
     }
     store.saveControls(controls)
     expect(new Store(dir).load().controls).toEqual(controls)
   })
 
-  it('moves aside controls it does not recognise and starts them empty', () => {
+  const since = { since: '2026-09-30T12:00:00.000Z', actor: 'admin' }
+  it.each([
+    ['a rule control', { rules: { 'user.oil': { enabled: 'no' } }, inputs: {} }],
+    [
+      'a frozen gate state',
+      { rules: {}, inputs: { 'a.b': { ...since, frozen: { 'user.oil': { '0': { '': 'yes' } } } } } }
+    ]
+  ])('moves aside controls with %s it does not recognise and starts them empty', (_, bad) => {
     const store = new Store(dir)
     store.load()
-    writeFileSync(
-      join(dir, 'controls.json'),
-      JSON.stringify({ rules: { 'user.oil': { enabled: 'no' } }, inputs: {} })
-    )
+    writeFileSync(join(dir, 'controls.json'), JSON.stringify(bad))
     const contents = new Store(dir).load()
     expect(contents.controls).toEqual({ rules: {}, inputs: {} })
     expect(contents.issues).toEqual([expect.stringMatching(/^controls\.json could not be read/)])

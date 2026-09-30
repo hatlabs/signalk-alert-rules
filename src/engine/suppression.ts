@@ -6,10 +6,18 @@ import { bindPath, type Instance } from './signals.js'
 export type SuppressionScope =
   { scope: 'rule'; autoEndAfter?: number } | { scope: 'input'; path: string; autoEndAfter?: number }
 
+/**
+ * The gate states an input suppression froze when it started, by rule id,
+ * gate index and rule instance name (`''` for a rule without instances).
+ */
+export type FrozenGates = Record<string, Record<string, Record<string, boolean>>>
+
 /** The part of a suppression the engine acts on. */
 export interface ActiveSuppression {
   /** Seconds the condition must stay clear for the suppression to end by itself. */
   autoEndAfter?: number
+  /** For an input suppression: the states of the gates reading its path. */
+  frozen?: FrozenGates
 }
 
 /** The suppressions in force, read at each evaluation. */

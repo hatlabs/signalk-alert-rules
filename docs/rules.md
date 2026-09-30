@@ -167,7 +167,7 @@ A gate puts a rule in use only while a condition on another signal holds, such a
 
 - A gate that stops holding takes the rule out of use and clears its alert. The rule's detector is dropped; when the rule comes back into use it starts afresh, given the last reading, so durations count from then. An accumulator is the exception: it keeps accumulating while its rule is out of use, and only its alert is held back.
 - A gate whose input becomes unavailable keeps its last state: an engine that stopped before its controller went silent stays not running, and a tachometer that fails while the engine runs leaves the rule in use.
-- A gate whose input path is [suppressed](#input-suppression) is frozen: it ignores the input's values and time and keeps the state it last evaluated until the suppression ends.
+- A gate whose input path is [suppressed](#input-suppression) is frozen: it ignores the input's values and time and keeps the state it had when the suppression started until the suppression ends.
 - A gate whose input has not been seen since start does not hold, except for an alert adopted at restart (see [Restart](#restart-reconciliation)), which is kept until the gate input reports. For such an alert the gate starts as holding and does not wait out its `duration`.
 - A gate with a wildcard signal is evaluated per instance; a gate without one is shared by every instance.
 - A gate's limit can be a zone limit, resolved like any other; a zone level missing from the path makes the rule inactive with that reason. A gate's zone level does not affect the rule's priority.
@@ -350,7 +350,7 @@ An input suppression names one exact path, without a wildcard. It suppresses, as
 - every combinator rule with the path among its inputs;
 - for a wildcard rule, only the instance whose path it is: suppressing `propulsion.port.oilPressure` suppresses the `port` instance of a rule on `propulsion.*.oilPressure`.
 
-A [gate](#gates) that reads the path is frozen instead: its rule is not suppressed, and the gate keeps the state it last evaluated. A gate that held keeps the rule in use; one that did not keeps it out of use.
+A [gate](#gates) that reads the path is frozen instead: its rule is not suppressed, and the gate keeps the state it had when the suppression started, per rule instance, as the preview below shows it. A gate that held keeps the rule in use; one that did not keeps it out of use. The states are stored with the suppression, so a gate keeps its state across plugin restarts, the evaluation switch, disabling and enabling its rule, and edits of it. A gate with no stored state, because its rule was not evaluated when the suppression started or was created after, takes its input's first reading and keeps the state that reading gives, without waiting out the gate's `duration`. The stored states go when the suppression ends.
 
 An input suppression ends by itself once every rule instance it suppresses directly, those that read the path through their signal, has stayed clear for its `autoEndAfter`, by the same measure as a rule suppression; gated rules do not count. One that suppresses no instance never ends by itself. The API can preview, for a path, which rules and instances a suppression would suppress and which gates it would freeze in which state.
 

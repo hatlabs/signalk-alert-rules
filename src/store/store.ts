@@ -1,5 +1,6 @@
 import * as nodeFs from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
+import type { FrozenGates } from '../engine/suppression.js'
 import { SLUG_PATTERN, type Rule } from '../model/rule.js'
 import { errorMessage, isRecord } from '../util.js'
 
@@ -44,6 +45,11 @@ export interface Suppression {
   autoEndAfter?: number
 }
 
+/** A suppression of an input path, with the gate states it froze when it started. */
+export interface InputSuppression extends Suppression {
+  frozen?: FrozenGates
+}
+
 /** An operator's settings for one rule; a rule without them is enabled, unsuppressed and has no note. */
 export interface RuleControl {
   enabled: boolean
@@ -55,7 +61,7 @@ export interface Controls {
   /** By rule id, `<origin>.<slug>`. */
   rules: Record<string, RuleControl>
   /** By exact concrete path. */
-  inputs: Record<string, Suppression>
+  inputs: Record<string, InputSuppression>
 }
 
 const RULE_ACTIONS = ['delete', 'reset', 'enable', 'disable', 'note'] as const
@@ -124,6 +130,23 @@ function isSuppression(value: unknown): value is Suppression {
   )
 }
 
+const recordOf =
+  <T>(accepts: (value: unknown) => value is T) =>
+  (value: unknown): value is Record<string, T> =>
+    isRecord(value) && Object.values(value).every(accepts)
+
+const isFrozenGates = recordOf(
+  recordOf(recordOf((holds): holds is boolean => typeof holds === 'boolean'))
+)
+
+function isInputSuppression(value: unknown): value is InputSuppression {
+  return (
+    isRecord(value) &&
+    (value.frozen === undefined || isFrozenGates(value.frozen)) &&
+    isSuppression(value)
+  )
+}
+
 function isRuleControl(value: unknown): value is RuleControl {
   return (
     isRecord(value) &&
@@ -139,7 +162,7 @@ function isControls(value: unknown): value is Controls {
     isRecord(value.rules) &&
     Object.values(value.rules).every(isRuleControl) &&
     isRecord(value.inputs) &&
-    Object.values(value.inputs).every(isSuppression)
+    Object.values(value.inputs).every(isInputSuppression)
   )
 }
 

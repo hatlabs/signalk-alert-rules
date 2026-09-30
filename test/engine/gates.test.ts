@@ -78,7 +78,7 @@ describe('gate', () => {
       running,
       () => undefined,
       0,
-      () => frozen
+      () => (frozen ? {} : undefined)
     )
     g.sample(v(30), false, 0)
     frozen = true
@@ -89,6 +89,36 @@ describe('gate', () => {
     frozen = false
     g.tick(12)
     expect(g.holdsFor(false)).toBe(true)
+  })
+
+  it('a gate frozen before its first reading takes that reading without waiting out the duration', () => {
+    let frozen = true
+    const g = new Gate(
+      running,
+      () => undefined,
+      0,
+      () => (frozen ? {} : undefined)
+    )
+    g.sample(v(30), false, 0)
+    expect(g.holdsFor(false)).toBe(true)
+    g.sample(v(0), false, 1)
+    g.tick(100)
+    expect(g.holdsFor(false)).toBe(true)
+    // Thawed, it goes on from the state it was frozen at rather than timing its duration again.
+    frozen = false
+    g.tick(101)
+    expect(g.holdsFor(false)).toBe(true)
+  })
+
+  it('a gate with a stored state takes no reading of its own while frozen', () => {
+    const g = new Gate(
+      running,
+      () => undefined,
+      0,
+      () => ({ holds: true })
+    )
+    g.sample(v(0), false, 0)
+    expect(g.seen).toBe(false)
   })
 
   it('an input never seen since start does not hold', () => {

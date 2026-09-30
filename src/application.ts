@@ -9,7 +9,12 @@ import {
 } from './alerts/runner.js'
 import type { Progress } from './engine/detectors/index.js'
 import { carriesTotals, structuralChanges } from './engine/evaluator.js'
-import { readsPath, signalPaths, type Suppressions } from './engine/suppression.js'
+import {
+  readsPath,
+  signalPaths,
+  type FrozenGates,
+  type Suppressions
+} from './engine/suppression.js'
 import { MAX_RULES, type Rule } from './model/rule.js'
 import { USER_ORIGIN } from './model/ruleset.js'
 import { validateRule, type ValidationError } from './model/validate.js'
@@ -17,12 +22,13 @@ import type {
   Checkpoints,
   Controls,
   EvaluationSwitch,
+  InputSuppression,
   LogEntry,
   RuleControl,
   Store,
   Suppression
 } from './store/store.js'
-import { isRecord } from './util.js'
+import { isRecord, own } from './util.js'
 
 /** How often rules are evaluated: detector durations resolve to this. */
 export const TICK_MS = 1000
@@ -120,13 +126,25 @@ function toMaps(checkpoints: Checkpoints): Map<string, Map<string, number>> {
   )
 }
 
-// Input paths are operator-chosen keys, so one named like an Object property must not read it.
-function own<T>(record: Record<string, T>, key: string): T | undefined {
-  return Object.hasOwn(record, key) ? record[key] : undefined
-}
-
 function without<T>(record: Record<string, T>, key: string): Record<string, T> {
   return Object.fromEntries(Object.entries(record).filter(([k]) => k !== key))
+}
+
+/** The gate states a preview lists, as an input suppression stores them; undefined for none. */
+function frozenGates(freezes: InputSuppressionPreview['freezes']): FrozenGates | undefined {
+  const frozen: FrozenGates = {}
+  for (const { rule, gate, states } of freezes) {
+    if (states.length === 0) continue
+    const instances = Object.fromEntries(states.map((s) => [s.instance ?? '', s.holds]))
+    frozen[rule] = { ...own(frozen, rule), [String(gate)]: instances }
+  }
+  return Object.keys(frozen).length === 0 ? undefined : frozen
+}
+
+/** An input suppression as listed: the stored gate states are the engine's, not the operator's. */
+function inputEntry(path: string, suppression: InputSuppression): SuppressionEntry {
+  const { frozen: _frozen, ...listed } = suppression
+  return { scope: 'input', path, ...listed }
 }
 
 function notEvaluated(
@@ -566,7 +584,12 @@ export class Application {
    * cannot write.
    */
   suppressInput(path: string, request: SuppressionRequest, actor: string): SuppressionEntry {
-    const suppression = this.newSuppression(request, actor)
+    // Stored, so a gate rebuilt while frozen, as on every restart, keeps its state.
+    const frozen = frozenGates(this.previewInputSuppression(path).freezes)
+    const suppression: InputSuppression = {
+      ...this.newSuppression(request, actor),
+      ...(frozen === undefined ? {} : { frozen })
+    }
     this.saveControls({
       ...this.controls,
       inputs: { ...this.controls.inputs, [path]: suppression }
@@ -574,7 +597,7 @@ export class Application {
     this.suppressedAt.set(`input:${path}`, this.deps.clock())
     this.runner?.refresh()
     this.record({ at: suppression.since, actor, action: 'suppress', path })
-    return { scope: 'input', path, ...suppression }
+    return inputEntry(path, suppression)
   }
 
   /** Ends an input suppression; false when there is none. Throws when the store cannot write. */
@@ -592,11 +615,9 @@ export class Application {
     const rules = Object.entries(this.controls.rules).flatMap(([rule, { suppression }]) =>
       suppression === undefined ? [] : [{ scope: 'rule' as const, rule, ...suppression }]
     )
-    const inputs = Object.entries(this.controls.inputs).map(([path, suppression]) => ({
-      scope: 'input' as const,
-      path,
-      ...suppression
-    }))
+    const inputs = Object.entries(this.controls.inputs).map(([path, suppression]) =>
+      inputEntry(path, suppression)
+    )
     return [...rules, ...inputs].sort((a, b) => b.since.localeCompare(a.since))
   }
 

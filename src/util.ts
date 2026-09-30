@@ -7,3 +7,11 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 export function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
+
+/**
+ * A record's own entry for a key. Keys such as paths and instance names come
+ * from outside, so one named like an Object property must not read it.
+ */
+export function own<T>(record: Record<string, T>, key: string): T | undefined {
+  return Object.hasOwn(record, key) ? record[key] : undefined
+}
