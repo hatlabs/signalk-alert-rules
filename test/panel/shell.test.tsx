@@ -510,6 +510,7 @@ describe('Shell rules', () => {
     })
     expect(screen.getByText(/evaluation is off/i)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /clear all skar alerts/i })).toBeNull()
+    expect(document.activeElement).toBe(document.body)
   })
 
   it('clears all alerts by turning evaluation off, then offers to turn it on', async () => {
@@ -525,6 +526,8 @@ describe('Shell rules', () => {
     await settle()
     expect(api.setEvaluation).toHaveBeenCalledWith(false)
     expect(screen.getByText(/evaluation is off/i)).toBeTruthy()
+    // The clear-all button is gone, so focus goes where the next action is.
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /turn evaluation on/i }))
     fireEvent.click(screen.getByRole('button', { name: /turn evaluation on/i }))
     await settle()
     expect(api.setEvaluation).toHaveBeenLastCalledWith(true)

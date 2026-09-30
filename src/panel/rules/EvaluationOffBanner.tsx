@@ -1,13 +1,19 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 export interface EvaluationOffBannerProps {
   /** Resolves once the server has turned evaluation on; a rejection is shown. */
   turnOn: () => Promise<void>
+  /** Set when the banner replaces the control the keyboard user just activated. */
+  takeFocus?: boolean
 }
 
 /** Shown above every view while evaluation is off, as no rule raises an alert then. */
-export function EvaluationOffBanner({ turnOn }: EvaluationOffBannerProps) {
+export function EvaluationOffBanner({ turnOn, takeFocus = false }: EvaluationOffBannerProps) {
   const [error, setError] = useState<string | undefined>(undefined)
+  const button = useRef<HTMLButtonElement | null>(null)
+  useEffect(() => {
+    if (takeFocus) button.current?.focus()
+  }, [takeFocus])
   const onClick = async () => {
     setError(undefined)
     try {
@@ -26,7 +32,12 @@ export function EvaluationOffBanner({ turnOn }: EvaluationOffBannerProps) {
           {error}
         </p>
       )}
-      <button type="button" className="btn btn-secondary btn-sm" onClick={() => void onClick()}>
+      <button
+        ref={button}
+        type="button"
+        className="btn btn-secondary btn-sm"
+        onClick={() => void onClick()}
+      >
         Turn evaluation on
       </button>
     </div>

@@ -283,6 +283,7 @@ function Views({ api, view, refresh }: ViewsProps) {
     }
   })
 
+  const [clearedAll, setClearedAll] = useState(false)
   const setEvaluation = async (enabled: boolean) => {
     await api.setEvaluation(enabled)
     refresh()
@@ -339,7 +340,10 @@ function Views({ api, view, refresh }: ViewsProps) {
           <section className="skar-danger-zone" aria-label="All SKAR alerts">
             <ClearAllAlerts
               activeAlerts={activeAlerts(rules)}
-              turnOff={() => setEvaluation(false)}
+              turnOff={async () => {
+                await setEvaluation(false)
+                setClearedAll(true)
+              }}
             />
           </section>
         )}
@@ -349,7 +353,15 @@ function Views({ api, view, refresh }: ViewsProps) {
 
   return (
     <>
-      {!evaluationEnabled && <EvaluationOffBanner turnOn={() => setEvaluation(true)} />}
+      {!evaluationEnabled && (
+        <EvaluationOffBanner
+          takeFocus={clearedAll}
+          turnOn={async () => {
+            await setEvaluation(true)
+            setClearedAll(false)
+          }}
+        />
+      )}
       <ul className="nav nav-tabs" role="tablist">
         {TABS.map((t) => (
           <li className="nav-item" key={t.id} role="presentation">
