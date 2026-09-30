@@ -26,7 +26,7 @@ function mockApi(server: Server) {
     ),
     pluginEnabled: vi.fn(() => Promise.resolve(server.enabled)),
     rules: vi.fn(() => Promise.resolve(server.rules)),
-    resetAccumulator: vi.fn((_origin: string, _slug: string) =>
+    resetAccumulator: vi.fn((_origin: string, _slug: string): Promise<RuleEntry> =>
       Promise.reject(new Error('not expected'))
     ),
     setEvaluation: vi.fn((enabled: boolean) => Promise.resolve({ enabled }))
@@ -271,5 +271,121 @@ describe('Shell', () => {
     expect(api.state).toHaveBeenCalledTimes(2)
     await tick(POLL_INTERVAL_MS)
     expect(api.state).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe('Shell rules', () => {
+  const ADMIN = '#/apps/configuration/signalk-alert-rules'
+  const hours = ruleEntry({
+    slug: 'engine-hours',
+    rule: { name: 'Engine hours', detector: { type: 'accumulator', measure: 'time' } },
+    status: {
+      instances: [
+        {
+          badge: 'alertActive',
+          active: true,
+          subLabels: [],
+          gates: [],
+          progress: { kind: 'total', total: 7200, limit: 3600 }
+        }
+      ]
+    }
+  })
+
+  function goTo(hash: string) {
+    window.location.hash = hash
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+  }
+
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+    window.history.replaceState(null, '', '/')
+  })
+
+  async function renderShell(server: Server) {
+    vi.useFakeTimers()
+    const api = mockApi(server)
+    render(<Shell api={api} />)
+    await settle()
+    return api
+  }
+
+  it('lists the rules, each linking to its detail after the admin UI route', async () => {
+    window.history.replaceState(null, '', `/admin/${ADMIN}`)
+    await renderShell({ state: running, enabled: true, rules: [rule, hours] })
+    expect(screen.getByRole('link', { name: 'Oil pressure low' }).getAttribute('href')).toBe(
+      `${ADMIN}#rule=user/oil-pressure-low`
+    )
+  })
+
+  it('opens the rule the fragment names and goes back to the list', async () => {
+    window.history.replaceState(null, '', `/admin/${ADMIN}#rule=user/engine-hours`)
+    await renderShell({ state: running, enabled: true, rules: [rule, hours] })
+    expect(screen.getByRole('heading', { name: 'Engine hours' })).toBeTruthy()
+    const back = screen.getByRole('link', { name: /all rules/i })
+    expect(back.getAttribute('href')).toBe(ADMIN)
+    act(() => {
+      goTo(ADMIN)
+    })
+    expect(screen.queryByRole('heading', { name: 'Engine hours' })).toBeNull()
+    act(() => {
+      goTo(`${ADMIN}#rule=user/oil-pressure-low`)
+    })
+    expect(screen.getByRole('heading', { name: 'Oil pressure low' })).toBeTruthy()
+  })
+
+  it('shows the rules tab when a fragment names a rule', async () => {
+    await renderShell({ state: running, enabled: true, rules: [rule] })
+    fireEvent.click(screen.getByRole('tab', { name: 'Suppressions' }))
+    act(() => {
+      goTo('#rule=user/oil-pressure-low')
+    })
+    expect(screen.getByRole('tab', { name: 'Rules' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('heading', { name: 'Oil pressure low' })).toBeTruthy()
+  })
+
+  it('says when the rule the fragment names does not exist', async () => {
+    window.history.replaceState(null, '', '/#rule=user/gone')
+    await renderShell({ state: running, enabled: true, rules: [rule] })
+    expect(screen.getByText(/no rule user\/gone/i)).toBeTruthy()
+    expect(screen.getByRole('link', { name: /all rules/i })).toBeTruthy()
+  })
+
+  it('resets an accumulator and shows the rule as it is after', async () => {
+    window.history.replaceState(null, '', '/#rule=user/engine-hours')
+    const server: Server = { state: running, enabled: true, rules: [hours] }
+    const api = await renderShell(server)
+    const after = { ...hours, status: { ...hours.status, badge: 'idle' as const, instances: [] } }
+    api.resetAccumulator.mockImplementation(() => {
+      server.rules = [after]
+      return Promise.resolve(after)
+    })
+    fireEvent.click(screen.getByRole('button', { name: /reset accumulator/i }))
+    fireEvent.click(screen.getByRole('button', { name: /reset total/i }))
+    await settle()
+    expect(api.resetAccumulator).toHaveBeenCalledWith('user', 'engine-hours')
+    expect(api.rules).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(screen.getByText('Idle')).toBeTruthy()
+  })
+
+  it('clears all alerts by turning evaluation off, then offers to turn it on', async () => {
+    const server: Server = { state: running, enabled: true, rules: [rule, hours] }
+    const api = await renderShell(server)
+    api.setEvaluation.mockImplementation((enabled: boolean) => {
+      server.state = { ...running, evaluation: { enabled } }
+      return Promise.resolve({ enabled })
+    })
+    fireEvent.click(screen.getByRole('button', { name: /clear all skar alerts/i }))
+    expect(screen.getByRole('alertdialog').textContent).toMatch(/1 active alert\b/)
+    fireEvent.click(screen.getByRole('button', { name: /clear all alerts/i }))
+    await settle()
+    expect(api.setEvaluation).toHaveBeenCalledWith(false)
+    expect(screen.getByText(/evaluation is off/i)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /turn evaluation on/i }))
+    await settle()
+    expect(api.setEvaluation).toHaveBeenLastCalledWith(true)
+    expect(screen.queryByText(/evaluation is off/i)).toBeNull()
   })
 })

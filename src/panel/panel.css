@@ -6,3 +6,65 @@
 .skar-empty {
   padding: 1rem 0;
 }
+
+.skar-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.skar-toolbar > div {
+  flex: 1 1 12rem;
+}
+
+.skar-toolbar .form-label {
+  margin-bottom: 0.25rem;
+}
+
+/* Paths are long and have no spaces; let them break at the dots' neighbours. */
+.skar-path {
+  overflow-wrap: anywhere;
+}
+
+.skar-marker {
+  margin-left: 0.5rem;
+}
+
+.skar-status-detail,
+.skar-instance-summary {
+  font-size: 0.85em;
+}
+
+.skar-sublabels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85em;
+}
+
+.skar-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+}
+
+.skar-facts dd {
+  margin: 0;
+}
+
+.skar-actions,
+.skar-confirm {
+  margin-top: 1rem;
+}
+
+/* Kept away from the per-rule actions so it is not hit by mistake. */
+.skar-danger-zone {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.125);
+}

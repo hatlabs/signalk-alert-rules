@@ -9,7 +9,7 @@ export interface RuleDetailProps {
   entry: RuleEntry
   /** The link back to the rule list. */
   backHref: string
-  /** Resets the rule's accumulator; resolves once the list shows the result. */
+  /** Resets the rule's accumulator; a rejection is shown in the confirmation. */
   reset: () => Promise<void>
 }
 

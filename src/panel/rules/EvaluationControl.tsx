@@ -13,7 +13,7 @@ export function activeAlerts(rules: RuleEntry[]): number {
 export interface EvaluationControlProps {
   evaluationEnabled: boolean
   activeAlerts: number
-  /** Resolves once the list shows the result. */
+  /** Resolves once the server has applied the switch; a rejection is shown. */
   setEvaluation: (enabled: boolean) => Promise<void>
 }
 
