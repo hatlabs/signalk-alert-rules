@@ -1,0 +1,31 @@
+/* Layout only: colours and components come from the admin UI's Bootstrap theme. */
+.skar-path-picker {
+  position: relative;
+}
+
+.skar-path-picker .dropdown-menu {
+  width: 100%;
+  max-height: 20rem;
+  overflow-y: auto;
+}
+
+.skar-path-picker .dropdown-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.75rem;
+  cursor: pointer;
+  white-space: normal;
+}
+
+.skar-path-picker-path {
+  font-family: var(--bs-font-monospace, monospace);
+  overflow-wrap: anywhere;
+}
+
+.skar-path-picker-name {
+  opacity: 0.75;
+}
+
+.skar-path-picker-unit {
+  margin-left: auto;
+}
