@@ -1,4 +1,4 @@
-import { readFile, readdir, realpath, stat } from 'node:fs/promises'
+import { readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { extname, isAbsolute, join, relative } from 'node:path'
 import { parseDocument, type YAMLError } from 'yaml'
 import type { Ruleset } from '../model/ruleset.js'
@@ -65,16 +65,18 @@ class Malformed extends Error {
 /**
  * Finds rulesets in provider packages and the drop-in directory. Packages come
  * first, then drop-in files, each sorted by name, so which of two rulesets
- * sharing a slug loads does not depend on filesystem order.
+ * sharing a slug loads does not depend on filesystem order. Synchronous, like
+ * the store: the rules a start adopts alerts for must all be known before
+ * evaluation starts, and a plugin start cannot wait for a promise.
  */
-export async function discoverRulesets(dirs: DiscoveryDirs): Promise<DiscoveryResult> {
+export function discoverRulesets(dirs: DiscoveryDirs): DiscoveryResult {
   const problems: DiscoveryProblem[] = []
   const candidates: Candidate[] = []
   if (dirs.nodeModules !== undefined)
-    for (const dir of await packageDirs(dirs.nodeModules, problems)) {
-      const pkg = await readPackageJson(dir)
+    for (const dir of packageDirs(dirs.nodeModules, problems)) {
+      const pkg = readPackageJson(dir)
       try {
-        const candidate = await packageCandidate(dir, pkg)
+        const candidate = packageCandidate(dir, pkg)
         if (candidate !== undefined) candidates.push(candidate)
       } catch (err) {
         // The directory is what the operator installed, as npm names it.
@@ -82,13 +84,13 @@ export async function discoverRulesets(dirs: DiscoveryDirs): Promise<DiscoveryRe
         problems.push(problemOf(`package ${label}`, err))
       }
     }
-  if (dirs.dropIn !== undefined) candidates.push(...(await dropInCandidates(dirs.dropIn, problems)))
+  if (dirs.dropIn !== undefined) candidates.push(...dropInCandidates(dirs.dropIn, problems))
 
   const rulesets: LoadedRuleset[] = []
   const taken = new Map<string, string>()
   for (const candidate of candidates) {
     try {
-      const ruleset = await loadRuleset(candidate.file)
+      const ruleset = loadRuleset(candidate.file)
       const holder = taken.get(ruleset.slug)
       if (holder !== undefined)
         throw new Malformed(`slug ${ruleset.slug} is already used by ${holder}`)
@@ -116,9 +118,11 @@ function problemOf(source: string, err: unknown): DiscoveryProblem {
  * An unreadable directory, such as a root-owned scope left by `sudo npm
  * install`, is reported and skipped so that it cannot hide every other ruleset.
  */
-async function listDir(dir: string, problems: DiscoveryProblem[]): Promise<string[]> {
+function listDir(dir: string, problems: DiscoveryProblem[]): string[] {
   try {
-    return (await readdir(dir)).filter((name) => !name.startsWith('.')).sort()
+    return readdirSync(dir)
+      .filter((name) => !name.startsWith('.'))
+      .sort()
   } catch (err) {
     const { code } = err as NodeJS.ErrnoException
     if (code !== 'ENOENT' && code !== 'ENOTDIR') problems.push(problemOf(`directory ${dir}`, err))
@@ -126,20 +130,20 @@ async function listDir(dir: string, problems: DiscoveryProblem[]): Promise<strin
   }
 }
 
-async function packageDirs(nodeModules: string, problems: DiscoveryProblem[]): Promise<string[]> {
+function packageDirs(nodeModules: string, problems: DiscoveryProblem[]): string[] {
   const dirs: string[] = []
-  for (const name of await listDir(nodeModules, problems)) {
+  for (const name of listDir(nodeModules, problems)) {
     if (name.startsWith('@'))
-      for (const scoped of await listDir(join(nodeModules, name), problems))
+      for (const scoped of listDir(join(nodeModules, name), problems))
         dirs.push(join(nodeModules, name, scoped))
     else dirs.push(join(nodeModules, name))
   }
   return dirs
 }
 
-async function readPackageJson(dir: string): Promise<Record<string, unknown> | undefined> {
+function readPackageJson(dir: string): Record<string, unknown> | undefined {
   try {
-    const parsed: unknown = JSON.parse(await readFile(join(dir, 'package.json'), 'utf8'))
+    const parsed: unknown = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
     return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
       ? (parsed as Record<string, unknown>)
       : undefined
@@ -149,10 +153,10 @@ async function readPackageJson(dir: string): Promise<Record<string, unknown> | u
   }
 }
 
-async function packageCandidate(
+function packageCandidate(
   dir: string,
   pkg: Record<string, unknown> | undefined
-): Promise<Candidate | undefined> {
+): Candidate | undefined {
   if (!Array.isArray(pkg?.keywords) || !pkg.keywords.includes(RULESET_KEYWORD)) return undefined
   const { name, version } = pkg
   if (typeof name !== 'string' || typeof version !== 'string')
@@ -163,10 +167,10 @@ async function packageCandidate(
 
   // Resolving symlinks on both sides keeps a link inside the package from
   // pointing the server at an arbitrary file elsewhere.
-  const root = await realpath(dir)
+  const root = realpathSync(dir)
   let file: string
   try {
-    file = await realpath(join(root, field))
+    file = realpathSync(join(root, field))
   } catch {
     throw new Malformed(`ruleset file ${field} not found`)
   }
@@ -178,16 +182,16 @@ async function packageCandidate(
   return { source: `package ${name}`, package: { name, version }, file }
 }
 
-async function dropInCandidates(dir: string, problems: DiscoveryProblem[]): Promise<Candidate[]> {
-  return (await listDir(dir, problems))
+function dropInCandidates(dir: string, problems: DiscoveryProblem[]): Candidate[] {
+  return listDir(dir, problems)
     .filter((name) => RULESET_EXTENSIONS.has(extname(name).toLowerCase()))
     .map((name) => ({ source: `file ${name}`, file: join(dir, name) }))
 }
 
-async function loadRuleset(file: string): Promise<Ruleset> {
-  if ((await stat(file)).size > MAX_RULESET_BYTES)
+function loadRuleset(file: string): Ruleset {
+  if (statSync(file).size > MAX_RULESET_BYTES)
     throw new Malformed('ruleset file is larger than 1 MiB')
-  const document = parseRulesetText(await readFile(file, 'utf8'))
+  const document = parseRulesetText(readFileSync(file, 'utf8'))
   const result = validateRuleset(document)
   if (!result.ok)
     throw new Malformed(result.errors.map((e) => `${e.path || '/'}: ${e.message}`).join('; '))
