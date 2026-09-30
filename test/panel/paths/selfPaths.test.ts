@@ -139,6 +139,28 @@ describe('parseSelfPaths', () => {
     expect(paths.map((p) => p.sources)).toEqual([['gnss.bow', 'gnss.stern'], ['x']])
   })
 
+  it('keeps the zones meta declares, dropping malformed ones', () => {
+    const [battery] = parseSelfPaths({
+      v: {
+        value: 12.4,
+        meta: {
+          zones: [
+            { upper: 11.5, state: 'alarm' },
+            { lower: 11.5, upper: 12, state: 'warn', message: 'low' },
+            { lower: null, upper: 3, state: 'normal' },
+            { lower: 'x', state: 'warn' },
+            'junk'
+          ]
+        }
+      }
+    })
+    expect(battery.zones).toEqual([
+      { upper: 11.5, state: 'alarm' },
+      { lower: 11.5, upper: 12, state: 'warn' },
+      { upper: 3, state: 'normal' }
+    ])
+  })
+
   it('ignores malformed meta rather than failing the list', () => {
     const paths = parseSelfPaths({
       a: { value: 1, meta: { units: 3, displayName: {}, displayUnits: { formula: 4 } } }

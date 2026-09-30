@@ -12,6 +12,14 @@ export interface PathEntry {
   unit: DisplayUnit
   /** The `$source`s reporting the path, for a rule input restricted to one. */
   sources?: string[]
+  /** `meta.zones`, in SI; an absent bound is open. */
+  zones?: Zone[]
+}
+
+export interface Zone {
+  lower?: number
+  upper?: number
+  state: string
 }
 
 /** What the path picker and unit fields ask of the server; tests substitute their own. */
@@ -59,14 +67,33 @@ function entry(path: string, node: Record<string, unknown>): PathEntry {
   const displayName = optionalString(meta.displayName)
   const description = optionalString(meta.description)
   const sources = sourcesOf(node)
+  const zones = zonesOf(meta.zones)
   return {
     path,
     ...(displayName === undefined ? {} : { displayName }),
     ...(description === undefined ? {} : { description }),
     ...(units.units === undefined ? {} : { units: units.units }),
     unit: displayUnit(units),
-    ...(sources.length === 0 ? {} : { sources })
+    ...(sources.length === 0 ? {} : { sources }),
+    ...(zones.length === 0 ? {} : { zones })
   }
+}
+
+function zonesOf(value: unknown): Zone[] {
+  if (!Array.isArray(value)) return []
+  const bound = (v: unknown) => v === undefined || v === null || typeof v === 'number'
+  return value.flatMap((z): Zone[] => {
+    if (!isRecord(z) || typeof z.state !== 'string' || !bound(z.lower) || !bound(z.upper)) {
+      return []
+    }
+    return [
+      {
+        ...(typeof z.lower === 'number' ? { lower: z.lower } : {}),
+        ...(typeof z.upper === 'number' ? { upper: z.upper } : {}),
+        state: z.state
+      }
+    ]
+  })
 }
 
 /**
