@@ -5,6 +5,7 @@ import type { PanelApi, PluginState, RuleEntry } from '../../../src/panel/api'
 import type { PathSource } from '../../../src/panel/paths/selfPaths'
 import type { RulesetEntry, RulesetsApi } from '../../../src/panel/rulesets/api'
 import { Shell } from '../../../src/panel/Shell'
+import { POLL_INTERVAL_MS } from '../../../src/panel/shellState'
 import { instance, noAuthoring, noControls, ruleEntry } from '../fixtures'
 
 const running: PluginState = { running: true, securityEnabled: true }
@@ -153,6 +154,20 @@ describe('Shell with rulesets', () => {
     })
     await settle()
     expect(shownLimit()).toBe(String(DEFAULT_LOW))
+  })
+
+  it('keeps a failed rescan on screen through the next poll', async () => {
+    const { rulesets } = await renderShell()
+    await openTab('Rulesets')
+    rulesets.rescan.mockRejectedValueOnce(new Error('the data directory could not be written'))
+    fireEvent.click(screen.getByRole('button', { name: 'Rescan' }))
+    await settle()
+    const listed = rulesets.list.mock.calls.length
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    })
+    expect(rulesets.list.mock.calls.length).toBeGreaterThan(listed)
+    expect(screen.getByRole('alert').textContent).toMatch(/could not be written/)
   })
 
   it('shows a ruleset rule as provided, read-only, with a way to its ruleset', async () => {

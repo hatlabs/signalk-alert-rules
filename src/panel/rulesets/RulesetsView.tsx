@@ -62,6 +62,9 @@ export function RulesetsView({
 }: RulesetsViewProps) {
   const [listing, setListing] = useState<RulesetListing | undefined>(undefined)
   const [failure, setFailure] = useState<string | undefined>(undefined)
+  // Apart from the read failure, which the next successful poll clears
+  // within seconds: a rescan's failure stands until the operator rescans.
+  const [rescanFailure, setRescanFailure] = useState<string | undefined>(undefined)
   const [rescanning, setRescanning] = useState(false)
   const [announcement, setAnnouncement] = useState('')
   // An answer that arrives after a newer one, as a poll overtaken by a
@@ -95,13 +98,14 @@ export function RulesetsView({
 
   const rescan = () => {
     setRescanning(true)
+    setRescanFailure(undefined)
     read(() => api.rescan())
       .then((answer) => {
         setAnnouncement(found(answer))
         refresh()
       })
       .catch((err: unknown) => {
-        setFailure(`The rescan failed: ${failureMessage(err)}`)
+        setRescanFailure(`The rescan failed: ${failureMessage(err)}`)
       })
       .finally(() => {
         setRescanning(false)
@@ -140,10 +144,13 @@ export function RulesetsView({
       <div role="status" className="visually-hidden">
         {announcement}
       </div>
-      {failure !== undefined && (
-        <div className="alert alert-danger" role="alert">
-          {failure}
-        </div>
+      {[failure, rescanFailure].map(
+        (message) =>
+          message !== undefined && (
+            <div key={message} className="alert alert-danger" role="alert">
+              {message}
+            </div>
+          )
       )}
       {listing === undefined ? (
         failure === undefined && <p>Loading the rulesets…</p>
