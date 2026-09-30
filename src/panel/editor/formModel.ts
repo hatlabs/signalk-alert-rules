@@ -364,7 +364,7 @@ function parsed(text: string): number | undefined {
   return Number.isFinite(value) ? value : undefined
 }
 
-function durationFrom(seconds: number | undefined): DurationField {
+export function durationFrom(seconds: number | undefined): DurationField {
   if (seconds === undefined) return noDuration()
   const whole = (u: DurationUnit) =>
     seconds >= DURATION_FACTORS[u] && seconds % DURATION_FACTORS[u] === 0

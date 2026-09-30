@@ -295,6 +295,34 @@ describe('SuppressDialog', () => {
       })
       expect(dialog().textContent).toMatch(/replaces the suppression/i)
     })
+
+    it('starts from the note and the auto-end of the suppression it replaces', async () => {
+      const { api } = renderDialog({
+        kind: 'rule',
+        entry: {
+          ...oil,
+          suppression: {
+            since: '2026-09-30T12:00:00.000Z',
+            actor: 'admin',
+            note: 'Sender faulty',
+            autoEndAfter: 600
+          }
+        }
+      })
+      expect(screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Note' }).value).toBe(
+        'Sender faulty'
+      )
+      expect(screen.getByRole<HTMLInputElement>('radio', { name: /by itself/i }).checked).toBe(true)
+      expect(screen.getByRole<HTMLInputElement>('textbox', { name: /clear for/i }).value).toBe('10')
+      expect(
+        screen.getByRole<HTMLSelectElement>('combobox', { name: /clear for.*unit/i }).value
+      ).toBe('min')
+      await click(within(dialog()).getByRole('button', { name: 'Suppress' }))
+      expect(api.suppressRule).toHaveBeenCalledWith('user', 'oil-pressure-low', {
+        note: 'Sender faulty',
+        autoEndAfter: 600
+      })
+    })
   })
 
   it("keeps the dialog open with the server's message when refused", async () => {

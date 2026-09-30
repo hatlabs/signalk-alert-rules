@@ -7,7 +7,7 @@ import {
   type SuppressionRequest
 } from '../api'
 import { DurationInput, FieldErrors } from '../editor/fields'
-import { DURATION_FACTORS, type DurationField } from '../editor/formModel'
+import { DURATION_FACTORS, durationFrom, type DurationField } from '../editor/formModel'
 import { failureMessage } from '../failure'
 import { PathPicker } from '../paths/PathPicker'
 import { useSelfPaths, type PathSource } from '../paths/selfPaths'
@@ -138,9 +138,15 @@ export function SuppressDialog({ target, context, onClose }: SuppressDialogProps
   const fixedPath = target.kind === 'input' ? target.path : undefined
   const [path, setPath] = useState(fixedPath ?? '')
   const [preview, setPreview] = useState<PreviewState>({ status: 'none' })
-  const [note, setNote] = useState('')
-  const [autoEnd, setAutoEnd] = useState(false)
-  const [duration, setDuration] = useState<DurationField>({ amount: '', unit: 'min' })
+  // Replacing a suppression keeps what it said unless the operator changes it.
+  const replaced = target.kind === 'rule' ? target.entry.suppression : undefined
+  const [note, setNote] = useState(replaced?.note ?? '')
+  const [autoEnd, setAutoEnd] = useState(replaced?.autoEndAfter !== undefined)
+  const [duration, setDuration] = useState<DurationField>(() =>
+    replaced?.autoEndAfter === undefined
+      ? { amount: '', unit: 'min' }
+      : durationFrom(replaced.autoEndAfter)
+  )
   const [fieldErrors, setFieldErrors] = useState<ReadonlyMap<string, string[]>>(new Map())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
@@ -234,8 +240,7 @@ export function SuppressDialog({ target, context, onClose }: SuppressDialogProps
               Suppressing silences this rule temporarily, for a known fault: it keeps evaluating but
               raises no alert until the suppression ends.
               {alerts > 0 && ` Suppressing it clears its ${plural(alerts, 'active alert')}.`}
-              {target.entry.suppression !== undefined &&
-                ' This replaces the suppression the rule has now.'}
+              {replaced !== undefined && ' This replaces the suppression the rule has now.'}
             </p>
             <p>To turn the rule off until someone turns it on again, disable it instead.</p>
           </>
