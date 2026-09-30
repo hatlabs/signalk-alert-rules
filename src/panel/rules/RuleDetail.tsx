@@ -12,7 +12,8 @@ import {
   type RuleDisplay
 } from './describe'
 import { InstanceTable, isLinked } from './InstanceTable'
-import { InputChips, SuppressButton, type SuppressContext } from '../suppression/SuppressButton'
+import { InputChips, SuppressButton } from '../suppression/SuppressButton'
+import type { SuppressContext } from '../suppression/SuppressDialog'
 import { EnableToggle, NoteEditor } from './RuleControls'
 import { StatusBadge } from './StatusBadge'
 

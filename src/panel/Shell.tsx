@@ -18,7 +18,7 @@ import {
   type ShellView
 } from './shellState'
 import { useUnits } from './signalUnits'
-import type { SuppressContext } from './suppression/SuppressButton'
+import type { SuppressContext } from './suppression/SuppressDialog'
 import { SuppressionsView } from './suppression/SuppressionsView'
 
 const TABS = [

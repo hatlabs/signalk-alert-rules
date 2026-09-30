@@ -21,16 +21,22 @@ export type SuppressionApi = Pick<
   'suppressRule' | 'suppressInput' | 'previewInputSuppression'
 >
 
-export interface SuppressDialogProps {
-  target: SuppressTarget
+/** What a suppression entry point needs; views without it offer no suppression. */
+export interface SuppressContext {
   api: SuppressionApi
-  /** The rules, to name those a preview lists. */
+  /** The rules, to name those an input preview lists. */
   rules: RuleEntry[]
   /** The server's paths, for picking an input path. */
   paths: PathSource
-  /** Called once the suppression is in force. */
-  onDone: () => void
-  onCancel: () => void
+  /** Called once a suppression is in force, to show its effect. */
+  done: () => void
+}
+
+export interface SuppressDialogProps {
+  target: SuppressTarget
+  context: SuppressContext
+  /** Called when the dialog closes, whether cancelled or done. */
+  onClose: () => void
 }
 
 /** The longest auto-end the server accepts, in seconds. */
@@ -124,14 +130,8 @@ function autoEndSeconds(field: DurationField): number | string {
  * is made. It sits in the page next to its trigger, as the confirmations do:
  * the admin UI has no modal for a plugin panel.
  */
-export function SuppressDialog({
-  target,
-  api,
-  rules,
-  paths,
-  onDone,
-  onCancel
-}: SuppressDialogProps) {
+export function SuppressDialog({ target, context, onClose }: SuppressDialogProps) {
+  const { api, rules, paths } = context
   const titleId = useId()
   const noteId = useId()
   const heading = useRef<HTMLHeadingElement | null>(null)
@@ -179,7 +179,8 @@ export function SuppressDialog({
       } else {
         await api.suppressInput(path, request)
       }
-      onDone()
+      onClose()
+      context.done()
     } catch (err) {
       if (err instanceof RuleRejectedError) {
         setFieldErrors(new Map(err.errors.map((e) => [e.path, [e.message]])))
@@ -192,7 +193,7 @@ export function SuppressDialog({
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === 'Escape' && !event.defaultPrevented) {
       event.stopPropagation()
-      onCancel()
+      onClose()
     }
   }
 
@@ -353,7 +354,7 @@ export function SuppressDialog({
           type="button"
           className="btn btn-outline-secondary btn-sm"
           disabled={busy}
-          onClick={onCancel}
+          onClick={onClose}
         >
           Cancel
         </button>

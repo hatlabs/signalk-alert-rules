@@ -1,18 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import type { RuleEntry } from '../api'
-import type { PathSource } from '../paths/selfPaths'
 import { useConfirmation } from '../rules/Confirm'
-import { SuppressDialog, type SuppressionApi, type SuppressTarget } from './SuppressDialog'
-
-/** What a suppression entry point needs; views without it offer no suppression. */
-export interface SuppressContext {
-  api: SuppressionApi
-  /** The rules, to name those an input preview lists. */
-  rules: RuleEntry[]
-  paths: PathSource
-  /** Called once a suppression is in force, to show its effect. */
-  done: () => void
-}
+import { SuppressDialog, type SuppressContext, type SuppressTarget } from './SuppressDialog'
 
 /**
  * The exact paths a rule reads, which an input suppression can name: its
@@ -58,19 +47,7 @@ export function SuppressButton({
       >
         {text}
       </button>
-      {dialog.open && (
-        <SuppressDialog
-          target={target}
-          api={context.api}
-          rules={context.rules}
-          paths={context.paths}
-          onDone={() => {
-            dialog.close()
-            context.done()
-          }}
-          onCancel={dialog.close}
-        />
-      )}
+      {dialog.open && <SuppressDialog target={target} context={context} onClose={dialog.close} />}
     </>
   )
 }
@@ -125,14 +102,8 @@ export function InputChips({ entry, context }: { entry: RuleEntry; context: Supp
         <SuppressDialog
           key={open}
           target={{ kind: 'input', path: open }}
-          api={context.api}
-          rules={context.rules}
-          paths={context.paths}
-          onDone={() => {
-            close()
-            context.done()
-          }}
-          onCancel={close}
+          context={context}
+          onClose={close}
         />
       )}
     </>

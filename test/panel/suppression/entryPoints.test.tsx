@@ -5,7 +5,8 @@ import type { RuleEntry, Suppression, SuppressionRequest } from '../../../src/pa
 import type { PathSource } from '../../../src/panel/paths/selfPaths'
 import { RuleDetail } from '../../../src/panel/rules/RuleDetail'
 import { RulesView } from '../../../src/panel/rules/RulesView'
-import { inputPaths, type SuppressContext } from '../../../src/panel/suppression/SuppressButton'
+import { inputPaths } from '../../../src/panel/suppression/SuppressButton'
+import type { SuppressContext } from '../../../src/panel/suppression/SuppressDialog'
 import { instance, ruleEntry } from '../fixtures'
 
 const oil = ruleEntry()

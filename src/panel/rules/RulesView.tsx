@@ -9,8 +9,7 @@ import {
   markers,
   USER_ORIGIN
 } from './describe'
-import type { SuppressContext } from '../suppression/SuppressButton'
-import { SuppressDialog } from '../suppression/SuppressDialog'
+import { SuppressDialog, type SuppressContext } from '../suppression/SuppressDialog'
 import { useConfirmation } from './Confirm'
 import { BADGE_LOOK, StatusBadge } from './StatusBadge'
 
@@ -98,14 +97,8 @@ function RuleRow({
           <td colSpan={COLUMNS + 1}>
             <SuppressDialog
               target={{ kind: 'rule', entry }}
-              api={suppression.api}
-              rules={suppression.rules}
-              paths={suppression.paths}
-              onDone={() => {
-                dialog.close()
-                suppression.done()
-              }}
-              onCancel={dialog.close}
+              context={suppression}
+              onClose={dialog.close}
             />
           </td>
         </tr>

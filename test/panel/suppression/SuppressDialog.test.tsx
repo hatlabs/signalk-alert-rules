@@ -61,18 +61,15 @@ function renderDialog(target: SuppressTarget, answer = preview) {
     previewInputSuppression: vi.fn((_path: string) => Promise.resolve(answer))
   }
   const onDone = vi.fn()
-  const onCancel = vi.fn()
+  const onClose = vi.fn()
   render(
     <SuppressDialog
       target={target}
-      api={api}
-      rules={rules}
-      paths={paths}
-      onDone={onDone}
-      onCancel={onCancel}
+      context={{ api, rules, paths, done: onDone }}
+      onClose={onClose}
     />
   )
-  return { api, onDone, onCancel }
+  return { api, onDone, onClose }
 }
 
 async function settle() {
@@ -114,7 +111,7 @@ describe('SuppressDialog', () => {
     })
 
     it('suppresses with a note and ends manually by default', async () => {
-      const { api, onDone } = renderDialog({ kind: 'input', path: RPM })
+      const { api, onDone, onClose } = renderDialog({ kind: 'input', path: RPM })
       await settle()
       expect(screen.getByRole<HTMLInputElement>('radio', { name: /manually/i }).checked).toBe(true)
       fireEvent.change(screen.getByRole('textbox', { name: 'Note' }), {
@@ -122,6 +119,7 @@ describe('SuppressDialog', () => {
       })
       await click(within(dialog()).getByRole('button', { name: 'Suppress' }))
       expect(api.suppressInput).toHaveBeenCalledWith(RPM, { note: 'Tachometer sender faulty' })
+      expect(onClose).toHaveBeenCalledOnce()
       expect(onDone).toHaveBeenCalledOnce()
     })
 
@@ -230,10 +228,11 @@ describe('SuppressDialog', () => {
   })
 
   it('takes focus on its heading and cancels with Escape', async () => {
-    const { onCancel } = renderDialog({ kind: 'input', path: RPM })
+    const { onClose, onDone } = renderDialog({ kind: 'input', path: RPM })
     await settle()
     expect(document.activeElement).toBe(screen.getByRole('heading', { name: /suppress input/i }))
     fireEvent.keyDown(dialog(), { key: 'Escape' })
-    expect(onCancel).toHaveBeenCalledOnce()
+    expect(onClose).toHaveBeenCalledOnce()
+    expect(onDone).not.toHaveBeenCalled()
   })
 })
