@@ -99,7 +99,7 @@ describe('store', () => {
           version: '1.1.0',
           rules: {
             low: { gates: [] },
-            hours: { measure: 'time', gates: [{ signal: { path: 'a.b' } }] }
+            hours: { gates: [{ signal: { path: 'a.b' } }] }
           },
           notices: [{ at: '2026-09-30T12:00:00.000Z', message: 'rule gone was removed' }]
         },

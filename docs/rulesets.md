@@ -92,7 +92,7 @@ A ruleset describes hardware that may not be on the boat. A rule of an enabled r
 
 When a ruleset loads with a different content, at start or on a rescan, the operator's settings are carried over by rule slug:
 
-- A rule whose slug survives keeps its controls: enabled or disabled, note, suppression and accumulator total. If its resolved form changed, it is edited with the usual edit semantics. The ruleset settings record each rule's accumulator measure and gates, so an upgrade installed while the plugin was stopped, and a ruleset that returns after it was uninstalled, drop an accumulator total whose measure changed and the gate states an input suppression froze for gates that changed, as an edit does.
+- A rule whose slug survives keeps its controls: enabled or disabled, note, suppression and accumulator total. If its resolved form changed, it is edited with the usual edit semantics. An upgrade installed while the plugin was stopped, and a ruleset that returns after it was uninstalled, drop an accumulator total whose measure changed and the gate states an input suppression froze for gates that changed, as an edit does: each saved total records the measure it was built under, and the ruleset settings record each rule's gates beside the frozen states.
 - A rule whose slug is gone has its alert cleared and its controls dropped.
 - A stored parameter value that no longer validates, because the parameter is gone, changed type or has new bounds, is dropped and its default applies. If the remaining values no longer make valid rules, all of them are dropped.
 

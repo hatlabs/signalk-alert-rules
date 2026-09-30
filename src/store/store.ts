@@ -80,7 +80,7 @@ export interface RulesetControl {
   /** Values the operator set, by parameter name; the rest take their defaults. */
   parameters: Record<string, number | string>
   version: string
-  /** The rules last loaded, by slug, with what an edit of each compares. */
+  /** The rules last loaded, by slug, with the gates an edit of each compares. */
   rules: Record<string, EditBasis>
   notices: RulesetNotice[]
 }
@@ -199,7 +199,7 @@ const isParameterValues = recordOf(
 )
 
 function isEditBasis(value: unknown): value is EditBasis {
-  return isRecord(value) && optional(value.measure, 'string') && Array.isArray(value.gates)
+  return isRecord(value) && Array.isArray(value.gates)
 }
 
 function isRulesetControl(value: unknown): value is RulesetControl {

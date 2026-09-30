@@ -10,14 +10,7 @@ import {
 } from './alerts/runner.js'
 import { ownedActiveAlert } from './alerts/reconcile.js'
 import type { Progress } from './engine/detectors/index.js'
-import {
-  carriesTotals,
-  changesGates,
-  editBasis,
-  measureOf,
-  structuralChanges,
-  type EditBasis
-} from './engine/evaluator.js'
+import { carriesTotals, changesGates, measureOf, structuralChanges } from './engine/evaluator.js'
 import {
   readsPath,
   signalPaths,
@@ -610,29 +603,34 @@ export class Application {
       this.dropFrozenGates(id)
     }
 
-    const changes: { origin: string; previous: EditBasis | undefined; rule: Rule }[] = []
+    const installed: LoadedRule[] = []
+    const changes: { origin: string; previous: Rule; rule: Rule }[] = []
     for (const { loaded, recorded, upgrade } of upgrades) {
-      const before = this.rulesetsBySlug.get(loaded.slug)?.rules
+      const origin = loaded.slug
+      const before = this.rulesetsBySlug.get(origin)?.rules
       const after = new Map(upgrade.rules.map((rule) => [rule.slug, rule]))
-      this.rulesetsBySlug.set(loaded.slug, { loaded, rules: after })
+      this.rulesetsBySlug.set(origin, { loaded, rules: after })
       for (const rule of upgrade.rules) {
         const previous = before?.get(rule.slug)
-        // With no rule in memory, at start or on a ruleset's return, what the
-        // settings recorded stands in for it.
         if (previous === undefined) {
-          const id = ruleId(loaded.slug, rule.slug)
+          // With no rule in memory, at start or on a ruleset's return, a
+          // total says what it was built under, and the settings recorded
+          // the gates the frozen states were taken from.
+          const id = ruleId(origin, rule.slug)
           drops = this.dropTotalOfOtherMeasure(id, measureOf(rule)) || drops
-          changes.push({ origin: loaded.slug, previous: own(recorded, rule.slug), rule })
+          const basis = own(recorded, rule.slug)
+          if (basis !== undefined && changesGates(basis, rule)) this.dropFrozenGates(id)
+          installed.push({ origin, rule })
         } else if (JSON.stringify(previous) !== JSON.stringify(rule)) {
-          changes.push({ origin: loaded.slug, previous: editBasis(previous), rule })
+          changes.push({ origin, previous, rule })
         }
       }
     }
     this.presence.watch(upgrades.flatMap(({ upgrade }) => upgrade.rules.flatMap(rulePaths)))
+    for (const { origin, rule } of installed) this.sync(origin, rule)
     let edits = false
     for (const { origin, previous, rule } of changes) {
-      if (previous === undefined) this.sync(origin, rule)
-      else edits = this.editRulesetRule(origin, previous, rule) || edits
+      edits = this.editRulesetRule(origin, previous, rule) || edits
     }
     if (drops || edits) this.saveDroppedTotals()
   }
@@ -676,7 +674,7 @@ export class Application {
    * Applies a changed ruleset rule, already in its ruleset's state, with the
    * edit semantics of a user rule. Returns whether it drops an accumulator total.
    */
-  private editRulesetRule(origin: string, previous: Rule | EditBasis, rule: Rule): boolean {
+  private editRulesetRule(origin: string, previous: Rule, rule: Rule): boolean {
     const id = ruleId(origin, rule.slug)
     const carries = carriesTotals(previous, rule)
     const drops = this.hasTotal(id) && !carries

@@ -800,20 +800,17 @@ export class RuleEvaluator {
 }
 
 /**
- * What an edit's handling of a rule's accumulator totals and stored gate
- * states compares, small enough to store: an upgrade installed while the
+ * What an edit's handling of a rule's stored gate states compares, small
+ * enough to store beside those states: an upgrade installed while the
  * plugin was stopped is then handled as an edit, with no rule in memory.
+ * Accumulator totals are stored with their own measure instead.
  */
 export interface EditBasis {
-  /** For an accumulator. */
-  measure?: string
   gates: unknown[]
 }
 
 export function editBasis(rule: Rule | EditBasis): EditBasis {
-  if (!('detector' in rule)) return rule
-  const measure = measureOf(rule)
-  return { ...(measure === undefined ? {} : { measure }), gates: rule.gates ?? [] }
+  return { gates: 'detector' in rule ? (rule.gates ?? []) : rule.gates }
 }
 
 /** The measure of an accumulator rule; undefined for any other detector. */
@@ -822,9 +819,9 @@ export function measureOf(rule: Rule): string | undefined {
 }
 
 /** Whether an edit keeps an accumulator's total: it is still an accumulator of the same measure. */
-export function carriesTotals(current: Rule | EditBasis, next: Rule | EditBasis): boolean {
-  const a = editBasis(current).measure
-  return a !== undefined && a === editBasis(next).measure
+export function carriesTotals(current: Rule, next: Rule): boolean {
+  const measure = measureOf(current)
+  return measure !== undefined && measure === measureOf(next)
 }
 
 /** Whether an edit changes the gates, whose stored states are by index. */

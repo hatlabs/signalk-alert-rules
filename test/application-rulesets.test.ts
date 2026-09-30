@@ -654,6 +654,35 @@ describe('rulesets in the application', () => {
 
     const storedTotals = () => new Store(dir).load().accumulators
 
+    it('keeps the total built after an upgrade whose settings could not be saved', () => {
+      const core = new FakeAlertsCore()
+      const first = setup({ rulesets: [batteries('1.0.0', [hours])] }, core)
+      first.at(0, RPM, 30)
+      first.application.setRulesetEnabled('batteries', true, 'admin')
+      first.at(20)
+      first.application.stop()
+      const upgraded = { rulesets: [batteries('2.0.0', [integralHours])] }
+
+      const save = vi.spyOn(Store.prototype, 'saveControls').mockImplementation(full)
+      let second: ReturnType<typeof setup>
+      try {
+        second = setup(upgraded, core)
+      } finally {
+        save.mockRestore()
+      }
+      second.at(21, RPM, 30)
+      second.at(22)
+      second.at(40, RPM, 30)
+      second.at(41)
+      second.application.stop()
+      const built = storedTotals()
+      expect(Object.keys(built)).toEqual(['batteries.hours'])
+
+      setup(upgraded, core).application.checkpoint()
+
+      expect(storedTotals()).toEqual(built)
+    })
+
     it('drops the old total after an upgrade whose totals could not be saved', () => {
       const core = new FakeAlertsCore()
       const first = setup({ rulesets: [batteries('1.0.0', [hours])] }, core)
