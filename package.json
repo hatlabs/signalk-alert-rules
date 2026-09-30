@@ -7,6 +7,7 @@
   "types": "dist/index.d.ts",
   "keywords": [
     "signalk-node-server-plugin",
+    "signalk-plugin-configurator",
     "signalk-category-notifications",
     "signalk",
     "alerts",
@@ -14,7 +15,9 @@
     "rules"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "npm run build:plugin && npm run build:panel",
+    "build:plugin": "tsc",
+    "build:panel": "vite build",
     "build:watch": "tsc --watch",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -23,7 +26,7 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"test/**/*.{ts,tsx}\" \"bench/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"test/**/*.{ts,tsx}\" \"bench/**/*.ts\"",
     "typecheck": "tsc -p tsconfig.lint.json && tsc -p tsconfig.panel.json",
-    "ci": "npm run typecheck && npm run lint && npm run format:check && npm run test",
+    "ci": "npm run typecheck && npm run lint && npm run format:check && npm run build:panel && npm run test",
     "prepublishOnly": "npm run build"
   },
   "engines": {
@@ -69,6 +72,7 @@
   },
   "files": [
     "dist/",
+    "public/",
     "README.md",
     "LICENSE"
   ],

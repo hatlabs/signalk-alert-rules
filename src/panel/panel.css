@@ -1,0 +1,8 @@
+/* Layout only: colours and components come from the admin UI's Bootstrap theme. */
+.skar-view {
+  padding-top: 1rem;
+}
+
+.skar-empty {
+  padding: 1rem 0;
+}
