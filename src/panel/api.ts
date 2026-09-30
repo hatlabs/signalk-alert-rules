@@ -35,6 +35,17 @@ export interface PanelApi {
   rules(): Promise<RuleSummary[]>
 }
 
+/**
+ * The server refused the admin UI's session. Polling cannot recover from
+ * this; the operator has to log in again.
+ */
+export class SessionExpiredError extends Error {
+  constructor() {
+    super('the session has expired')
+    this.name = 'SessionExpiredError'
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -81,6 +92,7 @@ export function httpApi(fetchFn: typeof fetch = (input, init) => fetch(input, in
       credentials: 'same-origin',
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
     })
+    if (res.status === 401 || res.status === 403) throw new SessionExpiredError()
     if (!res.ok) throw new Error(`${path} answered ${String(res.status)}`)
     return res.json()
   }

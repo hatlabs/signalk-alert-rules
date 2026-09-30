@@ -40,8 +40,9 @@ function useSnapshot(api: PanelApi): [ShellSnapshot, () => void] {
       inFlight = false
       if (cancelled) return
       setSnapshot(next)
-      if (!hidden()) {
-        timer = setTimeout(() => void run(), pollDelay(next.view))
+      const delay = pollDelay(next.view)
+      if (delay !== null && !hidden()) {
+        timer = setTimeout(() => void run(), delay)
       }
     }
 
@@ -100,6 +101,15 @@ function Condition({ view, checkAgain }: { view: ShellView; checkAgain: () => vo
       return (
         <div className="alert alert-secondary" role="alert">
           <p>The alert rules plugin is disabled. Enable it above to manage alert rules.</p>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={checkAgain}>
+            Check again
+          </button>
+        </div>
+      )
+    case 'sessionExpired':
+      return (
+        <div className="alert alert-warning" role="alert">
+          <p>Your session has expired or lacks administrator rights; log in as an administrator.</p>
           <button type="button" className="btn btn-secondary btn-sm" onClick={checkAgain}>
             Check again
           </button>

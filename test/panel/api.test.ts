@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { httpApi, REQUEST_TIMEOUT_MS } from '../../src/panel/api'
+import { httpApi, REQUEST_TIMEOUT_MS, SessionExpiredError } from '../../src/panel/api'
 
 const BASE = '/plugins/signalk-alert-rules'
 
@@ -106,6 +106,17 @@ describe('httpApi', () => {
   it('fails on a status that is not OK', async () => {
     const api = httpApi(fakeFetch({ [`${BASE}/rules`]: { status: 503, body: { error: 'x' } } }))
     await expect(api.rules()).rejects.toThrow(/503/)
+    await expect(api.rules()).rejects.not.toBeInstanceOf(SessionExpiredError)
+  })
+
+  it.each([401, 403])('reports an expired session on %i from any route', async (status) => {
+    const denied = { status, body: { error: 'Unauthorized' } }
+    const api = httpApi(
+      fakeFetch({ [`${BASE}/state`]: denied, [`${BASE}/`]: denied, [`${BASE}/rules`]: denied })
+    )
+    await expect(api.state()).rejects.toBeInstanceOf(SessionExpiredError)
+    await expect(api.pluginEnabled()).rejects.toBeInstanceOf(SessionExpiredError)
+    await expect(api.rules()).rejects.toBeInstanceOf(SessionExpiredError)
   })
 
   describe('state', () => {

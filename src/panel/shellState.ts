@@ -1,4 +1,4 @@
-import type { PanelApi } from './api'
+import { SessionExpiredError, type PanelApi } from './api'
 
 /** What the shell shows in place of, or around, the views. */
 export type ShellView =
@@ -6,6 +6,7 @@ export type ShellView =
   | { kind: 'unreachable'; reason: string }
   | { kind: 'restarting' }
   | { kind: 'disabled' }
+  | { kind: 'sessionExpired' }
   | { kind: 'failed'; error: string }
   | { kind: 'ready'; ruleCount: number }
 
@@ -40,6 +41,8 @@ export async function probe(api: PanelApi): Promise<ShellSnapshot> {
     }
     return { view: { kind: 'restarting' }, securityEnabled }
   } catch (err) {
+    if (err instanceof SessionExpiredError)
+      return { view: { kind: 'sessionExpired' }, securityEnabled }
     return { view: { kind: 'unreachable', reason: reasonOf(err) }, securityEnabled }
   }
 }
@@ -53,7 +56,17 @@ export const POLL_INTERVAL_MS = 5000
  */
 export const DISABLED_POLL_INTERVAL_MS = 15_000
 
-/** How long to wait before probing again after showing `view`. */
-export function pollDelay(view: ShellView): number {
-  return view.kind === 'disabled' ? DISABLED_POLL_INTERVAL_MS : POLL_INTERVAL_MS
+/**
+ * How long to wait before probing again after showing `view`, or null to stop:
+ * an expired session stays expired until the operator logs in again.
+ */
+export function pollDelay(view: ShellView): number | null {
+  switch (view.kind) {
+    case 'sessionExpired':
+      return null
+    case 'disabled':
+      return DISABLED_POLL_INTERVAL_MS
+    default:
+      return POLL_INTERVAL_MS
+  }
 }

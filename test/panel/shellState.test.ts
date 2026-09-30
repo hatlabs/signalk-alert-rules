@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import type { PanelApi, PluginState, RuleSummary } from '../../src/panel/api'
+import {
+  SessionExpiredError,
+  type PanelApi,
+  type PluginState,
+  type RuleSummary
+} from '../../src/panel/api'
 import {
   DISABLED_POLL_INTERVAL_MS,
   POLL_INTERVAL_MS,
@@ -72,6 +77,21 @@ describe('probe', () => {
     expect(snapshot.view).toEqual({ kind: 'restarting' })
   })
 
+  it('is session expired when the server refuses the session', async () => {
+    const snapshot = await probe(fakeApi({ state: new SessionExpiredError() }))
+    expect(snapshot).toEqual({ view: { kind: 'sessionExpired' }, securityEnabled: null })
+  })
+
+  it('is session expired when a later request is refused', async () => {
+    const snapshot = await probe(
+      fakeApi({
+        state: { running: false, securityEnabled: true },
+        enabled: new SessionExpiredError()
+      })
+    )
+    expect(snapshot.view).toEqual({ kind: 'sessionExpired' })
+  })
+
   it('keeps the security state when a later request fails', async () => {
     const snapshot = await probe(
       fakeApi({ state: { running: true, securityEnabled: false }, rules: new Error('503') })
@@ -91,5 +111,9 @@ describe('pollDelay', () => {
     expect(pollDelay({ kind: 'unreachable', reason: 'x' })).toBe(POLL_INTERVAL_MS)
     expect(pollDelay({ kind: 'failed', error: 'x' })).toBe(POLL_INTERVAL_MS)
     expect(pollDelay({ kind: 'ready', ruleCount: 0 })).toBe(POLL_INTERVAL_MS)
+  })
+
+  it('stops polling once the session has expired', () => {
+    expect(pollDelay({ kind: 'sessionExpired' })).toBeNull()
   })
 })

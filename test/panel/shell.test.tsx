@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   httpApi,
   REQUEST_TIMEOUT_MS,
+  SessionExpiredError,
   type PanelApi,
   type PluginState,
   type RuleSummary
@@ -142,6 +143,22 @@ describe('Shell', () => {
     const api = renderShell(server)
     await settle()
     server.enabled = true
+    server.state = running
+    fireEvent.click(screen.getByRole('button', { name: /check again/i }))
+    await settle()
+    expect(api.state).toHaveBeenCalledTimes(2)
+    expect(screen.getAllByRole('tab')).toHaveLength(3)
+  })
+
+  it('asks to log in again when the session has expired, and stops polling', async () => {
+    const server: Server = { state: new SessionExpiredError(), enabled: true, rules: [] }
+    const api = renderShell(server)
+    await settle()
+    expect(screen.getByRole('alert').textContent).toMatch(
+      /your session has expired or lacks administrator rights; log in as an administrator/i
+    )
+    await tick(DISABLED_POLL_INTERVAL_MS * 3)
+    expect(api.state).toHaveBeenCalledTimes(1)
     server.state = running
     fireEvent.click(screen.getByRole('button', { name: /check again/i }))
     await settle()
