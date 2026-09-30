@@ -66,11 +66,13 @@ export async function discoverRulesets(dirs: DiscoveryDirs): Promise<DiscoveryRe
   const candidates: Candidate[] = []
   if (dirs.nodeModules !== undefined)
     for (const dir of await packageDirs(dirs.nodeModules)) {
+      const pkg = await readPackageJson(dir)
       try {
-        const candidate = await packageCandidate(dir)
+        const candidate = await packageCandidate(dir, pkg)
         if (candidate !== undefined) candidates.push(candidate)
       } catch (err) {
-        problems.push(problemOf(`package ${await packageLabel(dir)}`, err))
+        const label = typeof pkg?.name === 'string' ? pkg.name : dir
+        problems.push(problemOf(`package ${label}`, err))
       }
     }
   if (dirs.dropIn !== undefined) candidates.push(...(await dropInCandidates(dirs.dropIn)))
@@ -136,13 +138,10 @@ async function readPackageJson(dir: string): Promise<Record<string, unknown> | u
   }
 }
 
-async function packageLabel(dir: string): Promise<string> {
-  const name = (await readPackageJson(dir))?.name
-  return typeof name === 'string' ? name : dir
-}
-
-async function packageCandidate(dir: string): Promise<Candidate | undefined> {
-  const pkg = await readPackageJson(dir)
+async function packageCandidate(
+  dir: string,
+  pkg: Record<string, unknown> | undefined
+): Promise<Candidate | undefined> {
   if (!Array.isArray(pkg?.keywords) || !pkg.keywords.includes(RULESET_KEYWORD)) return undefined
   const { name, version } = pkg
   if (typeof name !== 'string' || typeof version !== 'string')
