@@ -658,14 +658,3 @@ export function resolveRuleset(
   })
   return errors.length > 0 ? fail(errors) : { ok: true, value: rules }
 }
-
-/** Slugs taken by more than one ruleset; none of those rulesets can be loaded. */
-export function findRulesetSlugConflicts(rulesets: readonly { slug: string }[]): Set<string> {
-  const seen = new Set<string>()
-  const conflicts = new Set<string>()
-  for (const { slug } of rulesets) {
-    if (seen.has(slug)) conflicts.add(slug)
-    seen.add(slug)
-  }
-  return conflicts
-}

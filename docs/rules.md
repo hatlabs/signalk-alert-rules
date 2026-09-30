@@ -37,7 +37,7 @@ The rules in [`examples/rules`](../examples/rules) are complete, valid rules; [W
 
 A rule has an origin: `user` for rules written by the user, or the slug of the ruleset that provides it. Origin and slug together identify the rule and must be unique. The rule has no `id` or `enabled` field.
 
-A ruleset (`src/model/ruleset.ts`) is a document with `name`, `slug`, `version`, optional `description`, up to 32 `parameters` (`name`, `type` `number` or `string`, optional `description`, `unit`, `minimum`, `maximum`, and a `default`) and up to 500 `rules`. A ruleset rule may put `{ "param": "<name>" }` wherever a number goes and `${name}` inside a path. A ruleset slug may not be `user`, and two rulesets with the same slug are both rejected. Validation checks every rule with the parameters at their defaults.
+A ruleset (`src/model/ruleset.ts`) is a document with `name`, `slug`, `version`, optional `description`, up to 32 `parameters` (`name`, `type` `number` or `string`, optional `description`, `unit`, `minimum`, `maximum`, and a `default`) and up to 500 `rules`. A ruleset rule may put `{ "param": "<name>" }` wherever a number goes and `${name}` inside a path. A ruleset slug may not be `user`. Of two rulesets with the same slug, the one discovered first loads and the later one is reported as malformed. Validation checks every rule with the parameters at their defaults.
 
 ### Quantities
 

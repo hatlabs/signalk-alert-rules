@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
   alertPathFor,
-  findRulesetSlugConflicts,
   resolveRuleset,
   validateRule,
   validateRuleSet,
@@ -665,13 +664,5 @@ describe('resolveRuleset', () => {
   it('reports a substituted path that is invalid', () => {
     const result = resolveRuleset(parsed(), { prefix: 'electrical..house' })
     expect(result.ok ? [] : paths(result.errors)).toEqual(['/rules/0/signal/path'])
-  })
-})
-
-describe('findRulesetSlugConflicts', () => {
-  it('reports every ruleset sharing a slug', () => {
-    const a = { slug: 'batteries' }
-    const b = { slug: 'engines' }
-    expect(findRulesetSlugConflicts([a, b, a])).toEqual(new Set(['batteries']))
   })
 })
