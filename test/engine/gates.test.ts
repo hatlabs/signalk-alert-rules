@@ -72,6 +72,25 @@ describe('gate', () => {
     expect(g.inputUnavailable).toBe(false)
   })
 
+  it('a frozen gate ignores samples and time, keeping its last state', () => {
+    let frozen = false
+    const g = new Gate(
+      running,
+      () => undefined,
+      0,
+      () => frozen
+    )
+    g.sample(v(30), false, 0)
+    frozen = true
+    g.tick(10)
+    expect(g.holdsFor(false)).toBe(false)
+    g.sample(v(0), false, 11)
+    expect(g.input).toBe('value')
+    frozen = false
+    g.tick(12)
+    expect(g.holdsFor(false)).toBe(true)
+  })
+
   it('an input never seen since start does not hold', () => {
     const g = gate(running)
     g.tick(1000)

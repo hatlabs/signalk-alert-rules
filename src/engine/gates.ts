@@ -12,7 +12,8 @@ import { inputState, type InputState, type Reading } from './signals.js'
  * holding, and once starting as holding, which is what an adopted alert
  * reads, so the alert is not dropped while the gate's duration runs and no
  * other alert gets that head start. A zone limit follows the zones on every
- * evaluation.
+ * evaluation. While its input is suppressed the gate is frozen: it ignores
+ * samples and time, so it keeps the state it last evaluated.
  */
 export class Gate {
   private plain: Detector | undefined
@@ -23,7 +24,8 @@ export class Gate {
   constructor(
     private readonly model: GateModel,
     private readonly zones: () => readonly Zone[] | null | undefined,
-    private readonly start: number
+    private readonly start: number,
+    private readonly frozen: () => boolean = () => false
   ) {}
 
   get seen(): boolean {
@@ -46,6 +48,7 @@ export class Gate {
   }
 
   sample(reading: Reading, replayed: boolean, now: number): void {
+    if (this.frozen()) return
     this.last = reading
     if (!this.configure(now)) return
     this.plain?.sample(reading, replayed, now)
@@ -53,7 +56,7 @@ export class Gate {
   }
 
   tick(now: number): void {
-    if (!this.seen || !this.configure(now)) return
+    if (!this.seen || this.frozen() || !this.configure(now)) return
     this.plain?.tick(now)
     this.adopted?.tick(now)
   }

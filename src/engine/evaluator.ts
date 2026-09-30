@@ -21,6 +21,13 @@ import {
 import { Gate } from './gates.js'
 import { resolveLimit, severerLevels, severity, type Zone } from './limits.js'
 import {
+  NO_SUPPRESSIONS,
+  signalPaths,
+  suppressionOf,
+  type SuppressionScope,
+  type Suppressions
+} from './suppression.js'
+import {
   bindPath,
   inputState,
   openSignal,
@@ -106,6 +113,13 @@ export interface InstanceStatus {
   priority?: Priority
   /** Why the rule cannot evaluate this instance. */
   inactive?: string
+  /** The suppression the instance is under; it evaluates but raises nothing. */
+  suppression?: SuppressionScope
+  /**
+   * Seconds the condition has been continuously clear: out of use, or in use
+   * with a value and the detector not active. Absent while it is not.
+   */
+  clearFor?: number
 }
 
 export interface RuleStatus {
@@ -139,6 +153,8 @@ interface Unit extends Track {
   limit?: number
   inUse: boolean
   inactive?: string
+  /** When the condition was last seen to become clear, while it stays so. */
+  clearSince?: number
 }
 
 interface LevelSpec {
@@ -214,7 +230,10 @@ export function isWildcard(signal: Signal): boolean {
  * lifecycle, not the evaluator's. A rule is in use only while every gate holds. Out of use, a detector is dropped and
  * started afresh when the rule comes back into use, fed the last reading, so
  * durations count from then; an accumulator keeps its total and only its
- * alert is held back.
+ * alert is held back. A suppressed instance is evaluated as usual, so the
+ * time its condition stays clear is known, but raises nothing: its active
+ * alert is cleared, and one whose condition still holds when the
+ * suppression ends is raised as a new alert.
  */
 export class RuleEvaluator {
   private readonly units = new Map<string, Unit>()
@@ -231,7 +250,8 @@ export class RuleEvaluator {
     private readonly ctx: EvaluatorContext,
     private readonly onEvent: (event: RuleEvent) => void,
     adopted: readonly Adopted[] = [],
-    accumulated: ReadonlyMap<string, number> = new Map()
+    accumulated: ReadonlyMap<string, number> = new Map(),
+    private readonly suppressions: Suppressions = NO_SUPPRESSIONS
   ) {
     this.adopted = new Set(adopted.map((a) => a.segment ?? ''))
     this.carried = new Map(accumulated)
@@ -282,6 +302,13 @@ export class RuleEvaluator {
     if (!this.running) return
     const now = this.ctx.clock()
     for (const byKey of this.gates) for (const gate of byKey.values()) gate.tick(now)
+    for (const unit of this.units.values()) this.step(unit, now)
+  }
+
+  /** Evaluates every instance now, applying a change of the suppressions. */
+  refresh(): void {
+    if (!this.running) return
+    const now = this.ctx.clock()
     for (const unit of this.units.values()) this.step(unit, now)
   }
 
@@ -370,7 +397,9 @@ export class RuleEvaluator {
         adopted: u.adoptedAlert,
         level: u.alerting ? u.level : undefined,
         priority: u.alerting ? priorityOf(this.rule, u.level) : undefined,
-        inactive: u.inactive
+        inactive: u.inactive,
+        suppression: this.suppression(u),
+        clearFor: u.clearSince === undefined ? undefined : now - u.clearSince
       }))
     }
   }
@@ -433,10 +462,13 @@ export class RuleEvaluator {
     const k = shared ? '' : key
     let gate = byKey.get(k)
     if (gate === undefined) {
+      const bound = () => this.units.get(k)?.instance ?? instance
       gate = new Gate(
         model,
-        () => this.zones(model.limit, model.signal, this.units.get(k)?.instance ?? instance),
-        this.ctx.clock()
+        () => this.zones(model.limit, model.signal, bound()),
+        this.ctx.clock(),
+        () =>
+          signalPaths(model.signal, bound()).some((p) => this.suppressions.path(p) !== undefined)
       )
       byKey.set(k, gate)
     }
@@ -529,10 +561,19 @@ export class RuleEvaluator {
     return undefined
   }
 
+  private suppression(unit: Unit): SuppressionScope | undefined {
+    return suppressionOf(this.suppressions, this.rule.signal, unit.instance)
+  }
+
   private step(unit: Unit, now: number, feed?: Sample): void {
+    const suppressed = this.suppression(unit) !== undefined
+    if (suppressed && unit.alerting) this.clear(unit)
     const resolved = this.resolve(unit)
     // Zones are readable only once the path has a value; until then hold.
-    if (!resolved.ok && unit.last === undefined) return
+    if (!resolved.ok && unit.last === undefined) {
+      this.clearTime(unit, now, false)
+      return
+    }
     const gates = this.gatesOf(unit)
     const problem =
       this.timeoutProblem(unit) ??
@@ -552,6 +593,8 @@ export class RuleEvaluator {
       }
       unit.levels.clear()
       if (unit.alerting) this.clear(unit)
+      // A rule out of use because a gate does not hold has no condition.
+      this.clearTime(unit, now, problem === undefined && resolved.ok)
       return
     }
     unit.inUse = true
@@ -559,6 +602,12 @@ export class RuleEvaluator {
     this.driveLevels(unit, resolved.levels, now, feed)
     const detector = unit.detector
     if (detector === undefined) return
+    this.clearTime(
+      unit,
+      now,
+      transition !== 'pulse' && !detector.active && inputState(unit.last) === 'value'
+    )
+    if (suppressed) return
     const level = this.held(unit)
     if (transition === 'pulse') {
       if (!unit.alerting) {
@@ -637,6 +686,10 @@ export class RuleEvaluator {
     return feed === undefined
       ? detector.tick(now)
       : detector.sample(feed.reading, feed.replayed, now)
+  }
+
+  private clearTime(unit: Unit, now: number, clear: boolean): void {
+    unit.clearSince = clear ? (unit.clearSince ?? now) : undefined
   }
 
   private raise(unit: Unit, level: ZoneLevel | undefined): void {
