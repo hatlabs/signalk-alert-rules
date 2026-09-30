@@ -665,4 +665,27 @@ describe('resolveRuleset', () => {
     const result = resolveRuleset(parsed(), { prefix: 'electrical..house' })
     expect(result.ok ? [] : paths(result.errors)).toEqual(['/rules/0/signal/path'])
   })
+
+  it('takes the default of an unset parameter named like an Object member', () => {
+    const named = validateRuleset({
+      ...ruleset,
+      parameters: [
+        ruleset.parameters[0],
+        { name: 'constructor', type: 'number', default: 12 },
+        ruleset.parameters[2]
+      ],
+      rules: [
+        {
+          ...ruleset.rules[0],
+          detector: {
+            ...ruleset.rules[0]?.detector,
+            limit: { kind: 'fixed', value: { param: 'constructor' } }
+          }
+        }
+      ]
+    })
+    if (!named.ok) throw new Error(JSON.stringify(named.errors))
+    const result = resolveRuleset(named.value, {})
+    expect(result.ok && result.value[0]?.detector).toMatchObject({ limit: { value: 12 } })
+  })
 })

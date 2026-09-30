@@ -14,7 +14,7 @@ import {
 } from './rule.js'
 import { RulesetSchema, USER_ORIGIN, type ParameterValues, type Ruleset } from './ruleset.js'
 import { RULES_PREFIX } from '../alerts/paths.js'
-import { isRecord } from '../util.js'
+import { isRecord, own } from '../util.js'
 
 /** A validation failure; `path` is a JSON pointer into the validated document. */
 export interface ValidationError {
@@ -658,7 +658,9 @@ export function resolveRuleset(
   const errors = parameterValueErrors(ruleset, values)
   if (errors.length > 0) return fail(errors)
 
-  const effective = new Map([...parameters].map(([name, p]) => [name, values[name] ?? p.default]))
+  const effective = new Map(
+    [...parameters].map(([name, p]) => [name, own(values, name) ?? p.default])
+  )
   const rules: Rule[] = []
   ruleset.rules.forEach((rule, i) => {
     const at = pointer('/rules', i)
