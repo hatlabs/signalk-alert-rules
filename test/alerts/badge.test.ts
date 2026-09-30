@@ -144,13 +144,29 @@ describe('status badge', () => {
 })
 
 describe('suppressed status', () => {
-  it('an input-suppressed instance is suppressed with its scope, above an error', () => {
-    const scope = { scope: 'input', path: 'propulsion.port.oilPressure' } as const
-    const status = statusBadge(['evaluation failed: boom'], [{ ...idle, suppression: scope }, idle])
-    expect(status).toMatchObject({ badge: 'suppressed', suppression: scope, subLabels: [] })
-    expect(status.reason).toBeUndefined()
+  const input = { scope: 'input', path: 'propulsion.port.oilPressure' } as const
+
+  it('an input-suppressed instance is suppressed with its scope, and so is its rule above idle', () => {
+    const status = statusBadge([], [{ ...idle, suppression: input }, idle])
+    expect(status).toMatchObject({ badge: 'suppressed', suppression: input, subLabels: [] })
     expect(status.instances.map((i) => i.badge)).toEqual(['suppressed', 'idle'])
-    expect(status.instances[0]?.suppression).toEqual(scope)
+    expect(status.instances[0]?.suppression).toEqual(input)
+  })
+
+  it("an input-suppressed instance hides neither another instance's alert nor the rule's error", () => {
+    const suppressed = { ...idle, suppression: input }
+    expect(statusBadge([], [suppressed, { ...idle, active: true }]).badge).toBe('alertActive')
+    expect(statusBadge([], [suppressed, { ...idle, inactive: 'no zone' }]).badge).toBe('inactive')
+    const errored = statusBadge(['evaluation failed: boom'], [suppressed])
+    expect(errored).toMatchObject({ badge: 'errored', reason: 'evaluation failed: boom' })
+    expect(errored.suppression).toBeUndefined()
+  })
+
+  it("the rule's own suppression outranks an error and an active alert", () => {
+    const scope = { scope: 'rule' } as const
+    const status = statusBadge(['boom'], [{ ...idle, active: true, suppression: scope }], scope)
+    expect(status).toMatchObject({ badge: 'suppressed', suppression: scope })
+    expect(status.reason).toBeUndefined()
   })
 
   it('a rule-level suppression makes a rule with no instance yet suppressed', () => {

@@ -88,12 +88,20 @@ function verdict(facts: InstanceFacts): Verdict {
 }
 
 /**
+ * An instance's rank toward its rule's badge. An instance suppressed through
+ * its input ranks just below an active alert, so a suppressed faulty sender
+ * hides neither another instance's alert nor anything more important.
+ */
+function rank(badge: Badge): number {
+  return badge === 'suppressed' ? BADGES.indexOf('alertActive') + 0.5 : BADGES.indexOf(badge)
+}
+
+/**
  * The status badge and sub-labels of a rule and of each of its instances. A
- * suppressed rule is suppressed, and a rule with an error errored, unless an
- * instance's badge ranks higher; otherwise the rule takes the
- * highest-precedence badge among its instances, and a wildcard rule with no
- * instance yet has never seen its input. Its sub-labels are those of any
- * instance, or of its own suppression.
+ * suppressed rule is suppressed, and otherwise a rule with an error errored;
+ * otherwise the rule takes the highest-ranking badge among its instances, and
+ * a wildcard rule with no instance yet has never seen its input. Its
+ * sub-labels are those of any instance, or of its own suppression.
  */
 export function statusBadge(
   errors: readonly string[],
@@ -101,16 +109,13 @@ export function statusBadge(
   suppression?: SuppressionScope
 ): RuleVerdict {
   const verdicts = instances.map(verdict)
-  const own: Verdict[] = []
-  if (suppression !== undefined) {
-    own.push(verdict({ active: false, input: 'value', gates: [], suppression }))
-  }
-  if (errors.length > 0) own.push({ badge: 'errored', reason: errors[0], subLabels: [] })
-  const labels = new Set([...own, ...verdicts].flatMap((v) => v.subLabels))
+  const labels = new Set(verdicts.flatMap((v) => v.subLabels))
+  if (suppression?.autoEndAfter !== undefined) labels.add('waitingForClear')
   const rule = { subLabels: SUB_LABELS.filter((l) => labels.has(l)), instances: verdicts }
-  const top = [...own, ...verdicts].reduce<Verdict | undefined>(
-    (best, v) =>
-      best === undefined || BADGES.indexOf(v.badge) < BADGES.indexOf(best.badge) ? v : best,
+  if (suppression !== undefined) return { badge: 'suppressed', suppression, ...rule }
+  if (errors.length > 0) return { badge: 'errored', reason: errors[0], ...rule }
+  const top = verdicts.reduce<Verdict | undefined>(
+    (best, v) => (best === undefined || rank(v.badge) < rank(best.badge) ? v : best),
     undefined
   )
   if (top === undefined) return { badge: 'neverSeen', ...rule }

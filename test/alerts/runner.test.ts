@@ -958,7 +958,7 @@ describe('suppression', () => {
     expect(core.alertings).toBe(1)
   })
 
-  it('an input suppression shows only the matching wildcard instance suppressed', () => {
+  it('an input suppression shows only the matching wildcard instance suppressed, below an alert', () => {
     const c = controls()
     c.paths.set('propulsion.port.coolantTemperature', {})
     const { at, runner, core } = setup([coolant], { suppressions: c.suppressions })
@@ -966,7 +966,7 @@ describe('suppression', () => {
     at(0, 'propulsion.starboard.coolantTemperature', 400)
     expect(core.getByPath(PORT_ALERT)).toBeNull()
     const status = runner.status('user.coolant-high')
-    expect(status?.badge).toBe('suppressed')
+    expect(status?.badge).toBe('alertActive')
     expect(status?.instances.map((i) => i.badge)).toEqual(['suppressed', 'alertActive'])
   })
 })

@@ -425,7 +425,7 @@ The badge is the first of these that applies, most important first:
 | `timerRunning` | a duration timer runs toward setting the condition |
 | `idle` | none of the above |
 
-A rule's badge is the most important of its own suppression, its errors and its instances' badges, and its reason or suppression that of the one chosen; a wildcard rule with no instance yet is `neverSeen` unless the rule itself is suppressed. A rule's sub-labels are those of any of its instances:
+A rule's badge is `suppressed` when the rule itself is suppressed, else `errored` when it has an error, else the most important of its instances' badges, with the reason or suppression of the one chosen. At rule level an instance suppressed through its input path ranks just below `alertActive`, so a suppressed faulty sender on one instance does not hide another instance's alert, or an inactive instance. A wildcard rule with no instance yet is `neverSeen` unless the rule itself is suppressed. A rule's sub-labels are those of any of its instances:
 
 - `gateInputUnavailable`: a gate's input is unavailable; the gate keeps its last state.
 - `waitingForClear`: an active alert whose condition is timing its `clearDuration`, or a suppression that ends by itself once the condition has stayed clear.
