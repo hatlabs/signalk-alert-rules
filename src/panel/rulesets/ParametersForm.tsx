@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type SyntheticEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from 'react'
 import { RuleRejectedError, type FieldError } from '../api'
 import { failureMessage } from '../failure'
 import { Field, FieldErrors } from '../editor/fields'
@@ -63,7 +63,6 @@ export function ParametersForm({ ruleset, unitOf, save }: ParametersFormProps) {
   const [errors, setErrors] = useState<FieldError[]>([])
   const [failure, setFailure] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
-  const headingId = useId()
   const form = useRef<HTMLFormElement | null>(null)
   // Counts refusals, so each one moves focus even when its errors repeat.
   const [refusals, setRefusals] = useState(0)
@@ -117,9 +116,7 @@ export function ParametersForm({ ruleset, unitOf, save }: ParametersFormProps) {
         onSubmit={(e) => void submit(e)}
         noValidate
       >
-        <h5 id={headingId} className="skar-section-heading">
-          Parameters
-        </h5>
+        <h5 className="skar-section-heading">Parameters</h5>
         {messages.length > 0 && (
           <div className="alert alert-danger" role="alert">
             <p className="mb-1">The values were not saved.</p>
