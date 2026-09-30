@@ -1,0 +1,9 @@
+{
+  "name": "signalk-alert-ruleset-example",
+  "version": "1.0.0",
+  "description": "Example ruleset provider for signalk-alert-rules.",
+  "private": true,
+  "keywords": ["signalk-alert-ruleset"],
+  "signalk-alert-ruleset": "ruleset.yaml",
+  "license": "Apache-2.0"
+}

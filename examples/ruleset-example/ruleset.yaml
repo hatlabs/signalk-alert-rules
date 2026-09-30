@@ -1,0 +1,43 @@
+# Example ruleset shipped by an npm package. The package declares this file in
+# its package.json field `signalk-alert-ruleset`, next to the keyword of the
+# same name. SKAR reads it as data and never executes anything in the package.
+name: Battery monitoring
+# The slug becomes the alert path origin: alerts.rules.batteries.<rule slug>.
+slug: batteries
+version: 1.0.0
+
+# Parameters are set per installation in the panel; the defaults apply until then.
+parameters:
+  - name: prefix
+    type: string
+    description: Path of the monitored battery bank
+    default: electrical.batteries.house
+  - name: lowVoltage
+    type: number
+    unit: V
+    default: 12
+    minimum: 10
+    maximum: 14
+  - name: delay
+    type: number
+    unit: s
+    default: 60
+    minimum: 0
+    maximum: 600
+
+rules:
+  - name: Battery low
+    slug: low
+    message: Battery voltage low
+    priority: warning
+    # String parameters substitute into paths.
+    signal:
+      path: ${prefix}.voltage
+    detector:
+      type: sustained
+      direction: below
+      # Number parameters stand in for numbers.
+      limit:
+        kind: fixed
+        value: { param: lowVoltage }
+      duration: { param: delay }
