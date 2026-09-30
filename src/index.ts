@@ -1,5 +1,6 @@
-import type { Plugin, ServerAPI } from '@signalk/server-api'
+import type { Plugin, PluginRouter, ServerAPI } from '@signalk/server-api'
 import { Application, CHECKPOINT_MS, TICK_MS } from './application.js'
+import { registerRoutes } from './api/routes.js'
 import { serverDeps } from './alerts/server.js'
 import { Store } from './store/store.js'
 
@@ -11,11 +12,32 @@ function hasAlertsApi(app: ServerAPI): boolean {
   return (app as { alerts?: unknown }).alerts !== undefined
 }
 
+// Not a public plugin API: the plugin's app is a shallow copy of the server's
+// (signalk-server src/interfaces/plugins.ts, `_.assign({}, app, ...)` in
+// doRegisterPlugin), so the server's security strategy is reachable. With
+// security disabled it is the dummy strategy, whose isDummy() is true
+// (src/security.ts, startSecurity; src/dummysecurity.ts); the server tests
+// it the same way.
+interface ServerWithSecurity {
+  securityStrategy?: { isDummy?: () => boolean }
+}
+
+function securityEnabled(app: ServerAPI): boolean | null {
+  const isDummy = (app as ServerAPI & ServerWithSecurity).securityStrategy?.isDummy
+  return typeof isDummy === 'function' ? !isDummy() : null
+}
+
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
 export default function createPlugin(app: ServerAPI): Plugin {
   let application: Application | undefined
+  let startError: string | undefined
   let timers: NodeJS.Timeout[] = []
+
+  const fail = (text: string) => {
+    startError = text
+    app.setPluginError(text)
+  }
 
   const checkpoint = (running: Application) => {
     try {
@@ -34,15 +56,16 @@ export default function createPlugin(app: ServerAPI): Plugin {
     schema: () => ({ type: 'object', properties: {} }),
 
     start() {
+      startError = undefined
       if (!hasAlertsApi(app)) {
-        app.setPluginError('This server has no alerts API; rules cannot be evaluated')
+        fail('This server has no alerts API; rules cannot be evaluated')
         return
       }
       let running: Application
       try {
         running = new Application(serverDeps(app, PLUGIN_ID), new Store(app.getDataDirPath()))
       } catch (err) {
-        app.setPluginError(`Cannot read the data directory: ${message(err)}`)
+        fail(`Cannot read the data directory: ${message(err)}`)
         return
       }
       running.start()
@@ -79,6 +102,16 @@ export default function createPlugin(app: ServerAPI): Plugin {
       } catch (err) {
         app.error(`Could not save accumulator totals: ${message(err)}`)
       }
+    },
+
+    registerWithRouter(router: PluginRouter) {
+      registerRoutes(router, {
+        application: () => application,
+        state: () => ({
+          ...(startError === undefined ? {} : { error: startError }),
+          securityEnabled: securityEnabled(app)
+        })
+      })
     }
   }
   return plugin
