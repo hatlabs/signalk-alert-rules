@@ -152,7 +152,7 @@ function notEvaluated(
  * How long every instance has stayed clear since the suppression started;
  * zero without an instance, which leaves nothing to judge by.
  */
-function clearTime(
+function stayedClearFor(
   instances: readonly Pick<RunnerInstanceStatus, 'clearFor'>[],
   started: number | undefined,
   now: number
@@ -660,7 +660,7 @@ export class Application {
       const after = suppression?.autoEndAfter
       if (after === undefined || !enabled) continue
       const instances = runner.status(id)?.instances ?? []
-      if (clearTime(instances, this.suppressedAt.get(`rule:${id}`), now) >= after) {
+      if (stayedClearFor(instances, this.suppressedAt.get(`rule:${id}`), now) >= after) {
         this.endSuppressionOf(id, AUTO_END_ACTOR)
       }
     }
@@ -671,7 +671,7 @@ export class Application {
         const instances = runner.status(ruleId(origin, rule.slug))?.instances ?? []
         return instances.filter((row) => signalPaths(rule.signal, row.instance).includes(path))
       })
-      if (clearTime(direct, this.suppressedAt.get(`input:${path}`), now) >= autoEndAfter) {
+      if (stayedClearFor(direct, this.suppressedAt.get(`input:${path}`), now) >= autoEndAfter) {
         this.endInputSuppression(path, AUTO_END_ACTOR)
       }
     }

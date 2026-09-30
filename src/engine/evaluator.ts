@@ -573,7 +573,7 @@ export class RuleEvaluator {
     const resolved = this.resolve(unit)
     // Zones are readable only once the path has a value; until then hold.
     if (!resolved.ok && unit.last === undefined) {
-      this.clearTime(unit, now, false)
+      this.trackClear(unit, now, false)
       return
     }
     const gates = this.gatesOf(unit)
@@ -596,7 +596,7 @@ export class RuleEvaluator {
       unit.levels.clear()
       if (unit.alerting) this.clear(unit)
       // A rule out of use because a gate does not hold has no condition.
-      this.clearTime(unit, now, problem === undefined && resolved.ok)
+      this.trackClear(unit, now, problem === undefined && resolved.ok)
       return
     }
     unit.inUse = true
@@ -604,7 +604,7 @@ export class RuleEvaluator {
     this.driveLevels(unit, resolved.levels, now, feed)
     const detector = unit.detector
     if (detector === undefined) return
-    this.clearTime(
+    this.trackClear(
       unit,
       now,
       transition !== 'pulse' && !detector.active && inputState(unit.last) === 'value'
@@ -690,7 +690,7 @@ export class RuleEvaluator {
       : detector.sample(feed.reading, feed.replayed, now)
   }
 
-  private clearTime(unit: Unit, now: number, clear: boolean): void {
+  private trackClear(unit: Unit, now: number, clear: boolean): void {
     unit.clearSince = clear ? (unit.clearSince ?? now) : undefined
   }
 
