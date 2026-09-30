@@ -638,6 +638,9 @@ export function parameterValueErrors(ruleset: Ruleset, values: ParameterValues):
     if (p === undefined)
       errors.push({ path: at, message: `${name} is not a parameter of this ruleset` })
     else if (typeof value !== p.type) errors.push({ path: at, message: `must be a ${p.type}` })
+    // JSON has no infinity: stored, it would read back as null.
+    else if (typeof value === 'number' && !Number.isFinite(value))
+      errors.push({ path: at, message: 'must be a finite number' })
     else if (typeof value === 'number')
       errors.push(...prefixed(boundErrors(value, p.minimum, p.maximum), at))
   }

@@ -688,4 +688,14 @@ describe('resolveRuleset', () => {
     const result = resolveRuleset(named.value, {})
     expect(result.ok && result.value[0]?.detector).toMatchObject({ limit: { value: 12 } })
   })
+
+  it('rejects a number that is not finite, even for a parameter no rule uses', () => {
+    const unused = validateRuleset({
+      ...ruleset,
+      parameters: [...ruleset.parameters, { name: 'spare', type: 'number', default: 1 }]
+    })
+    if (!unused.ok) throw new Error(JSON.stringify(unused.errors))
+    const result = resolveRuleset(unused.value, { spare: Infinity })
+    expect(result.ok ? [] : paths(result.errors)).toEqual(['/values/spare'])
+  })
 })
