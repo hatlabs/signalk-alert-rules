@@ -449,6 +449,36 @@ describe('application operator actions', () => {
     expect(new Store(dir).load().log).toEqual([...application.log()].reverse())
   })
 
+  it('logs a delete that dropped a total although the checkpoint after it failed', () => {
+    stored(hours)
+    const store = new Store(dir)
+    const { application, at } = setup(store)
+    at(0, RPM, 30)
+    at(10)
+    vi.spyOn(store, 'saveCheckpoints').mockImplementation(() => {
+      throw new Error('ENOSPC: no space left on device')
+    })
+    expect(() => application.deleteRule(hours.slug, 'admin')).toThrow(/ENOSPC/)
+    const entry = { at: WALL, actor: 'admin', action: 'delete', rule: 'user.engine-hours' }
+    expect(application.log()).toEqual([entry])
+    expect(new Store(dir).load().log).toEqual([entry])
+  })
+
+  it('logs a reset although the checkpoint after it failed', () => {
+    stored(hours)
+    const store = new Store(dir)
+    const { application, at } = setup(store)
+    at(0, RPM, 30)
+    at(10)
+    vi.spyOn(store, 'saveCheckpoints').mockImplementation(() => {
+      throw new Error('ENOSPC: no space left on device')
+    })
+    expect(() => application.resetAccumulator('user', hours.slug, 'admin')).toThrow(/ENOSPC/)
+    const entry = { at: WALL, actor: 'admin', action: 'reset', rule: 'user.engine-hours' }
+    expect(application.log()).toEqual([entry])
+    expect(new Store(dir).load().log).toEqual([entry])
+  })
+
   it('keeps the most recent log entries, newest first', () => {
     // Hundreds of flushed writes would take seconds.
     const { application } = setup(new Store(dir, { ...fs, fsyncSync: () => undefined }))

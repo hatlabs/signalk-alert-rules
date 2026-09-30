@@ -292,10 +292,14 @@ export class Application {
     this.unloadedMeasures.delete(slug)
     this.retained.delete(id)
     if (this.rulesBySlug.delete(slug)) this.runner?.remove(id)
-    // Written now: a restart before the next checkpoint would give the old
-    // total to a rule re-created with this slug.
-    if (drops) this.checkpoint()
-    this.record({ at: this.now(), actor, action: 'delete', rule: id })
+    // Logged first: the delete is applied even when the checkpoint fails.
+    try {
+      this.record({ at: this.now(), actor, action: 'delete', rule: id })
+    } finally {
+      // Written now: a restart before the next checkpoint would give the old
+      // total to a rule re-created with this slug.
+      if (drops) this.checkpoint()
+    }
     return true
   }
 
@@ -310,10 +314,14 @@ export class Application {
     const id = this.idOf(slug)
     this.runner?.reset(id)
     this.retained.delete(id)
-    // Written now: the next checkpoint could come after a restart that
-    // would bring back the old total.
-    this.checkpoint()
-    this.record({ at: this.now(), actor, action: 'reset', rule: id })
+    // Logged first: the reset is applied even when the checkpoint fails.
+    try {
+      this.record({ at: this.now(), actor, action: 'reset', rule: id })
+    } finally {
+      // Written now: the next checkpoint could come after a restart that
+      // would bring back the old total.
+      this.checkpoint()
+    }
     return 'reset'
   }
 

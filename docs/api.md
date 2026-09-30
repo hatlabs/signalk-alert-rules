@@ -111,5 +111,5 @@ Errors answer `{ "error": "<message>" }`. A body that fails validation answers 4
 | 404 | no such rule |
 | 409 | `POST /rules` with a slug a stored rule already has |
 | 415 | a mutating request without `Content-Type: application/json` |
-| 500 | the data directory could not be written. A rule, deletion or evaluation switch that could not be saved is not applied. A reset, or a save or deletion that discards an accumulator total, whose totals could not be saved has been applied, but the old total returns after a restart unless a later checkpoint succeeds. An action whose log entry could not be written has been applied. |
+| 500 | the data directory could not be written. A rule, deletion or evaluation switch that could not be saved is not applied. A reset, or a save or deletion that discards an accumulator total, whose totals could not be saved has been applied, but the old total returns after a restart unless a later checkpoint succeeds; a reset or deletion is in the action log all the same. An action whose log entry could not be written has been applied. |
 | 503 | the plugin is not running |
