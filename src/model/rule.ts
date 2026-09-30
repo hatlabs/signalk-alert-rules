@@ -192,6 +192,13 @@ export function ruleSchemas<N extends TSchema>(num: NumberField<N>) {
       message: Type.String({ minLength: 1, maxLength: 500 }),
       /** Required unless the detector has a zone limit, whose levels set the priority. */
       priority: Type.Optional(Type.Enum(PRIORITIES)),
+      /**
+       * For momentary conditions, such as an event count or a match on an
+       * event path: each time the condition becomes active the alert is raised
+       * once and waits for acknowledgment. An ongoing condition at a priority
+       * that needs acknowledgment already waits for it after the condition
+       * ends, so it should not be latching.
+       */
       latching: Type.Optional(Type.Boolean()),
       signal: Signal,
       detector: Detector,

@@ -12,6 +12,7 @@ The plugin raises alerts; the server's alerts API owns their lifecycle (acknowle
 ## Behaviour to know
 
 - Stopping or restarting the plugin does not clear the alerts it raised.
+- A latching rule is for momentary conditions, such as an event count or a match on an event path. It raises its alert once each time the condition becomes active, and the alert waits for acknowledgment; nothing is sent while the condition lasts or when it ends. An ongoing condition does not need latching to be acknowledged: at a priority that requires acknowledgment, its alert already waits for it after the condition returns to normal.
 
 ## Development
 
