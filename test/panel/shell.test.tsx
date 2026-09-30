@@ -12,7 +12,7 @@ import {
 import type { PathSource } from '../../src/panel/paths/selfPaths'
 import { Shell } from '../../src/panel/Shell'
 import { DISABLED_POLL_INTERVAL_MS, POLL_INTERVAL_MS } from '../../src/panel/shellState'
-import { noAuthoring, noControls, ruleEntry } from './fixtures'
+import { instance, noAuthoring, noControls, ruleEntry } from './fixtures'
 
 interface Server {
   state: PluginState | Error
@@ -383,6 +383,52 @@ describe('Shell rules', () => {
       back.focus()
       await tick(POLL_INTERVAL_MS)
       expect(document.activeElement).toBe(back)
+    })
+  })
+
+  describe('instance links', () => {
+    const batteries = ruleEntry({
+      slug: 'battery-low',
+      rule: { name: 'Battery low', signal: { paths: ['electrical.batteries.*.voltage'] } },
+      status: {
+        instances: [
+          instance({ instance: { name: 'house', segment: 'house' } }),
+          instance({ instance: { name: 'Start 1', segment: 'Start_1' }, value: 11.5 })
+        ]
+      }
+    })
+
+    it('highlights the instance a link names and focuses its row', async () => {
+      await renderShell({ state: running, enabled: true, rules: [rule, batteries] })
+      act(() => {
+        goTo(`${ADMIN}#rule=user/battery-low&instance=Start%201`)
+      })
+      const row = screen.getByRole('row', { name: /start 1/i })
+      expect(row.getAttribute('aria-current')).toBe('true')
+      expect(document.activeElement).toBe(row)
+      expect(screen.getByRole('row', { name: /house/i }).getAttribute('aria-current')).toBeNull()
+    })
+
+    it('finds the instance by its alert path segment too', async () => {
+      window.history.replaceState(null, '', '/#rule=user/battery-low&instance=Start_1')
+      await renderShell({ state: running, enabled: true, rules: [batteries] })
+      expect(screen.getByRole('row', { name: /start 1/i }).getAttribute('aria-current')).toBe(
+        'true'
+      )
+      // Not on first load, which must not take focus from the admin UI.
+      expect(document.activeElement).toBe(document.body)
+    })
+
+    it('shows the rule with a notice for an instance it does not have', async () => {
+      await renderShell({ state: running, enabled: true, rules: [batteries] })
+      act(() => {
+        goTo('#rule=user/battery-low&instance=aft')
+      })
+      expect(screen.getByRole('heading', { name: 'Battery low' })).toBe(document.activeElement)
+      expect(screen.getByText(/no instance aft/i)).toBeTruthy()
+      expect(
+        screen.getAllByRole('row').filter((r) => r.getAttribute('aria-current') === 'true')
+      ).toEqual([])
     })
   })
 

@@ -1,3 +1,4 @@
+import type { Ref } from 'react'
 import type { GateStatus, InputState, InstanceStatus, Progress } from '../api'
 import { formatDuration, instanceName, type RuleDisplay } from './describe'
 import { StatusBadge } from './StatusBadge'
@@ -55,10 +56,19 @@ function gateText(gate: GateStatus, index: number): string {
 export interface InstanceTableProps {
   instances: InstanceStatus[]
   display: RuleDisplay
+  /** The instance a link names, by its name or alert path segment, to highlight. */
+  linked?: string
+  /** The linked instance's row, which takes focus when the operator follows the link. */
+  linkedRef?: Ref<HTMLTableRowElement>
+}
+
+/** Whether an instance is the one a link names: an alert path carries the segment, people the name. */
+export function isLinked(i: InstanceStatus, linked: string | undefined): boolean {
+  return linked !== undefined && (i.instance?.name === linked || i.instance?.segment === linked)
 }
 
 /** One row per instance: its status, value, limit, progress and gate states. */
-export function InstanceTable({ instances, display }: InstanceTableProps) {
+export function InstanceTable({ instances, display, linked, linkedRef }: InstanceTableProps) {
   const named = instances.some((i) => i.instance !== undefined)
   return (
     <div className="table-responsive">
@@ -75,7 +85,17 @@ export function InstanceTable({ instances, display }: InstanceTableProps) {
         </thead>
         <tbody>
           {instances.map((i, index) => (
-            <tr key={i.instance?.segment ?? index}>
+            <tr
+              key={i.instance?.segment ?? index}
+              {...(isLinked(i, linked)
+                ? {
+                    ref: linkedRef,
+                    tabIndex: -1,
+                    'aria-current': true,
+                    className: 'table-active skar-linked'
+                  }
+                : {})}
+            >
               {named && <th scope="row">{instanceName(i)}</th>}
               <td>
                 <StatusBadge status={i} />

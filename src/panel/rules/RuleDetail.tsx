@@ -11,7 +11,7 @@ import {
   ruleDisplay,
   type RuleDisplay
 } from './describe'
-import { InstanceTable } from './InstanceTable'
+import { InstanceTable, isLinked } from './InstanceTable'
 import { StatusBadge } from './StatusBadge'
 
 export interface RuleDetailProps {
@@ -26,6 +26,10 @@ export interface RuleDetailProps {
   units?: UnitLookup
   /** Opens the rule in the authoring form; absent where the rule cannot be edited. */
   edit?: () => void
+  /** The instance a link names, to highlight, or to say it is not there. */
+  instance?: string
+  /** The linked instance's row, which takes focus when the operator follows the link. */
+  instanceRef?: Ref<HTMLTableRowElement>
 }
 
 function Fact({ term, children }: { term: string; children: ReactNode }) {
@@ -66,7 +70,9 @@ export function RuleDetail({
   reset,
   headingRef,
   units = NO_UNITS,
-  edit
+  edit,
+  instance,
+  instanceRef
 }: RuleDetailProps) {
   const confirmation = useConfirmation()
   const { rule, status } = entry
@@ -129,7 +135,18 @@ export function RuleDetail({
           ))}
         </ul>
       )}
-      <InstanceTable instances={status.instances} display={display} />
+      {instance !== undefined && !status.instances.some((i) => isLinked(i, instance)) && (
+        <div className="alert alert-warning" role="status">
+          This rule has no instance {instance} now. It may not have reported since the plugin
+          started, or it no longer reports.
+        </div>
+      )}
+      <InstanceTable
+        instances={status.instances}
+        display={display}
+        linked={instance}
+        linkedRef={instanceRef}
+      />
       {display.si && <p className="form-text">Values are in SI units.</p>}
       <div className="skar-actions">
         <button

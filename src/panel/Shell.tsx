@@ -290,6 +290,8 @@ function Views({ api, view, paths, refresh }: ViewsProps) {
   // from the admin UI, and only once the rules tab shows, which a link from
   // another tab opens a render later.
   const heading = useRef<HTMLHeadingElement | null>(null)
+  // An instance link focuses the instance's row instead, when the rule has it.
+  const instanceRow = useRef<HTMLTableRowElement | null>(null)
   // The authoring form focuses its own heading once it shows, which for an
   // edit is only after the rule has loaded; leaving it returns focus here.
   const viewKey =
@@ -299,7 +301,7 @@ function Views({ api, view, paths, refresh }: ViewsProps) {
         : `edit ${editor.origin}/${editor.slug}`
       : ref === undefined
         ? ''
-        : `${ref.origin}/${ref.slug}`
+        : `${ref.origin}/${ref.slug}#${ref.instance ?? ''}`
   const focusedKey = useRef(viewKey)
   const focusPending = useRef(false)
   useEffect(() => {
@@ -309,7 +311,7 @@ function Views({ api, view, paths, refresh }: ViewsProps) {
     }
     if (focusPending.current && tab === 'rules') {
       focusPending.current = false
-      heading.current?.focus()
+      ;(instanceRow.current ?? heading.current)?.focus()
     }
   })
 
@@ -385,6 +387,8 @@ function Views({ api, view, paths, refresh }: ViewsProps) {
           backHref={backHref}
           headingRef={heading}
           units={units}
+          instance={ref.instance}
+          instanceRef={instanceRow}
           edit={
             entry.origin === USER_ORIGIN
               ? () => {
