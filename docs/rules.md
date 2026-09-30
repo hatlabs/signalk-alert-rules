@@ -37,7 +37,7 @@ The rules in [`examples/rules`](../examples/rules) are complete, valid rules; [W
 
 A rule has an origin: `user` for rules written by the user, or the slug of the ruleset that provides it. Origin and slug together identify the rule and must be unique. The rule has no `id` or `enabled` field.
 
-A ruleset (`src/model/ruleset.ts`) is a document with `name`, `slug`, `version`, optional `description`, up to 32 `parameters` (`name`, `type` `number` or `string`, optional `description`, `unit`, `minimum`, `maximum`, and a `default`) and up to 500 `rules`. A ruleset rule may put `{ "param": "<name>" }` wherever a number goes and `${name}` inside a path. A ruleset slug may not be `user`. Of two rulesets with the same slug, the one discovered first loads and the later one is reported as malformed. Validation checks every rule with the parameters at their defaults.
+A ruleset (`src/model/ruleset.ts`) is a document with `name`, `slug`, `version`, optional `description`, up to 32 `parameters` (`name`, `type` `number` or `string`, optional `description`, `unit`, `minimum`, `maximum`, and a `default`) and up to 500 `rules`. A ruleset rule may put `{ "param": "<name>" }` wherever a number goes and `${name}` inside a path. A ruleset slug may not be `user`. Of two rulesets with the same slug, the one discovered first loads and the later one is reported as malformed. Validation checks every rule with the parameters at their defaults. How rulesets are discovered, enabled, tuned and upgraded is in [Rulesets](rulesets.md).
 
 ### Quantities
 
@@ -298,7 +298,7 @@ The 20 s interval and the evidence gate stand until core's staleness behaviour i
 
 At start SKAR reads core's alerts once and sorts those whose `$source` is SKAR, whose condition is active and whose path is under `alerts.rules.`:
 
-- An alert whose rule no longer exists, whose rule is now latching, or whose path has an instance segment when the rule has no wildcard (or lacks one when it has) is cleared.
+- An alert whose rule no longer exists or is disabled, whose rule is now latching, or whose path has an instance segment when the rule has no wildcard (or lacks one when it has) is cleared.
 - Every other such alert is adopted. SKAR sends it once at once, with the rule's current message and the rule's own priority (for a zone-limit rule, its named level's) and no data, unless core already marks it stale; an edit made while SKAR was down reaches core this way. The instance's detector starts in the active state.
 
 Alerts whose condition has ended, latching alerts among them, are core's until acknowledged and are left alone, as are other sources' alerts.
@@ -315,14 +315,14 @@ Stopping the plugin never clears alerts. Stop runs on every configuration save, 
 
 ## Edits
 
-An edited rule saved through the [REST API](api.md) replaces the running one without restarting the plugin or other rules. The API can preview an edit, saying whether it would clear an active alert.
+An edited rule saved through the [REST API](api.md) replaces the running one without restarting the plugin or other rules. A ruleset rule is edited the same way when a parameter change or an upgrade changes it; a rule it does not change is not touched. The API can preview an edit, saying whether it would clear an active alert.
 
 | Edit | Effect on an active alert |
 |---|---|
 | signal (paths, sources, combinator, `angular`), gates, `latching`, detector `type`; a match's `op` or `value`; `direction`; a zone limit's `level`; an accumulator's `measure`, `while` or `resetOn`; a count's or absence's `event` | cleared, and the rule restarts from nothing; it raises again once its condition holds |
 | limits (a fixed value, or a zone limit's `path`), `duration`, `clearDuration`, `hysteresis`, `window`, `horizon`, `within`, a count's or accumulator's `limit` | re-evaluated in place; timers and windows are kept, and the current value is checked against the new limit before any timer counts |
 | `message`, `priority` | sent with the next emission; core decides whether it re-alerts |
-| delete, disable, suppress, accumulator reset | cleared |
+| delete, disable, suppress, accumulator reset, a ruleset disabled or uninstalled, a ruleset upgrade removing the rule | cleared |
 
 A restarted accumulator keeps its total when its `measure` is unchanged. An edit or delete that discards a total saves the totals at once, so a restart cannot give the old total to the new rule.
 
@@ -330,7 +330,7 @@ A zone limit's `level` changes what the alert means, so it restarts the rule. Re
 
 ## Enable and suppression
 
-Each rule has operator controls, set through the [REST API](api.md#rule-controls) and kept in the data directory across restarts: whether it is enabled, a note, and a suppression. Paths can be suppressed too. Controls are keyed by rule id, `<origin>.<slug>`; deleting a rule deletes its controls. Enables, disables, notes and suppressions are recorded in the [action log](api.md#action-log) with the acting user.
+Each rule has operator controls, set through the [REST API](api.md#rule-controls) and kept in the data directory across restarts: whether it is enabled, a note, and a suppression. Paths can be suppressed too. Controls are keyed by rule id, `<origin>.<slug>`, for ruleset rules too; deleting a rule, or an upgrade removing it from its ruleset, deletes its controls. Enables, disables, notes and suppressions are recorded in the [action log](api.md#action-log) with the acting user.
 
 ### Disabled rules
 
@@ -358,7 +358,7 @@ An input suppression ends by itself once every rule instance it suppresses direc
 
 | Bound | Value |
 |---|---|
-| rules loaded | 500 |
+| rules loaded | 500 user rules; 500 per ruleset |
 | instances per wildcard signal | 64 |
 | gates per rule | 8 |
 | combinator inputs | 16 |
@@ -368,6 +368,7 @@ An input suppression ends by itself once every rule instance it suppresses direc
 | `name`, `message` | 200 and 500 characters |
 | signal path, alert path | 255 characters |
 | ruleset parameters | 32 |
+| ruleset file | 1 MiB; YAML alias expansion capped at 100 |
 
 ## Status
 
@@ -414,10 +415,10 @@ The badge is the first of these that applies, most important first:
 
 | Badge | When |
 |---|---|
-| `disabled` | the rule is not evaluated; `reason` is `disabled`, or `evaluation is off` while [evaluation](api.md#evaluation-switch) is off |
+| `disabled` | the rule is not evaluated; `reason` is `disabled`, `ruleset is disabled`, or `evaluation is off` while [evaluation](api.md#evaluation-switch) is off |
 | `suppressed` | the rule, or the instance's input path, is suppressed; `suppression` gives the scope |
 | `errored` | the rule has an error (rule level only) |
-| `inactive` | the rule cannot evaluate the instance: a zone level missing, a timeout rule the server can never time out, a timeout rule on a boolean or string path, an angular combination of an input not in radians, an alert path that would be invalid |
+| `inactive` | the rule cannot evaluate the instance: a ruleset rule whose paths the server has not had (rule level, reason `ruleset path missing`), a zone level missing, a timeout rule the server can never time out, a timeout rule on a boolean or string path, an angular combination of an input not in radians, an alert path that would be invalid |
 | `alertActive` | the alert is active |
 | `gatedOff` | a gate does not hold |
 | `inputUnavailable` | the input is unavailable |
@@ -431,7 +432,7 @@ A rule's badge is `suppressed` when the rule itself is suppressed, else `errored
 - `waitingForClear`: an active alert whose condition is timing its `clearDuration`, or a suppression that ends by itself once the condition has stayed clear.
 - `awaitingInput`: an active alert without input evidence (see [Heartbeat and input evidence](#heartbeat-and-input-evidence)).
 
-A rule that is not evaluated, because it is disabled or evaluation is off, has the `disabled` badge with its reason, no errors or issues, and one instance row per accumulator total it keeps: `badge`, `reason`, `subLabels`, `progress` as `{ "kind": "total", "total", "limit" }`, and for a wildcard rule `instance` with the `segment` only.
+A rule that is not evaluated, because it or its ruleset is disabled or evaluation is off, has the `disabled` badge with its reason, no errors or issues, and one instance row per accumulator total it keeps: `badge`, `reason`, `subLabels`, `progress` as `{ "kind": "total", "total", "limit" }`, and for a wildcard rule `instance` with the `segment` only. A ruleset rule waiting for its paths is not evaluated either: it has the `inactive` badge with the reason `ruleset path missing`, one issue per missing path, and the same rows.
 
 ## Worked examples
 
@@ -453,8 +454,7 @@ Each rule in [`examples/rules`](../examples/rules) runs in `test/examples.test.t
 
 ## Decided, not yet implemented
 
-The plan (issue 1) has decided the following; later units implement them. Rules from rulesets will take the same [controls](#enable-and-suppression) as user rules, under their own rule ids.
+The plan (issue 1) has decided the following; later units implement them.
 
-- **Rulesets** ([Unit 9](https://github.com/hatlabs/signalk-alert-rules/issues/10)): discovery from installed packages (keyword `signalk-alert-ruleset`) and a drop-in directory, YAML files, rulesets starting disabled, user overrides that survive upgrades, a rule inactive while its paths are missing, and an upgrade that removes a rule clearing its alert.
 - **Panel** ([Unit 12](https://github.com/hatlabs/signalk-alert-rules/issues/13), [Unit 13](https://github.com/hatlabs/signalk-alert-rules/issues/14)): a confirmation before any edit that clears an active alert, and a link from the alert to its rule, under a documented key in alert data.
 - **Zone and timeout proposals** ([Unit 10](https://github.com/hatlabs/signalk-alert-rules/issues/11), after the MVP).

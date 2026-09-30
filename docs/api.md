@@ -7,7 +7,7 @@ SKAR serves its rules, their status and its operator actions under the plugin's 
 - Every route is admin-only while server security is enabled: the server checks admin access for every plugin route a plugin does not open up to other access levels, and SKAR opens none.
 - With security disabled, anyone who can reach the server can use every route. `GET /state` reports `securityEnabled: false` so the panel can show a persistent warning.
 - Every `POST`, `PUT` and `DELETE` must carry `Content-Type: application/json`, including those without a body; anything else is refused with 415. A browser does not send that content type to another site without asking the site first, so a page elsewhere cannot act through an admin's session.
-- Deletes, accumulator resets, evaluation switches, enables, disables, notes and suppressions record the actor: the authenticated user's id, or `unauthenticated` when there is none.
+- Deletes, accumulator resets, evaluation switches, enables, disables, notes, suppressions and ruleset changes record the actor: the authenticated user's id, or `unauthenticated` when there is none.
 
 ## Routes
 
@@ -32,8 +32,13 @@ SKAR serves its rules, their status and its operator actions under the plugin's 
 | `PUT /suppressions/inputs/:path` | suppresses an input path, replacing a suppression it has; answers the suppression |
 | `DELETE /suppressions/inputs/:path` | ends an input suppression; 204, also when the path is not suppressed |
 | `GET /suppressions/inputs/:path/preview` | what suppressing the path would do, without doing it |
+| `GET /rulesets` | every loaded ruleset, and the problems of the last discovery |
+| `POST /rulesets/rescan` | discovers the rulesets again and applies what changed; answers as `GET /rulesets` |
+| `PUT /rulesets/:slug/enabled` | enables or disables a ruleset from `{ "enabled": true \| false }`; answers its entry |
+| `PUT /rulesets/:slug/parameters` | replaces a ruleset's parameter values with the body, an object of values by parameter name; answers its entry |
+| `DELETE /rulesets/:slug/notices` | dismisses a ruleset's notices; 204 |
 
-`origin` is `user` for rules created through this API. User rules are stored in the plugin's data directory, one file per rule as `rules/<slug>.json`, and validated at start; one that no longer validates does not run and is named in the plugin status. Rules from rulesets and the routes that manage rulesets are not implemented yet. `:path` is a Signal K path relative to `vessels.self`, such as `propulsion.port.revolutions`.
+`origin` is `user` for rules created through this API. User rules are stored in the plugin's data directory, one file per rule as `rules/<slug>.json`, and validated at start; one that no longer validates does not run and is named in the plugin status. A rule from a ruleset has the ruleset's slug as its `origin`; it is read-only, but takes the same controls, suppressions and resets as a user rule. `:path` is a Signal K path relative to `vessels.self`, such as `propulsion.port.revolutions`.
 
 ### Rule entry
 
@@ -41,6 +46,7 @@ SKAR serves its rules, their status and its operator actions under the plugin's 
 {
   "origin": "user",
   "slug": "oil-pressure-low",
+  "ruleset": { "name": "Battery monitoring", "version": "1.0.0", "package": { "name": "signalk-alert-ruleset-example", "version": "1.0.0" } },
   "rule": { ... },
   "enabled": true,
   "note": "Sender replaced in spring",
@@ -49,8 +55,10 @@ SKAR serves its rules, their status and its operator actions under the plugin's 
 }
 ```
 
+- `ruleset`: for a ruleset rule only, the ruleset's name and version and, for one from a package, the package's name and version.
+- `rule`: for a ruleset rule, the rule as the ruleset's parameter values resolve it.
 - `enabled`, `note` and `suppression`: the rule's [controls](#rule-controls); `note` and `suppression` are absent when the rule has none. `suppression` is the rule's own; an input suppression shows in `status` only.
-- `status`: the rule's status with its badge, sub-labels and per-instance rows, as described in [Status](rules.md#status). A rule that is disabled, or every rule while evaluation is off, has the `disabled` badge with the reason `disabled` or `evaluation is off`, and its accumulator totals as instance rows with `progress`.
+- `status`: the rule's status with its badge, sub-labels and per-instance rows, as described in [Status](rules.md#status). A rule that is not evaluated has the `disabled` badge with the reason `disabled`, `ruleset is disabled` or, for every rule while evaluation is off, `evaluation is off`. A ruleset rule whose paths the server has not had has the `inactive` badge with the reason `ruleset path missing` and one issue per missing path. Either way its accumulator totals are instance rows with `progress`.
 
 ### Edit preview
 
@@ -130,6 +138,40 @@ An input suppression preview:
 - `suppresses`: the rules whose signal or combinator reads the path, with the wildcard instance that does.
 - `freezes`: per gate that reads the path, by its index in the rule's `gates`, the state each instance of the rule would be frozen at: `instance` for a wildcard rule, and `holds`. `states` is empty for a rule that is not evaluated or has no instance yet. Suppressing the path stores these states and freezes the gates at them; see [Input suppression](rules.md#input-suppression).
 
+### Rulesets
+
+Rulesets are described in [Rulesets](rulesets.md). `GET /rulesets` answers:
+
+```json
+{
+  "rulesets": [
+    {
+      "slug": "batteries",
+      "name": "Battery monitoring",
+      "version": "1.0.0",
+      "source": "package signalk-alert-ruleset-example",
+      "package": { "name": "signalk-alert-ruleset-example", "version": "1.0.0" },
+      "enabled": false,
+      "parameters": [{ "name": "lowVoltage", "type": "number", "unit": "V", "default": 12, "minimum": 10, "maximum": 14 }],
+      "values": { "lowVoltage": 11.5 },
+      "rules": ["low"],
+      "missingPaths": ["electrical.batteries.house.voltage"],
+      "notices": [{ "at": "2026-09-30T12:00:00.000Z", "message": "rule high is not in version 1.0.0: its alert was cleared and its settings dropped" }]
+    }
+  ],
+  "problems": [{ "source": "file broken.yaml", "message": "Flow sequence in block collection must be sufficiently indented and end with a ] at line 3, column 1", "line": 3 }]
+}
+```
+
+- `source`: where the ruleset was found, `package <name>` or `file <name>` for a file in the drop-in directory; `package` and `description` are absent when there is none.
+- `parameters`: the ruleset's declarations; `values`: the values the operator set, the rest taking their defaults.
+- `missingPaths`: the paths its rules read that the server has not had since the plugin started. Its rules stay inactive until theirs appear.
+- `notices`: what an upgrade changed, kept until dismissed: a removed rule, and a stored parameter value dropped because it no longer validates.
+- `problems`: the rulesets that could not be loaded, with the reason and, for a YAML error, its line. A message may name the absolute path of a file on the server; the routes are admin-only.
+- A new ruleset starts disabled. Enabling or disabling a ruleset starts or stops each of its rules that is enabled itself. Setting the current value changes nothing and is not logged.
+- A parameter change edits only the rules whose resolved form changes, with the [edit semantics](rules.md#edits) of a user rule. A value must be declared by the ruleset, of the parameter's type and within its bounds, and the rules it makes must validate; otherwise the request answers 400 and nothing changes. Setting the values the ruleset has changes nothing and is not logged.
+- A rescan applies an upgrade as a start would and leaves the rules that did not change running untouched.
+
 ### Accumulator reset
 
 A reset clears the rule's active alerts and sets its total to zero: the running total, one restored at start, and the checkpoint in the data directory. The rule goes on accumulating from zero. A rule that is not an accumulator answers 400.
@@ -158,7 +200,7 @@ The last 200 actions, newest first, kept in the data directory:
 ]
 ```
 
-- `action` is `delete`, `reset`, `enable`, `disable` or `note` with `rule`; `suppress` or `unsuppress` with `rule` or `path`; or `evaluation` with `enabled`.
+- `action` is `delete`, `reset`, `enable`, `disable` or `note` with `rule`; `suppress` or `unsuppress` with `rule` or `path`; `evaluation` with `enabled`; `enable`, `disable`, `parameters` or `dismiss` with `ruleset`, the ruleset's slug; or `rescan`.
 - `rule` is `<origin>.<slug>`.
 - A suppression that ends by itself is logged as `unsuppress` with the actor `auto-end`.
 
@@ -196,7 +238,7 @@ Errors answer `{ "error": "<message>" }`. A body that fails validation answers 4
 | Status | When |
 |---|---|
 | 400 | invalid body; an input path that is not exact; a `PUT` or preview whose `slug` differs from the path's; a reset of a rule that is not an accumulator |
-| 404 | no such rule |
+| 404 | no such rule or ruleset |
 | 409 | `POST /rules` with a slug a stored rule already has |
 | 415 | a mutating request without `Content-Type: application/json` |
 | 500 | the data directory could not be written, or evaluation could not be turned on or off because the server's alerts could not be read. A rule, deletion or evaluation switch that could not be saved is not applied. Evaluation that could not be turned on stays off; evaluation that was turned off is off and in the action log, but SKAR's alerts may not have been cleared. A reset, or a save or deletion that discards an accumulator total, whose totals could not be saved has been applied, but the old total returns after a restart unless a later checkpoint succeeds; a reset or deletion is in the action log all the same. An action whose log entry could not be written has been applied. A deletion whose controls could not be removed has deleted the rule, and a rule later created with its slug takes those controls. |
