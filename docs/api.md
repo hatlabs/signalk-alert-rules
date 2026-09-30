@@ -170,7 +170,7 @@ Rulesets are described in [Rulesets](rulesets.md). `GET /rulesets` answers:
 - `problems`: the rulesets that could not be loaded, with the reason and, for a YAML error, its line. A message may name the absolute path of a file on the server; the routes are admin-only.
 - A new ruleset starts disabled. Enabling or disabling a ruleset starts or stops each of its rules that is enabled itself. Setting the current value changes nothing and is not logged.
 - A parameter change edits only the rules whose resolved form changes, with the [edit semantics](rules.md#edits) of a user rule. A value must be declared by the ruleset, of the parameter's type and within its bounds, and the rules it makes must validate; otherwise the request answers 400 and nothing changes. An error in a value points at `/<name>` in the body; an error in a rule the values make points at the body itself, `""`, and its message names the rule and the field, as in `rule low /signal/path: …`. Setting the values the ruleset has changes nothing and is not logged.
-- A rescan applies an upgrade as a start would and leaves the rules that did not change running untouched.
+- A rescan applies an upgrade as a start would and leaves the rules that did not change running untouched. Unlike a start, a rescan whose settings cannot be written answers 500.
 
 ### Accumulator reset
 

@@ -300,6 +300,8 @@ export class Application {
    * points it at other paths.
    */
   private readonly present = new Map<string, string>()
+  /** Set while start applies discovery: a failed write is then an issue, not a failed start. */
+  private starting = false
   private readonly suppressionsInForce: Suppressions = {
     rule: (id) => own(this.controls.rules, id)?.suppression,
     path: (path) => own(this.controls.inputs, path)
@@ -354,7 +356,14 @@ export class Application {
    * nothing is cleared: the alerts were cleared when it was turned off.
    */
   start(): void {
-    this.applyDiscovery(this.discover())
+    // A full disk must not keep every rule, user rules included, from
+    // running: what could not be saved applies in this run.
+    this.starting = true
+    try {
+      this.applyDiscovery(this.discover())
+    } finally {
+      this.starting = false
+    }
     // Core holding a rule's alert shows its hardware is there, and adopting
     // the alert keeps a restart from clearing it before the paths report.
     for (const alert of this.deps.alerts.list()) {
@@ -600,7 +609,22 @@ export class Application {
     }
     // Written now: the next checkpoint could come after a restart that would
     // give an old total to a rule that no longer carries it.
-    if (drops || edits) this.checkpoint()
+    if (drops || edits) {
+      this.tolerating('the accumulator totals', 'the next checkpoint retries', () => {
+        this.checkpoint()
+      })
+    }
+  }
+
+  /** Runs a write; while starting, a failure is reported as an issue instead of thrown. */
+  private tolerating(what: string, then: string, write: () => void): void {
+    try {
+      write()
+    } catch (err) {
+      if (!this.starting) throw err
+      const issue = `${what} could not be saved (${errorMessage(err)}); ${then}`
+      if (!this.issues.includes(issue)) this.issues.push(issue)
+    }
   }
 
   /**
@@ -1203,7 +1227,9 @@ export class Application {
   }
 
   private saveControls(controls: Controls): void {
-    this.store.saveControls(controls)
+    this.tolerating('the operator settings', 'they apply until the next change saves them', () => {
+      this.store.saveControls(controls)
+    })
     this.controls = controls
   }
 }

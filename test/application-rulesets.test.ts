@@ -2,7 +2,7 @@ import * as fs from 'node:fs'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Value } from '@signalk/server-api'
 import { Application } from '../src/application.js'
 import { serverDeps } from '../src/alerts/server.js'
@@ -602,6 +602,53 @@ describe('rulesets in the application', () => {
     setup(installed, core)
 
     expect(new Store(dir).load().controls.inputs[VOLTAGE].frozen).toEqual(frozen)
+  })
+
+  describe('a start on a full disk', () => {
+    const full = () => {
+      throw new Error('ENOSPC: no space left on device')
+    }
+
+    it('runs every rule with the discovered settings and reports what it could not save', () => {
+      stored(oil)
+      const installed: Installed = { rulesets: [batteries()] }
+      const save = vi.spyOn(Store.prototype, 'saveControls').mockImplementation(full)
+      try {
+        const { application, at, alerts } = setup(installed)
+
+        expect(application.issues).toEqual([expect.stringMatching(/ENOSPC/) as string])
+        expect(application.rulesets().rulesets).toMatchObject([{ slug: 'batteries' }])
+        at(0, OIL, 0)
+        at(5)
+        expect(alerts()).toEqual([['rules.user.oil-pressure-low', true]])
+
+        installed.rulesets = [batteries('2.0.0')]
+        expect(() => application.rescan('admin')).toThrow(/ENOSPC/)
+      } finally {
+        save.mockRestore()
+      }
+    })
+
+    it('runs when the totals an upgrade drops cannot be saved, and reports it', () => {
+      const core = new FakeAlertsCore()
+      const first = setup({ rulesets: [batteries('1.0.0', [hours])] }, core)
+      first.at(0, RPM, 30)
+      first.application.setRulesetEnabled('batteries', true, 'admin')
+      first.at(20)
+      first.application.stop()
+
+      const save = vi.spyOn(Store.prototype, 'saveCheckpoints').mockImplementation(full)
+      try {
+        const { application, at } = setup({ rulesets: [batteries('2.0.0', [integralHours])] }, core)
+
+        expect(application.issues).toEqual([expect.stringMatching(/ENOSPC/) as string])
+        at(21, RPM, 30)
+        at(22)
+        expect(application.rule('batteries', 'hours')?.status.badge).toBe('idle')
+      } finally {
+        save.mockRestore()
+      }
+    })
   })
 
   it('an unknown ruleset cannot be enabled', () => {
