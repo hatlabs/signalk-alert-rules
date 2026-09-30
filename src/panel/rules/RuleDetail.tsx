@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from 'react'
+import { useId, type ReactNode, type Ref } from 'react'
 import type { RuleEntry } from '../api'
 import { Confirm, useConfirmation } from './Confirm'
 import { describeDetector, describeInput, describePriority, formatValue, markers } from './describe'
@@ -11,6 +11,8 @@ export interface RuleDetailProps {
   backHref: string
   /** Resets the rule's accumulator; a rejection is shown in the confirmation. */
   reset: () => Promise<void>
+  /** The rule's heading, which takes focus when the operator navigates to it. */
+  headingRef?: Ref<HTMLHeadingElement>
 }
 
 /** An accumulator measuring time totals seconds; an integral's unit depends on its input. */
@@ -53,7 +55,7 @@ function DiscardedTotals({ entry }: { entry: RuleEntry }) {
 }
 
 /** One rule with its status and per-instance rows: the target of an alert's link. */
-export function RuleDetail({ entry, backHref, reset }: RuleDetailProps) {
+export function RuleDetail({ entry, backHref, reset, headingRef }: RuleDetailProps) {
   const confirmation = useConfirmation()
   const { rule, status } = entry
   const errorsId = useId()
@@ -64,7 +66,9 @@ export function RuleDetail({ entry, backHref, reset }: RuleDetailProps) {
       <a href={backHref}>
         <span aria-hidden="true">←</span> All rules
       </a>
-      <h3 className="h5 mt-2">{rule.name}</h3>
+      <h3 ref={headingRef} tabIndex={-1} className="h5 mt-2">
+        {rule.name}
+      </h3>
       <p className="skar-path">
         {entry.origin}/{entry.slug}
         {markers(entry).map((marker) => (

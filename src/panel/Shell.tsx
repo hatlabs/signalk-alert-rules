@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState, type Ref } from 'react'
 import type { PanelApi } from './api'
 import { activeAlerts, ClearAllAlerts } from './rules/ClearAllAlerts'
 import { EvaluationOffBanner } from './rules/EvaluationOffBanner'
@@ -155,9 +155,20 @@ function Condition({ view, stale, checkAgain }: ConditionProps) {
  * A link to a rule that is not listed: deleted, renamed, from a ruleset no
  * longer installed, or a stored rule that no longer validates.
  */
-function RuleNotFound({ ruleRef, backHref }: { ruleRef: RuleRef; backHref: string }) {
+function RuleNotFound({
+  ruleRef,
+  backHref,
+  headingRef
+}: {
+  ruleRef: RuleRef
+  backHref: string
+  headingRef: Ref<HTMLHeadingElement>
+}) {
   return (
     <div className="skar-empty">
+      <h3 ref={headingRef} tabIndex={-1} className="h5">
+        Rule not found
+      </h3>
       <p>
         There is no rule {ruleRef.origin}/{ruleRef.slug}. It may have been deleted, or it no longer
         validates.
@@ -252,6 +263,26 @@ function Views({ api, view, refresh }: ViewsProps) {
     if (ref !== undefined) setTab('rules')
   }, [ref?.origin, ref?.slug])
 
+  // Switching between the list and a rule replaces the view that held focus,
+  // which would otherwise drop to the page body; focus moves to the new
+  // view's heading instead. Not on first load, which must not steal focus
+  // from the admin UI, and only once the rules tab shows, which a link from
+  // another tab opens a render later.
+  const heading = useRef<HTMLHeadingElement | null>(null)
+  const viewKey = ref === undefined ? '' : `${ref.origin}/${ref.slug}`
+  const focusedKey = useRef(viewKey)
+  const focusPending = useRef(false)
+  useEffect(() => {
+    if (focusedKey.current !== viewKey) {
+      focusedKey.current = viewKey
+      focusPending.current = true
+    }
+    if (focusPending.current && tab === 'rules') {
+      focusPending.current = false
+      heading.current?.focus()
+    }
+  })
+
   const setEvaluation = async (enabled: boolean) => {
     await api.setEvaluation(enabled)
     refresh()
@@ -261,11 +292,14 @@ function Views({ api, view, refresh }: ViewsProps) {
     if (ref !== undefined) {
       const entry = rules.find((r) => r.origin === ref.origin && r.slug === ref.slug)
       const backHref = hashWithRule(hash)
-      if (entry === undefined) return <RuleNotFound ruleRef={ref} backHref={backHref} />
+      if (entry === undefined) {
+        return <RuleNotFound ruleRef={ref} backHref={backHref} headingRef={heading} />
+      }
       return (
         <RuleDetail
           entry={entry}
           backHref={backHref}
+          headingRef={heading}
           reset={async () => {
             await api.resetAccumulator(entry.origin, entry.slug)
             refresh()
@@ -273,9 +307,16 @@ function Views({ api, view, refresh }: ViewsProps) {
         />
       )
     }
+    // The tab already names the list for sighted users; this heading is where focus lands.
+    const listHeading = (
+      <h3 ref={heading} tabIndex={-1} className="visually-hidden">
+        All rules
+      </h3>
+    )
     if (rules.length === 0) {
       return (
         <>
+          {listHeading}
           <LoadIssues issues={issues} />
           <NoRules
             someNotLoaded={issues.length > 0}
@@ -288,6 +329,7 @@ function Views({ api, view, refresh }: ViewsProps) {
     }
     return (
       <>
+        {listHeading}
         <LoadIssues issues={issues} />
         <RulesView
           rules={rules}

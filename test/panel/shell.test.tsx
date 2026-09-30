@@ -335,6 +335,49 @@ describe('Shell rules', () => {
     expect(screen.getByRole('heading', { name: 'Oil pressure low' })).toBeTruthy()
   })
 
+  describe('focus on navigation', () => {
+    it('moves to the heading of the view opened, not on first load', async () => {
+      await renderShell({ state: running, enabled: true, rules: [rule, hours] })
+      expect(document.activeElement).toBe(document.body)
+      act(() => {
+        goTo('#rule=user/engine-hours')
+      })
+      expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Engine hours' }))
+      act(() => {
+        goTo('#')
+      })
+      expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'All rules' }))
+    })
+
+    it('moves to the heading of a rule that is not found', async () => {
+      await renderShell({ state: running, enabled: true, rules: [rule] })
+      act(() => {
+        goTo('#rule=user/gone')
+      })
+      expect(document.activeElement).toBe(screen.getByRole('heading', { name: /not found/i }))
+    })
+
+    it('moves to the rule once the rules tab opens for it', async () => {
+      await renderShell({ state: running, enabled: true, rules: [rule] })
+      fireEvent.click(screen.getByRole('tab', { name: 'Suppressions' }))
+      act(() => {
+        goTo('#rule=user/oil-pressure-low')
+      })
+      expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Oil pressure low' }))
+    })
+
+    it('leaves focus alone when a poll re-renders the view', async () => {
+      await renderShell({ state: running, enabled: true, rules: [rule] })
+      act(() => {
+        goTo('#rule=user/oil-pressure-low')
+      })
+      const back = screen.getByRole('link', { name: /all rules/i })
+      back.focus()
+      await tick(POLL_INTERVAL_MS)
+      expect(document.activeElement).toBe(back)
+    })
+  })
+
   it('shows the rules tab when a fragment names a rule', async () => {
     await renderShell({ state: running, enabled: true, rules: [rule] })
     fireEvent.click(screen.getByRole('tab', { name: 'Suppressions' }))
