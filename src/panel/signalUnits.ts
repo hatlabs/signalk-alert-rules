@@ -59,7 +59,12 @@ export function unitLookup(paths: readonly PathEntry[], distance: DisplayUnit): 
  * The reported paths and the units they resolve to, loaded once per source.
  * Until the paths arrive, or when they cannot be read, values are in SI.
  */
-export function useUnits(source: PathSource): { paths: PathList; units: UnitLookup } {
+export function useUnits(source: PathSource): {
+  paths: PathList
+  units: UnitLookup
+  /** Paths and distance unit have both answered, or the paths failed to load. */
+  ready: boolean
+} {
   const paths = useSelfPaths(source)
   const [distance, setDistance] = useState<DisplayUnit | undefined>(undefined)
   useEffect(() => {
@@ -75,7 +80,7 @@ export function useUnits(source: PathSource): { paths: PathList; units: UnitLook
     () => unitLookup(paths.status === 'ready' ? paths.paths : [], distance ?? NO_UNITS.distance),
     [paths, distance]
   )
-  return { paths, units }
+  return { paths, units, ready: paths.status !== 'loading' && distance !== undefined }
 }
 
 /** No path reported yet and no distance preference: everything in SI. */
