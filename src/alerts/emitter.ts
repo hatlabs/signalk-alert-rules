@@ -1,7 +1,7 @@
 import type { Priority } from '../model/rule.js'
 
-/** How often each alert is re-emitted: a third of core's fixed 60 s source timeout. */
-export const HEARTBEAT_S = 20
+/** How often each alert is re-emitted: five can be lost before core's fixed 60 s source timeout. */
+export const HEARTBEAT_S = 10
 
 /** What an emission says about the alert, taken from the rule as it is now. */
 export interface AlertHeader {
