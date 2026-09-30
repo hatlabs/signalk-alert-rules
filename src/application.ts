@@ -9,7 +9,13 @@ import {
 } from './alerts/runner.js'
 import { ownedActiveAlert } from './alerts/reconcile.js'
 import type { Progress } from './engine/detectors/index.js'
-import { carriesTotals, structuralChanges } from './engine/evaluator.js'
+import {
+  carriesTotals,
+  changesGates,
+  editBasis,
+  structuralChanges,
+  type EditBasis
+} from './engine/evaluator.js'
 import {
   readsPath,
   signalPaths,
@@ -20,7 +26,7 @@ import { MAX_RULES, type Rule } from './model/rule.js'
 import { USER_ORIGIN, type Parameter } from './model/ruleset.js'
 import { validateRule, type ValidationError } from './model/validate.js'
 import type { DiscoveryProblem, DiscoveryResult, LoadedRuleset } from './rulesets/discovery.js'
-import { upgradeRuleset, withParameters } from './rulesets/overrides.js'
+import { recordedRules, upgradeRuleset, withParameters } from './rulesets/overrides.js'
 import { PathPresence, rulePaths } from './rulesets/presence.js'
 import type {
   Checkpoints,
@@ -497,7 +503,9 @@ export class Application {
     if (!resolved.ok) return { ok: false, reason: 'invalid', errors: resolved.errors }
     const { parameters, rules } = resolved.value
     if (JSON.stringify(parameters) === JSON.stringify(control.parameters)) return { ok: true }
-    this.saveControls(this.withRuleset(slug, { ...control, parameters }))
+    this.saveControls(
+      this.withRuleset(slug, { ...control, parameters, rules: recordedRules(rules) })
+    )
     this.presence.watch(rules.flatMap(rulePaths))
     let drops = false
     for (const rule of rules) {
@@ -532,10 +540,14 @@ export class Application {
    */
   private applyDiscovery(result: DiscoveryResult): void {
     const at = this.now()
-    const upgrades = result.rulesets.map((loaded) => ({
-      loaded,
-      upgrade: upgradeRuleset(loaded.ruleset, this.rulesetControl(loaded.slug), at)
-    }))
+    const upgrades = result.rulesets.map((loaded) => {
+      const stored = this.rulesetControl(loaded.slug)
+      return {
+        loaded,
+        recorded: stored?.rules ?? {},
+        upgrade: upgradeRuleset(loaded.ruleset, stored, at)
+      }
+    })
     const removed = upgrades.flatMap(({ loaded, upgrade }) =>
       upgrade.removed.map((slug) => ruleId(loaded.slug, slug))
     )
@@ -564,15 +576,19 @@ export class Application {
       this.dropFrozenGates(id)
     }
 
-    const changes: { origin: string; previous: Rule | undefined; rule: Rule }[] = []
-    for (const { loaded, upgrade } of upgrades) {
+    const changes: { origin: string; previous: EditBasis | undefined; rule: Rule }[] = []
+    for (const { loaded, recorded, upgrade } of upgrades) {
       const before = this.rulesetsBySlug.get(loaded.slug)?.rules
       const after = new Map(upgrade.rules.map((rule) => [rule.slug, rule]))
       this.rulesetsBySlug.set(loaded.slug, { loaded, rules: after })
       for (const rule of upgrade.rules) {
         const previous = before?.get(rule.slug)
-        if (JSON.stringify(previous) !== JSON.stringify(rule)) {
-          changes.push({ origin: loaded.slug, previous, rule })
+        // With no rule in memory, at start or on a ruleset's return, what the
+        // settings recorded stands in for it.
+        if (previous === undefined) {
+          changes.push({ origin: loaded.slug, previous: own(recorded, rule.slug), rule })
+        } else if (JSON.stringify(previous) !== JSON.stringify(rule)) {
+          changes.push({ origin: loaded.slug, previous: editBasis(previous), rule })
         }
       }
     }
@@ -591,11 +607,11 @@ export class Application {
    * Applies a changed ruleset rule, already in its ruleset's state, with the
    * edit semantics of a user rule. Returns whether it drops an accumulator total.
    */
-  private editRulesetRule(origin: string, previous: Rule, rule: Rule): boolean {
+  private editRulesetRule(origin: string, previous: Rule | EditBasis, rule: Rule): boolean {
     const id = ruleId(origin, rule.slug)
     const carries = carriesTotals(previous, rule)
     const drops = this.hasTotal(id) && !carries
-    if (structuralChanges(previous, rule).includes('gates')) this.dropFrozenGates(id)
+    if (changesGates(previous, rule)) this.dropFrozenGates(id)
     // Stopped first, so a total the edit drops is not retained on the way out.
     if (!this.shouldRun(origin, rule)) this.stopRule(id)
     if (!carries) this.retained.delete(id)
@@ -625,7 +641,7 @@ export class Application {
     const previous = this.rulesBySlug.get(rule.slug)
     // Stored gate states are by gate index: a gate reordered or changed
     // must not inherit another's, so the new gates take one reading instead.
-    if (previous !== undefined && structuralChanges(previous, rule).includes('gates')) {
+    if (previous !== undefined && changesGates(previous, rule)) {
       this.dropFrozenGates(id)
     }
     this.store.saveRule(rule)

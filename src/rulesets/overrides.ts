@@ -1,3 +1,4 @@
+import { editBasis } from '../engine/evaluator.js'
 import type { Rule } from '../model/rule.js'
 import type { Ruleset } from '../model/ruleset.js'
 import {
@@ -39,6 +40,11 @@ function namingRules(ruleset: Ruleset, errors: readonly ValidationError[]): Vali
   })
 }
 
+/** The rules as the ruleset settings record them. */
+export function recordedRules(rules: readonly Rule[]): RulesetControl['rules'] {
+  return Object.fromEntries(rules.map((rule) => [rule.slug, editBasis(rule)]))
+}
+
 /** The rules at the parameter defaults, which validation has already checked. */
 function atDefaults(ruleset: Ruleset): Rule[] {
   const resolved = resolveRuleset(ruleset, {})
@@ -61,22 +67,23 @@ export function upgradeRuleset(
 ): RulesetUpgrade {
   const slugs = ruleset.rules.map((r) => r.slug)
   if (stored === undefined) {
+    const rules = atDefaults(ruleset)
     return {
       control: {
         enabled: false,
         parameters: {},
         version: ruleset.version,
-        rules: slugs,
+        rules: recordedRules(rules),
         notices: []
       },
       removed: [],
-      rules: atDefaults(ruleset)
+      rules
     }
   }
   const notices: RulesetNotice[] = []
   const notice = (message: string) => notices.push({ at, message })
 
-  const removed = stored.rules.filter((slug) => !slugs.includes(slug))
+  const removed = Object.keys(stored.rules).filter((slug) => !slugs.includes(slug))
   for (const slug of removed) {
     notice(
       `rule ${slug} is not in version ${ruleset.version}: its alert was cleared and its settings dropped`
@@ -102,7 +109,7 @@ export function upgradeRuleset(
       ...stored,
       parameters,
       version: ruleset.version,
-      rules: slugs,
+      rules: recordedRules(resolved.value),
       notices: [...stored.notices, ...notices]
     },
     removed,

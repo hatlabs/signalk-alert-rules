@@ -38,12 +38,15 @@ function ruleset(version: string, rules: unknown[], lowVoltage: Record<string, u
   return result.value
 }
 
+/** What the settings record of a sustained rule without gates. */
+const BASIS = { gates: [] }
+
 function stored(overrides: Partial<RulesetControl> = {}): RulesetControl {
   return {
     enabled: true,
     parameters: {},
     version: '1.0.0',
-    rules: ['low', 'gone'],
+    rules: { low: BASIS, gone: BASIS },
     notices: [],
     ...overrides
   }
@@ -57,7 +60,7 @@ describe('upgradeRuleset', () => {
       enabled: false,
       parameters: {},
       version: '1.0.0',
-      rules: ['low'],
+      rules: { low: BASIS },
       notices: []
     })
     expect(upgrade.removed).toEqual([])
@@ -78,7 +81,7 @@ describe('upgradeRuleset', () => {
       enabled: true,
       parameters: { lowVoltage: 11 },
       version: '2.0.0',
-      rules: ['low', 'new']
+      rules: { low: BASIS, new: BASIS }
     })
     expect(upgrade.control.notices).toEqual([
       { at: AT, message: expect.stringMatching(/rule gone .*2\.0\.0.*cleared/) as string }
@@ -94,7 +97,7 @@ describe('upgradeRuleset', () => {
     const upgrade = upgradeRuleset(
       ruleset('2.0.0', [rule('low')], { minimum: 10 }),
       stored({
-        rules: ['low'],
+        rules: { low: BASIS },
         parameters: { ...parameters, prefix: 'electrical.batteries.start' }
       }),
       AT
@@ -115,7 +118,7 @@ describe('upgradeRuleset', () => {
     }
     const upgrade = upgradeRuleset(
       ruleset('2.0.0', [zeroDelay], { minimum: -1 }),
-      stored({ rules: ['low'], parameters: { lowVoltage: -1 } }),
+      stored({ rules: { low: BASIS }, parameters: { lowVoltage: -1 } }),
       AT
     )
 
@@ -133,7 +136,7 @@ describe('upgradeRuleset', () => {
     const earlier = { at: '2026-01-01T00:00:00.000Z', message: 'earlier' }
     const upgrade = upgradeRuleset(
       ruleset('1.0.0', [rule('low')]),
-      stored({ rules: ['low'], notices: [earlier] }),
+      stored({ rules: { low: BASIS }, notices: [earlier] }),
       AT
     )
     expect(upgrade.control.notices).toEqual([earlier])

@@ -97,17 +97,20 @@ describe('store', () => {
           enabled: true,
           parameters: { lowVoltage: 11.5, prefix: 'electrical.batteries.start' },
           version: '1.1.0',
-          rules: ['low', 'high'],
+          rules: {
+            low: { gates: [] },
+            hours: { measure: 'time', gates: [{ signal: { path: 'a.b' } }] }
+          },
           notices: [{ at: '2026-09-30T12:00:00.000Z', message: 'rule gone was removed' }]
         },
-        engines: { enabled: false, parameters: {}, version: '1', rules: [], notices: [] }
+        engines: { enabled: false, parameters: {}, version: '1', rules: {}, notices: [] }
       }
     }
     store.saveControls(controls)
     expect(new Store(dir).load().controls).toEqual(controls)
   })
 
-  const ruleset = { enabled: true, parameters: {}, version: '1', rules: [], notices: [] }
+  const ruleset = { enabled: true, parameters: {}, version: '1', rules: {}, notices: [] }
   const since = { since: '2026-09-30T12:00:00.000Z', actor: 'admin' }
   it.each([
     ['rulesets as a list', { rules: {}, inputs: {}, rulesets: [] }],
@@ -118,6 +121,14 @@ describe('store', () => {
     [
       'a ruleset parameter that is neither number nor string',
       { rules: {}, inputs: {}, rulesets: { a: { ...ruleset, parameters: { x: true } } } }
+    ],
+    [
+      'ruleset rules as a list of slugs',
+      { rules: {}, inputs: {}, rulesets: { a: { ...ruleset, rules: ['low'] } } }
+    ],
+    [
+      'a ruleset rule without its gates',
+      { rules: {}, inputs: {}, rulesets: { a: { ...ruleset, rules: { low: {} } } } }
     ],
     [
       'a ruleset notice without its message',

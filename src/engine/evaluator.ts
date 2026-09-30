@@ -206,7 +206,7 @@ function structure(rule: Rule): Record<string, unknown> {
   const fields: readonly string[] = ['type', ...STRUCTURAL[rule.detector.type]]
   return {
     signal: rule.signal,
-    gates: rule.gates ?? [],
+    gates: editBasis(rule).gates,
     latching: rule.latching ?? false,
     'detector.limit.level': zoneLimitOf(rule)?.level,
     ...Object.fromEntries(
@@ -799,9 +799,30 @@ export class RuleEvaluator {
   }
 }
 
+/**
+ * What an edit's handling of a rule's accumulator totals and stored gate
+ * states compares, small enough to store: an upgrade installed while the
+ * plugin was stopped is then handled as an edit, with no rule in memory.
+ */
+export interface EditBasis {
+  /** For an accumulator. */
+  measure?: string
+  gates: unknown[]
+}
+
+export function editBasis(rule: Rule | EditBasis): EditBasis {
+  if (!('detector' in rule)) return rule
+  const d = rule.detector
+  return { ...(d.type === 'accumulator' ? { measure: d.measure } : {}), gates: rule.gates ?? [] }
+}
+
 /** Whether an edit keeps an accumulator's total: it is still an accumulator of the same measure. */
-export function carriesTotals(current: Rule, next: Rule): boolean {
-  const a = current.detector
-  const b = next.detector
-  return a.type === 'accumulator' && b.type === 'accumulator' && a.measure === b.measure
+export function carriesTotals(current: Rule | EditBasis, next: Rule | EditBasis): boolean {
+  const a = editBasis(current).measure
+  return a !== undefined && a === editBasis(next).measure
+}
+
+/** Whether an edit changes the gates, whose stored states are by index. */
+export function changesGates(current: Rule | EditBasis, next: Rule | EditBasis): boolean {
+  return canonical(editBasis(current).gates) !== canonical(editBasis(next).gates)
 }

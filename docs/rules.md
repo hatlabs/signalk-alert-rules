@@ -324,7 +324,7 @@ An edited rule saved through the [REST API](api.md) replaces the running one wit
 | `message`, `priority` | sent with the next emission; core decides whether it re-alerts |
 | delete, disable, suppress, accumulator reset, a ruleset disabled or uninstalled, a ruleset upgrade removing the rule | cleared |
 
-A restarted accumulator keeps its total when its `measure` is unchanged. An edit or delete that discards a total saves the totals at once, so a restart cannot give the old total to the new rule.
+A restarted accumulator keeps its total when its `measure` is unchanged, also for a ruleset upgrade installed while the plugin was stopped. An edit or delete that discards a total saves the totals at once, so a restart cannot give the old total to the new rule.
 
 A zone limit's `level` changes what the alert means, so it restarts the rule. Re-evaluated in place, an active alert would report the new level at once, while its detector waits out `clearDuration`, although the value may never have entered that level. After the restart the rule raises at the new level only once the value has been in it for `duration`.
 

@@ -1,5 +1,6 @@
 import * as nodeFs from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
+import type { EditBasis } from '../engine/evaluator.js'
 import type { FrozenGates } from '../engine/suppression.js'
 import { SLUG_PATTERN, type Rule } from '../model/rule.js'
 import { errorMessage, isRecord } from '../util.js'
@@ -69,8 +70,8 @@ export interface RulesetControl {
   /** Values the operator set, by parameter name; the rest take their defaults. */
   parameters: Record<string, number | string>
   version: string
-  /** Slugs of the rules last loaded. */
-  rules: string[]
+  /** The rules last loaded, by slug, with what an edit of each compares. */
+  rules: Record<string, EditBasis>
   notices: RulesetNotice[]
 }
 
@@ -187,14 +188,17 @@ const isParameterValues = recordOf(
     typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v))
 )
 
+function isEditBasis(value: unknown): value is EditBasis {
+  return isRecord(value) && optional(value.measure, 'string') && Array.isArray(value.gates)
+}
+
 function isRulesetControl(value: unknown): value is RulesetControl {
   return (
     isRecord(value) &&
     typeof value.enabled === 'boolean' &&
     isParameterValues(value.parameters) &&
     typeof value.version === 'string' &&
-    Array.isArray(value.rules) &&
-    value.rules.every((slug) => typeof slug === 'string') &&
+    recordOf(isEditBasis)(value.rules) &&
     Array.isArray(value.notices) &&
     value.notices.every(isNotice)
   )

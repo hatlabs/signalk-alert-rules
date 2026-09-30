@@ -53,6 +53,22 @@ const silent = {
   signal: { path: '${prefix}.voltage' },
   detector: { type: 'absence', event: { op: 'changes' }, within: 10 }
 }
+const RPM = 'propulsion.main.revolutions'
+const hours = {
+  name: 'Engine hours',
+  slug: 'hours',
+  message: 'Engine service due',
+  priority: 'caution',
+  signal: { path: RPM },
+  detector: { type: 'accumulator', measure: 'time', limit: 1000 }
+}
+const integralHours = { ...hours, detector: { ...hours.detector, measure: 'integral' } }
+const runningGate = (value: number) => ({
+  signal: { path: RPM },
+  direction: 'above',
+  limit: { kind: 'fixed', value }
+})
+const gatedHot = { ...hot, gates: [runningGate(8)] }
 const oil = {
   name: 'Oil pressure low',
   slug: 'oil-pressure-low',
@@ -464,6 +480,128 @@ describe('rulesets in the application', () => {
       expect(second.alerts()).toEqual([[LOW, true]])
       expect(second.application.rule('batteries', 'low')?.status.badge).toBe('alertActive')
     })
+  })
+
+  describe('accumulator totals of a ruleset rule', () => {
+    const storedTotals = () => new Store(dir).load().accumulators
+
+    function accumulating(installed: Installed, core?: FakeAlertsCore) {
+      const s = setup(installed, core)
+      s.at(0, RPM, 30)
+      s.application.setRulesetEnabled('batteries', true, 'admin')
+      s.at(20)
+      s.application.checkpoint()
+      expect(storedTotals()).toEqual({ 'batteries.hours': { '': 20 } })
+      return s
+    }
+
+    it('are kept while the ruleset is gone and carried on when it returns', () => {
+      const installed: Installed = { rulesets: [batteries('1.0.0', [hours])] }
+      const { application, at } = accumulating(installed)
+
+      installed.rulesets = []
+      application.rescan('admin')
+      at(30)
+      installed.rulesets = [batteries('1.0.0', [hours])]
+      application.rescan('admin')
+      at(40)
+      application.checkpoint()
+
+      expect(storedTotals()).toEqual({ 'batteries.hours': { '': 30 } })
+    })
+
+    it('are dropped from the store at once when an upgrade removes the rule', () => {
+      const installed: Installed = { rulesets: [batteries('1.0.0', [hours, hot])] }
+      const { application } = accumulating(installed)
+
+      installed.rulesets = [batteries('2.0.0', [hot])]
+      application.rescan('admin')
+
+      expect(storedTotals()).toEqual({})
+    })
+
+    it('are zeroed by a reset through the ruleset origin', () => {
+      const { application } = accumulating({ rulesets: [batteries('1.0.0', [hours])] })
+
+      expect(application.resetAccumulator('batteries', 'hours', 'admin')).toBe('reset')
+
+      expect(storedTotals()).toEqual({ 'batteries.hours': { '': 0 } })
+      expect(application.log()[0]).toMatchObject({ action: 'reset', rule: 'batteries.hours' })
+    })
+
+    it('are dropped when an upgrade installed while stopped changes the measure', () => {
+      const core = new FakeAlertsCore()
+      accumulating({ rulesets: [batteries('1.0.0', [hours])] }, core).application.stop()
+
+      setup({ rulesets: [batteries('2.0.0', [integralHours])] }, core)
+
+      expect(storedTotals()).toEqual({})
+    })
+
+    it('are dropped when the ruleset returns with another measure', () => {
+      const installed: Installed = { rulesets: [batteries('1.0.0', [hours])] }
+      const { application } = accumulating(installed)
+
+      installed.rulesets = []
+      application.rescan('admin')
+      installed.rulesets = [batteries('2.0.0', [integralHours])]
+      application.rescan('admin')
+
+      expect(storedTotals()).not.toEqual({ 'batteries.hours': { '': 20 } })
+    })
+
+    it('are kept across a restart when an upgrade changes only the limit', () => {
+      const core = new FakeAlertsCore()
+      accumulating({ rulesets: [batteries('1.0.0', [hours])] }, core).application.stop()
+      const higher = { ...hours, detector: { ...hours.detector, limit: 2000 } }
+
+      const { application } = setup({ rulesets: [batteries('2.0.0', [higher])] }, core)
+      application.checkpoint()
+
+      expect(storedTotals()).toEqual({ 'batteries.hours': { '': 20 } })
+    })
+  })
+
+  it('an upgrade installed while stopped that changes a gate drops its frozen state', () => {
+    const core = new FakeAlertsCore()
+    const first = setup({ rulesets: [batteries('1.0.0', [gatedHot])] }, core)
+    first.at(0, RPM, 20)
+    first.at(0, TEMPERATURE, 340)
+    first.application.setRulesetEnabled('batteries', true, 'admin')
+    first.at(5)
+    first.application.suppressInput(RPM, {}, 'admin')
+    expect(new Store(dir).load().controls.inputs[RPM].frozen).toEqual({
+      'batteries.hot': { '0': { '': true } }
+    })
+    first.application.stop()
+
+    setup({ rulesets: [batteries('2.0.0', [{ ...hot, gates: [runningGate(10)] }])] }, core)
+
+    expect(new Store(dir).load().controls.inputs[RPM]).toEqual({ since: WALL, actor: 'admin' })
+  })
+
+  it('a restart after a parameter change that changed a gate keeps its frozen state', () => {
+    const core = new FakeAlertsCore()
+    const tunedGate = {
+      signal: { path: VOLTAGE },
+      direction: 'above',
+      limit: { kind: 'fixed', value: { param: 'lowVoltage' } }
+    }
+    const installed = { rulesets: [batteries('1.0.0', [{ ...hot, gates: [tunedGate] }])] }
+    const first = setup(installed, core)
+    first.at(0, VOLTAGE, 13)
+    first.at(0, TEMPERATURE, 340)
+    first.application.setRulesetEnabled('batteries', true, 'admin')
+    first.application.setRulesetParameters('batteries', { lowVoltage: 11 }, 'admin')
+    first.at(5)
+    first.application.suppressInput(VOLTAGE, {}, 'admin')
+    const frozen = { 'batteries.hot': { '0': { '': true } } }
+    expect(new Store(dir).load().controls.inputs[VOLTAGE].frozen).toEqual(frozen)
+    first.application.stop()
+
+    setup(installed, core)
+
+    expect(new Store(dir).load().controls.inputs[VOLTAGE].frozen).toEqual(frozen)
   })
 
   it('an unknown ruleset cannot be enabled', () => {
