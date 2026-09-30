@@ -27,6 +27,9 @@ const oil = valid({
   }
 })
 
+/** Bytes a fake disk takes per write call. */
+const PART = 10
+
 let dir: string
 
 beforeEach(() => {
@@ -129,9 +132,9 @@ describe('store', () => {
   it('leaves the previous file intact when a write fails midway', () => {
     const failing: FileSystem = {
       ...fs,
-      writeSync: (fd, data) => {
+      writeSync: (fd, buffer, offset) => {
         // Half the bytes reach the disk before the failure.
-        fs.writeSync(fd, data.slice(0, Math.floor(data.length / 2)))
+        fs.writeSync(fd, buffer, offset, Math.floor((buffer.length - offset) / 2))
         throw new Error('ENOSPC: no space left on device')
       }
     }
@@ -156,6 +159,40 @@ describe('store', () => {
     // The half-written temporary file is not left behind.
     expect(readdirSync(dir).filter((f) => f.endsWith('.tmp'))).toEqual([])
     expect(readdirSync(join(dir, 'rules')).filter((f) => f.endsWith('.tmp'))).toEqual([])
+  })
+
+  it('completes a write the disk accepts in parts', () => {
+    // A short write is no error: the rest must still be written.
+    const partial: FileSystem = {
+      ...fs,
+      writeSync: (fd, buffer, offset) =>
+        fs.writeSync(fd, Buffer.from(buffer).subarray(offset, offset + PART))
+    }
+    const store = new Store(dir, partial)
+    store.load()
+    store.saveCheckpoints({ 'user.engine-hours': { '': 200, port: 12.5 } })
+    const contents = new Store(dir).load()
+    expect(contents.accumulators).toEqual({ 'user.engine-hours': { '': 200, port: 12.5 } })
+    expect(contents.issues).toEqual([])
+  })
+
+  it('leaves the previous file intact when the disk stops accepting a write', () => {
+    const full: FileSystem = {
+      ...fs,
+      writeSync: (fd, buffer, offset) =>
+        offset === 0 ? fs.writeSync(fd, Buffer.from(buffer).subarray(0, PART)) : 0
+    }
+    const good = new Store(dir)
+    good.load()
+    good.saveCheckpoints({ 'user.engine-hours': { '': 100 } })
+    const store = new Store(dir, full)
+    store.load()
+    expect(() => {
+      store.saveCheckpoints({ 'user.engine-hours': { '': 200 } })
+    }).toThrow(/accumulators\.json/)
+    const contents = new Store(dir).load()
+    expect(contents.accumulators).toEqual({ 'user.engine-hours': { '': 100 } })
+    expect(contents.issues).toEqual([])
   })
 
   it('moves a corrupt file aside, reports it and starts that part empty', () => {

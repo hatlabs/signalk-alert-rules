@@ -16,7 +16,7 @@ export type FileSystem = Pick<
   | 'readdirSync'
   | 'renameSync'
   | 'rmSync'
-> & { writeSync: (fd: number, data: string) => number }
+> & { writeSync: (fd: number, buffer: Uint8Array, offset: number) => number }
 
 /** A user rule file as read; the caller validates it. */
 export interface StoredRule {
@@ -203,7 +203,7 @@ export class Store {
     const fd = this.fs.openSync(tmp, 'w')
     try {
       try {
-        this.fs.writeSync(fd, JSON.stringify(value, null, 2) + '\n')
+        this.writeAll(fd, name, Buffer.from(JSON.stringify(value, null, 2) + '\n'))
         this.fs.fsyncSync(fd)
       } finally {
         this.fs.closeSync(fd)
@@ -214,6 +214,19 @@ export class Store {
       throw err
     }
     this.syncDir(dirname(path))
+  }
+
+  /**
+   * A write may take only part of the buffer without failing, as on a
+   * nearly full disk; a truncated file must never replace a good one.
+   */
+  private writeAll(fd: number, name: string, data: Uint8Array): void {
+    let written = 0
+    while (written < data.length) {
+      const n = this.fs.writeSync(fd, data, written)
+      if (n <= 0) throw new Error(`${name}: the disk accepted no more data`)
+      written += n
+    }
   }
 
   /**
