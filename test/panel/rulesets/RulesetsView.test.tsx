@@ -146,6 +146,24 @@ describe('RulesetsView', () => {
     expect(refresh).toHaveBeenCalled()
   })
 
+  it('returns focus to the switch once the toggle is done', async () => {
+    const { api } = await show({ rulesets: [ruleset({ enabled: false })], problems: [] })
+    let answer!: (entry: RulesetEntry) => void
+    api.setEnabled.mockReturnValueOnce(
+      new Promise<RulesetEntry>((resolve) => {
+        answer = resolve
+      })
+    )
+    // A browser moves focus off a control that becomes disabled. jsdom does
+    // not, but a synthetic click never focuses, so the wait starts without it.
+    fireEvent.click(screen.getByRole('switch', { name: 'Enabled' }))
+    await settle()
+    expect(document.activeElement).toBe(document.body)
+    answer(ruleset({ enabled: true }))
+    await settle()
+    expect(document.activeElement).toBe(screen.getByRole('switch', { name: 'Enabled' }))
+  })
+
   describe('a list answer overtaken by a toggle', () => {
     async function pollThenToggle() {
       const shown = await show({ rulesets: [ruleset({ enabled: false })], problems: [] })
@@ -344,6 +362,16 @@ describe('RulesetsView', () => {
       })
       expect(refresh).toHaveBeenCalled()
       expect(screen.getByRole('status').textContent).toMatch(/saved/i)
+    })
+
+    it('keeps the operator in the parameters after a save', async () => {
+      await show({ rulesets: [ruleset()], problems: [] })
+      fireEvent.change(field('lowVoltage'), { target: { value: '11' } })
+      const save = screen.getByRole('button', { name: 'Save parameters' })
+      save.focus()
+      fireEvent.click(save)
+      await settle()
+      expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Parameters' }))
     })
 
     it('resets one parameter to its default by leaving it out', async () => {

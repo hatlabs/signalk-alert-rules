@@ -112,11 +112,9 @@ export function ParametersForm({ ruleset, unitOf, save }: ParametersFormProps) {
       <form
         ref={form}
         aria-label={`Parameters of ${ruleset.name}`}
-        className="skar-parameters"
         onSubmit={(e) => void submit(e)}
         noValidate
       >
-        <h5 className="skar-section-heading">Parameters</h5>
         {messages.length > 0 && (
           <div className="alert alert-danger" role="alert">
             <p className="mb-1">The values were not saved.</p>

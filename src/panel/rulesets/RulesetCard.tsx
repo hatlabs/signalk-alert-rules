@@ -117,12 +117,22 @@ export function RulesetCard({
   const switchId = useId()
   const missingId = useId()
   const heading = useRef<HTMLHeadingElement | null>(null)
+  const parametersHeading = useRef<HTMLHeadingElement | null>(null)
+  const enabledSwitch = useRef<HTMLInputElement | null>(null)
   const [busy, setBusy] = useState(false)
+  // Counts finished toggles, so focus goes back once the switch takes input again.
+  const [toggles, setToggles] = useState(0)
   const [failure, setFailure] = useState<string | undefined>(undefined)
 
   useEffect(() => {
     if (takeFocus) heading.current?.focus()
   }, [takeFocus])
+
+  // The switch is disabled while its request runs, and a browser moves
+  // focus off a disabled control.
+  useEffect(() => {
+    if (toggles > 0) enabledSwitch.current?.focus()
+  }, [toggles])
 
   const act = async (action: () => Promise<void>) => {
     setFailure(undefined)
@@ -141,6 +151,7 @@ export function RulesetCard({
       announce(`${ruleset.name} ${entry.enabled ? 'enabled' : 'disabled'}.`)
     }).finally(() => {
       setBusy(false)
+      setToggles((n) => n + 1)
     })
   }
 
@@ -162,6 +173,7 @@ export function RulesetCard({
         {ruleset.description !== undefined && <p>{ruleset.description}</p>}
         <div className="form-check form-switch">
           <input
+            ref={enabledSwitch}
             id={switchId}
             type="checkbox"
             role="switch"
@@ -195,21 +207,29 @@ export function RulesetCard({
           </>
         )}
         <RuleList ruleset={ruleset} rules={rules} ruleHref={ruleHref} />
-        {ruleset.parameters.length > 0 &&
-          (unitOf === undefined ? (
-            <p>Loading the parameters…</p>
-          ) : (
-            <ParametersForm
-              key={JSON.stringify(ruleset.values)}
-              ruleset={ruleset}
-              unitOf={unitOf}
-              save={async (values) => {
-                const entry = await api.setParameters(ruleset.slug, values)
-                changed(entry)
-                announce(`Parameters of ${ruleset.name} saved.`)
-              }}
-            />
-          ))}
+        {ruleset.parameters.length > 0 && (
+          <div className="skar-parameters">
+            <h5 ref={parametersHeading} tabIndex={-1} className="skar-section-heading">
+              Parameters
+            </h5>
+            {unitOf === undefined ? (
+              <p>Loading the parameters…</p>
+            ) : (
+              <ParametersForm
+                key={JSON.stringify(ruleset.values)}
+                ruleset={ruleset}
+                unitOf={unitOf}
+                save={async (values) => {
+                  const entry = await api.setParameters(ruleset.slug, values)
+                  changed(entry)
+                  announce(`Parameters of ${ruleset.name} saved.`)
+                  // The saved values remount the form, taking the focused save button with it.
+                  parametersHeading.current?.focus()
+                }}
+              />
+            )}
+          </div>
+        )}
       </div>
     </section>
   )
