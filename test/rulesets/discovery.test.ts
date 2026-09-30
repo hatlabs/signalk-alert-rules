@@ -411,6 +411,20 @@ describe('discoverRulesets', () => {
     ])
   })
 
+  it('rejects a ruleset file over 1 MiB while others load', async () => {
+    const valid = rulesetYaml('big')
+    const padding = `\n# ${'x'.repeat(1024 * 1024 - valid.length)}`
+    await writeFile(join(dropIn, 'big.yaml'), valid + padding)
+    await writeFile(join(dropIn, 'small.yaml'), rulesetYaml('small'))
+
+    const result = await discover()
+
+    expect(slugs(result)).toEqual(['small'])
+    expect(result.problems).toEqual([
+      { source: 'file big.yaml', message: expect.stringContaining('1 MiB') as string }
+    ])
+  })
+
   it('reports a ruleset with slug user as malformed', async () => {
     await writeFile(join(dropIn, 'user.yaml'), rulesetYaml('user'))
 

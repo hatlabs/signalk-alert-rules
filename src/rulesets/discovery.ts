@@ -1,4 +1,4 @@
-import { readFile, readdir, realpath } from 'node:fs/promises'
+import { readFile, readdir, realpath, stat } from 'node:fs/promises'
 import { extname, isAbsolute, join, relative } from 'node:path'
 import { parseDocument, type YAMLError } from 'yaml'
 import type { Ruleset } from '../model/ruleset.js'
@@ -11,6 +11,12 @@ export const RULESET_KEYWORD = 'signalk-alert-ruleset'
 export const RULESET_FIELD = 'signalk-alert-ruleset'
 
 const RULESET_EXTENSIONS = new Set(['.yaml', '.yml', '.json'])
+
+/**
+ * Far above any hand-written ruleset. Parsing holds the whole text in memory,
+ * and running out of memory is not an error discovery can catch.
+ */
+const MAX_RULESET_BYTES = 1024 * 1024
 
 /** Well above what a hand-written ruleset needs, well below an alias bomb. */
 const MAX_ALIAS_COUNT = 100
@@ -178,6 +184,8 @@ async function dropInCandidates(dir: string, problems: DiscoveryProblem[]): Prom
 }
 
 async function loadRuleset(file: string): Promise<Ruleset> {
+  if ((await stat(file)).size > MAX_RULESET_BYTES)
+    throw new Malformed('ruleset file is larger than 1 MiB')
   const document = parseRulesetText(await readFile(file, 'utf8'))
   const result = validateRuleset(document)
   if (!result.ok)
