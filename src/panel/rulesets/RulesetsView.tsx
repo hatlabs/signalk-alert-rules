@@ -82,8 +82,13 @@ export function RulesetsView({
   }, [])
 
   useEffect(() => {
-    read(() => api.list()).catch((err: unknown) => {
-      setFailure(`Cannot read the rulesets: ${failureMessage(err)}`)
+    const poll = read(() => api.list())
+    const mine = generation.current
+    poll.catch((err: unknown) => {
+      // A newer answer already shows the current state; this failure says nothing about it.
+      if (mine === generation.current) {
+        setFailure(`Cannot read the rulesets: ${failureMessage(err)}`)
+      }
     })
   }, [api, rules, read])
 

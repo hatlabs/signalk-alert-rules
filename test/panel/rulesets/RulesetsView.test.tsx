@@ -146,6 +146,50 @@ describe('RulesetsView', () => {
     expect(refresh).toHaveBeenCalled()
   })
 
+  describe('a list answer overtaken by a toggle', () => {
+    async function pollThenToggle() {
+      const shown = await show({ rulesets: [ruleset({ enabled: false })], problems: [] })
+      let resolve!: (listing: RulesetListing) => void
+      let reject!: (err: Error) => void
+      shown.api.list.mockReturnValueOnce(
+        new Promise<RulesetListing>((yes, no) => {
+          resolve = yes
+          reject = no
+        })
+      )
+      const pending = { resolve, reject }
+      // A new rules list is what the shell's poll hands the view.
+      shown.view.rerender(
+        <RulesetsView
+          api={shown.api}
+          rules={[lowRule]}
+          paths={noPaths}
+          ruleHref={(origin, slug) => `#rule=${origin}/${slug}`}
+          refresh={shown.refresh}
+        />
+      )
+      fireEvent.click(screen.getByRole('switch', { name: 'Enabled' }))
+      await settle()
+      return pending
+    }
+
+    it('does not revert the switch', async () => {
+      const pending = await pollThenToggle()
+      pending.resolve({ rulesets: [ruleset({ enabled: false })], problems: [] })
+      await settle()
+      expect(screen.getByRole('switch', { name: 'Enabled' }).getAttribute('aria-checked')).toBe(
+        'true'
+      )
+    })
+
+    it('does not show its failure', async () => {
+      const pending = await pollThenToggle()
+      pending.reject(new Error('connection reset'))
+      await settle()
+      expect(screen.queryByRole('alert')).toBeNull()
+    })
+  })
+
   it('tells the operator to log in again when the session has expired', async () => {
     const { api } = await show({ rulesets: [ruleset({ enabled: false })], problems: [] })
     api.setEnabled.mockRejectedValueOnce(new SessionExpiredError())
