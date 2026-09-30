@@ -355,6 +355,31 @@ describe('plugin', () => {
     await plugin.stop()
   })
 
+  it('drops a start issue from the status once the write it names succeeds', async () => {
+    storeRule(hours)
+    const stale = { measure: 'integral', totals: { '': 50 } }
+    new Store(dir).saveCheckpoints({ 'user.engine-hours': stale })
+    const save = vi.spyOn(Store.prototype, 'saveCheckpoints').mockImplementationOnce(() => {
+      throw new Error('ENOSPC: no space left on device')
+    })
+    try {
+      const app = new MockServerAPI(true, dir)
+      const plugin = createPlugin(app.asServerAPI())
+      const state = stateOf(plugin)
+      plugin.start({}, () => undefined)
+      expect(app.pluginStatus).toMatch(/^Running; the accumulator totals could not be saved/)
+
+      vi.advanceTimersByTime(60_000)
+      expect(app.pluginError).toBeUndefined()
+      expect(app.pluginStatus).toBe('Running')
+      expect(state()).toMatchObject({ issues: [] })
+
+      await plugin.stop()
+    } finally {
+      save.mockRestore()
+    }
+  })
+
   it('logs a failing checkpoint once and restores the status when the disk recovers', async () => {
     storeRule(hours)
     storeRule({ ...hours, slug: 'genset-hours', priority: 'loud' })

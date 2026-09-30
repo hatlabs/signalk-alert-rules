@@ -78,7 +78,7 @@ A ruleset that cannot be loaded is listed with the reason, and for a YAML error 
 
 ## What the operator does with it
 
-- **Discovery.** Rulesets are discovered when the plugin starts and when the operator asks for a rescan. A rescan applies what changed and leaves the rules that did not change running. When the settings or totals discovery changes cannot be written at start, as on a full disk, every rule still runs with them and the plugin status names the failure; the next change that saves the settings writes them. A rescan that cannot write them fails.
+- **Discovery.** Rulesets are discovered when the plugin starts and when the operator asks for a rescan. A rescan applies what changed and leaves the rules that did not change running. When the settings or totals discovery changes cannot be written at start, as on a full disk, every rule still runs with them and the plugin status names the failure until they are written: the settings by the next change that saves them, the totals by the next checkpoint. A rescan that cannot write them fails.
 - **Enable.** A newly discovered ruleset starts disabled. Enabling it starts each of its rules; the operator can still disable a single rule. Disabling it clears its rules' alerts.
 - **Parameters.** The operator sets parameter values within the declared type and bounds; parameters left unset take their defaults. A change edits only the rules it changes, with the [edit semantics](rules.md#edits) of a user rule: a changed path restarts the rule, a changed limit or duration is applied in place.
 - **Read-only rules.** The operator cannot edit a ruleset rule's detector, limits or message. The parameters are the tuning surface a provider offers; an operator who needs a different rule copies it as a user rule.

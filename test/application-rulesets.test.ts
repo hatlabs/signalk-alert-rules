@@ -631,6 +631,18 @@ describe('rulesets in the application', () => {
       }
     })
 
+    it('forgets the settings issue once a later change saves them', () => {
+      const save = vi.spyOn(Store.prototype, 'saveControls').mockImplementationOnce(full)
+      const { application } = setup({ rulesets: [batteries()] })
+      save.mockRestore()
+      expect(application.issues).toEqual([expect.stringMatching(/operator settings/) as string])
+
+      application.setRulesetEnabled('batteries', true, 'admin')
+
+      expect(application.issues).toEqual([])
+      expect(storedControls()).toMatchObject({ rulesets: { batteries: { enabled: true } } })
+    })
+
     it('runs when the totals an upgrade drops cannot be saved, and reports it', () => {
       const core = new FakeAlertsCore()
       const first = setup({ rulesets: [batteries('1.0.0', [hours])] }, core)

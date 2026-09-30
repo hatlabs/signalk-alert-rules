@@ -82,31 +82,38 @@ export default function createPlugin(app: ServerAPI): Plugin {
         return
       }
       application = running
-      const status =
-        running.issues.length === 0 ? 'Running' : `Running; ${running.issues.join('; ')}`
       // A disk that stays full fails every write, each tick or checkpoint:
       // report the failure once, and the recovery. The reporters share one
       // plugin status, so one recovering must not hide the other's failure.
+      // The status is rebuilt from what still stands, since a start issue
+      // about a write goes once that write succeeds.
       // An exception escaping a timer would take the whole server down.
       const failures = new Map<symbol, string>()
+      let shown: string | undefined
+      const report = () => {
+        const failure = [...failures.values()].at(-1)
+        const text =
+          failure ??
+          (running.issues.length === 0 ? 'Running' : `Running; ${running.issues.join('; ')}`)
+        if (text === shown) return
+        shown = text
+        if (failure === undefined) app.setPluginStatus(text)
+        else app.setPluginError(text)
+      }
       const reportingOnce = (describe: (err: unknown) => string, run: () => void) => {
         const key = Symbol()
         return () => {
           try {
             run()
+            failures.delete(key)
           } catch (err) {
-            if (failures.has(key)) return
-            const text = describe(err)
-            failures.set(key, text)
-            app.error(text)
-            app.setPluginError(text)
-            return
+            if (!failures.has(key)) {
+              const text = describe(err)
+              failures.set(key, text)
+              app.error(text)
+            }
           }
-          if (failures.delete(key)) {
-            const remaining = [...failures.values()].at(-1)
-            if (remaining === undefined) app.setPluginStatus(status)
-            else app.setPluginError(remaining)
-          }
+          report()
         }
       }
       timers = [
@@ -130,7 +137,7 @@ export default function createPlugin(app: ServerAPI): Plugin {
         )
       ]
       for (const issue of running.issues) app.error(issue)
-      app.setPluginStatus(status)
+      report()
     },
 
     stop() {

@@ -46,6 +46,10 @@ export const CHECKPOINT_MS = 60_000
 /** How many operator actions the log keeps. */
 export const LOG_LIMIT = 200
 
+/** What a start issue about a failed write names, so the write succeeding later removes it. */
+const TOTALS = 'the accumulator totals'
+const SETTINGS = 'the operator settings'
+
 /** The actor recorded when a suppression ends by itself. */
 export const AUTO_END_ACTOR = 'auto-end'
 
@@ -264,7 +268,7 @@ function stayedClearFor(instances: readonly Pick<RunnerInstanceStatus, 'clearFor
  * write is not applied.
  */
 export class Application {
-  /** Problems found while loading, for the plugin status. */
+  /** Problems found while loading or starting and still standing, for the plugin status. */
   readonly issues: string[]
   private evaluationSwitch: EvaluationSwitch
   private runner: RuleRunner | undefined
@@ -426,6 +430,7 @@ export class Application {
     if (text === this.lastCheckpoint) return
     this.store.saveCheckpoints(checkpoints)
     this.lastCheckpoint = text
+    this.saved(TOTALS)
   }
 
   /**
@@ -641,7 +646,7 @@ export class Application {
    * that took up its old measure again.
    */
   private saveDroppedTotals(): void {
-    this.tolerating('the accumulator totals', 'the next checkpoint retries', () => {
+    this.tolerating(TOTALS, 'the next checkpoint retries', () => {
       this.checkpoint()
     })
   }
@@ -668,6 +673,12 @@ export class Application {
       const issue = `${what} could not be saved (${errorMessage(err)}); ${then}`
       if (!this.issues.includes(issue)) this.issues.push(issue)
     }
+  }
+
+  /** Removes the start issue about a write that has now succeeded. */
+  private saved(what: string): void {
+    const at = this.issues.findIndex((issue) => issue.startsWith(`${what} could not be saved`))
+    if (at !== -1) this.issues.splice(at, 1)
   }
 
   /**
@@ -1283,8 +1294,9 @@ export class Application {
   }
 
   private saveControls(controls: Controls): void {
-    this.tolerating('the operator settings', 'they apply until the next change saves them', () => {
+    this.tolerating(SETTINGS, 'they apply until the next change saves them', () => {
       this.store.saveControls(controls)
+      this.saved(SETTINGS)
     })
     this.controls = controls
   }
