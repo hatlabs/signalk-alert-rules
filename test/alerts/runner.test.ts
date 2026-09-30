@@ -810,7 +810,8 @@ describe('rule status', () => {
     })
   })
 
-  it('a failed start keeps the restored accumulator total for the checkpoint', () => {
+  describe('an accumulator rule that failed to start with a restored total', () => {
+    const HOURS_ID = 'user.engine-hours'
     const hours = valid({
       name: 'Engine hours',
       slug: 'engine-hours',
@@ -819,27 +820,51 @@ describe('rule status', () => {
       signal: { path: RPM },
       detector: { type: 'accumulator', measure: 'time', limit: 100 }
     })
-    const failing = new FakeSubscriptionManager()
-    failing.subscribe = () => {
-      throw new Error('subscriptions unavailable')
+    const failing = () => {
+      const subscriptions = new FakeSubscriptionManager()
+      subscriptions.subscribe = () => {
+        throw new Error('subscriptions unavailable')
+      }
+      const runner = new RuleRunner(
+        {
+          pluginId: PLUGIN,
+          subscriptions,
+          meta: () => undefined,
+          timeoutSettings: () => undefined,
+          clock: () => 0,
+          wallClock: () => new Date(),
+          alerts: new FakeAlertsCore(),
+          send: () => undefined
+        },
+        [{ origin: 'user', rule: hours }],
+        new Map([[HOURS_ID, new Map([['', 42]])]])
+      )
+      runner.start()
+      expect(runner.failedToStart(HOURS_ID)).toBe(true)
+      return runner
     }
-    const runner = new RuleRunner(
-      {
-        pluginId: PLUGIN,
-        subscriptions: failing,
-        meta: () => undefined,
-        timeoutSettings: () => undefined,
-        clock: () => 0,
-        wallClock: () => new Date(),
-        alerts: new FakeAlertsCore(),
-        send: () => undefined
-      },
-      [{ origin: 'user', rule: hours }],
-      new Map([['user.engine-hours', new Map([['', 42]])]])
-    )
-    runner.start()
-    expect(runner.status('user.engine-hours')?.badge).toBe('errored')
-    expect(runner.accumulators()).toEqual(new Map([['user.engine-hours', new Map([['', 42]])]]))
+
+    it('keeps the total for the checkpoint', () => {
+      const runner = failing()
+      expect(runner.status(HOURS_ID)?.badge).toBe('errored')
+      expect(runner.accumulators()).toEqual(new Map([[HOURS_ID, new Map([['', 42]])]]))
+    })
+
+    it('keeps the total across an edit that carries it', () => {
+      const runner = failing()
+      runner.update({ origin: 'user', rule: { ...hours, message: 'Service the engine' } })
+      expect(runner.accumulators().get(HOURS_ID)).toEqual(new Map([['', 42]]))
+    })
+
+    it('drops the total on a measure change', () => {
+      const runner = failing()
+      const integral = valid({
+        ...hours,
+        detector: { type: 'accumulator', measure: 'integral', limit: 100 }
+      })
+      runner.update({ origin: 'user', rule: integral })
+      expect(runner.accumulators().get(HOURS_ID)?.get('') ?? 0).toBe(0)
+    })
   })
 
   it('reports gate input unavailable on a gate that keeps holding', () => {
