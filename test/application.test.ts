@@ -1002,6 +1002,18 @@ describe('rule controls', () => {
       expect(application.log().map((e) => e.action)).toEqual(['note', 'note'])
       expect(application.setNote('user', 'missing', 'x', 'admin')).toBe('notFound')
     })
+
+    it('setting the note a rule already has records nothing', () => {
+      stored(oil)
+      const { application } = setup()
+      application.setNote('user', 'oil-pressure-low', 'sender replaced', 'admin')
+      expect(application.setNote('user', 'oil-pressure-low', 'sender replaced', 'admin')).toBe('ok')
+      expect(application.setNote('user', 'oil-pressure-low', 'sender replaced', 'admin')).toBe('ok')
+      expect(application.log()).toHaveLength(1)
+      application.setNote('user', 'oil-pressure-low', '', 'admin')
+      application.setNote('user', 'oil-pressure-low', '', 'admin')
+      expect(application.log()).toHaveLength(2)
+    })
   })
 
   describe('rule suppression', () => {
@@ -1082,6 +1094,8 @@ describe('rule controls', () => {
         {
           scope: 'rule',
           rule: 'user.oil-pressure-low',
+          origin: 'user',
+          slug: 'oil-pressure-low',
           since: WALL,
           actor: 'admin',
           autoEndAfter: 60
@@ -1266,8 +1280,19 @@ describe('rule controls', () => {
       const { application } = running()
       expect(application.previewInputSuppression(RPM)).toEqual({
         path: RPM,
-        suppresses: [{ rule: 'user.rpm-high' }, { rule: 'user.rpm-mismatch' }],
-        freezes: [{ rule: 'user.coolant-high', gate: 0, states: [{ holds: true }] }]
+        suppresses: [
+          { rule: 'user.rpm-high', origin: 'user', slug: 'rpm-high' },
+          { rule: 'user.rpm-mismatch', origin: 'user', slug: 'rpm-mismatch' }
+        ],
+        freezes: [
+          {
+            rule: 'user.coolant-high',
+            origin: 'user',
+            slug: 'coolant-high',
+            gate: 0,
+            states: [{ holds: true }]
+          }
+        ]
       })
       expect(application.suppressions()).toEqual([])
     })
@@ -1277,7 +1302,14 @@ describe('rule controls', () => {
       const { application } = setup()
       expect(application.previewInputSuppression('propulsion.port.oilPressure')).toEqual({
         path: 'propulsion.port.oilPressure',
-        suppresses: [{ rule: 'user.oil-pressure-low', instance: 'port' }],
+        suppresses: [
+          {
+            rule: 'user.oil-pressure-low',
+            origin: 'user',
+            slug: 'oil-pressure-low',
+            instance: 'port'
+          }
+        ],
         freezes: []
       })
     })

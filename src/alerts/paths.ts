@@ -17,6 +17,12 @@ export function ruleId(origin: string, slug: string): string {
   return `${origin}.${slug}`
 }
 
+/** A rule id with the origin and slug it is made of; neither contains a dot. */
+export function ruleRef(id: string): { rule: string; origin: string; slug: string } {
+  const dot = id.indexOf('.')
+  return { rule: id, origin: id.slice(0, dot), slug: id.slice(dot + 1) }
+}
+
 /** Splits a core alert path (without `alerts.`) of the form `rules.<origin>.<slug>[.<instance>]`. */
 export function parseAlertPath(path: string): ParsedAlertPath | undefined {
   const segments = path.split('.')

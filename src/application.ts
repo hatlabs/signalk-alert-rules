@@ -1,5 +1,5 @@
 import type { Verdict } from './alerts/badge.js'
-import { ruleId } from './alerts/paths.js'
+import { ruleId, ruleRef } from './alerts/paths.js'
 import {
   RuleRunner,
   type LoadedRule,
@@ -79,17 +79,20 @@ export interface SuppressionRequest {
   autoEndAfter?: number
 }
 
+/** A rule by its id and by the origin and slug the id is made of. */
+export type RuleRef = ReturnType<typeof ruleRef>
+
 /** A suppression in force, with what it suppresses. */
 export type SuppressionEntry = Suppression &
-  ({ scope: 'rule'; rule: string } | { scope: 'input'; path: string })
+  (({ scope: 'rule' } & RuleRef) | { scope: 'input'; path: string })
 
 /** What suppressing an input path would do, without doing it. */
 export interface InputSuppressionPreview {
   path: string
   /** Rules whose detector or combinator reads the path, with the wildcard instance that does. */
-  suppresses: { rule: string; instance?: string }[]
+  suppresses: (RuleRef & { instance?: string })[]
   /** Gates that read the path, and the state each instance of their rule would be frozen at. */
-  freezes: { rule: string; gate: number; states: { instance?: string; holds: boolean }[] }[]
+  freezes: (RuleRef & { gate: number; states: { instance?: string; holds: boolean }[] })[]
 }
 
 export type ControlOutcome = 'ok' | 'notFound'
@@ -525,7 +528,9 @@ export class Application {
     if (this.find(origin, slug) === undefined) return 'notFound'
     const id = ruleId(origin, slug)
     const control = this.control(id)
-    this.saveControls(this.withRule(id, { ...control, note: note === '' ? undefined : note }))
+    const next = note === '' ? undefined : note
+    if (next === control.note) return 'ok'
+    this.saveControls(this.withRule(id, { ...control, note: next }))
     this.record({ at: this.now(), actor, action: 'note', rule: id })
     return 'ok'
   }
@@ -600,8 +605,8 @@ export class Application {
 
   /** Every suppression in force, newest first. */
   suppressions(): SuppressionEntry[] {
-    const rules = Object.entries(this.controls.rules).flatMap(([rule, { suppression }]) =>
-      suppression === undefined ? [] : [{ scope: 'rule' as const, rule, ...suppression }]
+    const rules = Object.entries(this.controls.rules).flatMap(([id, { suppression }]) =>
+      suppression === undefined ? [] : [{ scope: 'rule' as const, ...ruleRef(id), ...suppression }]
     )
     const inputs = Object.entries(this.controls.inputs).map(([path, suppression]) =>
       inputEntry(path, suppression)
@@ -615,11 +620,10 @@ export class Application {
     const freezes: InputSuppressionPreview['freezes'] = []
     for (const { origin, rule } of this.allLoaded()) {
       const id = ruleId(origin, rule.slug)
+      const ref = { rule: id, origin, slug: rule.slug }
       const read = readsPath(rule.signal, path)
       if (read.reads) {
-        suppresses.push(
-          read.instance === undefined ? { rule: id } : { rule: id, instance: read.instance }
-        )
+        suppresses.push(read.instance === undefined ? ref : { ...ref, instance: read.instance })
       }
       const status = this.control(id).enabled ? this.runner?.status(id) : undefined
       ;(rule.gates ?? []).forEach((gate, i) => {
@@ -633,7 +637,7 @@ export class Application {
             ...(row.instance === undefined ? {} : { instance: row.instance.name }),
             holds: row.gates[i]?.holds ?? false
           }))
-        freezes.push({ rule: id, gate: i, states })
+        freezes.push({ ...ref, gate: i, states })
       })
     }
     return { path, suppresses, freezes }

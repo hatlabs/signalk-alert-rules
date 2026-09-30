@@ -538,6 +538,8 @@ describe('rule controls API', () => {
       {
         scope: 'rule',
         rule: 'user.oil-pressure-low',
+        origin: 'user',
+        slug: 'oil-pressure-low',
         since: expect.any(String) as unknown,
         actor: 'admin',
         note: 'faulty sender',
@@ -555,7 +557,7 @@ describe('rule controls API', () => {
     const preview = await h.call('GET', `${INPUT_SUPPRESSION}/preview`)
     expect(preview.body).toEqual({
       path: OIL,
-      suppresses: [{ rule: 'user.oil-pressure-low' }],
+      suppresses: [{ rule: 'user.oil-pressure-low', origin: 'user', slug: 'oil-pressure-low' }],
       freezes: []
     })
     h.user = undefined

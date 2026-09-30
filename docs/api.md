@@ -77,7 +77,7 @@ The preview uses the same comparison the engine applies when the edit is saved.
 The rule behaviour behind these routes is in [Enable and suppression](rules.md#enable-and-suppression). Controls and suppressions persist in the data directory and survive restarts.
 
 - Disabling a rule clears its alerts and stops evaluating it; enabling it starts it as a new rule. Setting the current value changes nothing and is not logged.
-- A note is at most 500 characters.
+- A note is at most 500 characters. Setting the note a rule already has changes nothing and is not logged.
 - A suppression request body is an object with optional fields: `note`, at most 500 characters, and `autoEndAfter`, seconds above 0 and at most 86400. Without `autoEndAfter` the suppression ends only through `DELETE`. Other fields are refused.
 - Suppressing clears the active alerts it suppresses; ending it raises an alert whose condition still holds as a new alert. Ending a suppression that is not in force, such as one that has just ended by itself, changes nothing, is not logged and answers 204.
 - An input path must be exact: dot-separated segments, no wildcard, at most 255 characters.
@@ -96,6 +96,8 @@ A suppression, as `GET /suppressions` lists it and `PUT /suppressions/inputs/:pa
   {
     "scope": "rule",
     "rule": "user.oil-pressure-low",
+    "origin": "user",
+    "slug": "oil-pressure-low",
     "since": "2026-09-30T12:00:00.000Z",
     "actor": "admin",
     "autoEndAfter": 600
@@ -108,11 +110,23 @@ An input suppression preview:
 ```json
 {
   "path": "propulsion.port.revolutions",
-  "suppresses": [{ "rule": "user.rpm-high" }, { "rule": "user.rpm-high-each", "instance": "port" }],
-  "freezes": [{ "rule": "user.coolant-high", "gate": 0, "states": [{ "holds": true }] }]
+  "suppresses": [
+    { "rule": "user.rpm-high", "origin": "user", "slug": "rpm-high" },
+    { "rule": "user.rpm-high-each", "origin": "user", "slug": "rpm-high-each", "instance": "port" }
+  ],
+  "freezes": [
+    {
+      "rule": "user.coolant-high",
+      "origin": "user",
+      "slug": "coolant-high",
+      "gate": 0,
+      "states": [{ "holds": true }]
+    }
+  ]
 }
 ```
 
+- A rule is named by its id, `rule`, and by the `origin` and `slug` it is made of, as in the rule routes; so is a rule suppression.
 - `suppresses`: the rules whose signal or combinator reads the path, with the wildcard instance that does.
 - `freezes`: per gate that reads the path, by its index in the rule's `gates`, the state each instance of the rule would be frozen at: `instance` for a wildcard rule, and `holds`. `states` is empty for a rule that is not evaluated or has no instance yet.
 
