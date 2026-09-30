@@ -170,6 +170,32 @@ describe('discoverRulesets', () => {
     ])
   })
 
+  it('reports a package whose version is not a string', async () => {
+    await writePackage(
+      'numeric',
+      { version: 2, [RULESET_FIELD]: 'r.yaml' },
+      { 'r.yaml': rulesetYaml('numeric') }
+    )
+
+    const result = await discover()
+
+    expect(result.rulesets).toEqual([])
+    expect(result.problems).toEqual([
+      { source: 'package numeric', message: expect.stringContaining('version') as string }
+    ])
+  })
+
+  it('rejects a field naming the package root itself', async () => {
+    await writePackage('dot', { [RULESET_FIELD]: '.' })
+
+    const result = await discover()
+
+    expect(result.rulesets).toEqual([])
+    expect(result.problems).toEqual([
+      { source: 'package dot', message: expect.stringContaining('outside the package') as string }
+    ])
+  })
+
   it('rejects a field pointing outside the package', async () => {
     await writeFile(join(root, 'outside.yaml'), rulesetYaml('outside'))
     await writePackage('escape', { [RULESET_FIELD]: '../../outside.yaml' })
@@ -296,6 +322,20 @@ describe('discoverRulesets', () => {
     expect(result.problems).toHaveLength(1)
     expect(result.problems[0]).toMatchObject({ source: 'file b-bad.yaml' })
     expect(result.problems[0]?.line).toBeGreaterThanOrEqual(3)
+  })
+
+  it('rejects a duplicated key with its line', async () => {
+    await writeFile(
+      join(dropIn, 'twice.yaml'),
+      rulesetYaml('twice').replace('priority: warning', 'priority: warning\n    priority: alarm')
+    )
+
+    const result = await discover()
+
+    expect(result.rulesets).toEqual([])
+    expect(result.problems).toEqual([
+      { source: 'file twice.yaml', message: expect.stringContaining('unique') as string, line: 9 }
+    ])
   })
 
   it('rejects a custom tag as malformed', async () => {
