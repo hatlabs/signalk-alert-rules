@@ -121,4 +121,10 @@ describe('formatDuration', () => {
     expect(formatDuration(7200)).toBe('2 h')
     expect(formatDuration(900000)).toBe('250 h')
   })
+
+  it('shows seconds whole, as a timer has run them', () => {
+    expect(formatDuration(0.0367)).toBe('0 s')
+    expect(formatDuration(43.05)).toBe('43 s')
+    expect(formatDuration(59.6)).toBe('60 s')
+  })
 })

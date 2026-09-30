@@ -107,7 +107,8 @@ const HOUR = 3600
 export function formatDuration(seconds: number): string {
   if (Math.abs(seconds) >= 2 * HOUR) return `${formatNumber(seconds / HOUR)} h`
   if (Math.abs(seconds) >= 2 * MINUTE) return `${formatNumber(seconds / MINUTE)} min`
-  return `${formatNumber(seconds)} s`
+  // A timer's elapsed time comes in fractions no operator needs.
+  return `${String(Math.round(seconds))} s`
 }
 
 /** How a rule's values, limits and accumulated totals are shown. */
