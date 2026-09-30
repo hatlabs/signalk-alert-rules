@@ -51,7 +51,7 @@ describe('reconcile', () => {
       PLUGIN,
       rules
     )
-    expect(result.orphaned).toEqual([])
+    expect(result.toClear).toEqual([])
     expect(result.kept.map((k) => [k.alert.path, k.ruleId, k.segment])).toEqual([
       ['rules.user.oil-pressure-low', 'user.oil-pressure-low', undefined],
       ['rules.user.coolant-high.port', 'user.coolant-high', 'port']
@@ -66,10 +66,10 @@ describe('reconcile', () => {
       PLUGIN,
       rules
     )
-    expect(result).toEqual({ kept: [], activeByRule: new Map(), orphaned: [] })
+    expect(result).toEqual({ kept: [], activeByRule: new Map(), toClear: [] })
   })
 
-  it('orphans alerts whose rule is gone or whose instance cannot belong to the rule', () => {
+  it('clears alerts whose rule is gone or whose instance cannot belong to the rule', () => {
     const result = reconcile(
       [
         alert('rules.user.deleted-rule'),
@@ -80,7 +80,7 @@ describe('reconcile', () => {
       PLUGIN,
       rules
     )
-    expect(result.orphaned.map((a) => a.path)).toEqual([
+    expect(result.toClear.map((a) => a.path)).toEqual([
       'rules.user.deleted-rule',
       'rules.user.oil-pressure-low.port',
       'rules.user.coolant-high',
@@ -89,12 +89,23 @@ describe('reconcile', () => {
     expect(result.kept).toEqual([])
   })
 
+  it('clears an active alert of a latching rule, which holds none, and starts the rule afresh', () => {
+    const result = reconcile(
+      [alert('rules.user.oil-pressure-low')],
+      PLUGIN,
+      new Map([['user.oil-pressure-low', { ...single, latching: true }]])
+    )
+    expect(result.toClear.map((a) => a.path)).toEqual(['rules.user.oil-pressure-low'])
+    expect(result.kept).toEqual([])
+    expect(result.activeByRule.size).toBe(0)
+  })
+
   it("ignores other sources' alerts and paths outside SKAR's prefix", () => {
     const result = reconcile(
       [alert('rules.user.oil-pressure-low', true, 'other-plugin'), alert('notifications.x.y')],
       PLUGIN,
       rules
     )
-    expect(result).toEqual({ kept: [], activeByRule: new Map(), orphaned: [] })
+    expect(result).toEqual({ kept: [], activeByRule: new Map(), toClear: [] })
   })
 })

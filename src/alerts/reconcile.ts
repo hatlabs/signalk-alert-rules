@@ -14,31 +14,41 @@ export interface Reconciliation {
   kept: KeptAlert[]
   /** Per rule id, the instances whose evaluator starts condition-active. */
   activeByRule: Map<string, Adopted[]>
-  /** SKAR's active alerts whose rule, or whose instance by definition, no longer exists. */
-  orphaned: CoreAlert[]
+  /**
+   * SKAR's active alerts to clear at start, for either of two reasons: their
+   * rule, or their instance by definition, no longer exists; or their rule is
+   * now latching and so holds no active alert.
+   */
+  toClear: CoreAlert[]
 }
 
 /**
  * Sorts the alerts core holds at start. SKAR's own active alerts are adopted
  * rather than re-verified: a rule with an active alert starts
  * condition-active, so a restart neither re-alerts nor clears it. An alert
- * whose condition has ended is core's until acknowledged, so it is ignored.
- * An instance is gone only when the rule cannot have it at all, not when it
- * has not reported yet.
+ * whose condition has ended is core's until acknowledged, so it is ignored;
+ * that includes every latching alert, which core holds as ended from its
+ * raise. An active alert of a rule turned latching while SKAR was down is
+ * cleared, as the edit would have cleared it. An instance is gone only when
+ * the rule cannot have it at all, not when it has not reported yet.
  */
 export function reconcile(
   alerts: readonly CoreAlert[],
   pluginId: string,
   rules: ReadonlyMap<string, Rule>
 ): Reconciliation {
-  const result: Reconciliation = { kept: [], activeByRule: new Map(), orphaned: [] }
+  const result: Reconciliation = { kept: [], activeByRule: new Map(), toClear: [] }
   for (const alert of alerts) {
     const parsed =
       alert.$source === pluginId && alert.condition ? parseAlertPath(alert.path) : undefined
     if (parsed === undefined) continue
     const rule = rules.get(parsed.ruleId)
-    if (rule === undefined || isWildcard(rule.signal) !== (parsed.segment !== undefined)) {
-      result.orphaned.push(alert)
+    if (
+      rule === undefined ||
+      rule.latching === true ||
+      isWildcard(rule.signal) !== (parsed.segment !== undefined)
+    ) {
+      result.toClear.push(alert)
       continue
     }
     result.kept.push({ alert, ...parsed })

@@ -79,6 +79,15 @@ const pumpCycling = valid({
   detector: { type: 'count', event: { op: 'changesTo', value: true }, window: 60, limit: 1 }
 })
 const latchingPump = valid({ ...pumpCycling, latching: true })
+const pumpOn = valid({
+  name: 'Bilge pump on',
+  slug: 'bilge-pump-on',
+  message: 'Bilge pump started',
+  priority: 'alarm',
+  latching: true,
+  signal: { path: PUMP },
+  detector: { type: 'match', op: 'changesTo', value: true }
+})
 const BATTERY_ALERT = 'rules.user.house-battery-low'
 const OIL_ALERT = 'rules.user.oil-pressure-low'
 const PORT_ALERT = 'rules.user.coolant-high.port'
@@ -86,7 +95,12 @@ const PUMP_ALERT = 'rules.user.bilge-pump-cycling'
 
 function setup(
   rules: Rule[],
-  options: { core?: FakeAlertsCore; meta?: Record<string, PathMeta> } = {}
+  options: {
+    core?: FakeAlertsCore
+    meta?: Record<string, PathMeta>
+    /** Values already in the server's delta cache, replayed when the runner subscribes. */
+    cached?: [string, Value][]
+  } = {}
 ) {
   const sm = new FakeSubscriptionManager()
   const core = options.core ?? new FakeAlertsCore()
@@ -109,6 +123,7 @@ function setup(
     },
     loaded
   )
+  for (const [path, value] of options.cached ?? []) sm.publish(path, 'src', value)
   runner.start()
   return {
     core,
@@ -488,6 +503,34 @@ describe('rule runner', () => {
     run(14, 13 + HEARTBEAT_S)
     expect(sent.map(([, v]) => v?.latching ?? null)).toEqual([true, false, false])
     expect(core.getByPath(PUMP_ALERT)).toMatchObject({ condition: true, latching: false })
+  })
+
+  it('an active alert of a rule turned latching while SKAR was down is cleared, and the rule starts afresh', () => {
+    const core = coreWith(PUMP_ALERT, 'Bilge pump is cycling')
+    const { at, run, sent } = setup([latchingPump], { core })
+    pumpStarts(at, 0)
+    run(4, 3 + 2 * HEARTBEAT_S)
+    expect(sent.map(([, v]) => v?.latching ?? null)).toEqual([null, true])
+  })
+
+  it('a latching count does not raise again at restart: the replayed last value is not an event', () => {
+    const core = coreWithLatching(PUMP_ALERT, 'Bilge pump is cycling')
+    const { at, run, sent } = setup([latchingPump], { core, cached: [[PUMP, true]] })
+    at(5, PUMP, false)
+    at(6, PUMP, true)
+    run(7, 3 * HEARTBEAT_S)
+    expect(sent).toEqual([])
+    expect(core.alertings).toBe(0)
+  })
+
+  it('a latching changesTo match does not raise again at restart when its value is replayed', () => {
+    const alert = 'rules.user.bilge-pump-on'
+    const core = coreWithLatching(alert, 'Bilge pump started')
+    const { at, run, sent } = setup([pumpOn], { core, cached: [[PUMP, true]] })
+    at(5, PUMP, true)
+    run(6, 3 * HEARTBEAT_S)
+    expect(sent).toEqual([])
+    expect(core.alertings).toBe(0)
   })
 
   it('starts a rule added while running', () => {
