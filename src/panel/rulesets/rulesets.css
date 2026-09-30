@@ -12,8 +12,12 @@
   color: var(--bs-secondary-color, #6c757d);
 }
 
+.skar-ruleset-rules-heading {
+  margin-top: 1.25rem;
+}
+
 .skar-ruleset-rules {
-  margin: 0.75rem 0 0;
+  margin: 0;
 }
 
 /* The badge sits beside the rule's name where it fits, below it on a narrow screen. */

@@ -73,25 +73,31 @@ function RuleList({
   ruleHref
 }: Pick<RulesetCardProps, 'ruleset' | 'rules' | 'ruleHref'>) {
   const bySlug = new Map(rules.map((r) => [r.slug, r]))
+  const headingId = useId()
   return (
-    <ul className="list-unstyled skar-ruleset-rules" aria-label="Rules">
-      {ruleset.rules.map((slug) => {
-        const entry = bySlug.get(slug)
-        const missing =
-          entry?.status.badge === 'inactive' && entry.status.issues.length > 0
-            ? entry.status.issues
-            : []
-        return (
-          <li key={slug}>
-            <a href={ruleHref(ruleset.slug, slug)}>{entry?.rule.name ?? slug}</a>
-            {entry !== undefined && <StatusBadge status={entry.status} />}
-            {missing.length > 0 && (
-              <div className="skar-path skar-status-detail">Missing: {missing.join(', ')}</div>
-            )}
-          </li>
-        )
-      })}
-    </ul>
+    <>
+      <h5 id={headingId} className="skar-section-heading skar-ruleset-rules-heading">
+        Rules
+      </h5>
+      <ul className="list-unstyled skar-ruleset-rules" aria-labelledby={headingId}>
+        {ruleset.rules.map((slug) => {
+          const entry = bySlug.get(slug)
+          const missing =
+            entry?.status.badge === 'inactive' && entry.status.issues.length > 0
+              ? entry.status.issues
+              : []
+          return (
+            <li key={slug}>
+              <a href={ruleHref(ruleset.slug, slug)}>{entry?.rule.name ?? slug}</a>
+              {entry !== undefined && <StatusBadge status={entry.status} />}
+              {missing.length > 0 && (
+                <div className="skar-path skar-status-detail">Missing: {missing.join(', ')}</div>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </>
   )
 }
 
