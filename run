@@ -59,6 +59,13 @@ function typecheck {
   npm run typecheck
 }
 
+function bench {
+  #@ Measure evaluation cost at the resource bounds: bench [mixed|wildcard ...]
+  #@ Category: Quality
+  # --expose-gc lets the benchmark collect garbage before reading the heap.
+  NODE_OPTIONS=--expose-gc npx vite-node bench/evaluation-cost.ts "$@"
+}
+
 function ci {
   #@ Run all CI checks (typecheck, lint, format check, tests)
   #@ Category: Quality
