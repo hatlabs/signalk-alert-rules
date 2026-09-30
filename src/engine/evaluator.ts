@@ -70,11 +70,14 @@ export type RuleEvent =
   | { type: 'priority'; instance?: Instance; priority: Priority }
   | { type: 'clear'; instance?: Instance }
 
+/** Whether an input has a value, is unavailable, or has never been seen since start. */
+export type InputState = 'value' | 'unavailable' | 'neverSeen'
+
 export interface InstanceStatus {
   instance?: Instance
   active: boolean
   inUse: boolean
-  input: 'value' | 'unavailable' | 'neverSeen'
+  input: InputState
   /** The alert was adopted from core at start and has not cleared since. */
   adopted: boolean
   gateInputUnavailable: boolean

@@ -12,6 +12,16 @@ type WithResolvedLimit<D> = D extends { limit: Limit } ? Omit<D, 'limit'> & { li
 /** A detector definition whose limit has been resolved to an SI value. */
 export type DetectorSpec = WithResolvedLimit<DetectorModel>
 
+/**
+ * How far a detector is toward its next transition, for status: a duration
+ * timer in seconds (paused time excluded), the events in a count's window, or
+ * an accumulator's total.
+ */
+export type Progress =
+  | { kind: 'timer'; toward: 'set' | 'clear'; elapsed: number; target: number }
+  | { kind: 'events'; count: number; limit: number }
+  | { kind: 'total'; total: number; limit: number }
+
 export interface DetectorOptions {
   /** The monotonic time the detector was created. */
   start: number
