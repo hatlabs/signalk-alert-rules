@@ -254,6 +254,63 @@ describe('RuleEditor, new rule', () => {
     expect(description(textbox('Limit'))).toContain('must be at most 20')
   })
 
+  /** Fills a new rule on the house battery up to its name. */
+  function fillBatteryRule() {
+    type(combobox('Input path'), 'electrical.batteries.house.voltage')
+    click(screen.getByRole('radio', { name: /above or below a limit/i }))
+    choose('Alert when the input is', 'below')
+    type(textbox('Limit'), '11.8')
+    choose('Priority', 'warning')
+    type(textbox('Message'), 'Low')
+    type(textbox('Name'), 'Low')
+  }
+
+  it('opens Advanced when the server refuses a field in it', async () => {
+    const { api } = renderEditor()
+    api.createRule.mockRejectedValueOnce(
+      new RuleRejectedError('invalid request body', [
+        { path: '/detector/hysteresis', message: 'must be at most 5' }
+      ])
+    )
+    await pathsLoaded()
+    fillBatteryRule()
+    const advanced = screen.getByText('Advanced').closest('details')
+    expect(advanced?.open).toBe(false)
+    click(screen.getByRole('button', { name: 'Create rule' }))
+    await waitFor(() => {
+      expect(advanced?.open).toBe(true)
+    })
+    expect(description(textbox('Hysteresis'))).toContain('must be at most 5')
+  })
+
+  it('shows a save that failed without field errors, keeping the form to try again', async () => {
+    const { api, onSaved } = renderEditor()
+    api.createRule.mockRejectedValueOnce(new Error('/rules did not answer in time'))
+    await pathsLoaded()
+    fillBatteryRule()
+    click(screen.getByRole('button', { name: 'Create rule' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('/rules did not answer in time')
+    expect(onSaved).not.toHaveBeenCalled()
+    const create = screen.getByRole('button', { name: 'Create rule' })
+    expect(create).toHaveProperty('disabled', false)
+    click(create)
+    await waitFor(() => {
+      expect(onSaved).toHaveBeenCalled()
+    })
+    expect(screen.queryByText('/rules did not answer in time')).toBeNull()
+  })
+
+  it('keeps the sections revealed when a field before them is cleared', async () => {
+    renderEditor()
+    await pathsLoaded()
+    fillBatteryRule()
+    type(textbox('Limit'), '')
+    for (const name of ['Timing', 'Priority and message', 'Gates', 'Name']) {
+      expect(section(name)).not.toBeNull()
+    }
+    expect(screen.getByRole('button', { name: 'Create rule' })).toBeTruthy()
+  })
+
   it('checks locally that required fields are filled before asking the server', async () => {
     const { api } = renderEditor()
     await pathsLoaded()
@@ -364,6 +421,67 @@ describe('RuleEditor, editing', () => {
       expect(api.updateRule).toHaveBeenCalled()
     })
     expect(api.updateRule.mock.calls[0]?.[1].detector).toMatchObject({ hysteresis: 0.3 })
+  })
+
+  it('shows a refusal of an edit saved without asking on the field', async () => {
+    const { api, onSaved } = renderEditor({ entry: active, rule: battery })
+    api.updateRule.mockRejectedValueOnce(
+      new RuleRejectedError('invalid request body', [
+        { path: '/detector/hysteresis', message: 'must be at most 5' }
+      ])
+    )
+    type(await screen.findByRole('textbox', { name: 'Hysteresis' }), '9')
+    click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => {
+      expect(description(textbox('Hysteresis'))).toContain('must be at most 5')
+    })
+    expect(onSaved).not.toHaveBeenCalled()
+  })
+
+  describe('a refusal after the confirmation', () => {
+    const clears: EditPreview = {
+      restarts: true,
+      changes: ['signal'],
+      activeAlerts: 1,
+      clearsActiveAlert: true,
+      discardsTotal: false
+    }
+
+    async function confirmPathChange(api: ReturnType<typeof fakeApi>) {
+      api.previewRule.mockResolvedValueOnce(clears)
+      type(
+        await screen.findByRole('combobox', { name: 'Input path' }),
+        'electrical.batteries.start.voltage'
+      )
+      click(screen.getByRole('button', { name: 'Save changes' }))
+      click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Save' }))
+    }
+
+    it('closes the confirmation and marks the refused field', async () => {
+      const { api, onSaved } = renderEditor({ entry: active, rule: battery })
+      api.updateRule.mockRejectedValueOnce(
+        new RuleRejectedError('invalid request body', [
+          { path: '/signal/path', message: 'is not reported' }
+        ])
+      )
+      await confirmPathChange(api)
+      await waitFor(() => {
+        expect(screen.queryByRole('alertdialog')).toBeNull()
+      })
+      expect(description(combobox('Input path'))).toContain('is not reported')
+      expect(onSaved).not.toHaveBeenCalled()
+    })
+
+    it('keeps the confirmation open with a failure that names no field', async () => {
+      const { api, onSaved } = renderEditor({ entry: active, rule: battery })
+      api.updateRule.mockRejectedValueOnce(new Error('/rules/user/x answered 503'))
+      await confirmPathChange(api)
+      const dialog = screen.getByRole('alertdialog')
+      await waitFor(() => {
+        expect(within(dialog).getByRole('alert').textContent).toBe('/rules/user/x answered 503')
+      })
+      expect(onSaved).not.toHaveBeenCalled()
+    })
   })
 
   it('saves an edit applied in place without asking', async () => {
