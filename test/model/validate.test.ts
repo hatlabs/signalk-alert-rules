@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
   alertPathFor,
-  findRulesetSlugConflicts,
   resolveRuleset,
   validateRule,
   validateRuleSet,
@@ -649,29 +648,54 @@ describe('resolveRuleset', () => {
 
   it('rejects a value outside bounds', () => {
     const result = resolveRuleset(parsed(), { lowVoltage: 9 })
-    expect(result.ok ? [] : paths(result.errors)).toEqual(['/values/lowVoltage'])
+    expect(result.ok ? [] : paths(result.errors)).toEqual(['/lowVoltage'])
   })
 
   it('rejects a value of the wrong type', () => {
     const result = resolveRuleset(parsed(), { lowVoltage: 'high' })
-    expect(result.ok ? [] : paths(result.errors)).toEqual(['/values/lowVoltage'])
+    expect(result.ok ? [] : paths(result.errors)).toEqual(['/lowVoltage'])
   })
 
   it('rejects a value for an undeclared parameter', () => {
     const result = resolveRuleset(parsed(), { other: 1 })
-    expect(result.ok ? [] : paths(result.errors)).toEqual(['/values/other'])
+    expect(result.ok ? [] : paths(result.errors)).toEqual(['/other'])
   })
 
   it('reports a substituted path that is invalid', () => {
     const result = resolveRuleset(parsed(), { prefix: 'electrical..house' })
     expect(result.ok ? [] : paths(result.errors)).toEqual(['/rules/0/signal/path'])
   })
-})
 
-describe('findRulesetSlugConflicts', () => {
-  it('reports every ruleset sharing a slug', () => {
-    const a = { slug: 'batteries' }
-    const b = { slug: 'engines' }
-    expect(findRulesetSlugConflicts([a, b, a])).toEqual(new Set(['batteries']))
+  it('takes the default of an unset parameter named like an Object member', () => {
+    const named = validateRuleset({
+      ...ruleset,
+      parameters: [
+        ruleset.parameters[0],
+        { name: 'constructor', type: 'number', default: 12 },
+        ruleset.parameters[2]
+      ],
+      rules: [
+        {
+          ...ruleset.rules[0],
+          detector: {
+            ...ruleset.rules[0]?.detector,
+            limit: { kind: 'fixed', value: { param: 'constructor' } }
+          }
+        }
+      ]
+    })
+    if (!named.ok) throw new Error(JSON.stringify(named.errors))
+    const result = resolveRuleset(named.value, {})
+    expect(result.ok && result.value[0]?.detector).toMatchObject({ limit: { value: 12 } })
+  })
+
+  it('rejects a number that is not finite, even for a parameter no rule uses', () => {
+    const unused = validateRuleset({
+      ...ruleset,
+      parameters: [...ruleset.parameters, { name: 'spare', type: 'number', default: 1 }]
+    })
+    if (!unused.ok) throw new Error(JSON.stringify(unused.errors))
+    const result = resolveRuleset(unused.value, { spare: Infinity })
+    expect(result.ok ? [] : paths(result.errors)).toEqual(['/spare'])
   })
 })

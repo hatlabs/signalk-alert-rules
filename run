@@ -20,9 +20,15 @@ readonly PROJECT_ROOT=$(pwd)
 # Build Commands
 
 function build {
-  #@ Compile the plugin into dist/
+  #@ Compile the plugin into dist/ and bundle the panel into public/
   #@ Category: Build
   npm run build
+}
+
+function build-panel {
+  #@ Bundle the configuration panel into public/
+  #@ Category: Build
+  npm run build:panel
 }
 
 ################################################################################
@@ -67,7 +73,7 @@ function bench {
 }
 
 function ci {
-  #@ Run all CI checks (typecheck, lint, format check, tests)
+  #@ Run all CI checks (typecheck, lint, format check, panel build, tests)
   #@ Category: Quality
   npm run ci
 }
@@ -148,6 +154,7 @@ function deploy {
 
   echo "==> Copying to ${dest}..."
   rsync -rlpt --delete dist/ "${dest}/dist/"
+  rsync -rlpt --delete public/ "${dest}/public/"
   rsync -lpt package.json README.md LICENSE "${dest}/"
 
   echo ""

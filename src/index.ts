@@ -1,11 +1,16 @@
+import { dirname, join } from 'node:path'
 import type { Plugin, PluginRouter, ServerAPI } from '@signalk/server-api'
 import { Application, CHECKPOINT_MS, TICK_MS } from './application.js'
 import { registerRoutes } from './api/routes.js'
 import { serverDeps } from './alerts/server.js'
+import { discoverRulesets, type DiscoveryDirs } from './rulesets/discovery.js'
 import { Store } from './store/store.js'
 import { errorMessage } from './util.js'
 
 const PLUGIN_ID = 'signalk-alert-rules'
+
+/** The drop-in directory for ruleset files, in the plugin's data directory. */
+const RULESETS_DIR = 'rulesets'
 
 // The published server-api types predate the core alerts API, so its presence is
 // detected at runtime rather than through the ServerAPI type.
@@ -52,7 +57,18 @@ export default function createPlugin(app: ServerAPI): Plugin {
       }
       let running: Application
       try {
-        running = new Application(serverDeps(app, PLUGIN_ID), new Store(app.getDataDirPath()))
+        const dataDir = app.getDataDirPath()
+        // ServerAPI does not expose the server's config path. The data
+        // directory is <configPath>/plugin-config-data/<pluginId>, and the
+        // server installs plugins, ruleset providers among them, with npm
+        // in <configPath> (signalk-server src/modules.ts).
+        const dirs: DiscoveryDirs = {
+          configDir: dirname(dirname(dataDir)),
+          dropIn: join(dataDir, RULESETS_DIR)
+        }
+        running = new Application(serverDeps(app, PLUGIN_ID), new Store(dataDir), () =>
+          discoverRulesets(dirs)
+        )
       } catch (err) {
         fail(`Cannot read the data directory: ${errorMessage(err)}`)
         return
@@ -66,40 +82,62 @@ export default function createPlugin(app: ServerAPI): Plugin {
         return
       }
       application = running
-      const status =
-        running.issues.length === 0 ? 'Running' : `Running; ${running.issues.join('; ')}`
-      // A disk that stays full fails every checkpoint: report the failure
-      // once, and the recovery.
-      let checkpointFailed = false
-      const checkpoint = () => {
-        try {
-          running.checkpoint()
-        } catch (err) {
-          if (checkpointFailed) return
-          checkpointFailed = true
-          const text = `Could not save accumulator totals: ${errorMessage(err)}`
-          app.error(text)
-          app.setPluginError(text)
-          return
-        }
-        if (checkpointFailed) {
-          checkpointFailed = false
-          app.setPluginStatus(status)
+      // A disk that stays full fails every write, each tick or checkpoint:
+      // report the failure once, and the recovery. The reporters share one
+      // plugin status, so one recovering must not hide the other's failure.
+      // The status is rebuilt from what still stands, since a start issue
+      // about a write goes once that write succeeds.
+      // An exception escaping a timer would take the whole server down.
+      const failures = new Map<symbol, string>()
+      let shown: string | undefined
+      const report = () => {
+        const failure = [...failures.values()].at(-1)
+        const text =
+          failure ??
+          (running.issues.length === 0 ? 'Running' : `Running; ${running.issues.join('; ')}`)
+        if (text === shown) return
+        shown = text
+        if (failure === undefined) app.setPluginStatus(text)
+        else app.setPluginError(text)
+      }
+      const reportingOnce = (describe: (err: unknown) => string, run: () => void) => {
+        const key = Symbol()
+        return () => {
+          try {
+            run()
+            failures.delete(key)
+          } catch (err) {
+            if (!failures.has(key)) {
+              const text = describe(err)
+              failures.set(key, text)
+              app.error(text)
+            }
+          }
+          report()
         }
       }
       timers = [
-        setInterval(() => {
-          // An exception escaping a timer would take the whole server down.
-          try {
-            running.tick()
-          } catch (err) {
-            app.error(`Evaluation failed: ${errorMessage(err)}`)
-          }
-        }, TICK_MS),
-        setInterval(checkpoint, CHECKPOINT_MS)
+        setInterval(
+          reportingOnce(
+            (err) => `Evaluation failed: ${errorMessage(err)}`,
+            () => {
+              running.tick()
+            }
+          ),
+          TICK_MS
+        ),
+        setInterval(
+          reportingOnce(
+            (err) => `Could not save accumulator totals: ${errorMessage(err)}`,
+            () => {
+              running.checkpoint()
+            }
+          ),
+          CHECKPOINT_MS
+        )
       ]
       for (const issue of running.issues) app.error(issue)
-      app.setPluginStatus(status)
+      report()
     },
 
     stop() {

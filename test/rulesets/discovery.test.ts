@@ -12,9 +12,9 @@ import {
 
 // APFS lists names already sorted and ext4 does not; reversing every listing
 // keeps the tests from passing only because of the host filesystem's order.
-vi.mock('node:fs/promises', async (importOriginal) => {
-  const fs = await importOriginal<typeof import('node:fs/promises')>()
-  return { ...fs, readdir: async (dir: string) => (await fs.readdir(dir)).reverse() }
+vi.mock('node:fs', async (importOriginal) => {
+  const fs = await importOriginal<typeof import('node:fs')>()
+  return { ...fs, readdirSync: (dir: string) => fs.readdirSync(dir).reverse() }
 })
 
 const exampleDir = join(dirname(fileURLToPath(import.meta.url)), '../../examples/ruleset-example')
@@ -67,17 +67,32 @@ function rulesetYaml(slug: string, ruleLines = ''): string {
   ].join('\n')
 }
 
+/** The server's config directory, where it installs packages with npm. */
 let root: string
 let nodeModules: string
 let dropIn: string
+let dependencies: Record<string, string>
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'skar-discovery-'))
   nodeModules = join(root, 'node_modules')
   dropIn = join(root, 'rulesets')
+  dependencies = {}
   await mkdir(nodeModules)
   await mkdir(dropIn)
+  await writeConfigPackage()
 })
+
+/** The config directory's package.json, which lists what the server installed. */
+async function writeConfigPackage(text?: string): Promise<void> {
+  const pkg = { name: 'signalk-server-config', version: '0.0.1', dependencies }
+  await writeFile(join(root, 'package.json'), text ?? JSON.stringify(pkg))
+}
+
+async function list(name: string): Promise<void> {
+  dependencies[name] = '^1.0.0'
+  await writeConfigPackage()
+}
 
 afterEach(async () => {
   await rm(root, { recursive: true, force: true })
@@ -86,8 +101,10 @@ afterEach(async () => {
 async function writePackage(
   name: string,
   pkg: Record<string, unknown>,
-  files: Record<string, string> = {}
+  files: Record<string, string> = {},
+  { listed = true } = {}
 ): Promise<string> {
+  if (listed) await list(name)
   const dir = join(nodeModules, name)
   await mkdir(dir, { recursive: true })
   await writeFile(
@@ -101,8 +118,8 @@ async function writePackage(
   return dir
 }
 
-function discover(): Promise<DiscoveryResult> {
-  return discoverRulesets({ nodeModules, dropIn })
+function discover(): DiscoveryResult {
+  return discoverRulesets({ configDir: root, dropIn })
 }
 
 function slugs(result: DiscoveryResult): string[] {
@@ -112,8 +129,9 @@ function slugs(result: DiscoveryResult): string[] {
 describe('discoverRulesets', () => {
   it('loads a commented YAML ruleset from a package', async () => {
     await cp(exampleDir, join(nodeModules, 'signalk-alert-ruleset-example'), { recursive: true })
+    await list('signalk-alert-ruleset-example')
 
-    const result = await discover()
+    const result = discover()
 
     expect(result.problems).toEqual([])
     expect(result.rulesets).toEqual([
@@ -129,7 +147,7 @@ describe('discoverRulesets', () => {
   it('loads the same ruleset written as JSON identically', async () => {
     await writeFile(join(dropIn, 'batteries.json'), JSON.stringify(exampleRuleset, null, 2))
 
-    const result = await discover()
+    const result = discover()
 
     expect(result.problems).toEqual([])
     expect(result.rulesets).toEqual([
@@ -144,7 +162,7 @@ describe('discoverRulesets', () => {
       { 'rules/acme.yml': rulesetYaml('acme') }
     )
 
-    const result = await discover()
+    const result = discover()
 
     expect(result.problems).toEqual([])
     expect(result.rulesets[0]).toMatchObject({
@@ -159,12 +177,12 @@ describe('discoverRulesets', () => {
       { keywords: ['signalk-node-server-plugin'], [RULESET_FIELD]: 'r.yaml' },
       { 'r.yaml': rulesetYaml('other') }
     )
-    expect(await discover()).toEqual({ rulesets: [], problems: [] })
+    expect(discover()).toEqual({ rulesets: [], problems: [] })
   })
 
   it('reports a package with the keyword but no field', async () => {
     await writePackage('nofield', {})
-    const result = await discover()
+    const result = discover()
     expect(result.problems).toEqual([
       { source: 'package nofield', message: expect.stringContaining(RULESET_FIELD) as string }
     ])
@@ -177,7 +195,7 @@ describe('discoverRulesets', () => {
       { 'r.yaml': rulesetYaml('numeric') }
     )
 
-    const result = await discover()
+    const result = discover()
 
     expect(result.rulesets).toEqual([])
     expect(result.problems).toEqual([
@@ -185,10 +203,23 @@ describe('discoverRulesets', () => {
     ])
   })
 
+  it('labels a package without a name as the config lists it', async () => {
+    await writePackage('@scope/nameless', { name: undefined, [RULESET_FIELD]: 'r.yaml' })
+
+    const result = discover()
+
+    expect(result.problems).toEqual([
+      {
+        source: 'package @scope/nameless',
+        message: expect.stringContaining('name') as string
+      }
+    ])
+  })
+
   it('rejects a field naming the package root itself', async () => {
     await writePackage('dot', { [RULESET_FIELD]: '.' })
 
-    const result = await discover()
+    const result = discover()
 
     expect(result.rulesets).toEqual([])
     expect(result.problems).toEqual([
@@ -200,7 +231,7 @@ describe('discoverRulesets', () => {
     await writeFile(join(root, 'outside.yaml'), rulesetYaml('outside'))
     await writePackage('escape', { [RULESET_FIELD]: '../../outside.yaml' })
 
-    const result = await discover()
+    const result = discover()
 
     expect(result.rulesets).toEqual([])
     expect(result.problems).toEqual([
@@ -214,7 +245,7 @@ describe('discoverRulesets', () => {
   it('rejects a field pointing at a .js file', async () => {
     await writePackage('script', { [RULESET_FIELD]: 'index.js' }, { 'index.js': 'export {}' })
 
-    const result = await discover()
+    const result = discover()
 
     expect(result.rulesets).toEqual([])
     expect(result.problems).toHaveLength(1)
@@ -226,7 +257,7 @@ describe('discoverRulesets', () => {
     const dir = await writePackage('linked', { [RULESET_FIELD]: 'ruleset.yaml' })
     await symlink(join(root, 'outside.yaml'), join(dir, 'ruleset.yaml'))
 
-    const result = await discover()
+    const result = discover()
 
     expect(result.rulesets).toEqual([])
     expect(result.problems).toEqual([
@@ -239,7 +270,7 @@ describe('discoverRulesets', () => {
 
   it('reports a missing ruleset file', async () => {
     await writePackage('missing', { [RULESET_FIELD]: 'ruleset.yaml' })
-    const result = await discover()
+    const result = discover()
     expect(result.problems.map((p) => p.source)).toEqual(['package missing'])
   })
 
@@ -249,21 +280,21 @@ describe('discoverRulesets', () => {
     await writeFile(join(dropIn, 'c.js'), 'export default {}')
     await writeFile(join(dropIn, 'd.txt'), rulesetYaml('d'))
 
-    const result = await discover()
+    const result = discover()
 
     expect(result.problems).toEqual([])
     expect(slugs(result)).toEqual(['a', 'b'])
   })
 
-  it('treats missing directories as empty', async () => {
-    const result = await discoverRulesets({
-      nodeModules: join(root, 'nope'),
+  it('treats missing directories as empty', () => {
+    const result = discoverRulesets({
+      configDir: join(root, 'nope'),
       dropIn: join(root, 'nada')
     })
     expect(result).toEqual({ rulesets: [], problems: [] })
   })
 
-  it('reports an unreadable scope directory and loads the other packages', async () => {
+  it('reports an unreadable listed package and loads the others', async () => {
     await writePackage(
       '@locked/rules',
       { [RULESET_FIELD]: 'r.yaml' },
@@ -274,7 +305,7 @@ describe('discoverRulesets', () => {
     await chmod(scope, 0o000)
     let result: DiscoveryResult
     try {
-      result = await discover()
+      result = discover()
     } finally {
       // Without read permission the temporary tree cannot be removed.
       await chmod(scope, 0o755)
@@ -282,8 +313,60 @@ describe('discoverRulesets', () => {
 
     expect(slugs(result)).toEqual(['open'])
     expect(result.problems).toEqual([
-      { source: `directory ${scope}`, message: expect.stringContaining('EACCES') as string }
+      { source: 'package @locked/rules', message: expect.stringContaining('EACCES') as string }
     ])
+  })
+
+  it('reads only the packages the config directory lists', async () => {
+    await writePackage(
+      'unlisted',
+      { [RULESET_FIELD]: 'r.yaml' },
+      { 'r.yaml': rulesetYaml('unlisted') },
+      { listed: false }
+    )
+    await writePackage('listed', { [RULESET_FIELD]: 'r.yaml' }, { 'r.yaml': rulesetYaml('listed') })
+
+    expect(discover()).toMatchObject({ rulesets: [{ slug: 'listed' }], problems: [] })
+  })
+
+  it('skips a listed package that is not installed', async () => {
+    await list('not-installed')
+    await writePackage('open', { [RULESET_FIELD]: 'r.yaml' }, { 'r.yaml': rulesetYaml('open') })
+
+    expect(discover()).toMatchObject({ rulesets: [{ slug: 'open' }], problems: [] })
+  })
+
+  it('finds no package without a config package.json', async () => {
+    await writePackage('open', { [RULESET_FIELD]: 'r.yaml' }, { 'r.yaml': rulesetYaml('open') })
+    await rm(join(root, 'package.json'))
+
+    expect(discover()).toEqual({ rulesets: [], problems: [] })
+  })
+
+  it('reports a config package.json that cannot be parsed and loads the drop-ins', async () => {
+    await writeConfigPackage('{')
+    await writeFile(join(dropIn, 'mine.yaml'), rulesetYaml('mine'))
+
+    const result = discover()
+
+    expect(slugs(result)).toEqual(['mine'])
+    expect(result.problems).toEqual([
+      { source: `file ${join(root, 'package.json')}`, message: expect.any(String) as string }
+    ])
+  })
+
+  it('reports a listed name that is not a package name', async () => {
+    await mkdir(join(root, 'outside'))
+    await writeFile(
+      join(root, 'outside', 'package.json'),
+      JSON.stringify({ name: 'outside', version: '1', keywords: [RULESET_KEYWORD] })
+    )
+    await list('../outside')
+
+    expect(discover()).toEqual({
+      rulesets: [],
+      problems: [{ source: 'package ../outside', message: 'not a package name' }]
+    })
   })
 
   it('reports an unreadable drop-in directory and loads the packages', async () => {
@@ -292,7 +375,7 @@ describe('discoverRulesets', () => {
     await chmod(dropIn, 0o000)
     let result: DiscoveryResult
     try {
-      result = await discover()
+      result = discover()
     } finally {
       await chmod(dropIn, 0o755)
     }
@@ -329,7 +412,7 @@ describe('discoverRulesets', () => {
         ].join('\n')
     )
 
-    const result = await discover()
+    const result = discover()
 
     expect(result.problems).toEqual([])
     const values = result.rulesets[0]?.ruleset.rules.map((r) =>
@@ -344,7 +427,7 @@ describe('discoverRulesets', () => {
       rulesetYaml('latching').replace('priority: warning', 'priority: warning\n    latching: yes')
     )
 
-    const result = await discover()
+    const result = discover()
 
     expect(result.rulesets).toEqual([])
     expect(result.problems).toHaveLength(1)
@@ -356,7 +439,7 @@ describe('discoverRulesets', () => {
     await writeFile(join(dropIn, 'a-good.yaml'), rulesetYaml('good'))
     await writeFile(join(dropIn, 'b-bad.yaml'), 'name: Bad\nslug: bad\nrules: [\n  - x\n')
 
-    const result = await discover()
+    const result = discover()
 
     expect(slugs(result)).toEqual(['good'])
     expect(result.problems).toHaveLength(1)
@@ -370,7 +453,7 @@ describe('discoverRulesets', () => {
       rulesetYaml('twice').replace('priority: warning', 'priority: warning\n    priority: alarm')
     )
 
-    const result = await discover()
+    const result = discover()
 
     expect(result.rulesets).toEqual([])
     expect(result.problems).toEqual([
@@ -384,7 +467,7 @@ describe('discoverRulesets', () => {
       rulesetYaml('tagged').replace('name: Test', 'name: !shell Test')
     )
 
-    const result = await discover()
+    const result = discover()
 
     expect(result.rulesets).toEqual([])
     expect(result.problems).toEqual([
@@ -403,7 +486,7 @@ describe('discoverRulesets', () => {
       levels.push(`${next}: &${next} [${Array(10).fill(`*${prev}`).join(', ')}]`)
     await writeFile(join(dropIn, 'bomb.yaml'), levels.join('\n'))
 
-    const result = await discover()
+    const result = discover()
 
     expect(result.rulesets).toEqual([])
     expect(result.problems).toEqual([
@@ -417,7 +500,7 @@ describe('discoverRulesets', () => {
     await writeFile(join(dropIn, 'big.yaml'), valid + padding)
     await writeFile(join(dropIn, 'small.yaml'), rulesetYaml('small'))
 
-    const result = await discover()
+    const result = discover()
 
     expect(slugs(result)).toEqual(['small'])
     expect(result.problems).toEqual([
@@ -428,7 +511,7 @@ describe('discoverRulesets', () => {
   it('reports a ruleset with slug user as malformed', async () => {
     await writeFile(join(dropIn, 'user.yaml'), rulesetYaml('user'))
 
-    const result = await discover()
+    const result = discover()
 
     expect(result.rulesets).toEqual([])
     expect(result.problems[0]).toMatchObject({ source: 'file user.yaml' })
@@ -439,7 +522,7 @@ describe('discoverRulesets', () => {
     await writePackage('a-pkg', { [RULESET_FIELD]: 'r.yaml' }, { 'r.yaml': rulesetYaml('same') })
     await writeFile(join(dropIn, 'same.yaml'), rulesetYaml('same'))
 
-    const result = await discover()
+    const result = discover()
 
     expect(result.rulesets.map((r) => r.source)).toEqual(['package a-pkg'])
     expect(result.problems).toEqual([

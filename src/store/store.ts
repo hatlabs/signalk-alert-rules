@@ -1,5 +1,7 @@
 import * as nodeFs from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
+import type { EditBasis } from '../engine/evaluator.js'
+import type { FrozenGates } from '../engine/suppression.js'
 import { SLUG_PATTERN, type Rule } from '../model/rule.js'
 import { errorMessage, isRecord } from '../util.js'
 
@@ -31,18 +33,86 @@ export interface EvaluationSwitch {
   at?: string
 }
 
-/** Accumulator totals by rule id, then by instance segment (`''` for a rule without instances). */
-export type Checkpoints = Record<string, Record<string, number>>
+/**
+ * A rule's accumulator totals by instance segment (`''` for a rule without
+ * instances), with the measure they were built under: a rule of another
+ * measure must not take them over, whatever else on disk says.
+ */
+export interface StoredTotals {
+  measure: string
+  totals: Record<string, number>
+}
+
+/** Accumulator totals by rule id. */
+export type Checkpoints = Record<string, StoredTotals>
+
+/** A suppression of a rule or an input path, with who started it and when. */
+export interface Suppression {
+  /** Wall time the suppression started. */
+  since: string
+  actor: string
+  note?: string
+  /** Seconds the condition must stay clear for the suppression to end by itself; manual when absent. */
+  autoEndAfter?: number
+}
+
+/** A suppression of an input path, with the gate states it froze when it started. */
+export interface InputSuppression extends Suppression {
+  frozen?: FrozenGates
+}
+
+/** An operator's settings for one rule; a rule without them is enabled, unsuppressed and has no note. */
+export interface RuleControl {
+  enabled: boolean
+  note?: string
+  suppression?: Suppression
+}
+
+/** Something an upgrade or rescan changed that the operator should know, kept until dismissed. */
+export interface RulesetNotice {
+  at: string
+  message: string
+}
+
+/** An operator's settings for one ruleset, with what was loaded last to tell what an upgrade changed. */
+export interface RulesetControl {
+  enabled: boolean
+  /** Values the operator set, by parameter name; the rest take their defaults. */
+  parameters: Record<string, number | string>
+  version: string
+  /** The rules last loaded, by slug, with the gates an edit of each compares. */
+  rules: Record<string, EditBasis>
+  notices: RulesetNotice[]
+}
+
+export interface Controls {
+  /** By rule id, `<origin>.<slug>`. */
+  rules: Record<string, RuleControl>
+  /** By exact concrete path. */
+  inputs: Record<string, InputSuppression>
+  /** By ruleset slug; a ruleset without an entry is disabled. Absent when no ruleset was ever seen. */
+  rulesets?: Record<string, RulesetControl>
+}
+
+const RULE_ACTIONS = ['delete', 'reset', 'enable', 'disable', 'note'] as const
+const SUPPRESSION_ACTIONS = ['suppress', 'unsuppress'] as const
+const RULESET_ACTIONS = ['enable', 'disable', 'parameters', 'dismiss'] as const
 
 /** An operator action that changed what SKAR raises, with who did it and when. */
 export type LogEntry = { at: string; actor: string } & (
-  { action: 'delete' | 'reset'; rule: string } | { action: 'evaluation'; enabled: boolean }
+  | { action: (typeof RULE_ACTIONS)[number]; rule: string }
+  | { action: (typeof SUPPRESSION_ACTIONS)[number]; rule: string }
+  | { action: (typeof SUPPRESSION_ACTIONS)[number]; path: string }
+  | { action: 'evaluation'; enabled: boolean }
+  | { action: (typeof RULESET_ACTIONS)[number]; ruleset: string }
+  | { action: 'rescan' }
 )
 
 export interface StoreContents {
   rules: StoredRule[]
   evaluation: EvaluationSwitch
   accumulators: Checkpoints
+  controls: Controls
   /** Oldest first. */
   log: LogEntry[]
   /** Slugs of rule files that could not be read and are still in place. */
@@ -55,6 +125,7 @@ const RULES_DIR = 'rules'
 const EVALUATION_FILE = 'evaluation.json'
 const ACCUMULATORS_FILE = 'accumulators.json'
 const LOG_FILE = 'log.json'
+const CONTROLS_FILE = 'controls.json'
 const JSON_SUFFIX = '.json'
 const TMP_SUFFIX = '.tmp'
 const SLUG = new RegExp(SLUG_PATTERN)
@@ -68,30 +139,106 @@ function isEvaluationSwitch(value: unknown): value is EvaluationSwitch {
   )
 }
 
-function isCheckpoints(value: unknown): value is Checkpoints {
+function isStoredTotals(value: unknown): value is StoredTotals {
   return (
     isRecord(value) &&
-    Object.values(value).every(
-      (totals) =>
-        isRecord(totals) &&
-        Object.values(totals).every((t) => typeof t === 'number' && Number.isFinite(t))
-    )
+    typeof value.measure === 'string' &&
+    isRecord(value.totals) &&
+    Object.values(value.totals).every((t) => typeof t === 'number' && Number.isFinite(t))
   )
 }
+
+const optional = (value: unknown, type: 'string' | 'number') =>
+  value === undefined || typeof value === type
+
+function isSuppression(value: unknown): value is Suppression {
+  return (
+    isRecord(value) &&
+    typeof value.since === 'string' &&
+    typeof value.actor === 'string' &&
+    optional(value.note, 'string') &&
+    optional(value.autoEndAfter, 'number')
+  )
+}
+
+const recordOf =
+  <T>(accepts: (value: unknown) => value is T) =>
+  (value: unknown): value is Record<string, T> =>
+    isRecord(value) && Object.values(value).every(accepts)
+
+const isCheckpoints = recordOf(isStoredTotals)
+
+const isFrozenGates = recordOf(
+  recordOf(recordOf((holds): holds is boolean => typeof holds === 'boolean'))
+)
+
+function isInputSuppression(value: unknown): value is InputSuppression {
+  return (
+    isRecord(value) &&
+    (value.frozen === undefined || isFrozenGates(value.frozen)) &&
+    isSuppression(value)
+  )
+}
+
+function isRuleControl(value: unknown): value is RuleControl {
+  return (
+    isRecord(value) &&
+    typeof value.enabled === 'boolean' &&
+    optional(value.note, 'string') &&
+    (value.suppression === undefined || isSuppression(value.suppression))
+  )
+}
+
+function isNotice(value: unknown): value is RulesetNotice {
+  return isRecord(value) && typeof value.at === 'string' && typeof value.message === 'string'
+}
+
+const isParameterValues = recordOf(
+  (v): v is number | string =>
+    typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v))
+)
+
+function isEditBasis(value: unknown): value is EditBasis {
+  return isRecord(value) && Array.isArray(value.gates)
+}
+
+function isRulesetControl(value: unknown): value is RulesetControl {
+  return (
+    isRecord(value) &&
+    typeof value.enabled === 'boolean' &&
+    isParameterValues(value.parameters) &&
+    typeof value.version === 'string' &&
+    recordOf(isEditBasis)(value.rules) &&
+    Array.isArray(value.notices) &&
+    value.notices.every(isNotice)
+  )
+}
+
+function isControls(value: unknown): value is Controls {
+  return (
+    isRecord(value) &&
+    isRecord(value.rules) &&
+    Object.values(value.rules).every(isRuleControl) &&
+    isRecord(value.inputs) &&
+    Object.values(value.inputs).every(isInputSuppression) &&
+    (value.rulesets === undefined || recordOf(isRulesetControl)(value.rulesets))
+  )
+}
+
+const isOneOf = <T extends string>(values: readonly T[], value: unknown): value is T =>
+  (values as readonly unknown[]).includes(value)
 
 function isLogEntry(value: unknown): value is LogEntry {
   if (!isRecord(value) || typeof value.at !== 'string' || typeof value.actor !== 'string') {
     return false
   }
-  switch (value.action) {
-    case 'delete':
-    case 'reset':
-      return typeof value.rule === 'string'
-    case 'evaluation':
-      return typeof value.enabled === 'boolean'
-    default:
-      return false
+  if (value.action === 'rescan') return true
+  if (isOneOf(RULESET_ACTIONS, value.action) && typeof value.ruleset === 'string') return true
+  if (isOneOf(RULE_ACTIONS, value.action)) return typeof value.rule === 'string'
+  if (isOneOf(SUPPRESSION_ACTIONS, value.action)) {
+    return typeof value.rule === 'string' || typeof value.path === 'string'
   }
+  return value.action === 'evaluation' && typeof value.enabled === 'boolean'
 }
 
 function isLog(value: unknown): value is LogEntry[] {
@@ -111,7 +258,11 @@ function checkSlug(slug: string): void {
  * - `rules/<slug>.json`: one user rule per file, so saving one rule never
  *   rewrites another;
  * - `evaluation.json`: the evaluation switch;
- * - `accumulators.json`: accumulator totals, rewritten whole at each checkpoint;
+ * - `accumulators.json`: accumulator totals, each with the measure it was
+ *   built under, rewritten whole at each checkpoint;
+ * - `controls.json`: per-rule enable, note and suppression, input
+ *   suppressions, and per-ruleset enable, parameter values and notices,
+ *   rewritten whole at each change;
  * - `log.json`: the recent operator actions, rewritten whole at each action.
  *
  * Every write goes to a temporary file in the same directory, is flushed to
@@ -160,6 +311,7 @@ export class Store {
       rules,
       evaluation: this.read(EVALUATION_FILE, isEvaluationSwitch, issues) ?? { enabled: true },
       accumulators: this.read(ACCUMULATORS_FILE, isCheckpoints, issues) ?? {},
+      controls: this.read(CONTROLS_FILE, isControls, issues) ?? { rules: {}, inputs: {} },
       log: this.read(LOG_FILE, isLog, issues) ?? [],
       unreadableRules,
       issues
@@ -183,6 +335,10 @@ export class Store {
 
   saveCheckpoints(checkpoints: Checkpoints): void {
     this.write(ACCUMULATORS_FILE, checkpoints)
+  }
+
+  saveControls(controls: Controls): void {
+    this.write(CONTROLS_FILE, controls)
   }
 
   saveLog(log: LogEntry[]): void {

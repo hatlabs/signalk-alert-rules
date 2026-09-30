@@ -124,7 +124,9 @@ describe('plugin', () => {
     vi.advanceTimersByTime(59_000)
     expect(new Store(dir).load().accumulators).toEqual({})
     vi.advanceTimersByTime(1_000)
-    expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 60 } })
+    expect(new Store(dir).load().accumulators).toEqual({
+      'user.engine-hours': { measure: 'time', totals: { '': 60 } }
+    })
 
     await plugin.stop()
   })
@@ -159,11 +161,15 @@ describe('plugin', () => {
     app.subscriptionmanager.publish(RPM, 'src', 30)
     vi.advanceTimersByTime(10_000)
     await plugin.stop()
-    expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 10 } })
+    expect(new Store(dir).load().accumulators).toEqual({
+      'user.engine-hours': { measure: 'time', totals: { '': 10 } }
+    })
 
     vi.advanceTimersByTime(300_000)
     expect(app.core.list()).toEqual([])
-    expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 10 } })
+    expect(new Store(dir).load().accumulators).toEqual({
+      'user.engine-hours': { measure: 'time', totals: { '': 10 } }
+    })
   })
 
   it('runs and reports what it could not load', async () => {
@@ -246,7 +252,9 @@ describe('plugin', () => {
     app.subscriptionmanager.publish(RPM, 'src', 30)
     vi.advanceTimersByTime(60_000)
     // One tick a second: a second set of timers would count twice as fast.
-    expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 60 } })
+    expect(new Store(dir).load().accumulators).toEqual({
+      'user.engine-hours': { measure: 'time', totals: { '': 60 } }
+    })
 
     await plugin.stop()
   })
@@ -286,6 +294,92 @@ describe('plugin', () => {
     await plugin.stop()
   })
 
+  it('logs an auto-end it cannot save once and restores the status when the disk recovers', async () => {
+    storeRule(hours)
+    const suppression = { since: '2026-09-30T12:00:00.000Z', actor: 'admin', autoEndAfter: 5 }
+    writeFileSync(
+      join(dir, 'controls.json'),
+      JSON.stringify({ rules: { 'user.engine-hours': { enabled: true, suppression } }, inputs: {} })
+    )
+    const app = new MockServerAPI(true, dir)
+    const plugin = createPlugin(app.asServerAPI())
+    plugin.start({}, () => undefined)
+    const running = app.pluginStatus
+    app.subscriptionmanager.publish(RPM, 'src', 30)
+    // A directory where the file belongs makes the rename fail.
+    rmSync(join(dir, 'controls.json'))
+    mkdirSync(join(dir, 'controls.json', 'blocker'), { recursive: true })
+
+    vi.advanceTimersByTime(60_000)
+    expect(app.pluginError).toMatch(/could not end a suppression by itself/)
+    expect(app.errors).toEqual([expect.stringMatching(/user\.engine-hours/)])
+
+    rmSync(join(dir, 'controls.json'), { recursive: true })
+    vi.advanceTimersByTime(1_000)
+    expect(app.pluginError).toBeUndefined()
+    expect(app.pluginStatus).toBe(running)
+    expect(new Store(dir).load().controls.rules).toEqual({})
+
+    await plugin.stop()
+  })
+
+  it('keeps reporting a failing checkpoint when a failing tick recovers', async () => {
+    storeRule(hours)
+    const suppression = { since: '2026-09-30T12:00:00.000Z', actor: 'admin', autoEndAfter: 5 }
+    writeFileSync(
+      join(dir, 'controls.json'),
+      JSON.stringify({ rules: { 'user.engine-hours': { enabled: true, suppression } }, inputs: {} })
+    )
+    const app = new MockServerAPI(true, dir)
+    const plugin = createPlugin(app.asServerAPI())
+    plugin.start({}, () => undefined)
+    const running = app.pluginStatus
+    app.subscriptionmanager.publish(RPM, 'src', 30)
+    // Directories where the files belong make both renames fail.
+    rmSync(join(dir, 'controls.json'))
+    mkdirSync(join(dir, 'controls.json', 'blocker'), { recursive: true })
+    mkdirSync(join(dir, 'accumulators.json', 'blocker'), { recursive: true })
+
+    vi.advanceTimersByTime(60_000)
+    expect(app.pluginError).toMatch(/accumulator totals/)
+
+    rmSync(join(dir, 'controls.json'), { recursive: true })
+    vi.advanceTimersByTime(1_000)
+    expect(app.pluginError).toMatch(/accumulator totals/)
+
+    rmSync(join(dir, 'accumulators.json'), { recursive: true })
+    vi.advanceTimersByTime(60_000)
+    expect(app.pluginError).toBeUndefined()
+    expect(app.pluginStatus).toBe(running)
+
+    await plugin.stop()
+  })
+
+  it('drops a start issue from the status once the write it names succeeds', async () => {
+    storeRule(hours)
+    const stale = { measure: 'integral', totals: { '': 50 } }
+    new Store(dir).saveCheckpoints({ 'user.engine-hours': stale })
+    const save = vi.spyOn(Store.prototype, 'saveCheckpoints').mockImplementationOnce(() => {
+      throw new Error('ENOSPC: no space left on device')
+    })
+    try {
+      const app = new MockServerAPI(true, dir)
+      const plugin = createPlugin(app.asServerAPI())
+      const state = stateOf(plugin)
+      plugin.start({}, () => undefined)
+      expect(app.pluginStatus).toMatch(/^Running; the accumulator totals could not be saved/)
+
+      vi.advanceTimersByTime(60_000)
+      expect(app.pluginError).toBeUndefined()
+      expect(app.pluginStatus).toBe('Running')
+      expect(state()).toMatchObject({ issues: [] })
+
+      await plugin.stop()
+    } finally {
+      save.mockRestore()
+    }
+  })
+
   it('logs a failing checkpoint once and restores the status when the disk recovers', async () => {
     storeRule(hours)
     storeRule({ ...hours, slug: 'genset-hours', priority: 'loud' })
@@ -306,7 +400,9 @@ describe('plugin', () => {
     expect(app.pluginError).toBeUndefined()
     expect(app.pluginStatus).toBe(running)
     expect(app.pluginStatus).toMatch(/^Running; .*genset-hours/)
-    expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 240 } })
+    expect(new Store(dir).load().accumulators).toEqual({
+      'user.engine-hours': { measure: 'time', totals: { '': 240 } }
+    })
 
     await plugin.stop()
   })

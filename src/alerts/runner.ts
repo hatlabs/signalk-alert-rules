@@ -1,11 +1,13 @@
 import {
   carriesTotals,
+  measureOf,
   RuleEvaluator,
   type Adopted,
   type EvaluatorContext,
   type InstanceStatus,
   type RuleEvent
 } from '../engine/evaluator.js'
+import { NO_SUPPRESSIONS, ruleScope, type Suppressions } from '../engine/suppression.js'
 import { priorityOf, type Priority, type Rule } from '../model/rule.js'
 import { alertPathFor } from '../model/validate.js'
 import { statusBadge, type Verdict } from './badge.js'
@@ -45,6 +47,12 @@ export interface RunnerRuleStatus extends Verdict {
   instances: RunnerInstanceStatus[]
 }
 
+/** A rule's accumulator totals by instance segment, with the measure they were built under. */
+export interface Accumulated {
+  measure: string
+  totals: Map<string, number>
+}
+
 const idOf = (entry: LoadedRule) => ruleId(entry.origin, entry.rule.slug)
 
 /** What the rule says about an instance's alert at a priority. */
@@ -74,11 +82,13 @@ export class RuleRunner {
   /**
    * @param accumulated accumulator totals restored from the store, by rule id
    *   and instance segment; applied to the rules started by `start`.
+   * @param suppressions read at every evaluation; `refresh` applies a change at once.
    */
   constructor(
     private readonly deps: RunnerDeps,
     rules: readonly LoadedRule[],
-    private readonly accumulated: ReadonlyMap<string, ReadonlyMap<string, number>> = new Map()
+    private readonly accumulated: ReadonlyMap<string, ReadonlyMap<string, number>> = new Map(),
+    private readonly suppressions: Suppressions = NO_SUPPRESSIONS
   ) {
     this.emitter = new AlertEmitter(deps)
     for (const entry of rules) this.entries.set(idOf(entry), entry)
@@ -129,6 +139,29 @@ export class RuleRunner {
       }
     }
     this.emitter.beat(this.deps.clock())
+  }
+
+  /**
+   * Evaluates every rule now, so a change of the suppressions clears or
+   * raises at once rather than at the next sample or tick.
+   */
+  refresh(): void {
+    for (const [id, evaluator] of this.evaluators) {
+      try {
+        evaluator.refresh()
+      } catch (err) {
+        this.error(id, `evaluation failed: ${errorMessage(err)}`)
+      }
+    }
+  }
+
+  /** Restarts the clear count of a rule's instances, or of the instances of any rule that read a path. */
+  restartClearCount(target: { rule: string } | { path: string }): void {
+    if ('rule' in target) {
+      this.evaluators.get(target.rule)?.restartClearCount()
+      return
+    }
+    for (const evaluator of this.evaluators.values()) evaluator.restartClearCount(target.path)
   }
 
   /** Stops evaluating without clearing anything: stop runs on every configuration save. */
@@ -203,19 +236,25 @@ export class RuleRunner {
     this.failed.delete(id)
   }
 
+  has(id: string): boolean {
+    return this.entries.has(id)
+  }
+
   /** Whether the rule's evaluator threw at start, so any edit starts it again. */
   failedToStart(id: string): boolean {
     return this.failed.has(id)
   }
 
-  /** Accumulator totals by rule id and instance segment, for the store's checkpoint. */
-  accumulators(): Map<string, Map<string, number>> {
-    const totals = new Map<string, Map<string, number>>()
+  /** Accumulator totals by rule id, for the store's checkpoint. */
+  accumulators(): Map<string, Accumulated> {
+    const accumulated = new Map<string, Accumulated>()
     for (const [id, evaluator] of this.evaluators) {
-      const rule = evaluator.accumulators()
-      if (rule.size > 0) totals.set(id, rule)
+      const totals = evaluator.accumulators()
+      const rule = this.entries.get(id)?.rule
+      const measure = rule === undefined ? undefined : measureOf(rule)
+      if (totals.size > 0 && measure !== undefined) accumulated.set(id, { measure, totals })
     }
-    return totals
+    return accumulated
   }
 
   status(id: string): RunnerRuleStatus | undefined {
@@ -232,10 +271,11 @@ export class RuleRunner {
         ? instance
         : { ...instance, ...alert, awaitingInput: !this.hasEvidence(entry.rule, instance) }
     })
-    const verdict = statusBadge(errors, instances)
+    const verdict = statusBadge(errors, instances, ruleScope(this.suppressions.rule(id)))
     return {
       badge: verdict.badge,
       ...(verdict.reason === undefined ? {} : { reason: verdict.reason }),
+      ...(verdict.suppression === undefined ? {} : { suppression: verdict.suppression }),
       subLabels: verdict.subLabels,
       issues: status.issues,
       errors,
@@ -256,7 +296,8 @@ export class RuleRunner {
         this.onEvent(id, event)
       },
       adopted,
-      accumulated
+      accumulated,
+      { id, suppressions: this.suppressions }
     )
     this.evaluators.set(id, evaluator)
     // One rule failing to start, such as on a meta read that throws, must not

@@ -1,8 +1,17 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import type { Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import express from 'express'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Plugin } from '@signalk/server-api'
@@ -73,11 +82,16 @@ interface Harness {
   user: string | undefined
 }
 
+/** The server's config directory, where it installs plugins with npm. */
+let configDir: string
+/** The plugin's data directory, laid out under the config directory as the server lays it out. */
 let dir: string
 let servers: Server[]
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'skar-api-'))
+  configDir = mkdtempSync(join(tmpdir(), 'skar-api-'))
+  dir = join(configDir, 'plugin-config-data', 'signalk-alert-rules')
+  mkdirSync(dir, { recursive: true })
   servers = []
   // Real timeouts stay, which the HTTP client needs.
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'performance', 'Date'] })
@@ -86,7 +100,7 @@ beforeEach(() => {
 afterEach(async () => {
   vi.useRealTimers()
   await Promise.all(servers.map((s) => new Promise((resolve) => s.close(resolve))))
-  rmSync(dir, { recursive: true, force: true })
+  rmSync(configDir, { recursive: true, force: true })
 })
 
 function storeRule(rule: { slug: string }): void {
@@ -299,7 +313,9 @@ describe('REST API', () => {
       }
     })
     expect(core(h).getByPath('rules.user.engine-hours')?.condition).toBe(false)
-    expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 0 } })
+    expect(new Store(dir).load().accumulators).toEqual({
+      'user.engine-hours': { measure: 'time', totals: { '': 0 } }
+    })
     const log = await h.call('GET', '/log')
     expect(log.body).toEqual([
       {
@@ -337,7 +353,10 @@ describe('REST API', () => {
       { actor: 'admin', action: 'evaluation', enabled: false }
     ])
     const rules = await h.call('GET', '/rules')
-    expect((rules.body as { status: unknown }[]).map((r) => r.status)).toEqual([null, null])
+    expect((rules.body as { status: unknown }[]).map((r) => r.status)).toMatchObject([
+      { badge: 'disabled', reason: 'evaluation is off' },
+      { badge: 'disabled', reason: 'evaluation is off' }
+    ])
 
     const on = await h.call('PUT', '/evaluation', { enabled: true })
     expect(on.body).toMatchObject({ enabled: true, actor: 'admin' })
@@ -473,5 +492,393 @@ describe('REST API', () => {
     expect(reply.status).toBe(500)
     expect(reply.body).toMatchObject({ error: expect.any(String) as unknown })
     expect((await h.call('GET', '/rules')).body).toEqual([])
+  })
+})
+
+describe('rule controls API', () => {
+  const RULE = '/rules/user/oil-pressure-low'
+  const RULE_SUPPRESSION = '/suppressions/rules/user/oil-pressure-low'
+  const INPUT_SUPPRESSION = `/suppressions/inputs/${OIL}`
+
+  async function alerting(): Promise<Harness> {
+    storeRule(oil)
+    const h = await serve()
+    h.mock.subscriptionmanager.publish(OIL, 'src', 0)
+    at(5)
+    expect(core(h).getByPath(OIL_ALERT)?.condition).toBe(true)
+    return h
+  }
+
+  it('disables and enables a rule, answering its entry and recording the actor', async () => {
+    const h = await alerting()
+    const off = await h.call('PUT', `${RULE}/enabled`, { enabled: false })
+    expect(off.status).toBe(200)
+    expect(off.body).toMatchObject({
+      enabled: false,
+      status: { badge: 'disabled', reason: 'disabled' }
+    })
+    expect(core(h).getByPath(OIL_ALERT)?.condition).toBe(false)
+
+    const on = await h.call('PUT', `${RULE}/enabled`, { enabled: true })
+    expect(on.body).toMatchObject({ enabled: true })
+    at(5)
+    expect(core(h).getByPath(OIL_ALERT)?.condition).toBe(true)
+    expect((await h.call('GET', '/log')).body).toMatchObject([
+      { actor: 'admin', action: 'enable', rule: 'user.oil-pressure-low' },
+      { actor: 'admin', action: 'disable', rule: 'user.oil-pressure-low' }
+    ])
+  })
+
+  it('sets a rule note', async () => {
+    storeRule(oil)
+    const h = await serve()
+    const reply = await h.call('PUT', `${RULE}/note`, { note: 'sender replaced in spring' })
+    expect(reply.status).toBe(200)
+    expect(reply.body).toMatchObject({ note: 'sender replaced in spring' })
+    expect((await h.call('GET', RULE)).body).toMatchObject({ note: 'sender replaced in spring' })
+  })
+
+  it('suppresses a rule, lists the suppression and ends it', async () => {
+    const h = await alerting()
+    const reply = await h.call('PUT', RULE_SUPPRESSION, {
+      note: 'faulty sender',
+      autoEndAfter: 600
+    })
+    expect(reply.status).toBe(200)
+    expect(reply.body).toMatchObject({
+      suppression: { actor: 'admin', note: 'faulty sender', autoEndAfter: 600 },
+      status: { badge: 'suppressed', subLabels: ['waitingForClear'] }
+    })
+    expect(core(h).getByPath(OIL_ALERT)?.condition).toBe(false)
+    expect((await h.call('GET', '/suppressions')).body).toEqual([
+      {
+        scope: 'rule',
+        rule: 'user.oil-pressure-low',
+        origin: 'user',
+        slug: 'oil-pressure-low',
+        since: expect.any(String) as unknown,
+        actor: 'admin',
+        note: 'faulty sender',
+        autoEndAfter: 600
+      }
+    ])
+
+    expect((await h.call('DELETE', RULE_SUPPRESSION)).status).toBe(204)
+    expect(core(h).getByPath(OIL_ALERT)?.condition).toBe(true)
+    expect((await h.call('GET', '/suppressions')).body).toEqual([])
+  })
+
+  it('suppresses an input path, previews it and ends it', async () => {
+    const h = await alerting()
+    const preview = await h.call('GET', `${INPUT_SUPPRESSION}/preview`)
+    expect(preview.body).toEqual({
+      path: OIL,
+      suppresses: [{ rule: 'user.oil-pressure-low', origin: 'user', slug: 'oil-pressure-low' }],
+      freezes: []
+    })
+    h.user = undefined
+    const reply = await h.call('PUT', INPUT_SUPPRESSION, {})
+    expect(reply.status).toBe(200)
+    expect(reply.body).toEqual({
+      scope: 'input',
+      path: OIL,
+      since: expect.any(String) as unknown,
+      actor: 'unauthenticated'
+    })
+    expect(core(h).getByPath(OIL_ALERT)?.condition).toBe(false)
+    expect((await h.call('DELETE', INPUT_SUPPRESSION)).status).toBe(204)
+    expect(core(h).getByPath(OIL_ALERT)?.condition).toBe(true)
+  })
+
+  it('suppressions survive a plugin restart', async () => {
+    const h = await alerting()
+    await h.call('PUT', RULE_SUPPRESSION, {})
+    await h.call('PUT', INPUT_SUPPRESSION, {})
+    await h.restart()
+    h.mock.subscriptionmanager.publish(OIL, 'src', 0)
+    at(10)
+    expect(core(h).getByPath(OIL_ALERT)?.condition).toBe(false)
+    expect((await h.call('GET', '/suppressions')).body).toMatchObject([
+      { scope: 'rule', rule: 'user.oil-pressure-low' },
+      { scope: 'input', path: OIL }
+    ])
+  })
+
+  it('answers the error paths', async () => {
+    storeRule(oil)
+    const h = await serve()
+    const replies = await Promise.all([
+      h.call('PUT', '/rules/user/missing/enabled', { enabled: false }),
+      h.call('PUT', '/rules/some-ruleset/oil-pressure-low/note', { note: 'x' }),
+      h.call('PUT', '/suppressions/rules/user/missing', {}),
+      h.call('DELETE', '/suppressions/rules/user/missing'),
+      h.call('PUT', `${RULE}/enabled`, { enabled: 'no' }),
+      h.call('PUT', `${RULE}/note`, { note: 5 }),
+      h.call('PUT', `${RULE}/note`, { note: 'x'.repeat(501) }),
+      h.call('PUT', RULE_SUPPRESSION, { autoEndAfter: -1 }),
+      h.call('PUT', RULE_SUPPRESSION, { autoEnd: 60 }),
+      h.call('PUT', RULE_SUPPRESSION, []),
+      h.call('PUT', '/suppressions/inputs/propulsion.*.oilPressure', {}),
+      h.call('PUT', '/suppressions/inputs/propulsion..oilPressure', {}),
+      h.call('GET', '/suppressions/inputs/propulsion.*.oilPressure/preview')
+    ])
+    expect(replies.map((r) => r.status)).toEqual([
+      404, 404, 404, 404, 400, 400, 400, 400, 400, 400, 400, 400, 400
+    ])
+    expect(replies[3].body).toEqual({ error: 'no such rule' })
+    expect(replies[4].body).toMatchObject({ errors: [{ path: '/enabled' }] })
+    expect(replies[5].body).toMatchObject({ errors: [{ path: '/note' }] })
+    expect(replies[7].body).toMatchObject({ errors: [{ path: '/autoEndAfter' }] })
+    expect(replies[8].body).toMatchObject({ errors: [{ path: '/autoEnd' }] })
+    expect(replies[10].body).toMatchObject({ errors: [{ path: '/path' }] })
+    expect((await h.call('GET', '/log')).body).toEqual([])
+  })
+
+  it.each([
+    [0, 400],
+    [0.001, 200],
+    [86400, 200],
+    [86400.001, 400],
+    ['600', 400]
+  ])('takes an autoEndAfter of %s with %i', async (autoEndAfter, status) => {
+    storeRule(oil)
+    const h = await serve()
+    expect((await h.call('PUT', RULE_SUPPRESSION, { autoEndAfter })).status).toBe(status)
+  })
+
+  it('ending a suppression that is not in force answers 204 and records nothing', async () => {
+    storeRule(oil)
+    const h = await serve()
+    expect((await h.call('DELETE', RULE_SUPPRESSION)).status).toBe(204)
+    expect((await h.call('DELETE', INPUT_SUPPRESSION)).status).toBe(204)
+    expect((await h.call('GET', '/log')).body).toEqual([])
+  })
+
+  it('rejects every control change without a JSON content type', async () => {
+    storeRule(oil)
+    const h = await serve()
+    const form = { 'content-type': 'application/x-www-form-urlencoded' }
+    const replies = await Promise.all([
+      h.call('PUT', `${RULE}/enabled`, 'enabled=false', form),
+      h.call('PUT', `${RULE}/note`, 'note=x', form),
+      h.call('PUT', RULE_SUPPRESSION, 'note=x', form),
+      h.call('DELETE', RULE_SUPPRESSION, undefined, {}),
+      h.call('PUT', INPUT_SUPPRESSION, 'note=x', form),
+      h.call('DELETE', INPUT_SUPPRESSION, undefined, {})
+    ])
+    expect(replies.map((r) => r.status)).toEqual([415, 415, 415, 415, 415, 415])
+    expect(existsSync(join(dir, 'controls.json'))).toBe(false)
+  })
+
+  it('answers 503 while the plugin is not running', async () => {
+    const h = await serve({ withAlerts: false })
+    const replies = await Promise.all([
+      h.call('GET', '/suppressions'),
+      h.call('PUT', `${RULE}/enabled`, { enabled: false }),
+      h.call('PUT', INPUT_SUPPRESSION, {}),
+      h.call('GET', `${INPUT_SUPPRESSION}/preview`)
+    ])
+    expect(replies.map((r) => r.status)).toEqual([503, 503, 503, 503])
+  })
+})
+
+describe('rulesets API', () => {
+  const EXAMPLE = join(dirname(fileURLToPath(import.meta.url)), '../../examples/ruleset-example')
+  const HOUSE_VOLTAGE = 'electrical.batteries.house.voltage'
+  const LOW_ALERT = 'rules.batteries.low'
+
+  /** Records an installed package in the config package.json, as the server's npm install does. */
+  function list(name: string): void {
+    const file = join(configDir, 'package.json')
+    const pkg = existsSync(file)
+      ? (JSON.parse(readFileSync(file, 'utf8')) as { dependencies: Record<string, string> })
+      : { dependencies: {} }
+    pkg.dependencies[name] = '*'
+    writeFileSync(file, JSON.stringify(pkg))
+  }
+
+  function installExample(): void {
+    cpSync(EXAMPLE, join(configDir, 'node_modules', 'signalk-alert-ruleset-example'), {
+      recursive: true
+    })
+    list('signalk-alert-ruleset-example')
+  }
+
+  /** A provider package whose ruleset has the given rules, each a sustained rule on its own path. */
+  function installProvider(version: string, slugs: string[]): void {
+    const pkg = join(configDir, 'node_modules', 'provider')
+    mkdirSync(pkg, { recursive: true })
+    list('provider')
+    writeFileSync(
+      join(pkg, 'package.json'),
+      JSON.stringify({
+        name: 'provider',
+        version,
+        keywords: ['signalk-alert-ruleset'],
+        'signalk-alert-ruleset': 'ruleset.yaml'
+      })
+    )
+    const rules = slugs.flatMap((slug) => [
+      `  - name: ${slug}`,
+      `    slug: ${slug}`,
+      `    message: ${slug}`,
+      '    priority: warning',
+      `    signal: { path: test.${slug} }`,
+      '    detector: { type: sustained, direction: above, limit: { kind: fixed, value: 1 } }'
+    ])
+    writeFileSync(
+      join(pkg, 'ruleset.yaml'),
+      ['name: Provided', 'slug: provided', `version: "${version}"`, 'rules:', ...rules].join('\n')
+    )
+  }
+
+  it('lists a package ruleset disabled, then enables and tunes it, recording the actor', async () => {
+    installExample()
+    const h = await serve()
+    h.mock.subscriptionmanager.publish(HOUSE_VOLTAGE, 'src', 11)
+
+    const listed = await h.call('GET', '/rulesets')
+    expect(listed).toMatchObject({
+      status: 200,
+      body: {
+        rulesets: [
+          {
+            slug: 'batteries',
+            source: 'package signalk-alert-ruleset-example',
+            package: { name: 'signalk-alert-ruleset-example', version: '1.0.0' },
+            enabled: false,
+            values: {},
+            rules: ['low'],
+            missingPaths: [],
+            notices: []
+          }
+        ],
+        problems: []
+      }
+    })
+
+    const tuned = await h.call('PUT', '/rulesets/batteries/parameters', { delay: 5 })
+    expect(tuned).toMatchObject({ status: 200, body: { values: { delay: 5 } } })
+    const enabled = await h.call('PUT', '/rulesets/batteries/enabled', { enabled: true })
+    expect(enabled).toMatchObject({ status: 200, body: { enabled: true } })
+
+    at(4)
+    expect(core(h).list()).toEqual([])
+    at(1)
+    expect(core(h).getByPath(LOW_ALERT)?.condition).toBe(true)
+
+    const rule = await h.call('GET', '/rules/batteries/low')
+    expect(rule.body).toMatchObject({
+      origin: 'batteries',
+      ruleset: {
+        name: 'Battery monitoring',
+        version: '1.0.0',
+        package: { name: 'signalk-alert-ruleset-example', version: '1.0.0' }
+      },
+      status: { badge: 'alertActive' }
+    })
+    expect((await h.call('GET', '/log')).body).toMatchObject([
+      { actor: 'admin', action: 'enable', ruleset: 'batteries' },
+      { actor: 'admin', action: 'parameters', ruleset: 'batteries' }
+    ])
+  })
+
+  it('a ruleset installed after start appears after a rescan without restarting other rules', async () => {
+    storeRule(oil)
+    const h = await serve()
+    h.mock.subscriptionmanager.publish(OIL, 'src', 0)
+    at(3)
+
+    installExample()
+    mkdirSync(join(dir, 'rulesets'))
+    writeFileSync(join(dir, 'rulesets', 'broken.yaml'), 'name: Broken\nrules: [\n')
+    const rescanned = await h.call('POST', '/rulesets/rescan')
+
+    expect(rescanned).toMatchObject({
+      status: 200,
+      body: {
+        rulesets: [{ slug: 'batteries', enabled: false }],
+        problems: [{ source: 'file broken.yaml', line: expect.any(Number) as number }]
+      }
+    })
+    at(1)
+    expect(core(h).list()).toEqual([])
+    at(1)
+    expect(core(h).getByPath(OIL_ALERT)?.condition).toBe(true)
+    expect((await h.call('GET', '/log')).body).toMatchObject([{ actor: 'admin', action: 'rescan' }])
+  })
+
+  it('an upgrade clears a removed rule; its notice survives a restart until dismissed', async () => {
+    installProvider('1', ['kept', 'removed'])
+    const h = await serve()
+    h.mock.subscriptionmanager.publish('test.kept', 'src', 2)
+    h.mock.subscriptionmanager.publish('test.removed', 'src', 2)
+    await h.call('PUT', '/rulesets/provided/enabled', { enabled: true })
+    at(1)
+    expect(core(h).getByPath('rules.provided.removed')?.condition).toBe(true)
+
+    installProvider('2', ['kept'])
+    await h.call('POST', '/rulesets/rescan')
+    expect(core(h).getByPath('rules.provided.removed')?.condition).toBe(false)
+    expect(core(h).getByPath('rules.provided.kept')?.condition).toBe(true)
+
+    await h.restart()
+    expect((await h.call('GET', '/rulesets')).body).toMatchObject({
+      rulesets: [
+        {
+          version: '2',
+          enabled: true,
+          notices: [{ message: expect.stringContaining('rule removed') as string }]
+        }
+      ]
+    })
+
+    expect((await h.call('DELETE', '/rulesets/provided/notices')).status).toBe(204)
+    expect((await h.call('GET', '/rulesets')).body).toMatchObject({
+      rulesets: [{ notices: [] }]
+    })
+    expect((await h.call('GET', '/log')).body).toMatchObject([
+      { actor: 'admin', action: 'dismiss', ruleset: 'provided' },
+      { actor: 'admin', action: 'rescan' },
+      { actor: 'admin', action: 'enable', ruleset: 'provided' }
+    ])
+  })
+
+  it('answers the error paths', async () => {
+    installExample()
+    const h = await serve()
+    const replies = await Promise.all([
+      h.call('PUT', '/rulesets/nope/enabled', { enabled: true }),
+      h.call('PUT', '/rulesets/nope/parameters', {}),
+      h.call('DELETE', '/rulesets/nope/notices'),
+      h.call('PUT', '/rulesets/batteries/enabled', { enabled: 'yes' }),
+      h.call('PUT', '/rulesets/batteries/parameters', { lowVoltage: 20 })
+    ])
+    expect(replies.map((r) => r.status)).toEqual([404, 404, 404, 400, 400])
+    expect(replies[4].body).toMatchObject({ errors: [{ path: '/lowVoltage' }] })
+  })
+
+  it('rejects every ruleset change without a JSON content type', async () => {
+    installExample()
+    const h = await serve()
+    const form = { 'content-type': 'application/x-www-form-urlencoded' }
+    const replies = await Promise.all([
+      h.call('POST', '/rulesets/rescan', undefined, {}),
+      h.call('PUT', '/rulesets/batteries/enabled', 'enabled=true', form),
+      h.call('PUT', '/rulesets/batteries/parameters', 'delay=5', form),
+      h.call('DELETE', '/rulesets/batteries/notices', undefined, {})
+    ])
+    expect(replies.map((r) => r.status)).toEqual([415, 415, 415, 415])
+    expect((await h.call('GET', '/log')).body).toEqual([])
+  })
+
+  it('answers 503 while the plugin is not running', async () => {
+    const h = await serve({ withAlerts: false })
+    const replies = await Promise.all([
+      h.call('GET', '/rulesets'),
+      h.call('POST', '/rulesets/rescan'),
+      h.call('PUT', '/rulesets/batteries/enabled', { enabled: true })
+    ])
+    expect(replies.map((r) => r.status)).toEqual([503, 503, 503])
   })
 })

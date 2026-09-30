@@ -129,6 +129,8 @@ describe('status badge', () => {
 
   it('lists the badges in precedence order', () => {
     expect(BADGES).toEqual([
+      'disabled',
+      'suppressed',
       'errored',
       'inactive',
       'alertActive',
@@ -138,5 +140,44 @@ describe('status badge', () => {
       'timerRunning',
       'idle'
     ])
+  })
+})
+
+describe('suppressed status', () => {
+  const input = { scope: 'input', path: 'propulsion.port.oilPressure' } as const
+
+  it('an input-suppressed instance is suppressed with its scope, and so is its rule above idle', () => {
+    const status = statusBadge([], [{ ...idle, suppression: input }, idle])
+    expect(status).toMatchObject({ badge: 'suppressed', suppression: input, subLabels: [] })
+    expect(status.instances.map((i) => i.badge)).toEqual(['suppressed', 'idle'])
+    expect(status.instances[0]?.suppression).toEqual(input)
+  })
+
+  it("an input-suppressed instance hides neither another instance's alert nor the rule's error", () => {
+    const suppressed = { ...idle, suppression: input }
+    expect(statusBadge([], [suppressed, { ...idle, active: true }]).badge).toBe('alertActive')
+    expect(statusBadge([], [suppressed, { ...idle, inactive: 'no zone' }]).badge).toBe('inactive')
+    const errored = statusBadge(['evaluation failed: boom'], [suppressed])
+    expect(errored).toMatchObject({ badge: 'errored', reason: 'evaluation failed: boom' })
+    expect(errored.suppression).toBeUndefined()
+  })
+
+  it("the rule's own suppression outranks an error and an active alert", () => {
+    const scope = { scope: 'rule' } as const
+    const status = statusBadge(['boom'], [{ ...idle, active: true, suppression: scope }], scope)
+    expect(status).toMatchObject({ badge: 'suppressed', suppression: scope })
+    expect(status.reason).toBeUndefined()
+  })
+
+  it('a rule-level suppression makes a rule with no instance yet suppressed', () => {
+    const scope = { scope: 'rule' } as const
+    expect(statusBadge([], [], scope)).toMatchObject({ badge: 'suppressed', suppression: scope })
+  })
+
+  it('a suppression that ends by itself waits for clear', () => {
+    const scope = { scope: 'rule', autoEndAfter: 600 } as const
+    const status = statusBadge([], [{ ...idle, suppression: scope }], scope)
+    expect(status.subLabels).toEqual(['waitingForClear'])
+    expect(status.instances[0]?.subLabels).toEqual(['waitingForClear'])
   })
 })

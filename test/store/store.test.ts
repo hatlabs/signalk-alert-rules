@@ -47,10 +47,112 @@ describe('store', () => {
       rules: [],
       evaluation: { enabled: true },
       accumulators: {},
+      controls: { rules: {}, inputs: {} },
       log: [],
       unreadableRules: [],
       issues: []
     })
+  })
+
+  it('round-trips rule controls and input suppressions', () => {
+    const store = new Store(dir)
+    store.load()
+    const controls = {
+      rules: {
+        'user.oil': {
+          enabled: false,
+          note: 'sender replaced in spring',
+          suppression: {
+            since: '2026-09-30T12:00:00.000Z',
+            actor: 'admin',
+            note: 'faulty sender',
+            autoEndAfter: 600
+          }
+        },
+        'halpi.board-temperature': { enabled: true }
+      },
+      inputs: {
+        'propulsion.main.revolutions': {
+          since: '2026-09-30T12:00:00.000Z',
+          actor: 'admin',
+          frozen: {
+            'user.coolant-high': { '0': { '': true } },
+            'user.wild': { '1': { port: false } }
+          }
+        }
+      }
+    }
+    store.saveControls(controls)
+    expect(new Store(dir).load().controls).toEqual(controls)
+  })
+
+  it('round-trips ruleset controls', () => {
+    const store = new Store(dir)
+    store.load()
+    const controls = {
+      rules: { 'batteries.low': { enabled: false } },
+      inputs: {},
+      rulesets: {
+        batteries: {
+          enabled: true,
+          parameters: { lowVoltage: 11.5, prefix: 'electrical.batteries.start' },
+          version: '1.1.0',
+          rules: {
+            low: { gates: [] },
+            hours: { gates: [{ signal: { path: 'a.b' } }] }
+          },
+          notices: [{ at: '2026-09-30T12:00:00.000Z', message: 'rule gone was removed' }]
+        },
+        engines: { enabled: false, parameters: {}, version: '1', rules: {}, notices: [] }
+      }
+    }
+    store.saveControls(controls)
+    expect(new Store(dir).load().controls).toEqual(controls)
+  })
+
+  const ruleset = { enabled: true, parameters: {}, version: '1', rules: {}, notices: [] }
+  const since = { since: '2026-09-30T12:00:00.000Z', actor: 'admin' }
+  it.each([
+    ['rulesets as a list', { rules: {}, inputs: {}, rulesets: [] }],
+    [
+      'a ruleset without its version',
+      { rules: {}, inputs: {}, rulesets: { a: { ...ruleset, version: undefined } } }
+    ],
+    [
+      'a ruleset parameter that is neither number nor string',
+      { rules: {}, inputs: {}, rulesets: { a: { ...ruleset, parameters: { x: true } } } }
+    ],
+    [
+      'ruleset rules as a list of slugs',
+      { rules: {}, inputs: {}, rulesets: { a: { ...ruleset, rules: ['low'] } } }
+    ],
+    [
+      'a ruleset rule without its gates',
+      { rules: {}, inputs: {}, rulesets: { a: { ...ruleset, rules: { low: {} } } } }
+    ],
+    [
+      'a ruleset notice without its message',
+      { rules: {}, inputs: {}, rulesets: { a: { ...ruleset, notices: [{ at: 'x' }] } } }
+    ],
+    ['a rule control', { rules: { 'user.oil': { enabled: 'no' } }, inputs: {} }],
+    ['no inputs', { rules: {} }],
+    ['inputs as a list', { rules: {}, inputs: [] }],
+    ['an input suppression without its actor', { rules: {}, inputs: { 'a.b': { since: 'x' } } }],
+    [
+      'an input suppression with a text autoEndAfter',
+      { rules: {}, inputs: { 'a.b': { ...since, autoEndAfter: '60' } } }
+    ],
+    [
+      'a frozen gate state',
+      { rules: {}, inputs: { 'a.b': { ...since, frozen: { 'user.oil': { '0': { '': 'yes' } } } } } }
+    ]
+  ])('moves aside controls with %s it does not recognise and starts them empty', (_, bad) => {
+    const store = new Store(dir)
+    store.load()
+    writeFileSync(join(dir, 'controls.json'), JSON.stringify(bad))
+    const contents = new Store(dir).load()
+    expect(contents.controls).toEqual({ rules: {}, inputs: {} })
+    expect(contents.issues).toEqual([expect.stringMatching(/^controls\.json could not be read/)])
   })
 
   it('round-trips the action log', () => {
@@ -64,7 +166,24 @@ describe('store', () => {
         actor: 'unauthenticated',
         action: 'evaluation',
         enabled: false
-      }
+      },
+      { at: '2026-09-30T12:03:00.000Z', actor: 'admin', action: 'disable', rule: 'user.oil' },
+      { at: '2026-09-30T12:04:00.000Z', actor: 'admin', action: 'enable', rule: 'user.oil' },
+      { at: '2026-09-30T12:05:00.000Z', actor: 'admin', action: 'note', rule: 'user.oil' },
+      { at: '2026-09-30T12:06:00.000Z', actor: 'admin', action: 'suppress', rule: 'user.oil' },
+      { at: '2026-09-30T12:07:00.000Z', actor: 'auto-end', action: 'unsuppress', rule: 'user.oil' },
+      { at: '2026-09-30T12:08:00.000Z', actor: 'admin', action: 'suppress', path: 'a.b' },
+      { at: '2026-09-30T12:09:00.000Z', actor: 'admin', action: 'unsuppress', path: 'a.b' },
+      { at: '2026-09-30T12:10:00.000Z', actor: 'admin', action: 'rescan' },
+      { at: '2026-09-30T12:11:00.000Z', actor: 'admin', action: 'enable', ruleset: 'batteries' },
+      { at: '2026-09-30T12:12:00.000Z', actor: 'admin', action: 'disable', ruleset: 'batteries' },
+      {
+        at: '2026-09-30T12:13:00.000Z',
+        actor: 'admin',
+        action: 'parameters',
+        ruleset: 'batteries'
+      },
+      { at: '2026-09-30T12:14:00.000Z', actor: 'admin', action: 'dismiss', ruleset: 'batteries' }
     ] as const
     store.saveLog([...log])
     expect(new Store(dir).load().log).toEqual(log)
@@ -87,7 +206,9 @@ describe('store', () => {
     store.load()
     store.saveRule(oil)
     store.saveEvaluation({ enabled: false, actor: 'admin', at: '2026-09-30T12:00:00.000Z' })
-    store.saveCheckpoints({ 'user.engine-hours': { '': 3600, port: 12.5 } })
+    store.saveCheckpoints({
+      'user.engine-hours': { measure: 'time', totals: { '': 3600, port: 12.5 } }
+    })
 
     const contents = new Store(dir).load()
     expect(contents.rules).toEqual([{ slug: 'oil-pressure-low', value: oil }])
@@ -96,7 +217,9 @@ describe('store', () => {
       actor: 'admin',
       at: '2026-09-30T12:00:00.000Z'
     })
-    expect(contents.accumulators).toEqual({ 'user.engine-hours': { '': 3600, port: 12.5 } })
+    expect(contents.accumulators).toEqual({
+      'user.engine-hours': { measure: 'time', totals: { '': 3600, port: 12.5 } }
+    })
     expect(contents.issues).toEqual([])
   })
 
@@ -165,7 +288,7 @@ describe('store', () => {
     const good = new Store(dir)
     good.load()
     good.saveRule(oil)
-    good.saveCheckpoints({ 'user.engine-hours': { '': 100 } })
+    good.saveCheckpoints({ 'user.engine-hours': { measure: 'time', totals: { '': 100 } } })
 
     const store = new Store(dir, failing)
     store.load()
@@ -173,12 +296,14 @@ describe('store', () => {
       store.saveRule({ ...oil, message: 'changed' })
     }).toThrow(/ENOSPC/)
     expect(() => {
-      store.saveCheckpoints({ 'user.engine-hours': { '': 200 } })
+      store.saveCheckpoints({ 'user.engine-hours': { measure: 'time', totals: { '': 200 } } })
     }).toThrow(/ENOSPC/)
 
     const contents = new Store(dir).load()
     expect(contents.rules).toEqual([{ slug: 'oil-pressure-low', value: oil }])
-    expect(contents.accumulators).toEqual({ 'user.engine-hours': { '': 100 } })
+    expect(contents.accumulators).toEqual({
+      'user.engine-hours': { measure: 'time', totals: { '': 100 } }
+    })
     expect(contents.issues).toEqual([])
     // The half-written temporary file is not left behind.
     expect(readdirSync(dir).filter((f) => f.endsWith('.tmp'))).toEqual([])
@@ -194,9 +319,13 @@ describe('store', () => {
     }
     const store = new Store(dir, partial)
     store.load()
-    store.saveCheckpoints({ 'user.engine-hours': { '': 200, port: 12.5 } })
+    store.saveCheckpoints({
+      'user.engine-hours': { measure: 'time', totals: { '': 200, port: 12.5 } }
+    })
     const contents = new Store(dir).load()
-    expect(contents.accumulators).toEqual({ 'user.engine-hours': { '': 200, port: 12.5 } })
+    expect(contents.accumulators).toEqual({
+      'user.engine-hours': { measure: 'time', totals: { '': 200, port: 12.5 } }
+    })
     expect(contents.issues).toEqual([])
   })
 
@@ -208,14 +337,16 @@ describe('store', () => {
     }
     const good = new Store(dir)
     good.load()
-    good.saveCheckpoints({ 'user.engine-hours': { '': 100 } })
+    good.saveCheckpoints({ 'user.engine-hours': { measure: 'time', totals: { '': 100 } } })
     const store = new Store(dir, full)
     store.load()
     expect(() => {
-      store.saveCheckpoints({ 'user.engine-hours': { '': 200 } })
+      store.saveCheckpoints({ 'user.engine-hours': { measure: 'time', totals: { '': 200 } } })
     }).toThrow(/accumulators\.json/)
     const contents = new Store(dir).load()
-    expect(contents.accumulators).toEqual({ 'user.engine-hours': { '': 100 } })
+    expect(contents.accumulators).toEqual({
+      'user.engine-hours': { measure: 'time', totals: { '': 100 } }
+    })
     expect(contents.issues).toEqual([])
   })
 
@@ -269,7 +400,7 @@ describe('store', () => {
       const store = new Store(dir)
       store.load()
       store.saveEvaluation({ enabled: false })
-      store.saveCheckpoints({ 'user.engine-hours': { '': 100 } })
+      store.saveCheckpoints({ 'user.engine-hours': { measure: 'time', totals: { '': 100 } } })
       store.saveLog([])
       const before = readFileSync(join(dir, name), 'utf8')
       const failing: FileSystem = {

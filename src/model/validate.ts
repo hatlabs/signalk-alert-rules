@@ -14,7 +14,7 @@ import {
 } from './rule.js'
 import { RulesetSchema, USER_ORIGIN, type ParameterValues, type Ruleset } from './ruleset.js'
 import { RULES_PREFIX } from '../alerts/paths.js'
-import { isRecord } from '../util.js'
+import { isRecord, own } from '../util.js'
 
 /** A validation failure; `path` is a JSON pointer into the validated document. */
 export interface ValidationError {
@@ -52,14 +52,17 @@ const MAX_ALERT_PATH_LENGTH = 255
 const ALERT_PATH_SEGMENT = /^[A-Za-z0-9_-]+$/
 const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype'])
 
-const TWO_INPUTS: ReadonlySet<CombinatorKind> = new Set([
+export const TWO_INPUTS: ReadonlySet<CombinatorKind> = new Set([
   'difference',
   'absDifference',
   'ratio',
   'distance'
 ])
-const POSITION_COMBINATORS: ReadonlySet<CombinatorKind> = new Set(['distance', 'positionSpread'])
-const ANGULAR_COMBINATORS: ReadonlySet<CombinatorKind> = new Set([
+export const POSITION_COMBINATORS: ReadonlySet<CombinatorKind> = new Set([
+  'distance',
+  'positionSpread'
+])
+export const ANGULAR_COMBINATORS: ReadonlySet<CombinatorKind> = new Set([
   'difference',
   'absDifference',
   'mean',
@@ -625,26 +628,45 @@ export function validateRuleset(input: unknown, ctx: ValidationContext = {}): Re
   return resolved.ok ? { ok: true, value: ruleset } : resolved
 }
 
-/** The ruleset's rules with parameter values (defaults where unset) substituted and validated. */
+/**
+ * Checks each value against its parameter's declaration, not the rules it
+ * makes. Errors point at `/<name>` in the object of values.
+ */
+export function parameterValueErrors(ruleset: Ruleset, values: ParameterValues): ValidationError[] {
+  const parameters = new Map(ruleset.parameters?.map((p) => [p.name, p]))
+  const errors: ValidationError[] = []
+  for (const [name, value] of Object.entries(values)) {
+    const at = pointer('', name)
+    const p = parameters.get(name)
+    if (p === undefined)
+      errors.push({ path: at, message: `${name} is not a parameter of this ruleset` })
+    else if (typeof value !== p.type) errors.push({ path: at, message: `must be a ${p.type}` })
+    // JSON has no infinity: stored, it would read back as null.
+    else if (typeof value === 'number' && !Number.isFinite(value))
+      errors.push({ path: at, message: 'must be a finite number' })
+    else if (typeof value === 'number')
+      errors.push(...prefixed(boundErrors(value, p.minimum, p.maximum), at))
+  }
+  return errors
+}
+
+/**
+ * The ruleset's rules with parameter values (defaults where unset) substituted
+ * and validated. Each rule is a fresh copy, so objects a YAML alias shares in
+ * the ruleset are never shared between rules.
+ */
 export function resolveRuleset(
   ruleset: Ruleset,
   values: ParameterValues,
   ctx: ValidationContext = {}
 ): Result<Rule[]> {
   const parameters = new Map(ruleset.parameters?.map((p) => [p.name, p]))
-  const errors: ValidationError[] = []
-  for (const [name, value] of Object.entries(values)) {
-    const at = pointer('/values', name)
-    const p = parameters.get(name)
-    if (p === undefined)
-      errors.push({ path: at, message: `${name} is not a parameter of this ruleset` })
-    else if (typeof value !== p.type) errors.push({ path: at, message: `must be a ${p.type}` })
-    else if (typeof value === 'number')
-      errors.push(...prefixed(boundErrors(value, p.minimum, p.maximum), at))
-  }
+  const errors = parameterValueErrors(ruleset, values)
   if (errors.length > 0) return fail(errors)
 
-  const effective = new Map([...parameters].map(([name, p]) => [name, values[name] ?? p.default]))
+  const effective = new Map(
+    [...parameters].map(([name, p]) => [name, own(values, name) ?? p.default])
+  )
   const rules: Rule[] = []
   ruleset.rules.forEach((rule, i) => {
     const at = pointer('/rules', i)
@@ -654,15 +676,4 @@ export function resolveRuleset(
     else errors.push(...prefixed(result.errors, at))
   })
   return errors.length > 0 ? fail(errors) : { ok: true, value: rules }
-}
-
-/** Slugs taken by more than one ruleset; none of those rulesets can be loaded. */
-export function findRulesetSlugConflicts(rulesets: readonly { slug: string }[]): Set<string> {
-  const seen = new Set<string>()
-  const conflicts = new Set<string>()
-  for (const { slug } of rulesets) {
-    if (seen.has(slug)) conflicts.add(slug)
-    seen.add(slug)
-  }
-  return conflicts
 }

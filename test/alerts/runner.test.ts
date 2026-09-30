@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import type { PathValueState, Value } from '@signalk/server-api'
 import { HEARTBEAT_S, type AlertValue } from '../../src/alerts/emitter.js'
 import { RuleRunner, type LoadedRule } from '../../src/alerts/runner.js'
+import type { ActiveSuppression, Suppressions } from '../../src/engine/suppression.js'
 import type { PathMeta } from '../../src/engine/evaluator.js'
 import type { Rule } from '../../src/model/rule.js'
 import { validateRule } from '../../src/model/validate.js'
@@ -102,6 +103,7 @@ function setup(
     cached?: [string, Value][]
     /** Accumulator totals restored from the store, by rule id and instance segment. */
     accumulated?: Map<string, Map<string, number>>
+    suppressions?: Suppressions
   } = {}
 ) {
   const sm = new FakeSubscriptionManager()
@@ -124,7 +126,8 @@ function setup(
       }
     },
     loaded,
-    options.accumulated
+    options.accumulated,
+    options.suppressions
   )
   for (const [path, value] of options.cached ?? []) sm.publish(path, 'src', value)
   runner.start()
@@ -562,7 +565,9 @@ describe('rule runner', () => {
     })
     at(0, 'propulsion.main.revolutions', 30)
     run(1, 4)
-    expect(runner.accumulators()).toEqual(new Map([['user.engine-hours', new Map([['', 99]])]]))
+    expect(runner.accumulators()).toEqual(
+      new Map([['user.engine-hours', { measure: 'time', totals: new Map([['', 99]]) }]])
+    )
     run(5, 5)
     expect(sent.map(([path]) => path)).toEqual(['rules.user.engine-hours'])
   })
@@ -582,7 +587,9 @@ describe('rule runner', () => {
     })
     at(0, 'propulsion.main.revolutions', 30)
     at(7)
-    expect(runner.accumulators()).toEqual(new Map([['user.engine-hours', new Map([['', 7]])]]))
+    expect(runner.accumulators()).toEqual(
+      new Map([['user.engine-hours', { measure: 'time', totals: new Map([['', 7]]) }]])
+    )
   })
 
   it('stopping clears nothing', () => {
@@ -847,13 +854,15 @@ describe('rule status', () => {
     it('keeps the total for the checkpoint', () => {
       const runner = failing()
       expect(runner.status(HOURS_ID)?.badge).toBe('errored')
-      expect(runner.accumulators()).toEqual(new Map([[HOURS_ID, new Map([['', 42]])]]))
+      expect(runner.accumulators()).toEqual(
+        new Map([[HOURS_ID, { measure: 'time', totals: new Map([['', 42]]) }]])
+      )
     })
 
     it('keeps the total across an edit that carries it', () => {
       const runner = failing()
       runner.update({ origin: 'user', rule: { ...hours, message: 'Service the engine' } })
-      expect(runner.accumulators().get(HOURS_ID)).toEqual(new Map([['', 42]]))
+      expect(runner.accumulators().get(HOURS_ID)?.totals).toEqual(new Map([['', 42]]))
     })
 
     it('drops the total on a measure change', () => {
@@ -863,7 +872,7 @@ describe('rule status', () => {
         detector: { type: 'accumulator', measure: 'integral', limit: 100 }
       })
       runner.update({ origin: 'user', rule: integral })
-      expect(runner.accumulators().get(HOURS_ID)?.get('') ?? 0).toBe(0)
+      expect(runner.accumulators().get(HOURS_ID)?.totals.get('') ?? 0).toBe(0)
     })
   })
 
@@ -906,5 +915,89 @@ describe('rule status', () => {
       badge: 'alertActive',
       subLabels: ['awaitingInput']
     })
+  })
+})
+
+describe('suppression', () => {
+  function controls() {
+    const rules = new Map<string, ActiveSuppression>()
+    const paths = new Map<string, ActiveSuppression>()
+    return {
+      rules,
+      paths,
+      suppressions: {
+        rule: (id: string) => rules.get(id),
+        path: (path: string) => paths.get(path)
+      }
+    }
+  }
+
+  it('suppressing a rule clears its alert in core, stops its heartbeat and shows it suppressed', () => {
+    const c = controls()
+    const { at, run, runner, core, sent } = setup([oil], { suppressions: c.suppressions })
+    at(0, OIL, 0)
+    at(5)
+    expect(core.getByPath(OIL_ALERT)?.condition).toBe(true)
+    c.rules.set('user.oil-pressure-low', { autoEndAfter: 60 })
+    runner.refresh()
+    expect(core.getByPath(OIL_ALERT)?.condition).toBe(false)
+    const count = sent.length
+    run(6, 100)
+    expect(sent).toHaveLength(count)
+    expect(runner.status('user.oil-pressure-low')).toMatchObject({
+      badge: 'suppressed',
+      suppression: { scope: 'rule', autoEndAfter: 60 },
+      subLabels: ['waitingForClear']
+    })
+  })
+
+  it('applying a suppression reaches every rule when one fails to evaluate', () => {
+    let broken = false
+    const meta = {
+      get [VOLTAGE](): PathMeta {
+        if (broken) throw new Error('meta unreadable')
+        return batteryZones
+      }
+    }
+    const c = controls()
+    const { at, runner, core } = setup([batteryLow, oil], { meta, suppressions: c.suppressions })
+    at(0, VOLTAGE, 12.6)
+    at(0, OIL, 0)
+    at(5)
+    expect(core.getByPath(OIL_ALERT)?.condition).toBe(true)
+    broken = true
+    c.rules.set('user.oil-pressure-low', {})
+    expect(() => {
+      runner.refresh()
+    }).not.toThrow()
+    expect(core.getByPath(OIL_ALERT)?.condition).toBe(false)
+    expect(runner.status('user.house-battery-low')?.errors).toEqual([
+      'evaluation failed: meta unreadable'
+    ])
+  })
+
+  it('ending a suppression raises an alert whose condition holds as a new alert', () => {
+    const c = controls()
+    c.rules.set('user.oil-pressure-low', {})
+    const { at, runner, core } = setup([oil], { suppressions: c.suppressions })
+    at(0, OIL, 0)
+    at(5)
+    expect(core.getByPath(OIL_ALERT)).toBeNull()
+    c.rules.delete('user.oil-pressure-low')
+    runner.refresh()
+    expect(core.getByPath(OIL_ALERT)?.condition).toBe(true)
+    expect(core.alertings).toBe(1)
+  })
+
+  it('an input suppression shows only the matching wildcard instance suppressed, below an alert', () => {
+    const c = controls()
+    c.paths.set('propulsion.port.coolantTemperature', {})
+    const { at, runner, core } = setup([coolant], { suppressions: c.suppressions })
+    at(0, 'propulsion.port.coolantTemperature', 400)
+    at(0, 'propulsion.starboard.coolantTemperature', 400)
+    expect(core.getByPath(PORT_ALERT)).toBeNull()
+    const status = runner.status('user.coolant-high')
+    expect(status?.badge).toBe('alertActive')
+    expect(status?.instances.map((i) => i.badge)).toEqual(['suppressed', 'alertActive'])
   })
 })

@@ -72,6 +72,79 @@ describe('gate', () => {
     expect(g.inputUnavailable).toBe(false)
   })
 
+  it('a frozen gate ignores time and holds back its latest reading until the freeze ends', () => {
+    let frozen = false
+    const g = new Gate(
+      running,
+      () => undefined,
+      0,
+      () => (frozen ? {} : undefined)
+    )
+    g.sample(v(30), false, 0)
+    frozen = true
+    g.tick(10)
+    expect(g.holdsFor(false)).toBe(false)
+    g.sample(TIMED_OUT, false, 11)
+    expect(g.input).toBe('unavailable')
+    g.sample(v(0), false, 11)
+    expect(g.holdsFor(false)).toBe(false)
+    // Thawed, it evaluates the stopped engine it was sent while frozen.
+    frozen = false
+    g.tick(12)
+    g.tick(30)
+    expect(g.holdsFor(false)).toBe(false)
+  })
+
+  it('a gate rebuilt while frozen applies the reading it held back from its stored state', () => {
+    let freeze: { holds: boolean } | undefined = { holds: true }
+    const g = new Gate(
+      running,
+      () => undefined,
+      0,
+      () => freeze
+    )
+    g.sample(v(30), true, 0)
+    g.tick(5)
+    freeze = undefined
+    g.tick(6)
+    expect(g.holdsFor(false)).toBe(true)
+  })
+
+  it('a gate frozen before its first reading takes that reading without waiting out the duration', () => {
+    let frozen = true
+    const g = new Gate(
+      running,
+      () => undefined,
+      0,
+      () => (frozen ? {} : undefined)
+    )
+    g.sample(v(30), false, 0)
+    expect(g.holdsFor(false)).toBe(true)
+    g.tick(100)
+    expect(g.holdsFor(false)).toBe(true)
+    // Thawed, it goes on from the state it was frozen at rather than timing its duration again.
+    frozen = false
+    g.tick(101)
+    expect(g.holdsFor(false)).toBe(true)
+  })
+
+  it('a gate with a stored state takes one reading for instances without one, and thaws from the stored state', () => {
+    let freeze: { holds: boolean } | undefined = { holds: false }
+    const g = new Gate(
+      running,
+      () => undefined,
+      0,
+      () => freeze
+    )
+    g.sample(v(30), false, 0)
+    expect(g.seen).toBe(true)
+    expect(g.holdsFor(false)).toBe(true)
+    // The duration has not passed since the thaw, so the stored state decides.
+    freeze = undefined
+    g.tick(1)
+    expect(g.holdsFor(false)).toBe(false)
+  })
+
   it('an input never seen since start does not hold', () => {
     const g = gate(running)
     g.tick(1000)

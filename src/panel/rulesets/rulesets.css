@@ -1,0 +1,53 @@
+/* Layout only: colours and components come from the admin UI's Bootstrap theme. */
+.skar-rulesets-view .skar-toolbar > p {
+  flex: 1 1 20rem;
+}
+
+.skar-ruleset {
+  margin-bottom: 1rem;
+}
+
+.skar-ruleset-origin {
+  font-size: 0.85em;
+  color: var(--bs-secondary-color, #6c757d);
+}
+
+.skar-ruleset-rules-heading {
+  margin-top: 1.25rem;
+}
+
+.skar-ruleset-rules {
+  margin: 0;
+}
+
+/* The badge sits beside the rule's name where it fits, below it on a narrow screen. */
+.skar-ruleset-rules > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.skar-ruleset-rules > li > .skar-status-detail {
+  flex-basis: 100%;
+}
+
+.skar-parameters {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.125);
+}
+
+.skar-parameter {
+  max-width: 32rem;
+  margin-bottom: 0.75rem;
+}
+
+.skar-parameter > .skar-field {
+  margin-bottom: 0;
+}
+
+.skar-reset-default {
+  padding-left: 0;
+}

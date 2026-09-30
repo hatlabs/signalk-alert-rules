@@ -1,0 +1,131 @@
+/* Layout only: colours and components come from the admin UI's Bootstrap theme. */
+.skar-view {
+  padding-top: 1rem;
+}
+
+.skar-empty {
+  padding: 1rem 0;
+}
+
+.skar-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.skar-toolbar > div {
+  flex: 1 1 12rem;
+}
+
+.skar-toolbar .form-label {
+  margin-bottom: 0.25rem;
+}
+
+/* Paths are long and have no spaces; let them break at the dots' neighbours. */
+.skar-path {
+  overflow-wrap: anywhere;
+}
+
+/*
+ * The rule table's input, which marks the breaks after each dot. `anywhere`
+ * would also shrink the column's minimum width to one character, so the
+ * table would break the paths inside their segments.
+ */
+.skar-input {
+  overflow-wrap: break-word;
+}
+
+/*
+ * Paths break only after their dots, so at tablet width the status badge wraps
+ * instead; otherwise the row overflows and hides the actions column.
+ */
+.skar-rules td .badge {
+  white-space: normal;
+}
+
+.skar-marker {
+  margin-left: 0.5rem;
+}
+
+.skar-status-detail,
+.skar-instance-summary {
+  font-size: 0.85em;
+}
+
+.skar-sublabels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85em;
+}
+
+.skar-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+}
+
+.skar-facts dd {
+  margin: 0;
+}
+
+/* Section headings otherwise look and sit like the field labels below them,
+   and the form reads as one run of fields. */
+.skar-form-section + .skar-form-section {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.125);
+}
+
+.skar-section-heading {
+  margin-bottom: 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--bs-secondary-color, #6c757d);
+}
+
+details:not([open]) > .skar-section-heading {
+  margin-bottom: 0;
+}
+
+.skar-field {
+  margin-bottom: 0.75rem;
+}
+
+.skar-actions,
+.skar-confirm,
+.skar-inline-form {
+  margin-top: 1rem;
+}
+
+/* Paths are long, so the chips wrap rather than widen the page at 768 px. */
+.skar-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.skar-chips .btn {
+  max-width: 100%;
+  text-align: left;
+}
+
+.skar-suppress {
+  margin-top: 1rem;
+}
+
+/* Kept away from the per-rule actions so it is not hit by mistake. */
+.skar-danger-zone {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.125);
+}
