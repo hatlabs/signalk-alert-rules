@@ -325,6 +325,12 @@ export class Application {
     const id = this.idOf(rule.slug)
     const carries = this.carriesTotal(rule)
     const drops = this.hasTotal(id) && !carries
+    const previous = this.rulesBySlug.get(rule.slug)
+    // Stored gate states are by gate index: a gate reordered or changed
+    // must not inherit another's, so the new gates take one reading instead.
+    if (previous !== undefined && structuralChanges(previous, rule).includes('gates')) {
+      this.dropFrozenGates(id)
+    }
     this.store.saveRule(rule)
     this.stored.add(rule.slug)
     this.unloadedMeasures.delete(rule.slug)
@@ -802,6 +808,22 @@ export class Application {
             }
           }
     return { ...this.controls, rules }
+  }
+
+  /** Removes a rule's stored gate states from every input suppression. */
+  private dropFrozenGates(id: string): void {
+    const hasRule = (s: InputSuppression) =>
+      s.frozen !== undefined && own(s.frozen, id) !== undefined
+    if (!Object.values(this.controls.inputs).some(hasRule)) return
+    const inputs = Object.fromEntries(
+      Object.entries(this.controls.inputs).map(([path, suppression]) => {
+        const { frozen, ...rest } = suppression
+        if (frozen === undefined) return [path, suppression]
+        const others = without(frozen, id)
+        return [path, Object.keys(others).length === 0 ? rest : { ...rest, frozen: others }]
+      })
+    )
+    this.saveControls({ ...this.controls, inputs })
   }
 
   private saveControls(controls: Controls): void {

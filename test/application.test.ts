@@ -1463,15 +1463,40 @@ describe('rule controls', () => {
       expectFrozenHolding(s, 10)
     })
 
-    it('a gate keeps its frozen state across a structural edit', () => {
+    it('a gate keeps its frozen state across a structural edit that keeps the gates', () => {
       const s = frozenRunning()
-      const edited = { ...gatedCoolant, gates: [{ ...gatedCoolant.gates[0], hysteresis: 1 }] }
+      const edited = { ...gatedCoolant, signal: { path: COOLANT, source: 'src' } }
       expect(s.application.previewRule('coolant-high', edited)).toMatchObject({
         ok: true,
         value: { restarts: true }
       })
       expect(s.application.replaceRule('coolant-high', edited).ok).toBe(true)
       expectFrozenHolding(s, 10)
+    })
+
+    it('an edit of the gates drops their stored states: the new gates take one reading', () => {
+      const s = frozenRunning()
+      const idle = { signal: { path: RPM }, direction: 'above', limit: { kind: 'fixed', value: 1 } }
+      // Reordered, so the gate reading the path is no longer gate 0.
+      const edited = { ...gatedCoolant, gates: [idle, gatedCoolant.gates[0]] }
+      // The engine seems to stop; the frozen gate holds on regardless.
+      s.at(5, RPM, 0)
+      expect(s.application.replaceRule('coolant-high', edited).ok).toBe(true)
+      expect(new Store(dir).load().controls.inputs[RPM]).toEqual({ since: WALL, actor: 'admin' })
+      // The new gates take the stopped engine the server replays as their one reading.
+      s.at(11, RPM, 70)
+      s.at(11, COOLANT, 390)
+      expect(s.alerts()).toContainEqual(['rules.user.coolant-high', false])
+      expect(s.application.rule('user', 'coolant-high')?.status).toMatchObject({
+        instances: [
+          {
+            gates: [
+              { holds: false, input: 'value' },
+              { holds: false, input: 'value' }
+            ]
+          }
+        ]
+      })
     })
 
     it('a gate with no stored state takes one reading and then freezes', () => {
