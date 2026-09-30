@@ -9,7 +9,7 @@ export { BADGES, SUB_LABELS, type Badge, type SubLabel }
 /** The plugin id, which is also the path segment of its routes. */
 export const PLUGIN_ID = 'signalk-alert-rules'
 
-const PLUGIN_BASE = `/plugins/${PLUGIN_ID}`
+export const PLUGIN_BASE = `/plugins/${PLUGIN_ID}`
 
 /**
  * A request that hangs, as on a tablet that lost its Wi-Fi, would otherwise
@@ -236,7 +236,7 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function malformed(what: string): Error {
+export function malformed(what: string): Error {
   return new Error(`unexpected response from ${what}`)
 }
 

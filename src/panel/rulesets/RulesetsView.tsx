@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import type { RuleEntry } from '../api'
 import { failureMessage } from '../failure'
 import type { PathList } from '../paths/selfPaths'
+import { plural } from '../rules/describe'
 import { displayUnit } from '../units'
 import type { DiscoveryProblem, Parameter, RulesetEntry, RulesetListing, RulesetsApi } from './api'
 import { parameterUnit } from './parameters'
@@ -39,8 +40,6 @@ function Problems({ problems }: { problems: DiscoveryProblem[] }) {
     </section>
   )
 }
-
-const plural = (n: number, word: string) => `${String(n)} ${word}${n === 1 ? '' : 's'}`
 
 function found(listing: RulesetListing): string {
   const { rulesets, problems } = listing

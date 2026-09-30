@@ -1,5 +1,5 @@
 import type { Parameter } from '../../model/ruleset'
-import { getJson, isRecord, PLUGIN_ID, sendJson } from '../api'
+import { getJson, isRecord, malformed, PLUGIN_BASE, sendJson } from '../api'
 
 export type { Parameter }
 
@@ -54,10 +54,6 @@ export interface RulesetsApi {
    */
   setParameters(slug: string, values: Record<string, number | string>): Promise<RulesetEntry>
   dismissNotices(slug: string): Promise<void>
-}
-
-function malformed(what: string): Error {
-  return new Error(`unexpected response from ${what}`)
 }
 
 /**
@@ -148,7 +144,7 @@ function reader(what: string) {
 export function httpRulesetsApi(
   fetchFn: typeof fetch = (input, init) => fetch(input, init)
 ): RulesetsApi {
-  const base = `/plugins/${PLUGIN_ID}/rulesets`
+  const base = `${PLUGIN_BASE}/rulesets`
   const route = (slug: string, action: string) => `${base}/${encodeURIComponent(slug)}/${action}`
   return {
     list: async () => reader(base).listing(await getJson(fetchFn, base)),
