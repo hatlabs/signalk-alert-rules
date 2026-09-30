@@ -92,6 +92,12 @@ describe('RulesView', () => {
     ])
   })
 
+  it('lets an input path break only after its dots', () => {
+    renderView([oil])
+    const input = within(rowOf('Oil pressure low')).getAllByRole('cell')[3]
+    expect(input.innerHTML).toBe('propulsion.<wbr>port.<wbr>oilPressure')
+  })
+
   it('shows a combined input and a zone priority', () => {
     renderView([engineHours, batteries])
     expect(rowOf('Engine service due').textContent).toContain(

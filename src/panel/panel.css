@@ -28,6 +28,23 @@
   overflow-wrap: anywhere;
 }
 
+/*
+ * The rule table's input, which marks the breaks after each dot. `anywhere`
+ * would also shrink the column's minimum width to one character, so the
+ * table would break the paths inside their segments.
+ */
+.skar-input {
+  overflow-wrap: break-word;
+}
+
+/*
+ * Paths break only after their dots, so at tablet width the status badge wraps
+ * instead; otherwise the row overflows and hides the actions column.
+ */
+.skar-rules td .badge {
+  white-space: normal;
+}
+
 .skar-marker {
   margin-left: 0.5rem;
 }

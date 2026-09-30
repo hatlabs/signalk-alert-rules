@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { Fragment, useId, useState } from 'react'
 import { BADGES, type Badge, type RuleEntry } from '../api'
 import {
   describeDetector,
@@ -45,6 +45,20 @@ function byOrigin(rules: RuleEntry[]): [string, RuleEntry[]][] {
   )
 }
 
+/** Text with paths in it, which may wrap only after a path's dots, never inside a segment. */
+function BreakAtDots({ text }: { text: string }) {
+  return text.split('.').map((part, n, parts) => (
+    <Fragment key={n}>
+      {part}
+      {n < parts.length - 1 && (
+        <>
+          .<wbr />
+        </>
+      )}
+    </Fragment>
+  ))
+}
+
 function RuleRow({
   entry,
   href,
@@ -74,7 +88,9 @@ function RuleRow({
           )}
         </td>
         <td>{describeDetector(entry.rule.detector)}</td>
-        <td className="skar-path">{describeInput(entry.rule.signal)}</td>
+        <td className="skar-input">
+          <BreakAtDots text={describeInput(entry.rule.signal)} />
+        </td>
         <td>{describePriority(entry.rule)}</td>
         {suppression !== undefined && (
           <td>
