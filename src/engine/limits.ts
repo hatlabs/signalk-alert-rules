@@ -19,61 +19,49 @@ function isLevel(state: string): state is ZoneLevel {
   return (ZONE_LEVELS as readonly string[]).includes(state)
 }
 
-type Side = 'low' | 'high'
-
-const NORMAL_STATES: readonly string[] = ['normal', 'nominal']
-
-function bound(value: number | null | undefined): number | undefined {
-  return typeof value === 'number' ? value : undefined
+/** Touching or overlapping zones merged into one stretch of the range. */
+interface Run {
+  lower: number
+  upper: number
 }
 
 /**
- * Tells each zone's side of the path's range. A zone open below is low and one
- * open above is high. A zone bounded on both sides is placed against the outer
- * edges of the normal and nominal zones; without any, a path whose one-sided
- * zones all lie on one side is taken to be one-sided, since a zone graded
- * towards an open-ended one lies on its side.
+ * Merges the zones at `level` or more severe into runs, lowest first. A
+ * missing bound is open.
  */
-function sideOf(zones: readonly Zone[]): (zone: Zone) => { side: Side } | { reason: string } {
-  const normal = zones.filter((z) => NORMAL_STATES.includes(z.state))
-  const normalLow = Math.min(...normal.map((z) => bound(z.lower) ?? -Infinity))
-  const normalHigh = Math.max(...normal.map((z) => bound(z.upper) ?? Infinity))
-  const levelled = zones.filter((z) => isLevel(z.state))
-  const openLow = levelled.some((z) => bound(z.lower) === undefined && bound(z.upper) !== undefined)
-  const openHigh = levelled.some(
-    (z) => bound(z.upper) === undefined && bound(z.lower) !== undefined
-  )
-  const onlySide: Side | undefined = openLow === openHigh ? undefined : openLow ? 'low' : 'high'
-
-  return (zone) => {
-    const lower = bound(zone.lower)
-    const upper = bound(zone.upper)
-    if (lower === undefined && upper === undefined) {
-      return { reason: `the ${zone.state} zone has neither bound, so its side cannot be told` }
-    }
-    if (lower === undefined) return { side: 'low' }
-    if (upper === undefined) return { side: 'high' }
-    if (normal.length > 0) {
-      if (upper <= normalLow) return { side: 'low' }
-      if (lower >= normalHigh) return { side: 'high' }
-    } else if (onlySide !== undefined) {
-      return { side: onlySide }
-    }
-    return {
-      reason:
-        `the side of the ${zone.state} zone from ${String(lower)} to ${String(upper)} ` +
-        'cannot be told; add a normal zone that separates the low zones from the high ones'
+function runsFrom(zones: readonly Zone[], level: ZoneLevel): Run[] {
+  const floor = severity(level)
+  const spans = zones
+    .filter((z) => isLevel(z.state) && severity(z.state) >= floor)
+    .map((z) => ({
+      lower: z.lower ?? -Infinity,
+      upper: z.upper ?? Infinity
+    }))
+    .sort((a, b) => a.lower - b.lower)
+  const runs: Run[] = []
+  for (const span of spans) {
+    const last = runs.at(-1)
+    if (last !== undefined && span.lower <= last.upper) {
+      last.upper = Math.max(last.upper, span.upper)
+    } else {
+      runs.push({ ...span })
     }
   }
+  return runs
 }
 
 /**
- * The SI limit a detector compares against. A zone limit is the edge of the
- * union of the named level's zones and every more severe one on the rule's
- * direction side (low for `below`, high for `above`), on the side the
- * condition enters from: the highest upper bound for `below`, the lowest
- * lower bound for `above`. A zone at or above the named level whose side
- * cannot be told fails the resolution, as it could move either edge.
+ * The SI limit a detector compares against. A zone limit comes from the runs
+ * of touching or overlapping zones at the named level or more severe: the
+ * upper edge of the lowest run for `below`, the lower edge of the highest run
+ * for `above`. The outermost run lies on the rule's side of the range whatever
+ * else the path defines, so no normal zone is needed to tell the sides apart.
+ * The edge must be finite and supplied only by zones of the named level: a
+ * run graded from the named level outward has that level alone at its inner
+ * edge, while one whose inner edge is also a more severe level's, adjacent or
+ * nested, lies on the far side of a path zoned only there, and taking its
+ * edge would put the whole range past the limit.
+ * Otherwise the level is missing on the rule's side.
  */
 export function resolveLimit(
   limit: Limit,
@@ -82,37 +70,44 @@ export function resolveLimit(
 ): LimitResolution {
   if (limit.kind === 'fixed') return { ok: true, value: limit.value }
   const all = zones ?? []
-  const floor = severity(limit.level)
-  const side: Side = direction === 'below' ? 'low' : 'high'
-  const classify = sideOf(all)
-  const entering: Zone[] = []
-  for (const zone of all) {
-    if (!isLevel(zone.state) || severity(zone.state) < floor) continue
-    const classified = classify(zone)
-    if ('reason' in classified) return { ok: false, reason: classified.reason }
-    if (classified.side === side) entering.push(zone)
+  if (!all.some((z) => z.state === limit.level)) {
+    return { ok: false, reason: `the path has no ${limit.level} zone` }
   }
-  if (!entering.some((z) => z.state === limit.level)) {
+  const runs = runsFrom(all, limit.level)
+  const outer = direction === 'below' ? runs[0] : runs.at(-1)
+  const edge = direction === 'below' ? outer?.upper : outer?.lower
+  const edgeOf = (z: Zone) =>
+    direction === 'below' ? (z.upper ?? Infinity) : (z.lower ?? -Infinity)
+  const floor = severity(limit.level)
+  const suppliers = all.filter(
+    (z) => isLevel(z.state) && severity(z.state) >= floor && edgeOf(z) === edge
+  )
+  const graded = suppliers.every((z) => z.state === limit.level)
+  if (!graded || edge === undefined || !Number.isFinite(edge)) {
+    const side = direction === 'below' ? 'low' : 'high'
     return { ok: false, reason: `the path has no ${limit.level} zone on the ${side} side` }
   }
-  // A low-side zone always has an upper bound and a high-side one a lower
-  // bound, so no edge is dropped here.
-  const edges = entering.flatMap((z) => bound(direction === 'below' ? z.upper : z.lower) ?? [])
-  return { ok: true, value: direction === 'below' ? Math.max(...edges) : Math.min(...edges) }
+  return { ok: true, value: edge }
 }
 
 /**
  * The thresholds of every zone level more severe than the limit's own that
  * the zones define, least severe first, each resolved as {@link resolveLimit}
- * resolves the limit's own level.
+ * resolves the limit's own level. A threshold short of the limit's own in the
+ * rule's direction comes from the far side of the range, so it is no
+ * escalation step.
  */
 export function severerLevels(
   limit: ZoneLimit,
   direction: 'above' | 'below',
   zones: readonly Zone[] | null | undefined
 ): { level: ZoneLevel; value: number }[] {
+  const base = resolveLimit(limit, direction, zones)
+  if (!base.ok) return []
+  const beyond = (value: number) =>
+    direction === 'below' ? value <= base.value : value >= base.value
   return ZONE_LEVELS.slice(severity(limit.level) + 1).flatMap((level) => {
     const resolved = resolveLimit({ ...limit, level }, direction, zones)
-    return resolved.ok ? [{ level, value: resolved.value }] : []
+    return resolved.ok && beyond(resolved.value) ? [{ level, value: resolved.value }] : []
   })
 }
