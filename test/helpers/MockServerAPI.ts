@@ -25,7 +25,8 @@ export class MockServerAPI {
   /** Without `withAlerts`, the mock stands in for a server that has no alerts API. */
   constructor(
     withAlerts: boolean,
-    private readonly dataDir?: string,
+    /** Settable, to restart the same plugin instance on another directory. */
+    public dataDir?: string,
     core = new FakeAlertsCore()
   ) {
     this.core = core

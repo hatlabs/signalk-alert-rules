@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Plugin, PluginRouter } from '@signalk/server-api'
 import { Store } from '../src/store/store.js'
 import { FakeAlertsCore } from './helpers/FakeAlertsCore.js'
 import { MockServerAPI } from './helpers/MockServerAPI.js'
@@ -32,6 +33,29 @@ afterEach(() => {
 function storeRule(rule: Record<string, unknown> & { slug: string }): void {
   mkdirSync(join(dir, 'rules'), { recursive: true })
   writeFileSync(join(dir, 'rules', `${rule.slug}.json`), JSON.stringify(rule))
+}
+
+/** Registers the plugin's routes on a stub router and returns what `GET /state` answers. */
+function stateOf(plugin: Plugin): () => unknown {
+  const handlers = new Map<string, (req: unknown, res: unknown) => void>()
+  const register = (path: string, ...chain: ((req: unknown, res: unknown) => void)[]) => {
+    const handler = chain.at(-1)
+    if (handler !== undefined) handlers.set(path, handler)
+  }
+  const router = { get: register, post: register, put: register, delete: register }
+  plugin.registerWithRouter?.(router as unknown as PluginRouter)
+  return () => {
+    let body: unknown
+    handlers.get('/state')?.(
+      {},
+      {
+        json: (b: unknown) => {
+          body = b
+        }
+      }
+    )
+    return body
+  }
 }
 
 describe('plugin', () => {
@@ -170,6 +194,54 @@ describe('plugin', () => {
     expect(app.alertsCalls).toEqual([])
 
     await plugin.stop()
+  })
+
+  it('the same instance runs normally when started again after a failed start', async () => {
+    storeRule(hours)
+    const file = join(dir, 'not-a-directory')
+    writeFileSync(file, '')
+    const app = new MockServerAPI(true, file)
+    const plugin = createPlugin(app.asServerAPI())
+    const state = stateOf(plugin)
+    plugin.start({}, () => undefined)
+    expect(app.pluginError).toMatch(/data directory/)
+    expect(state()).toMatchObject({ running: false })
+    expect((state() as { error?: string }).error).toMatch(/data directory/)
+    await plugin.stop()
+
+    app.dataDir = dir
+    plugin.start({}, () => undefined)
+    expect(app.pluginError).toBeUndefined()
+    expect(state()).toEqual({
+      running: true,
+      securityEnabled: null,
+      evaluation: { enabled: true },
+      issues: []
+    })
+    app.subscriptionmanager.publish(RPM, 'src', 30)
+    vi.advanceTimersByTime(60_000)
+    // One tick a second: a second set of timers would count twice as fast.
+    expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 60 } })
+
+    await plugin.stop()
+  })
+
+  it('stops with a failing final checkpoint, reporting it and ticking no more', async () => {
+    storeRule(hours)
+    const app = new MockServerAPI(true, dir)
+    const plugin = createPlugin(app.asServerAPI())
+    plugin.start({}, () => undefined)
+    app.subscriptionmanager.publish(RPM, 'src', 30)
+    vi.advanceTimersByTime(10_000)
+    // A directory where the file belongs makes the rename fail.
+    mkdirSync(join(dir, 'accumulators.json', 'blocker'), { recursive: true })
+
+    await expect(Promise.resolve(plugin.stop())).resolves.toBeUndefined()
+    expect(app.errors).toEqual([expect.stringMatching(/accumulator totals/)])
+    const writes = app.core.writes
+    vi.advanceTimersByTime(300_000)
+    expect(app.core.writes).toBe(writes)
+    expect(app.core.list()).toEqual([])
   })
 
   it('reports a failed checkpoint without stopping evaluation', async () => {
