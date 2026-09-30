@@ -122,6 +122,45 @@ describe('Shell rule authoring', () => {
     expect(api.updateRule.mock.calls[0]?.[1]).toEqual({ ...stored, message: 'Battery low' })
   })
 
+  it('shows a saved rule before the refreshed list has it', async () => {
+    const api = renderShell([battery])
+    // The list read after the save predates the new rule.
+    api.createRule.mockImplementationOnce((rule: Rule) =>
+      Promise.resolve(ruleEntry({ slug: rule.slug, rule: { name: rule.name } }))
+    )
+    fireEvent.click(await screen.findByRole('button', { name: 'New rule' }))
+    change(await screen.findByRole('combobox', { name: 'Input path' }), 'navigation.state')
+    fireEvent.click(screen.getByRole('radio', { name: /a value or state/i }))
+    change(screen.getByRole('combobox', { name: 'The input' }), 'changesTo')
+    change(screen.getByRole('combobox', { name: 'Value type' }), 'text')
+    change(screen.getByRole('textbox', { name: 'Value' }), 'aground')
+    change(screen.getByRole('combobox', { name: 'Priority' }), 'alarm')
+    change(screen.getByRole('textbox', { name: 'Message' }), 'Aground')
+    change(screen.getByRole('textbox', { name: 'Name' }), 'Aground')
+    fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+    expect(await screen.findByRole('heading', { name: 'Aground' })).toBeTruthy()
+    await waitFor(() => {
+      expect(api.rules).toHaveBeenCalledTimes(2)
+    })
+    expect(screen.getByRole('heading', { name: 'Aground' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Rule not found' })).toBeNull()
+  })
+
+  it('says when an edited rule cannot be read, and goes back to it', async () => {
+    window.history.replaceState(null, '', '/#rule=user/house-battery-low')
+    const api = renderShell([battery])
+    api.ruleDefinition.mockRejectedValueOnce(
+      new Error('/rules/user/house-battery-low answered 500')
+    )
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'The rule could not be read: /rules/user/house-battery-low answered 500'
+    )
+    expect(screen.queryByRole('form')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(await screen.findByRole('button', { name: 'Edit' })).toBeTruthy()
+  })
+
   it('does not offer to edit a ruleset rule', async () => {
     window.history.replaceState(null, '', '/#rule=engine-pack/engine-hours')
     renderShell([fromRuleset])
