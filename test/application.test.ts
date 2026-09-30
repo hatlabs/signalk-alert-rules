@@ -638,6 +638,22 @@ describe('application accumulator totals across edits', () => {
     expect(total()).toBe(5)
   })
 
+  it('the preview does not count a zero total, running or retained, as discarded', () => {
+    stored(hours)
+    const { application, at } = setup()
+    at(0, RPM, 30)
+    at(10)
+    application.resetAccumulator('user', hours.slug, 'admin')
+    at(10, RPM, 30)
+    expect(application.previewRule(hours.slug, integral)).toMatchObject({
+      value: { discardsTotal: false }
+    })
+    application.setEvaluation(false, 'admin')
+    expect(application.previewRule(hours.slug, integral)).toMatchObject({
+      value: { discardsTotal: false }
+    })
+  })
+
   it('the preview says whether an edit discards a running or retained total', () => {
     stored(hours)
     stored(oil)

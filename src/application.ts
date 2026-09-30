@@ -47,7 +47,7 @@ export interface EditPreview {
    * clear one at the next evaluation; this does not count it.
    */
   clearsActiveAlert: boolean
-  /** The rule has an accumulator total, running or retained, that saving the edit would discard. */
+  /** The rule has an accumulator total above zero, running or retained, that saving the edit would discard. */
   discardsTotal: boolean
 }
 
@@ -228,7 +228,16 @@ export class Application {
 
   /** Whether the rule has an accumulator total, running or retained. */
   private hasTotal(id: string): boolean {
-    return this.retained.has(id) || (this.runner?.accumulators().has(id) ?? false)
+    return this.totalsOf(id) !== undefined
+  }
+
+  /** Whether the rule has an accumulator total above zero: one an operator would lose. */
+  private hasNonZeroTotal(id: string): boolean {
+    return [...(this.totalsOf(id)?.values() ?? [])].some((total) => total !== 0)
+  }
+
+  private totalsOf(id: string): ReadonlyMap<string, number> | undefined {
+    return this.retained.get(id) ?? this.runner?.accumulators().get(id)
   }
 
   /** Saves a new user rule; a stored rule file with its slug, valid or not, makes it exist. */
@@ -262,7 +271,7 @@ export class Application {
         changes,
         activeAlerts,
         clearsActiveAlert: restarts && activeAlerts > 0,
-        discardsTotal: this.hasTotal(this.idOf(slug)) && !this.carriesTotal(checked.value)
+        discardsTotal: this.hasNonZeroTotal(this.idOf(slug)) && !this.carriesTotal(checked.value)
       }
     }
   }
