@@ -42,13 +42,20 @@ export function suppressionOf(
   signal: Signal,
   instance: Instance | undefined
 ): SuppressionScope | undefined {
-  const rule = suppressions.rule()
-  if (rule !== undefined) return { scope: 'rule', ...autoEnd(rule) }
+  const rule = ruleScope(suppressions.rule())
+  if (rule !== undefined) return rule
   for (const path of signalPaths(signal, instance)) {
     const input = suppressions.path(path)
     if (input !== undefined) return { scope: 'input', path, ...autoEnd(input) }
   }
   return undefined
+}
+
+/** The scope of a rule's own suppression, if it has one. */
+export function ruleScope(
+  suppression: ActiveSuppression | undefined
+): SuppressionScope | undefined {
+  return suppression === undefined ? undefined : { scope: 'rule', ...autoEnd(suppression) }
 }
 
 function autoEnd({ autoEndAfter }: ActiveSuppression): ActiveSuppression {

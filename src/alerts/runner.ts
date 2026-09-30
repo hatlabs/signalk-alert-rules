@@ -6,6 +6,7 @@ import {
   type InstanceStatus,
   type RuleEvent
 } from '../engine/evaluator.js'
+import { ruleScope, type ActiveSuppression } from '../engine/suppression.js'
 import { priorityOf, type Priority, type Rule } from '../model/rule.js'
 import { alertPathFor } from '../model/validate.js'
 import { statusBadge, type Verdict } from './badge.js'
@@ -34,6 +35,14 @@ export interface LoadedRule {
   origin: string
   rule: Rule
 }
+
+/** The suppressions in force, by rule id and by exact concrete path. */
+export interface RunnerSuppressions {
+  rule(id: string): ActiveSuppression | undefined
+  path(path: string): ActiveSuppression | undefined
+}
+
+const NONE: RunnerSuppressions = { rule: () => undefined, path: () => undefined }
 
 export type RunnerInstanceStatus = InstanceStatus & Partial<AlertStatus> & Verdict
 
@@ -74,11 +83,13 @@ export class RuleRunner {
   /**
    * @param accumulated accumulator totals restored from the store, by rule id
    *   and instance segment; applied to the rules started by `start`.
+   * @param suppressions read at every evaluation; `refresh` applies a change at once.
    */
   constructor(
     private readonly deps: RunnerDeps,
     rules: readonly LoadedRule[],
-    private readonly accumulated: ReadonlyMap<string, ReadonlyMap<string, number>> = new Map()
+    private readonly accumulated: ReadonlyMap<string, ReadonlyMap<string, number>> = new Map(),
+    private readonly suppressions: RunnerSuppressions = NONE
   ) {
     this.emitter = new AlertEmitter(deps)
     for (const entry of rules) this.entries.set(idOf(entry), entry)
@@ -129,6 +140,20 @@ export class RuleRunner {
       }
     }
     this.emitter.beat(this.deps.clock())
+  }
+
+  /**
+   * Evaluates every rule now, so a change of the suppressions clears or
+   * raises at once rather than at the next sample or tick.
+   */
+  refresh(): void {
+    for (const [id, evaluator] of this.evaluators) {
+      try {
+        evaluator.refresh()
+      } catch (err) {
+        this.error(id, `evaluation failed: ${errorMessage(err)}`)
+      }
+    }
   }
 
   /** Stops evaluating without clearing anything: stop runs on every configuration save. */
@@ -232,10 +257,11 @@ export class RuleRunner {
         ? instance
         : { ...instance, ...alert, awaitingInput: !this.hasEvidence(entry.rule, instance) }
     })
-    const verdict = statusBadge(errors, instances)
+    const verdict = statusBadge(errors, instances, ruleScope(this.suppressions.rule(id)))
     return {
       badge: verdict.badge,
       ...(verdict.reason === undefined ? {} : { reason: verdict.reason }),
+      ...(verdict.suppression === undefined ? {} : { suppression: verdict.suppression }),
       subLabels: verdict.subLabels,
       issues: status.issues,
       errors,
@@ -256,7 +282,8 @@ export class RuleRunner {
         this.onEvent(id, event)
       },
       adopted,
-      accumulated
+      accumulated,
+      { rule: () => this.suppressions.rule(id), path: (path) => this.suppressions.path(path) }
     )
     this.evaluators.set(id, evaluator)
     // One rule failing to start, such as on a meta read that throws, must not
