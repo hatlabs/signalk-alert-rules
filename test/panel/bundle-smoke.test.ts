@@ -72,6 +72,19 @@ describe.skipIf(!built)('built panel bundle (skipped until `./run build-panel` h
     expect(stylesheets).toHaveLength(1)
     expect(readFileSync(remoteEntry, 'utf8')).toContain(`./assets/${stylesheets[0]}`)
   })
+
+  // The panel copies the model's values rather than import the module that
+  // builds the rule schema; typebox would add its whole runtime to the bundle.
+  it('leaves typebox out', () => {
+    const scripts = readdirSync(publicDir, { recursive: true, encoding: 'utf8' }).filter((f) =>
+      f.endsWith('.js')
+    )
+    expect(scripts.length).toBeGreaterThan(0)
+    const withTypebox = scripts.filter((f) =>
+      readFileSync(path.join(publicDir, f), 'utf8').includes('~kind')
+    )
+    expect(withTypebox).toEqual([])
+  })
 })
 
 describe.skipIf(built)('built panel bundle', () => {
