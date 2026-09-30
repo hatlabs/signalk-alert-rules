@@ -3,6 +3,7 @@
  * a wildcard path. Shared by the rule detail view and the authoring form.
  */
 import { useEffect, useMemo, useState } from 'react'
+import type { CombinatorKind } from '../model/rule'
 import { useSelfPaths, type PathEntry, type PathList, type PathSource } from './paths/selfPaths'
 import { displayUnit, type DisplayUnit, type QuantityKind } from './units'
 
@@ -32,7 +33,11 @@ export interface Measure {
 export const UNKNOWN_UNIT: DisplayUnit = displayUnit({})
 
 const DIFFERENCES = new Set(['difference', 'absDifference', 'spread'])
-const DISTANCES = new Set(['distance', 'positionSpread'])
+/** The combinators over positions; a test keeps this equal to the model's. */
+export const POSITION_KINDS: ReadonlySet<string> = new Set<CombinatorKind>([
+  'distance',
+  'positionSpread'
+])
 
 function segments(path: string): string[] {
   return path.split('.')
@@ -88,7 +93,7 @@ export const NO_UNITS: UnitLookup = unitLookup([], displayUnit({ units: 'm' }))
 
 export function signalMeasure(signal: SignalShape, lookup: UnitLookup): Measure {
   const { combinator } = signal
-  if (combinator !== undefined && DISTANCES.has(combinator)) {
+  if (combinator !== undefined && POSITION_KINDS.has(combinator)) {
     return { kind: 'absolute', unit: lookup.distance }
   }
   if (combinator === 'ratio') return { kind: 'ratio', unit: UNKNOWN_UNIT }

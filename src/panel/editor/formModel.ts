@@ -20,10 +20,16 @@ import type {
   ZoneLevel
 } from '../../model/rule'
 import type { FieldError } from '../api'
-import { signalMeasure, type Measure, type SignalShape, type UnitLookup } from '../signalUnits'
+import {
+  POSITION_KINDS,
+  signalMeasure,
+  type Measure,
+  type SignalShape,
+  type UnitLookup
+} from '../signalUnits'
 import { fromSI, toSI, type DisplayUnit, type QuantityKind } from '../units'
 
-// The model's own lists live in a module that builds the rule schema, which
+// The model's own values live in modules that build the rule schema, which
 // the panel does not bundle; a test keeps these equal to them.
 export const COMBINATOR_KINDS = [
   'difference',
@@ -47,8 +53,9 @@ export const ZONE_LEVEL_NAMES = [
   'alarm',
   'emergency'
 ] as const satisfies readonly ZoneLevel[]
-const MAX_INPUTS = 16
-const MAX_SLUG = 64
+export const MAX_INPUTS = 16
+export const MAX_SLUG = 64
+export const MAX_GATES = 8
 
 export const TWO_INPUT_KINDS: ReadonlySet<CombinatorKind> = new Set([
   'difference',
@@ -56,7 +63,6 @@ export const TWO_INPUT_KINDS: ReadonlySet<CombinatorKind> = new Set([
   'ratio',
   'distance'
 ])
-export const POSITION_KINDS: ReadonlySet<CombinatorKind> = new Set(['distance', 'positionSpread'])
 export const ANGULAR_KINDS: ReadonlySet<CombinatorKind> = new Set([
   'difference',
   'absDifference',

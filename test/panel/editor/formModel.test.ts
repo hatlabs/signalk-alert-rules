@@ -1,22 +1,42 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { COMBINATORS, PRIORITIES, ZONE_LEVELS, type Rule } from '../../../src/model/rule'
-import { validateRule } from '../../../src/model/validate'
 import {
+  COMBINATORS,
+  MAX_COMBINATOR_INPUTS,
+  MAX_GATES as MODEL_MAX_GATES,
+  MAX_SLUG_LENGTH,
+  PRIORITIES,
+  ZONE_LEVELS,
+  type Rule
+} from '../../../src/model/rule'
+import { USER_ORIGIN as MODEL_USER_ORIGIN } from '../../../src/model/ruleset'
+import {
+  ANGULAR_COMBINATORS,
+  POSITION_COMBINATORS,
+  TWO_INPUTS,
+  validateRule
+} from '../../../src/model/validate'
+import { USER_ORIGIN } from '../../../src/panel/api'
+import {
+  ANGULAR_KINDS,
   COMBINATOR_KINDS,
   emptyForm,
   fromRule,
+  MAX_GATES,
+  MAX_INPUTS,
+  MAX_SLUG,
   PRIORITY_LEVELS,
   setCombinator,
   setMode,
   slugify,
   toRule,
+  TWO_INPUT_KINDS,
   ZONE_LEVEL_NAMES,
   type RuleForm
 } from '../../../src/panel/editor/formModel'
 import type { PathEntry } from '../../../src/panel/paths/selfPaths'
-import { NO_UNITS, unitLookup } from '../../../src/panel/signalUnits'
+import { NO_UNITS, POSITION_KINDS, unitLookup } from '../../../src/panel/signalUnits'
 import { displayUnit } from '../../../src/panel/units'
 
 const EXAMPLES = join(import.meta.dirname, '../../../examples/rules')
@@ -88,6 +108,19 @@ describe('the form model mirrors the rule model', () => {
     expect([...COMBINATOR_KINDS]).toEqual([...COMBINATORS])
     expect([...PRIORITY_LEVELS]).toEqual([...PRIORITIES])
     expect([...ZONE_LEVEL_NAMES]).toEqual([...ZONE_LEVELS])
+  })
+
+  it('bounds inputs, slugs and gates as the model does, under its user origin', () => {
+    expect(MAX_INPUTS).toBe(MAX_COMBINATOR_INPUTS)
+    expect(MAX_SLUG).toBe(MAX_SLUG_LENGTH)
+    expect(MAX_GATES).toBe(MODEL_MAX_GATES)
+    expect(USER_ORIGIN).toBe(MODEL_USER_ORIGIN)
+  })
+
+  it('groups the combinators as the model does', () => {
+    expect([...TWO_INPUT_KINDS].sort()).toEqual([...TWO_INPUTS].sort())
+    expect([...POSITION_KINDS].sort()).toEqual([...POSITION_COMBINATORS].sort())
+    expect([...ANGULAR_KINDS].sort()).toEqual([...ANGULAR_COMBINATORS].sort())
   })
 })
 

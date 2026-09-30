@@ -52,14 +52,17 @@ const MAX_ALERT_PATH_LENGTH = 255
 const ALERT_PATH_SEGMENT = /^[A-Za-z0-9_-]+$/
 const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype'])
 
-const TWO_INPUTS: ReadonlySet<CombinatorKind> = new Set([
+export const TWO_INPUTS: ReadonlySet<CombinatorKind> = new Set([
   'difference',
   'absDifference',
   'ratio',
   'distance'
 ])
-const POSITION_COMBINATORS: ReadonlySet<CombinatorKind> = new Set(['distance', 'positionSpread'])
-const ANGULAR_COMBINATORS: ReadonlySet<CombinatorKind> = new Set([
+export const POSITION_COMBINATORS: ReadonlySet<CombinatorKind> = new Set([
+  'distance',
+  'positionSpread'
+])
+export const ANGULAR_COMBINATORS: ReadonlySet<CombinatorKind> = new Set([
   'difference',
   'absDifference',
   'mean',

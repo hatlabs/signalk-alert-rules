@@ -20,6 +20,7 @@ import {
   fromRule,
   hasWildcard,
   isZoneLimited,
+  MAX_GATES,
   PRIORITY_LEVELS,
   signalShape,
   slugify,
@@ -38,7 +39,6 @@ import {
 } from './sections'
 import { SignalFields } from './SignalFields'
 
-const MAX_GATES = 8
 const INSTANCE_PLACEHOLDER = '{instance}'
 const ADVANCED_POINTERS = ['/detector/hysteresis', '/detector/clearDuration', '/latching']
 
