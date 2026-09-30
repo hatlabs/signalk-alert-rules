@@ -1,4 +1,4 @@
-/** Samples kept per window; denser input is decimated to this spacing. */
+/** Sets the decimation spacing, window / MAX_WINDOW_SAMPLES; MAX_POINTS caps the points kept. */
 export const MAX_WINDOW_SAMPLES = 256
 
 // Input that alternates between values and gaps slower than the decimation

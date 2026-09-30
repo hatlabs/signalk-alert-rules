@@ -209,7 +209,8 @@ export class RuleRunner {
 
   /**
    * The alert's message and data, fixed at the raise. Data carries only what
-   * changes rarely, so heartbeats never rewrite it; live values are in status.
+   * changes rarely, so heartbeats never rewrite it; live values belong in
+   * the rule's status, not in the alert.
    */
   private describe(id: string, event: Extract<RuleEvent, { type: 'raise' }>): AlertValue {
     const { rule, instance, limit, value } = event
