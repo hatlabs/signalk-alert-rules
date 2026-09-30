@@ -58,6 +58,25 @@ export async function probe(api: PanelApi): Promise<ShellSnapshot> {
   }
 }
 
+/**
+ * The ready view to show the views from under `view`: the view itself, or
+ * the last one read while the plugin is only briefly out of reach. One
+ * dropped poll on a boat's Wi-Fi would otherwise unmount the views and lose
+ * the operator's filters, tab and any confirmation in progress. A disabled or
+ * failed plugin, or an expired session, has no views to keep.
+ */
+export function shownReady(view: ShellView, last: ReadyView | undefined): ReadyView | undefined {
+  switch (view.kind) {
+    case 'ready':
+      return view
+    case 'unreachable':
+    case 'restarting':
+      return last
+    default:
+      return undefined
+  }
+}
+
 export const POLL_INTERVAL_MS = 5000
 
 /**

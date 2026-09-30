@@ -9,7 +9,9 @@ import {
   DISABLED_POLL_INTERVAL_MS,
   POLL_INTERVAL_MS,
   pollDelay,
-  probe
+  probe,
+  shownReady,
+  type ReadyView
 } from '../../src/panel/shellState'
 import { ruleEntry } from './fixtures'
 
@@ -129,5 +131,25 @@ describe('pollDelay', () => {
 
   it('stops polling once the session has expired', () => {
     expect(pollDelay({ kind: 'sessionExpired' })).toBeNull()
+  })
+})
+
+describe('shownReady', () => {
+  const last: ReadyView = { kind: 'ready', rules: [rule], evaluationEnabled: true, issues: [] }
+
+  it('shows a ready view as it is', () => {
+    const now: ReadyView = { ...last, rules: [] }
+    expect(shownReady(now, last)).toBe(now)
+  })
+
+  it('keeps the last ready view while the plugin is unreachable or restarting', () => {
+    expect(shownReady({ kind: 'unreachable', reason: 'x' }, last)).toBe(last)
+    expect(shownReady({ kind: 'restarting' }, last)).toBe(last)
+  })
+
+  it('drops it once the plugin is disabled or failed, or the session expired', () => {
+    expect(shownReady({ kind: 'disabled' }, last)).toBeUndefined()
+    expect(shownReady({ kind: 'failed', error: 'x' }, last)).toBeUndefined()
+    expect(shownReady({ kind: 'sessionExpired' }, last)).toBeUndefined()
   })
 })

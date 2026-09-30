@@ -5,7 +5,14 @@ import { EvaluationOffBanner } from './rules/EvaluationOffBanner'
 import { RuleDetail } from './rules/RuleDetail'
 import { hashWithRule, parseRuleFragment, type RuleRef } from './rules/ruleLink'
 import { RulesView } from './rules/RulesView'
-import { pollDelay, probe, type ReadyView, type ShellSnapshot, type ShellView } from './shellState'
+import {
+  pollDelay,
+  probe,
+  shownReady,
+  type ReadyView,
+  type ShellSnapshot,
+  type ShellView
+} from './shellState'
 
 const TABS = [
   { id: 'rules', label: 'Rules' },
@@ -21,14 +28,16 @@ export interface ShellProps {
 
 /**
  * Keeps the plugin's condition current: probes at once, then again after the
- * view's poll delay while the document is visible. Returns a function that
- * probes again on demand.
+ * view's poll delay while the document is visible. Returns the ready view to
+ * show the views from (see shownReady) and a function that probes again on
+ * demand.
  */
-function useSnapshot(api: PanelApi): [ShellSnapshot, () => void] {
+function useSnapshot(api: PanelApi): [ShellSnapshot, ReadyView | undefined, () => void] {
   const [snapshot, setSnapshot] = useState<ShellSnapshot>({
     view: { kind: 'loading' },
     securityEnabled: null
   })
+  const [ready, setReady] = useState<ReadyView | undefined>(undefined)
   const [requests, setRequests] = useState(0)
 
   useEffect(() => {
@@ -45,6 +54,7 @@ function useSnapshot(api: PanelApi): [ShellSnapshot, () => void] {
       inFlight = false
       if (cancelled) return
       setSnapshot(next)
+      setReady((last) => shownReady(next.view, last))
       const delay = pollDelay(next.view)
       if (delay !== null && !hidden()) {
         timer = setTimeout(() => void run(), delay)
@@ -71,6 +81,7 @@ function useSnapshot(api: PanelApi): [ShellSnapshot, () => void] {
 
   return [
     snapshot,
+    ready,
     () => {
       setRequests((n) => n + 1)
     }
@@ -86,20 +97,28 @@ function SecurityWarning() {
   )
 }
 
-function Condition({ view, checkAgain }: { view: ShellView; checkAgain: () => void }) {
+interface ConditionProps {
+  view: ShellView
+  /** The views below show the rules as last read, not as they are now. */
+  stale: boolean
+  checkAgain: () => void
+}
+
+function Condition({ view, stale, checkAgain }: ConditionProps) {
+  const lastRead = stale ? ' The rules below are as last read.' : ''
   switch (view.kind) {
     case 'loading':
       return <div role="status">Loading…</div>
     case 'unreachable':
       return (
         <div className="alert alert-info" role="alert">
-          Cannot reach the alert rules plugin: {view.reason}. Retrying…
+          Cannot reach the alert rules plugin: {view.reason}. Retrying…{lastRead}
         </div>
       )
     case 'restarting':
       return (
         <div className="alert alert-info" role="alert">
-          The alert rules plugin is restarting. Retrying…
+          The alert rules plugin is restarting. Retrying…{lastRead}
         </div>
       )
     case 'disabled':
@@ -314,14 +333,18 @@ function Views({ api, view, refresh }: ViewsProps) {
 }
 
 export function Shell({ api }: ShellProps) {
-  const [snapshot, checkAgain] = useSnapshot(api)
+  const [snapshot, ready, checkAgain] = useSnapshot(api)
   const { view, securityEnabled } = snapshot
 
   return (
     <div className="skar-panel">
       {securityEnabled === false && <SecurityWarning />}
-      <Condition view={view} checkAgain={checkAgain} />
-      {view.kind === 'ready' && <Views api={api} view={view} refresh={checkAgain} />}
+      <Condition
+        view={view}
+        stale={ready !== undefined && view.kind !== 'ready'}
+        checkAgain={checkAgain}
+      />
+      {ready !== undefined && <Views api={api} view={ready} refresh={checkAgain} />}
     </div>
   )
 }

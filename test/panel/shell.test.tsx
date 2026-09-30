@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   httpApi,
@@ -394,6 +394,68 @@ describe('Shell rules', () => {
     it('shows no problems section when there are none', async () => {
       await renderShell({ state: { ...running, issues: [] }, enabled: true, rules: [rule] })
       expect(screen.queryByRole('region', { name: /problems/i })).toBeNull()
+    })
+  })
+
+  describe('while the plugin is briefly out of reach', () => {
+    it('keeps the filters and shows the condition above the last rules read', async () => {
+      const server: Server = { state: running, enabled: true, rules: [rule, hours] }
+      await renderShell(server)
+      fireEvent.change(screen.getByRole('searchbox', { name: /filter/i }), {
+        target: { value: 'engine' }
+      })
+      server.state = new Error('Failed to fetch')
+      await tick(POLL_INTERVAL_MS)
+      expect(screen.getByRole('alert').textContent).toMatch(/cannot reach.*failed to fetch/i)
+      expect(screen.getByRole('alert').textContent).toMatch(/last read/i)
+      const filter = () => screen.getByRole<HTMLInputElement>('searchbox', { name: /filter/i })
+      expect(filter().value).toBe('engine')
+      expect(screen.getByRole('link', { name: 'Engine hours' })).toBeTruthy()
+      expect(screen.queryByRole('link', { name: 'Oil pressure low' })).toBeNull()
+
+      server.state = running
+      await tick(POLL_INTERVAL_MS)
+      expect(screen.queryByRole('alert')).toBeNull()
+      expect(filter().value).toBe('engine')
+    })
+
+    it('keeps the selected tab while the plugin restarts', async () => {
+      const server: Server = { state: running, enabled: true, rules: [rule] }
+      await renderShell(server)
+      fireEvent.click(screen.getByRole('tab', { name: 'Suppressions' }))
+      server.state = { running: false, securityEnabled: true }
+      await tick(POLL_INTERVAL_MS)
+      expect(screen.getByRole('alert').textContent).toMatch(/restarting/i)
+      expect(screen.getByRole('tab', { name: 'Suppressions' }).getAttribute('aria-selected')).toBe(
+        'true'
+      )
+    })
+
+    it('keeps an open reset confirmation through a failed poll, and it still resets', async () => {
+      window.history.replaceState(null, '', '/#rule=user/engine-hours')
+      const server: Server = { state: running, enabled: true, rules: [hours] }
+      const api = await renderShell(server)
+      api.resetAccumulator.mockImplementation(() => Promise.resolve(hours))
+      fireEvent.click(screen.getByRole('button', { name: /reset accumulator/i }))
+      server.state = new Error('Failed to fetch')
+      await tick(POLL_INTERVAL_MS)
+      expect(screen.getByRole('alert').textContent).toMatch(/cannot reach/i)
+      const dialog = screen.getByRole('alertdialog')
+      server.state = running
+      fireEvent.click(within(dialog).getByRole('button', { name: /reset total/i }))
+      await settle()
+      expect(api.resetAccumulator).toHaveBeenCalledWith('user', 'engine-hours')
+      expect(screen.queryByRole('alertdialog')).toBeNull()
+    })
+
+    it('drops the views once the plugin is disabled', async () => {
+      const server: Server = { state: running, enabled: true, rules: [rule] }
+      await renderShell(server)
+      server.state = { running: false, securityEnabled: true }
+      server.enabled = false
+      await tick(POLL_INTERVAL_MS)
+      expect(screen.getByRole('alert').textContent).toMatch(/disabled/i)
+      expect(screen.queryAllByRole('tab')).toHaveLength(0)
     })
   })
 
