@@ -29,3 +29,10 @@
 .skar-path-picker-unit {
   margin-left: auto;
 }
+
+/* The status empties when the list closes on blur. Without a reserved line the
+   control below would move up between mousedown and mouseup, and its click would
+   be lost. */
+.skar-path-picker-status {
+  min-height: 1.5em;
+}

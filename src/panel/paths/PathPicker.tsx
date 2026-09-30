@@ -182,7 +182,7 @@ export function PathPicker({ label, value, paths, onChange, errors = [] }: PathP
         </ul>
       )}
       {/* Rendered even when empty, so screen readers track it as a live region from the start. */}
-      <div id={statusId} role="status" className="form-text">
+      <div id={statusId} role="status" className="form-text skar-path-picker-status">
         {status}
       </div>
       {errors.length > 0 && (
