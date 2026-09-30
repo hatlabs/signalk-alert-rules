@@ -208,6 +208,24 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
     expect(alerts().getByPath(path)).toMatchObject({ state: 'unacknowledged', message: 'after' })
   })
 
+  it('escalates an acknowledged alert on a repeat at a higher priority, and keeps its priority on a lower one', async () => {
+    const path = 'rules.contract.escalated'
+    deps.send(path, { ...raise('escalated'), priority: 'warning' })
+    const alert = await until(() => alerts().getByPath(path), 'the raise')
+    await alerts().acknowledge(alert.id, 'contract-test')
+    deps.send(path, raise('escalated'))
+    await alerts().ingressSettled()
+    expect(alerts().getByPath(path)).toMatchObject({ priority: 'alarm', state: 'unacknowledged' })
+    await alerts().acknowledge(alert.id, 'contract-test')
+    deps.send(path, { ...raise('escalated'), priority: 'warning' })
+    await alerts().ingressSettled()
+    expect(alerts().getByPath(path)).toMatchObject({
+      priority: 'alarm',
+      state: 'acknowledged',
+      condition: true
+    })
+  })
+
   it('keeps stored data when a heartbeat omits it', async () => {
     const path = 'rules.contract.no-data'
     deps.send(path, { ...raise('data'), data: { rule: 'contract.no-data' } })
