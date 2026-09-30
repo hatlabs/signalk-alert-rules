@@ -408,6 +408,15 @@ function fieldErrors(v: unknown): FieldError[] | undefined {
 }
 
 /**
+ * The panel's own wording for a slug conflict, which only creating a rule
+ * meets. A create that timed out may still have been saved, and its retry
+ * then finds its own slug taken; an operator who renamed it would store the
+ * rule twice.
+ */
+const SLUG_TAKEN =
+  'is taken by another rule. If an earlier attempt to create this rule timed out, it may have saved this rule: check the rule list before renaming.'
+
+/**
  * The server's own message from an error body, or the status when it has
  * none. A refused rule carries its field errors; a slug conflict, which the
  * server reports without them, belongs to the slug.
@@ -420,7 +429,7 @@ async function failure(res: Response, path: string): Promise<Error> {
   const errors = fieldErrors(body.errors)
   if (errors !== undefined) return new RuleRejectedError(body.error, errors)
   if (res.status === 409) {
-    return new RuleRejectedError(body.error, [{ path: '/slug', message: body.error }])
+    return new RuleRejectedError(body.error, [{ path: '/slug', message: SLUG_TAKEN }])
   }
   return new Error(body.error)
 }

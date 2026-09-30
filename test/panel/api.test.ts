@@ -475,16 +475,17 @@ describe('httpApi', () => {
       expect((refused as RuleRejectedError).errors).toEqual(errors)
     })
 
-    it('attaches a slug conflict to the slug', async () => {
+    it('attaches a slug conflict to the slug, naming a timed-out create that saved', async () => {
       const api = httpApi(
         fakeFetch({
           [`${BASE}/rules`]: { status: 409, body: { error: 'a rule with this slug exists' } }
         })
       )
       const refused = await api.createRule(rule).catch((err: unknown) => err)
-      expect((refused as RuleRejectedError).errors).toEqual([
-        { path: '/slug', message: 'a rule with this slug exists' }
-      ])
+      const errors = (refused as RuleRejectedError).errors
+      expect(errors.map((e) => e.path)).toEqual(['/slug'])
+      expect(errors[0]?.message).toMatch(/is taken/)
+      expect(errors[0]?.message).toMatch(/earlier attempt.*timed out.*may have saved this rule/)
     })
   })
 })
