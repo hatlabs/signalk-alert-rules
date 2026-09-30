@@ -17,8 +17,8 @@ import {
   type AlertsReader,
   type EmitterDeps
 } from './emitter.js'
-import { parseAlertPath, ruleId } from './paths.js'
-import { reconcile } from './reconcile.js'
+import { ruleId } from './paths.js'
+import { ownedActiveAlert, reconcile } from './reconcile.js'
 import { errorMessage } from '../util.js'
 
 export interface RunnerDeps extends EvaluatorContext, EmitterDeps {
@@ -174,10 +174,7 @@ export class RuleRunner {
     this.stop()
     const owned = this.deps.alerts
       .list()
-      .filter(
-        (a) =>
-          a.$source === this.deps.pluginId && a.condition && parseAlertPath(a.path) !== undefined
-      )
+      .filter((a) => ownedActiveAlert(a, this.deps.pluginId) !== undefined)
     const cleared = new Set(this.emitter.clearAll())
     for (const { path } of owned) if (!cleared.has(path)) this.deps.send(path, null)
   }
