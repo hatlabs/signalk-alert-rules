@@ -22,18 +22,20 @@ export interface Freeze {
  *
  * While its input is suppressed the gate is frozen: it ignores time and holds
  * back its latest reading, which it applies when the freeze ends. The
- * evaluator reads the state stored with the suppression; a gate frozen before
- * it has seen its input and with no stored state takes its first reading,
- * compared without waiting out the duration, since time does not pass for
- * it. When the freeze ends, a gate that has not evaluated since it was
- * created starts from the state it was frozen at.
+ * evaluator reads the state stored with the suppression for an instance that
+ * has one. A gate frozen before it has seen its input takes its first
+ * reading, compared without waiting out the duration, since time does not
+ * pass for it; a shared gate takes it even when some instances have a stored
+ * state, because an instance without one reads the gate. When the freeze
+ * ends, a gate that has not evaluated since it was created starts from the
+ * stored state, or else from the state it was frozen at.
  */
 export class Gate {
   private plain: Detector | undefined
   private adopted: Detector | undefined
   private last: Reading | undefined
   private problem: string | undefined
-  /** The state a frozen gate with no stored state took from its first reading. */
+  /** The state a gate frozen before it was seen took from its first reading. */
   private pinned: boolean | undefined
   /** The state stored with the suppression that freezes the gate. */
   private held: boolean | undefined
@@ -70,7 +72,7 @@ export class Gate {
 
   sample(reading: Reading, replayed: boolean, now: number): void {
     if (this.frozen(now)) {
-      if (!this.seen && this.held === undefined) this.pin(reading, now)
+      if (!this.seen) this.pin(reading, now)
       else this.pending = reading
       return
     }

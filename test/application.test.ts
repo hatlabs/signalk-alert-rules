@@ -1509,6 +1509,26 @@ describe('rule controls', () => {
       expectFrozenHolding(s, 2)
     })
 
+    it('an instance with no stored state takes one reading of a shared gate after a restart', () => {
+      stored({ ...gatedCoolant, signal: { path: 'propulsion.*.coolantTemperature' } })
+      const PORT = 'propulsion.port.coolantTemperature'
+      const STARBOARD = 'propulsion.starboard.coolantTemperature'
+      const first = setup()
+      first.at(0, RPM, 70)
+      first.at(0, PORT, 300)
+      first.application.suppressInput(RPM, {}, 'admin')
+      // Starboard first reports after the suppression started, so it has no stored state.
+      first.at(1, STARBOARD, 300)
+      expect(new Store(dir).load().controls.inputs[RPM]).toMatchObject({
+        frozen: { 'user.coolant-high': { '0': { port: true } } }
+      })
+      first.application.stop()
+      const second = setup(new Store(dir), first.server.core)
+      second.at(10, RPM, 70)
+      second.at(10, STARBOARD, 390)
+      expect(second.alerts()).toContainEqual(['rules.user.coolant-high.starboard', true])
+    })
+
     it('drops the stored gate states when the suppression ends', () => {
       const s = frozenRunning()
       s.application.endInputSuppression(RPM, 'admin')

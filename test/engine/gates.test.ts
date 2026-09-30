@@ -128,15 +128,21 @@ describe('gate', () => {
     expect(g.holdsFor(false)).toBe(true)
   })
 
-  it('a gate with a stored state takes no reading of its own while frozen', () => {
+  it('a gate with a stored state takes one reading for instances without one, and thaws from the stored state', () => {
+    let freeze: { holds: boolean } | undefined = { holds: false }
     const g = new Gate(
       running,
       () => undefined,
       0,
-      () => ({ holds: true })
+      () => freeze
     )
-    g.sample(v(0), false, 0)
-    expect(g.seen).toBe(false)
+    g.sample(v(30), false, 0)
+    expect(g.seen).toBe(true)
+    expect(g.holdsFor(false)).toBe(true)
+    // The duration has not passed since the thaw, so the stored state decides.
+    freeze = undefined
+    g.tick(1)
+    expect(g.holdsFor(false)).toBe(false)
   })
 
   it('an input never seen since start does not hold', () => {
