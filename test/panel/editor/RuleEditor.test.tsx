@@ -34,6 +34,12 @@ const reported: PathEntry[] = [
   },
   { path: 'electrical.batteries.start.voltage', units: 'V', unit: volts },
   { path: 'navigation.position', unit: displayUnit({}), sources: ['gnss.bow', 'gnss.stern'] },
+  {
+    path: 'navigation.speedOverGround',
+    units: 'm/s',
+    unit: displayUnit({ units: 'm/s' }),
+    sources: ['gnss.stern']
+  },
   { path: 'propulsion.port.revolutions', units: 'Hz', unit: rpm },
   { path: 'propulsion.starboard.revolutions', units: 'Hz', unit: rpm }
 ]
@@ -194,6 +200,24 @@ describe('RuleEditor, new rule', () => {
       .getAllByRole('option')
       .map((o) => o.textContent)
     expect(options).toEqual(['Preferred source', 'gnss.bow', 'gnss.stern'])
+  })
+
+  it('drops a source the new path does not report when the path changes', async () => {
+    renderEditor()
+    await pathsLoaded()
+    type(combobox('Input path'), 'navigation.position')
+    choose('Source for input path', 'gnss.stern')
+    type(combobox('Input path'), 'electrical.batteries.house.voltage')
+    expect(combobox('Source for input path')).toHaveProperty('value', '')
+  })
+
+  it('keeps a source the new path also reports', async () => {
+    renderEditor()
+    await pathsLoaded()
+    type(combobox('Input path'), 'navigation.position')
+    choose('Source for input path', 'gnss.stern')
+    type(combobox('Input path'), 'navigation.speedOverGround')
+    expect(combobox('Source for input path')).toHaveProperty('value', 'gnss.stern')
   })
 
   it('inserts the {instance} placeholder into the message of a wildcard rule', async () => {

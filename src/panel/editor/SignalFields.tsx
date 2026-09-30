@@ -99,7 +99,10 @@ function Slot({ label, at, slot, onChange, paths, units, unitError, wildcard }: 
         paths={paths}
         errors={pathErrors}
         onChange={(path) => {
-          onChange({ ...slot, path })
+          // A source kept from the old path would read a path it never reports,
+          // so the rule would never alert.
+          const kept = units.entry(path)?.sources?.includes(slot.source) === true
+          onChange({ ...slot, path, source: kept ? slot.source : '' })
         }}
       />
       <SelectField
