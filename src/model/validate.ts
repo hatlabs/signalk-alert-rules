@@ -628,12 +628,8 @@ export function validateRuleset(input: unknown, ctx: ValidationContext = {}): Re
   return resolved.ok ? { ok: true, value: ruleset } : resolved
 }
 
-/** The ruleset's rules with parameter values (defaults where unset) substituted and validated. */
-export function resolveRuleset(
-  ruleset: Ruleset,
-  values: ParameterValues,
-  ctx: ValidationContext = {}
-): Result<Rule[]> {
+/** Checks each value against its parameter's declaration, not the rules it makes. */
+export function parameterValueErrors(ruleset: Ruleset, values: ParameterValues): ValidationError[] {
   const parameters = new Map(ruleset.parameters?.map((p) => [p.name, p]))
   const errors: ValidationError[] = []
   for (const [name, value] of Object.entries(values)) {
@@ -645,6 +641,21 @@ export function resolveRuleset(
     else if (typeof value === 'number')
       errors.push(...prefixed(boundErrors(value, p.minimum, p.maximum), at))
   }
+  return errors
+}
+
+/**
+ * The ruleset's rules with parameter values (defaults where unset) substituted
+ * and validated. Each rule is a fresh copy, so objects a YAML alias shares in
+ * the ruleset are never shared between rules.
+ */
+export function resolveRuleset(
+  ruleset: Ruleset,
+  values: ParameterValues,
+  ctx: ValidationContext = {}
+): Result<Rule[]> {
+  const parameters = new Map(ruleset.parameters?.map((p) => [p.name, p]))
+  const errors = parameterValueErrors(ruleset, values)
   if (errors.length > 0) return fail(errors)
 
   const effective = new Map([...parameters].map(([name, p]) => [name, values[name] ?? p.default]))
