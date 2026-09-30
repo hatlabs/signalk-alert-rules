@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { RuleEntry } from '../api'
 import { failureMessage } from '../failure'
 import { Confirm, useConfirmation } from './Confirm'
@@ -20,6 +20,18 @@ export function EnableToggle({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
   const alerts = activeCount(entry)
+  const enableButton = useRef<HTMLButtonElement | null>(null)
+  const wasBusy = useRef(false)
+
+  // A browser drops focus to the page from a button as it is disabled. The
+  // button can take it back only after the render that enables it, and only
+  // if the operator has not moved on meanwhile.
+  useEffect(() => {
+    if (wasBusy.current && !busy && document.activeElement === document.body) {
+      enableButton.current?.focus()
+    }
+    wasBusy.current = busy
+  }, [busy])
 
   const enable = async () => {
     setBusy(true)
@@ -37,6 +49,7 @@ export function EnableToggle({
     return (
       <>
         <button
+          ref={enableButton}
           type="button"
           className="btn btn-outline-primary btn-sm me-2"
           disabled={busy}

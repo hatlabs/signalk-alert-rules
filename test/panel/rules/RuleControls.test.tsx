@@ -61,6 +61,31 @@ describe('RuleDetail controls', () => {
       expect(setEnabled).toHaveBeenCalledWith(true)
     })
 
+    it('returns focus to Enable once the request finishes', async () => {
+      const { setEnabled } = renderControls(ruleEntry({ enabled: false }))
+      let finish: () => void = () => undefined
+      setEnabled.mockReturnValue(
+        new Promise<void>((resolve) => {
+          finish = resolve
+        })
+      )
+      const enable = screen.getByRole<HTMLButtonElement>('button', { name: 'Enable' })
+      enable.focus()
+      await click(enable)
+      expect(enable.disabled).toBe(true)
+      // A browser drops focus to the page as the button is disabled; jsdom neither does
+      // that nor blurs a disabled button, but it does when the focused element goes.
+      const elsewhere = document.body.appendChild(document.createElement('input'))
+      elsewhere.focus()
+      elsewhere.remove()
+      expect(document.activeElement).toBe(document.body)
+      await act(async () => {
+        finish()
+        await Promise.resolve()
+      })
+      expect(document.activeElement).toBe(enable)
+    })
+
     it("shows the server's message when enabling is refused", async () => {
       const { setEnabled } = renderControls(ruleEntry({ enabled: false }))
       setEnabled.mockRejectedValue(new Error('no such rule'))
