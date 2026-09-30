@@ -238,10 +238,12 @@ function NoRules({
 }
 
 /**
- * The location hash, kept current. The admin UI's router owns the hash, and
- * the panel reads its own fragment after it (see rules/ruleLink.ts).
+ * The location hash, kept current, and a way to change it. The admin UI's
+ * router owns the hash, and the panel reads its own fragment after it (see
+ * rules/ruleLink.ts). A change the panel makes shows in the same render as
+ * the state changed with it, not a hashchange later.
  */
-function useLocationHash(): string {
+function useLocationHash(): [string, (next: string) => void] {
   const [hash, setHash] = useState(() => window.location.hash)
   useEffect(() => {
     const update = () => {
@@ -254,7 +256,13 @@ function useLocationHash(): string {
       window.removeEventListener('popstate', update)
     }
   }, [])
-  return hash
+  return [
+    hash,
+    (next) => {
+      window.location.hash = next
+      setHash(window.location.hash)
+    }
+  ]
 }
 
 interface ViewsProps {
@@ -278,13 +286,13 @@ function Views({ api, view, paths, refresh }: ViewsProps) {
   const [justSaved, setJustSaved] = useState<RuleEntry | undefined>(undefined)
   const [tab, setTab] = useState<Tab>('rules')
   const current = TABS.find((t) => t.id === tab) ?? TABS[0]
-  const hash = useLocationHash()
+  const [hash, setLocationHash] = useLocationHash()
   const ref = parseRuleFragment(hash)
 
   // A rule link opens the rule wherever the operator was.
   useEffect(() => {
     if (ref !== undefined) setTab('rules')
-  }, [ref?.origin, ref?.slug])
+  }, [ref?.origin, ref?.slug, ref?.instance])
 
   // Switching between the list and a rule replaces the view that held focus,
   // which would otherwise drop to the page body; focus moves to the new
@@ -324,13 +332,23 @@ function Views({ api, view, paths, refresh }: ViewsProps) {
     setDirty(false)
   }
 
+  const showTab = (next: Tab) => {
+    closeEditor()
+    setTab(next)
+    // A rule link that the hash already names would otherwise change nothing when followed.
+    // The operator chose the tab, so the list this leaves behind must not take focus later.
+    if (next !== 'rules' && ref !== undefined) {
+      focusedKey.current = ''
+      setLocationHash(hashWithRule(hash))
+    }
+  }
+
   const selectTab = (next: Tab) => {
     if (editor !== undefined && dirty) {
       setPendingTab(next)
       return
     }
-    closeEditor()
-    setTab(next)
+    showTab(next)
   }
 
   const saved = (entry: RuleEntry) => {
@@ -499,8 +517,7 @@ function Views({ api, view, paths, refresh }: ViewsProps) {
           title="Leave the rule form?"
           confirmLabel="Discard changes"
           onConfirm={() => {
-            closeEditor()
-            setTab(pendingTab)
+            showTab(pendingTab)
             setPendingTab(undefined)
             return Promise.resolve()
           }}

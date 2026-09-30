@@ -442,6 +442,56 @@ describe('Shell rules', () => {
     expect(screen.getByRole('heading', { name: 'Oil pressure low' })).toBeTruthy()
   })
 
+  it('follows a link to the rule last opened from another tab', async () => {
+    window.history.replaceState(null, '', `/admin/${ADMIN}`)
+    await renderShell({ state: running, enabled: true, rules: [rule] })
+    act(() => {
+      goTo(`${ADMIN}#rule=user/oil-pressure-low`)
+    })
+    fireEvent.click(screen.getByRole('tab', { name: 'Suppressions' }))
+    await settle()
+    expect(window.location.hash).toBe(ADMIN)
+    act(() => {
+      goTo(`${ADMIN}#rule=user/oil-pressure-low`)
+    })
+    expect(screen.getByRole('tab', { name: 'Rules' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('heading', { name: 'Oil pressure low' })).toBeTruthy()
+  })
+
+  it('leaves focus on the tab when returning to the rules from a rule', async () => {
+    await renderShell({ state: running, enabled: true, rules: [rule] })
+    act(() => {
+      goTo('#rule=user/oil-pressure-low')
+    })
+    fireEvent.click(screen.getByRole('tab', { name: 'Suppressions' }))
+    await settle()
+    const rulesTab = screen.getByRole('tab', { name: 'Rules' })
+    rulesTab.focus()
+    fireEvent.click(rulesTab)
+    await settle()
+    expect(document.activeElement).toBe(rulesTab)
+  })
+
+  it('shows the rules tab for a link that names only another instance', async () => {
+    const batteries = ruleEntry({
+      slug: 'battery-low',
+      rule: { name: 'Battery low', signal: { paths: ['electrical.batteries.*.voltage'] } },
+      status: {
+        instances: [
+          instance({ instance: { name: 'house', segment: 'house' } }),
+          instance({ instance: { name: 'start', segment: 'start' } })
+        ]
+      }
+    })
+    window.history.replaceState(null, '', '/#rule=user/battery-low&instance=house')
+    await renderShell({ state: running, enabled: true, rules: [batteries] })
+    fireEvent.click(screen.getByRole('tab', { name: 'Suppressions' }))
+    act(() => {
+      goTo('#rule=user/battery-low&instance=start')
+    })
+    expect(screen.getByRole('tab', { name: 'Rules' }).getAttribute('aria-selected')).toBe('true')
+  })
+
   it('says when the rule the fragment names does not exist', async () => {
     window.history.replaceState(null, '', '/#rule=user/gone')
     await renderShell({ state: running, enabled: true, rules: [rule] })
