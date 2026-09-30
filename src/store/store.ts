@@ -1,5 +1,5 @@
 import * as nodeFs from 'node:fs'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, relative } from 'node:path'
 import { SLUG_PATTERN, type Rule } from '../model/rule.js'
 import { errorMessage, isRecord } from '../util.js'
 
@@ -131,8 +131,8 @@ export class Store {
   load(): StoreContents {
     const issues: string[] = []
     this.fs.mkdirSync(join(this.dir, RULES_DIR), { recursive: true })
-    this.removeTemporaries(this.dir)
-    this.removeTemporaries(join(this.dir, RULES_DIR))
+    this.removeTemporaries(this.dir, issues)
+    this.removeTemporaries(join(this.dir, RULES_DIR), issues)
 
     const rules: StoredRule[] = []
     for (const file of this.fs.readdirSync(join(this.dir, RULES_DIR)).sort()) {
@@ -256,10 +256,17 @@ export class Store {
     }
   }
 
-  private removeTemporaries(dir: string): void {
+  private removeTemporaries(dir: string, issues: string[]): void {
     for (const file of this.fs.readdirSync(dir)) {
-      if (file.startsWith('.') && file.endsWith(TMP_SUFFIX)) {
+      if (!file.startsWith('.') || !file.endsWith(TMP_SUFFIX)) continue
+      try {
         this.fs.rmSync(join(dir, file), { force: true })
+      } catch (err) {
+        // A filesystem remounted read-only after a power cut refuses the
+        // removal; the file is never read, so the rules can still load.
+        issues.push(
+          `${relative(this.dir, join(dir, file))} could not be removed (${errorMessage(err)})`
+        )
       }
     }
   }

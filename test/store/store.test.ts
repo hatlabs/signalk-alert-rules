@@ -289,6 +289,24 @@ describe('store', () => {
     expect(new Store(dir).load().rules).toEqual([{ slug: 'old-rule', value: { slug: 'old-rule' } }])
   })
 
+  it('reports a leftover temporary file it cannot remove and loads the rest', () => {
+    const store = new Store(dir)
+    store.load()
+    store.saveRule(oil)
+    writeFileSync(join(dir, 'rules', '.oil-pressure-low.json.123.tmp'), '{')
+    const readOnly: FileSystem = {
+      ...fs,
+      rmSync: () => {
+        throw new Error('EROFS: read-only file system')
+      }
+    }
+    const contents = new Store(dir, readOnly).load()
+    expect(contents.rules).toEqual([{ slug: 'oil-pressure-low', value: oil }])
+    expect(contents.issues).toEqual([
+      expect.stringMatching(/\.oil-pressure-low\.json\.123\.tmp.*EROFS/)
+    ])
+  })
+
   it('removes temporary files an interrupted write left behind', () => {
     const store = new Store(dir)
     store.load()
