@@ -162,7 +162,7 @@ export function RulesetsView({
       ) : (
         <>
           {listing.problems.length > 0 && <Problems problems={listing.problems} />}
-          {listing.rulesets.length === 0 && (
+          {listing.rulesets.length === 0 && listing.problems.length === 0 && (
             <p className="skar-empty">
               No ruleset is installed. Install a package that provides one, or add a ruleset file,
               then rescan.

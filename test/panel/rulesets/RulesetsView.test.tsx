@@ -214,6 +214,8 @@ describe('RulesetsView', () => {
       'file broken.yaml, line 3: bad indentation',
       'package gone: Cannot find module'
     ])
+    // Something is installed, it just failed to load.
+    expect(screen.queryByText(/no ruleset is installed/i)).toBeNull()
   })
 
   it('shows an inactive rule with the paths it is missing', async () => {
