@@ -8,7 +8,15 @@ export type ShellView =
   | { kind: 'disabled' }
   | { kind: 'sessionExpired' }
   | { kind: 'failed'; error: string }
-  | { kind: 'ready'; rules: RuleEntry[]; evaluationEnabled: boolean }
+  | ReadyView
+
+export interface ReadyView {
+  kind: 'ready'
+  rules: RuleEntry[]
+  evaluationEnabled: boolean
+  /** Problems found while loading, such as stored rules that are not listed because they do not validate. */
+  issues: string[]
+}
 
 export interface ShellSnapshot {
   view: ShellView
@@ -35,7 +43,8 @@ export async function probe(api: PanelApi): Promise<ShellSnapshot> {
       const rules = await api.rules()
       // A running plugin always reports the switch; read its absence as the default, on.
       const evaluationEnabled = state.evaluation?.enabled ?? true
-      return { view: { kind: 'ready', rules, evaluationEnabled }, securityEnabled }
+      const issues = state.issues ?? []
+      return { view: { kind: 'ready', rules, evaluationEnabled, issues }, securityEnabled }
     }
     if (!(await api.pluginEnabled())) return { view: { kind: 'disabled' }, securityEnabled }
     if (state.error !== undefined) {

@@ -186,13 +186,20 @@ describe('httpApi', () => {
   })
 
   describe('state', () => {
-    it('reads the state and the evaluation switch', async () => {
+    it('reads the state, the evaluation switch and the load issues', async () => {
       const api = httpApi(fakeFetch({ [`${BASE}/state`]: { body: runningState } }))
       expect(await api.state()).toEqual({
         running: true,
         securityEnabled: true,
-        evaluation: { enabled: true }
+        evaluation: { enabled: true },
+        issues: ['stored rule broken is not valid and does not run: /signal: required']
       })
+    })
+
+    it('rejects issues that are not a list of strings', async () => {
+      const body = { ...runningState, issues: [42] }
+      const api = httpApi(fakeFetch({ [`${BASE}/state`]: { body } }))
+      await expect(api.state()).rejects.toThrow(/unexpected response from \/state/)
     })
 
     it('keeps the start error of a plugin that is not running', async () => {

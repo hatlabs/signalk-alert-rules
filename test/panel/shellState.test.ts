@@ -40,9 +40,16 @@ describe('probe', () => {
     const state = { running: true, securityEnabled: true, evaluation: { enabled: false } }
     const snapshot = await probe(fakeApi({ state, rules: [rule] }))
     expect(snapshot).toEqual({
-      view: { kind: 'ready', rules: [rule], evaluationEnabled: false },
+      view: { kind: 'ready', rules: [rule], evaluationEnabled: false, issues: [] },
       securityEnabled: true
     })
+  })
+
+  it('carries the problems found while loading into the ready view', async () => {
+    const issues = ['stored rule broken is not valid and does not run: /signal: required']
+    const state = { running: true, securityEnabled: true, evaluation: { enabled: true }, issues }
+    const snapshot = await probe(fakeApi({ state, rules: [] }))
+    expect(snapshot.view).toEqual({ kind: 'ready', rules: [], evaluationEnabled: true, issues })
   })
 
   it('is unreachable when /state cannot be fetched', async () => {
@@ -115,7 +122,9 @@ describe('pollDelay', () => {
     expect(pollDelay({ kind: 'restarting' })).toBe(POLL_INTERVAL_MS)
     expect(pollDelay({ kind: 'unreachable', reason: 'x' })).toBe(POLL_INTERVAL_MS)
     expect(pollDelay({ kind: 'failed', error: 'x' })).toBe(POLL_INTERVAL_MS)
-    expect(pollDelay({ kind: 'ready', rules: [], evaluationEnabled: true })).toBe(POLL_INTERVAL_MS)
+    expect(pollDelay({ kind: 'ready', rules: [], evaluationEnabled: true, issues: [] })).toBe(
+      POLL_INTERVAL_MS
+    )
   })
 
   it('stops polling once the session has expired', () => {

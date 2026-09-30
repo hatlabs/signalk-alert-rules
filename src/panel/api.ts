@@ -25,6 +25,12 @@ export interface PluginState {
   securityEnabled: boolean | null
   /** Present while the plugin runs. */
   evaluation?: Evaluation
+  /**
+   * Present while the plugin runs: problems found while loading the data
+   * directory, such as a stored rule that no longer validates and so is not
+   * listed.
+   */
+  issues?: string[]
 }
 
 export type InputState = 'value' | 'unavailable' | 'neverSeen'
@@ -152,12 +158,19 @@ function parseEvaluation(body: unknown, what: string): Evaluation {
 
 export function parseState(body: unknown): PluginState {
   if (!isRecord(body) || typeof body.running !== 'boolean') throw malformed('/state')
-  const { running, error, securityEnabled, evaluation } = body
+  const { running, error, securityEnabled, evaluation, issues } = body
+  if (
+    issues !== undefined &&
+    !(Array.isArray(issues) && issues.every((i): i is string => typeof i === 'string'))
+  ) {
+    throw malformed('/state')
+  }
   return {
     running,
     ...(typeof error === 'string' ? { error } : {}),
     securityEnabled: typeof securityEnabled === 'boolean' ? securityEnabled : null,
-    ...(evaluation === undefined ? {} : { evaluation: parseEvaluation(evaluation, '/state') })
+    ...(evaluation === undefined ? {} : { evaluation: parseEvaluation(evaluation, '/state') }),
+    ...(issues === undefined ? {} : { issues })
   }
 }
 

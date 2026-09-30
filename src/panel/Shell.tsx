@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
-import type { PanelApi, RuleEntry } from './api'
+import { useEffect, useId, useState } from 'react'
+import type { PanelApi } from './api'
 import { activeAlerts, ClearAllAlerts } from './rules/ClearAllAlerts'
 import { EvaluationOffBanner } from './rules/EvaluationOffBanner'
 import { RuleDetail } from './rules/RuleDetail'
 import { hashWithRule, parseRuleFragment, type RuleRef } from './rules/ruleLink'
 import { RulesView } from './rules/RulesView'
-import { pollDelay, probe, type ShellSnapshot, type ShellView } from './shellState'
+import { pollDelay, probe, type ReadyView, type ShellSnapshot, type ShellView } from './shellState'
 
 const TABS = [
   { id: 'rules', label: 'Rules' },
@@ -150,10 +150,38 @@ function RuleNotFound({ ruleRef, backHref }: { ruleRef: RuleRef; backHref: strin
   )
 }
 
-function NoRules({ browseRulesets }: { browseRulesets: () => void }) {
+/**
+ * What went wrong while loading the data directory. A stored rule that no
+ * longer validates is not listed at all, so without this it would vanish.
+ */
+function LoadIssues({ issues }: { issues: string[] }) {
+  const headingId = useId()
+  if (issues.length === 0) return null
+  return (
+    <section className="alert alert-warning" aria-labelledby={headingId}>
+      <h3 id={headingId} className="h6">
+        Problems found while loading the stored data
+      </h3>
+      <ul className="mb-0">
+        {issues.map((issue) => (
+          <li key={issue}>{issue}</li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+function NoRules({
+  browseRulesets,
+  someNotLoaded
+}: {
+  browseRulesets: () => void
+  /** Stored rules may exist that did not load, so "none yet" would be untrue. */
+  someNotLoaded: boolean
+}) {
   return (
     <div className="skar-empty">
-      <p>There are no alert rules yet.</p>
+      <p>{someNotLoaded ? 'No alert rule is listed.' : 'There are no alert rules yet.'}</p>
       <p>Create a rule, or enable a ruleset shipped by an installed package.</p>
       {/* Rule editing is wired by the rule editor; until then the entry point is visible but inert. */}
       <button type="button" className="btn btn-primary me-2" disabled>
@@ -188,13 +216,13 @@ function useLocationHash(): string {
 
 interface ViewsProps {
   api: PanelApi
-  rules: RuleEntry[]
-  evaluationEnabled: boolean
+  view: ReadyView
   /** Probes again at once, so the views show the outcome of an action. */
   refresh: () => void
 }
 
-function Views({ api, rules, evaluationEnabled, refresh }: ViewsProps) {
+function Views({ api, view, refresh }: ViewsProps) {
+  const { rules, evaluationEnabled, issues } = view
   const [tab, setTab] = useState<Tab>('rules')
   const current = TABS.find((t) => t.id === tab) ?? TABS[0]
   const hash = useLocationHash()
@@ -228,15 +256,20 @@ function Views({ api, rules, evaluationEnabled, refresh }: ViewsProps) {
     }
     if (rules.length === 0) {
       return (
-        <NoRules
-          browseRulesets={() => {
-            setTab('rulesets')
-          }}
-        />
+        <>
+          <LoadIssues issues={issues} />
+          <NoRules
+            someNotLoaded={issues.length > 0}
+            browseRulesets={() => {
+              setTab('rulesets')
+            }}
+          />
+        </>
       )
     }
     return (
       <>
+        <LoadIssues issues={issues} />
         <RulesView
           rules={rules}
           ruleHref={(origin, slug) => hashWithRule(hash, { origin, slug })}
@@ -288,14 +321,7 @@ export function Shell({ api }: ShellProps) {
     <div className="skar-panel">
       {securityEnabled === false && <SecurityWarning />}
       <Condition view={view} checkAgain={checkAgain} />
-      {view.kind === 'ready' && (
-        <Views
-          api={api}
-          rules={view.rules}
-          evaluationEnabled={view.evaluationEnabled}
-          refresh={checkAgain}
-        />
-      )}
+      {view.kind === 'ready' && <Views api={api} view={view} refresh={checkAgain} />}
     </div>
   )
 }

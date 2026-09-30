@@ -370,6 +370,33 @@ describe('Shell rules', () => {
     expect(screen.getByText('Idle')).toBeTruthy()
   })
 
+  describe('problems found while loading', () => {
+    const issues = ['stored rule broken is not valid and does not run: /signal: required']
+
+    it('lists them above the rules', async () => {
+      await renderShell({ state: { ...running, issues }, enabled: true, rules: [rule] })
+      const problems = screen.getByRole('region', { name: /problems/i })
+      expect(problems.textContent).toContain(issues[0])
+      expect(screen.getByRole('link', { name: 'Oil pressure low' })).toBeTruthy()
+      expect(
+        problems.compareDocumentPosition(screen.getByRole('searchbox')) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+    })
+
+    it('lists them when no rule loaded, without claiming there are none', async () => {
+      await renderShell({ state: { ...running, issues }, enabled: true, rules: [] })
+      expect(screen.getByRole('region', { name: /problems/i }).textContent).toContain(issues[0])
+      expect(screen.queryByText(/no alert rules yet/i)).toBeNull()
+      expect(screen.getByText(/no alert rule is listed/i)).toBeTruthy()
+    })
+
+    it('shows no problems section when there are none', async () => {
+      await renderShell({ state: { ...running, issues: [] }, enabled: true, rules: [rule] })
+      expect(screen.queryByRole('region', { name: /problems/i })).toBeNull()
+    })
+  })
+
   it('does not offer to clear all alerts while evaluation is off', async () => {
     await renderShell({
       state: { ...running, evaluation: { enabled: false } },
