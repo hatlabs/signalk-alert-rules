@@ -13,10 +13,11 @@ type FakeAlert = CoreAlert & { state: string }
  * `alertStateMachine.ts`): an unchanged re-emission of a condition-active
  * alert only refreshes its description, a clear holds an unacknowledged
  * non-caution alert, acknowledging a held alert removes it, a raise on a held
- * alert reactivates it, an omitted `data` keeps the stored data, and nothing
- * checks who owns a path. Ingress is applied
- * synchronously and there is no liveness timer; both are pinned against the
- * real server by the contract tests.
+ * alert reactivates it, a latching raise is a momentary event whose condition
+ * has already ended and which alerts the operator every time, an omitted
+ * `data` keeps the stored data, and nothing checks who owns a path. Ingress
+ * is applied synchronously and there is no liveness timer; both are pinned
+ * against the real server by the contract tests.
  */
 export class FakeAlertsCore {
   private readonly alerts = new Map<string, FakeAlert>()
@@ -29,6 +30,10 @@ export class FakeAlertsCore {
     const existing = this.alerts.get(path)
     if (value === null) {
       if (existing?.condition === true) this.clearCondition(existing)
+      return
+    }
+    if (value.latching) {
+      this.raiseOccurrence(source, path, value, existing)
       return
     }
     if (
@@ -102,6 +107,28 @@ export class FakeAlertsCore {
 
   list(): FakeAlert[] {
     return [...this.alerts.values()].map((a) => ({ ...a }))
+  }
+
+  private raiseOccurrence(
+    source: string,
+    path: string,
+    value: AlertValue,
+    existing: FakeAlert | undefined
+  ): void {
+    const keeps = existing !== undefined && rank(existing.priority) > rank(value.priority)
+    this.alerts.set(path, {
+      path,
+      $source: source,
+      priority: keeps ? existing.priority : value.priority,
+      message: value.message,
+      latching: true,
+      data: value.data ?? existing?.data,
+      condition: false,
+      state: 'unacknowledged',
+      stale: false
+    })
+    this.writes++
+    this.alertings++
   }
 
   private clearCondition(alert: FakeAlert): void {
