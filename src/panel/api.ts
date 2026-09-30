@@ -47,8 +47,14 @@ export function parseState(body: unknown): PluginState {
   }
 }
 
+/**
+ * The server answers `enabledByDefault || options.enabled`, which is undefined
+ * for a plugin that was never configured, so JSON leaves the flag out.
+ */
 function parseEnabled(body: unknown): boolean {
-  if (!isRecord(body) || typeof body.enabled !== 'boolean') throw malformed('the plugin route')
+  if (!isRecord(body)) throw malformed('the plugin route')
+  if (body.enabled === undefined) return false
+  if (typeof body.enabled !== 'boolean') throw malformed('the plugin route')
   return body.enabled
 }
 

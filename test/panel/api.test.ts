@@ -127,6 +127,16 @@ describe('httpApi', () => {
       expect(await api.pluginEnabled()).toBe(false)
     })
 
+    it('reads a fresh install, whose answer has no enabled flag, as disabled', async () => {
+      // signalk-server answers `enabledByDefault || options.enabled`, which is
+      // undefined before the plugin was ever configured and so left out.
+      const { enabled: _, ...freshInstall } = pluginInfo
+      const api = httpApi(
+        fakeFetch({ [`${BASE}/`]: { body: { ...freshInstall, enabledByDefault: false } } })
+      )
+      expect(await api.pluginEnabled()).toBe(false)
+    })
+
     it('rejects an enabled flag that is not a boolean', async () => {
       const api = httpApi(fakeFetch({ [`${BASE}/`]: { body: { ...pluginInfo, enabled: 'yes' } } }))
       await expect(api.pluginEnabled()).rejects.toThrow(/unexpected response/)
