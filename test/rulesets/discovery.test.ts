@@ -185,6 +185,19 @@ describe('discoverRulesets', () => {
     ])
   })
 
+  it('labels a package without a name by its directory', async () => {
+    await writePackage('@scope/nameless', { name: undefined, [RULESET_FIELD]: 'r.yaml' })
+
+    const result = await discover()
+
+    expect(result.problems).toEqual([
+      {
+        source: 'package @scope/nameless',
+        message: expect.stringContaining('name') as string
+      }
+    ])
+  })
+
   it('rejects a field naming the package root itself', async () => {
     await writePackage('dot', { [RULESET_FIELD]: '.' })
 

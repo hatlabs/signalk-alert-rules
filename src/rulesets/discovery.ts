@@ -77,7 +77,8 @@ export async function discoverRulesets(dirs: DiscoveryDirs): Promise<DiscoveryRe
         const candidate = await packageCandidate(dir, pkg)
         if (candidate !== undefined) candidates.push(candidate)
       } catch (err) {
-        const label = typeof pkg?.name === 'string' ? pkg.name : dir
+        // The directory is what the operator installed, as npm names it.
+        const label = typeof pkg?.name === 'string' ? pkg.name : relative(dirs.nodeModules, dir)
         problems.push(problemOf(`package ${label}`, err))
       }
     }
