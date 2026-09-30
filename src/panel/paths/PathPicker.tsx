@@ -25,6 +25,19 @@ function shownUnit(entry: PathEntry): string {
   return entry.units === undefined && entry.unit.si ? '' : unitLabel('absolute', entry.unit)
 }
 
+function statusText(paths: PathList, open: boolean, matching: number): string {
+  switch (paths.status) {
+    case 'loading':
+      return 'Loading paths…'
+    case 'failed':
+      return `Could not load paths: ${paths.error}. A path can still be typed.`
+    case 'ready':
+      if (!open) return ''
+      if (matching === 0) return 'No reported path matches; the typed path is used as is.'
+      return matching === 1 ? '1 path matches' : `${String(matching)} paths match`
+  }
+}
+
 /**
  * An editable combobox with list autocomplete (WAI-ARIA Authoring Practices,
  * combobox pattern): typing filters the reported paths, the arrow keys move
@@ -108,12 +121,8 @@ export function PathPicker({ label, value, paths, onChange }: PathPickerProps) {
     }
   }
 
-  const status =
-    paths.status === 'loading'
-      ? 'Loading paths…'
-      : paths.status === 'failed'
-        ? `Could not load paths: ${paths.error}. A path can still be typed.`
-        : null
+  const expanded = open && options.length > 0
+  const status = statusText(paths, open, options.length)
 
   return (
     <div className="skar-path-picker">
@@ -128,10 +137,10 @@ export function PathPicker({ label, value, paths, onChange }: PathPickerProps) {
         autoComplete="off"
         spellCheck={false}
         aria-autocomplete="list"
-        aria-expanded={open}
-        aria-controls={listboxId}
-        aria-activedescendant={open && active !== null ? optionId(active) : undefined}
-        aria-describedby={status === null ? undefined : statusId}
+        aria-expanded={expanded}
+        aria-controls={expanded ? listboxId : undefined}
+        aria-activedescendant={expanded && active !== null ? optionId(active) : undefined}
+        aria-describedby={statusId}
         value={value}
         onChange={(event) => {
           onChange(event.target.value)
@@ -141,7 +150,7 @@ export function PathPicker({ label, value, paths, onChange }: PathPickerProps) {
         onKeyDown={onKeyDown}
         onBlur={close}
       />
-      {open && paths.status === 'ready' && options.length > 0 && (
+      {expanded && (
         <ul id={listboxId} role="listbox" aria-label={label} className="dropdown-menu show">
           {options.map((entry, index) => (
             <li
@@ -168,14 +177,10 @@ export function PathPicker({ label, value, paths, onChange }: PathPickerProps) {
           ))}
         </ul>
       )}
-      {open && paths.status === 'ready' && options.length === 0 && (
-        <div className="form-text">No reported path matches; the typed path is used as is.</div>
-      )}
-      {status !== null && (
-        <div id={statusId} className="form-text">
-          {status}
-        </div>
-      )}
+      {/* Rendered even when empty, so screen readers track it as a live region from the start. */}
+      <div id={statusId} role="status" className="form-text">
+        {status}
+      </div>
     </div>
   )
 }

@@ -181,6 +181,30 @@ describe('PathPicker', () => {
     expect(onChange).toHaveBeenLastCalledWith('navigation.log')
   })
 
+  it('is expanded, and names its listbox, only while the listbox is shown', () => {
+    render(<Harness />)
+    expect(input().hasAttribute('aria-controls')).toBe(false)
+    fireEvent.change(input(), { target: { value: 'tanks.fuel.main.currentLevel' } })
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(input().getAttribute('aria-expanded')).toBe('false')
+    expect(input().hasAttribute('aria-controls')).toBe(false)
+  })
+
+  it('announces the match count, no match and loading in one status it is described by', () => {
+    const { rerender } = render(<Harness />)
+    const status = () => {
+      const node = screen.getByRole('status')
+      expect(input().getAttribute('aria-describedby')).toBe(node.id)
+      return node.textContent
+    }
+    fireEvent.change(input(), { target: { value: 'port' } })
+    expect(status()).toMatch(/2 paths match/i)
+    fireEvent.change(input(), { target: { value: 'tanks.fuel.main.currentLevel' } })
+    expect(status()).toMatch(/no reported path matches/i)
+    rerender(<Harness list={{ status: 'loading' }} />)
+    expect(status()).toMatch(/loading paths/i)
+  })
+
   it('says why the paths could not be loaded', () => {
     render(<Harness list={{ status: 'failed', error: 'answered 500' }} />)
     expect(screen.getByText(/could not load paths: answered 500/i)).toBeTruthy()
