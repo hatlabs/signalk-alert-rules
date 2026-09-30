@@ -7,6 +7,7 @@ import {
 } from '../engine/evaluator.js'
 import { priorityOf, type Priority, type Rule } from '../model/rule.js'
 import { alertPathFor } from '../model/validate.js'
+import { statusBadge, type Verdict } from './badge.js'
 import {
   AlertEmitter,
   type AlertHeader,
@@ -32,10 +33,13 @@ export interface LoadedRule {
   rule: Rule
 }
 
-export type RunnerInstanceStatus = InstanceStatus & Partial<AlertStatus>
+export type RunnerInstanceStatus = InstanceStatus & Partial<AlertStatus> & Verdict
 
-export interface RunnerRuleStatus {
+export interface RunnerRuleStatus extends Verdict {
+  /** Conditions that do not stop the rule, such as a rejected wildcard instance. */
   issues: string[]
+  /** Failures that make the rule errored, such as an evaluation that threw. */
+  errors: string[]
   instances: RunnerInstanceStatus[]
 }
 
@@ -61,7 +65,7 @@ export class RuleRunner {
   private readonly emitter: AlertEmitter
   private readonly entries = new Map<string, LoadedRule>()
   private readonly evaluators = new Map<string, RuleEvaluator>()
-  private readonly issues = new Map<string, Set<string>>()
+  private readonly errors = new Map<string, Set<string>>()
 
   /**
    * @param accumulated accumulator totals restored from the store, by rule id
@@ -111,7 +115,7 @@ export class RuleRunner {
       try {
         evaluator.tick()
       } catch (err) {
-        this.issue(id, `evaluation failed: ${err instanceof Error ? err.message : String(err)}`)
+        this.error(id, `evaluation failed: ${err instanceof Error ? err.message : String(err)}`)
       }
     }
     this.emitter.beat(this.deps.clock())
@@ -126,7 +130,7 @@ export class RuleRunner {
   update(entry: LoadedRule): void {
     const id = idOf(entry)
     this.entries.set(id, entry)
-    this.issues.delete(id)
+    this.errors.delete(id)
     const evaluator = this.evaluators.get(id)
     if (evaluator === undefined) {
       this.startRule(id, entry, undefined, undefined)
@@ -147,7 +151,7 @@ export class RuleRunner {
     this.evaluators.get(id)?.remove()
     this.evaluators.delete(id)
     this.entries.delete(id)
-    this.issues.delete(id)
+    this.errors.delete(id)
   }
 
   /** Accumulator totals by rule id and instance segment, for the store's checkpoint. */
@@ -165,15 +169,23 @@ export class RuleRunner {
     const evaluator = this.evaluators.get(id)
     if (entry === undefined || evaluator === undefined) return undefined
     const status = evaluator.status()
+    const errors = [...status.errors, ...(this.errors.get(id) ?? [])]
+    const instances = status.instances.map((instance) => {
+      const path = alertPathFor(entry.origin, entry.rule.slug, instance.instance?.segment)
+      if (!path.ok) return { ...instance, inactive: instance.inactive ?? path.errors[0]?.message }
+      const alert = this.emitter.status(path.value)
+      return alert === undefined
+        ? instance
+        : { ...instance, ...alert, awaitingInput: !this.hasEvidence(entry.rule, instance) }
+    })
+    const verdict = statusBadge(errors, instances)
     return {
-      issues: [...status.issues, ...(this.issues.get(id) ?? [])],
-      instances: status.instances.map((instance) => {
-        const path = alertPathFor(entry.origin, entry.rule.slug, instance.instance?.segment)
-        const alert = path.ok ? this.emitter.status(path.value) : undefined
-        return alert === undefined
-          ? instance
-          : { ...instance, ...alert, awaitingInput: !this.hasEvidence(entry.rule, instance) }
-      })
+      badge: verdict.badge,
+      ...(verdict.reason === undefined ? {} : { reason: verdict.reason }),
+      subLabels: verdict.subLabels,
+      issues: status.issues,
+      errors,
+      instances: instances.map((instance, i) => ({ ...instance, ...verdict.instances[i] }))
     }
   }
 
@@ -196,10 +208,10 @@ export class RuleRunner {
     evaluator.start()
   }
 
-  private issue(id: string, message: string): void {
-    const issues = this.issues.get(id) ?? new Set<string>()
-    issues.add(message)
-    this.issues.set(id, issues)
+  private error(id: string, message: string): void {
+    const errors = this.errors.get(id) ?? new Set<string>()
+    errors.add(message)
+    this.errors.set(id, errors)
   }
 
   private onEvent(id: string, event: RuleEvent): void {
@@ -207,11 +219,9 @@ export class RuleRunner {
     if (entry === undefined) return
     const now = this.deps.clock()
     const segment = event.instance?.segment
+    // An instance whose alert path is invalid shows as inactive in status.
     const path = alertPathFor(entry.origin, entry.rule.slug, segment)
-    if (!path.ok) {
-      for (const error of path.errors) this.issue(id, error.message)
-      return
-    }
+    if (!path.ok) return
     switch (event.type) {
       case 'raise':
         this.emitter.raise(
@@ -248,10 +258,7 @@ export class RuleRunner {
   private evidence(id: string, segment: string): () => boolean {
     return () => {
       const rule = this.entries.get(id)?.rule
-      const instance = this.evaluators
-        .get(id)
-        ?.status()
-        .instances.find((i) => (i.instance?.segment ?? '') === segment)
+      const instance = this.evaluators.get(id)?.evidence(segment)
       return rule !== undefined && instance !== undefined && this.hasEvidence(rule, instance)
     }
   }
@@ -266,7 +273,7 @@ export class RuleRunner {
    * so an absence rule has evidence unless its input is unavailable and a
    * timeout rule always has it.
    */
-  private hasEvidence(rule: Rule, instance: InstanceStatus): boolean {
+  private hasEvidence(rule: Rule, instance: Pick<InstanceStatus, 'input' | 'adopted'>): boolean {
     const d = rule.detector
     if (d.type === 'match' && d.op === 'timedOut') return true
     if (instance.adopted && d.type !== 'absence') return instance.input === 'value'

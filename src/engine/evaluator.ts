@@ -105,7 +105,10 @@ export interface InstanceStatus {
 }
 
 export interface RuleStatus {
+  /** Conditions that do not stop the rule, such as a rejected wildcard instance. */
   issues: string[]
+  /** Subscription failures, which leave the rule without its input. */
+  errors: string[]
   instances: InstanceStatus[]
 }
 
@@ -203,6 +206,7 @@ export class RuleEvaluator {
   private gates: Map<string, Gate>[] = []
   private closers: (() => void)[] = []
   private readonly issues = new Set<string>()
+  private readonly errors = new Set<string>()
   private adopted: Set<string>
   private carried = new Map<string, number>()
   private running = false
@@ -233,7 +237,7 @@ export class RuleEvaluator {
         this.issues.add(message)
       },
       onError: (err: unknown) => {
-        this.issues.add(err instanceof Error ? err.message : String(err))
+        this.errors.add(err instanceof Error ? err.message : String(err))
       }
     })
     gates.forEach((gate, i) => {
@@ -282,6 +286,7 @@ export class RuleEvaluator {
       this.adopted = new Set()
       this.units.clear()
       this.issues.clear()
+      this.errors.clear()
       this.start()
       return
     }
@@ -322,6 +327,7 @@ export class RuleEvaluator {
     const now = this.ctx.clock()
     return {
       issues: [...this.issues],
+      errors: [...this.errors],
       instances: [...this.units.values()].map((u) => ({
         instance: u.instance,
         active: u.alerting,

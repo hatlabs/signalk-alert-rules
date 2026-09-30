@@ -613,6 +613,177 @@ describe('rule runner', () => {
     const { at, sent, runner } = setup([rule])
     at(0, `tanks.fuel.${'x'.repeat(260)}.currentLevel`, 0.05)
     expect(sent).toEqual([])
-    expect(runner.status('user.tank-low')?.issues.join()).toMatch(/longer than/)
+    expect(runner.status('user.tank-low')).toMatchObject({ badge: 'inactive', errors: [] })
+    expect(runner.status('user.tank-low')?.reason).toMatch(/longer than/)
+    expect(runner.status('user.tank-low')?.instances[0]?.inactive).toMatch(/longer than/)
+  })
+})
+
+describe('rule status', () => {
+  const OIL_ID = 'user.oil-pressure-low'
+
+  it('a wildcard rule with one instance active and one gated off reports each instance', () => {
+    const rule = valid({
+      ...coolant,
+      gates: [
+        {
+          signal: { path: 'propulsion.*.revolutions' },
+          direction: 'above',
+          limit: { kind: 'fixed', value: 8 }
+        }
+      ]
+    })
+    const { at, runner } = setup([rule])
+    at(0, 'propulsion.port.revolutions', 30)
+    at(0, 'propulsion.starboard.revolutions', 0)
+    at(1, 'propulsion.port.coolantTemperature', 370)
+    at(1, 'propulsion.starboard.coolantTemperature', 371)
+    const status = runner.status('user.coolant-high')
+    expect(status).toMatchObject({ badge: 'alertActive', subLabels: [], errors: [], issues: [] })
+    const byName = new Map(status?.instances.map((i) => [i.instance?.name, i]))
+    expect(byName.get('port')).toMatchObject({
+      badge: 'alertActive',
+      subLabels: [],
+      active: true,
+      value: 370,
+      limit: 368,
+      gates: [{ holds: true, input: 'value' }],
+      awaitingInput: false
+    })
+    expect(byName.get('starboard')).toMatchObject({
+      badge: 'gatedOff',
+      active: false,
+      value: 371,
+      limit: 368,
+      gates: [{ holds: false, input: 'value' }]
+    })
+  })
+
+  type Step = (s: ReturnType<typeof setup>) => void
+  it.each<[string, Rule, Step]>([
+    [
+      'idle',
+      oil,
+      ({ at }) => {
+        at(0, OIL, 300000)
+      }
+    ],
+    [
+      'timerRunning',
+      oil,
+      ({ at }) => {
+        at(0, OIL, 0)
+        at(2)
+      }
+    ],
+    [
+      'neverSeen',
+      oil,
+      ({ at }) => {
+        at(2)
+      }
+    ],
+    [
+      'inputUnavailable',
+      oil,
+      ({ at }) => {
+        at(0, OIL, null)
+      }
+    ],
+    [
+      'gatedOff',
+      gatedOil,
+      ({ at }) => {
+        at(0, RPM, 0)
+        at(0, OIL, 0)
+      }
+    ],
+    [
+      'alertActive',
+      oil,
+      ({ at, run }) => {
+        at(0, OIL, 0)
+        run(1, 5)
+      }
+    ]
+  ])('reports %s', (badge, rule, step) => {
+    const s = setup([rule])
+    step(s)
+    expect(s.runner.status(OIL_ID)).toMatchObject({ badge, subLabels: [] })
+    expect(s.runner.status(OIL_ID)?.reason).toBeUndefined()
+  })
+
+  it('reports inactive with the reason', () => {
+    const { at, runner } = setup([batteryLow], {
+      meta: { [VOLTAGE]: { zones: [{ upper: 11.5, state: 'alarm' }] } }
+    })
+    at(0, VOLTAGE, 12.6)
+    expect(runner.status('user.house-battery-low')).toMatchObject({
+      badge: 'inactive',
+      reason: 'the path has no warn zone'
+    })
+  })
+
+  it('reports errored with the evaluation error, until the rule is edited', () => {
+    let broken = false
+    const meta = {
+      get [VOLTAGE](): PathMeta {
+        if (broken) throw new Error('meta unreadable')
+        return batteryZones
+      }
+    }
+    const { at, runner } = setup([batteryLow], { meta })
+    at(0, VOLTAGE, 12.6)
+    broken = true
+    at(1)
+    expect(runner.status('user.house-battery-low')).toMatchObject({
+      badge: 'errored',
+      reason: 'evaluation failed: meta unreadable',
+      errors: ['evaluation failed: meta unreadable']
+    })
+    broken = false
+    runner.update({ origin: 'user', rule: batteryLow })
+    expect(runner.status('user.house-battery-low')).toMatchObject({ badge: 'idle', errors: [] })
+  })
+
+  it('reports gate input unavailable on a gate that keeps holding', () => {
+    const { at, runner } = setup([gatedOil])
+    at(0, RPM, 30)
+    at(0, OIL, 300000)
+    at(10)
+    at(11, RPM, null)
+    expect(runner.status(OIL_ID)).toMatchObject({
+      badge: 'idle',
+      subLabels: ['gateInputUnavailable']
+    })
+  })
+
+  it('reports waiting for clear while an active alert times its clear duration', () => {
+    const { at, run, runner } = setup([oil])
+    at(0, OIL, 0)
+    run(1, 5)
+    at(6, OIL, 200000)
+    at(8)
+    expect(runner.status(OIL_ID)).toMatchObject({
+      badge: 'alertActive',
+      subLabels: ['waitingForClear']
+    })
+    expect(runner.status(OIL_ID)?.instances[0]?.progress).toEqual({
+      kind: 'timer',
+      toward: 'clear',
+      elapsed: 2,
+      target: 10
+    })
+  })
+
+  it('reports awaiting input for an active alert whose input went unavailable', () => {
+    const { at, run, runner } = setup([oil])
+    at(0, OIL, 0)
+    run(1, 5)
+    at(6, OIL, null)
+    expect(runner.status(OIL_ID)).toMatchObject({
+      badge: 'alertActive',
+      subLabels: ['awaitingInput']
+    })
   })
 })

@@ -1069,6 +1069,26 @@ describe('live status', () => {
     })
   })
 
+  it('reports a subscription failure as an error', () => {
+    class Failing extends FakeSubscriptionManager {
+      override subscribe(...args: Parameters<FakeSubscriptionManager['subscribe']>): void {
+        args[2](new Error('subscription refused'))
+      }
+    }
+    const evaluator = new RuleEvaluator(
+      oilPressure,
+      {
+        subscriptions: new Failing(),
+        meta: () => undefined,
+        timeoutSettings: () => ENFORCED,
+        clock: () => 0
+      },
+      () => undefined
+    )
+    evaluator.start()
+    expect(evaluator.status()).toMatchObject({ errors: ['subscription refused'], issues: [] })
+  })
+
   it('reports the input and adoption of one instance without building the status', () => {
     const { at, evaluator } = setup(oilPressure, { adopted: [{}] })
     expect(evaluator.evidence('')).toEqual({ input: 'neverSeen', adopted: true })
