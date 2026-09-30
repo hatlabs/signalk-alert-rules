@@ -190,12 +190,12 @@ describe('input suppression', () => {
     expect(log).toEqual([[0, 'raise', '']])
     expect(instances()[0]?.gates).toEqual([{ holds: true, input: 'value' }])
     expect(instances()[0]?.suppression).toBeUndefined()
+    // The reading held back while frozen applies when the freeze ends, with no new sample.
     controls.paths.delete(RPM)
     apply(4)
-    at(5, RPM, 0)
     expect(log).toEqual([
       [0, 'raise', ''],
-      [5, 'clear', '']
+      [4, 'clear', '']
     ])
   })
 

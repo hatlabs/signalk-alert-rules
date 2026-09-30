@@ -20,12 +20,13 @@ export interface Freeze {
  * other alert gets that head start. A zone limit follows the zones on every
  * evaluation.
  *
- * While its input is suppressed the gate is frozen: it ignores samples and
- * time. The evaluator reads the state stored with the suppression; a gate
- * frozen before it has seen its input and with no stored state takes its
- * first reading, compared without waiting out the duration, since time does
- * not pass for it. When the freeze ends, a gate that has not evaluated since
- * it was created starts from the state it was frozen at.
+ * While its input is suppressed the gate is frozen: it ignores time and holds
+ * back its latest reading, which it applies when the freeze ends. The
+ * evaluator reads the state stored with the suppression; a gate frozen before
+ * it has seen its input and with no stored state takes its first reading,
+ * compared without waiting out the duration, since time does not pass for
+ * it. When the freeze ends, a gate that has not evaluated since it was
+ * created starts from the state it was frozen at.
  */
 export class Gate {
   private plain: Detector | undefined
@@ -36,6 +37,8 @@ export class Gate {
   private pinned: boolean | undefined
   /** The state stored with the suppression that freezes the gate. */
   private held: boolean | undefined
+  /** The latest reading while frozen, applied when the freeze ends. */
+  private pending: Reading | undefined
   private wasFrozen = false
 
   constructor(
@@ -57,7 +60,7 @@ export class Gate {
   }
 
   get input(): InputState {
-    return inputState(this.last)
+    return inputState(this.pending ?? this.last)
   }
 
   /** Why the gate cannot hold, such as a zone level that is missing. */
@@ -68,6 +71,7 @@ export class Gate {
   sample(reading: Reading, replayed: boolean, now: number): void {
     if (this.frozen(now)) {
       if (!this.seen && this.held === undefined) this.pin(reading, now)
+      else this.pending = reading
       return
     }
     this.apply(reading, replayed, now)
@@ -94,10 +98,14 @@ export class Gate {
   private thaw(now: number): void {
     this.wasFrozen = false
     const initial = this.held ?? this.pinned
+    // An input sent only on change may not report again, so the latest
+    // reading is the gate's evidence now; one that never evaluated takes
+    // the reading it was frozen with.
+    const reading = this.pending ?? (this.plain === undefined ? this.last : undefined)
     this.held = undefined
     this.pinned = undefined
-    if (this.plain !== undefined || this.last === undefined) return
-    this.apply(this.last, false, now, initial)
+    this.pending = undefined
+    if (reading !== undefined) this.apply(reading, false, now, initial)
   }
 
   private pin(reading: Reading, now: number): void {

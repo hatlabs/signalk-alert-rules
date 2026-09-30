@@ -72,7 +72,7 @@ describe('gate', () => {
     expect(g.inputUnavailable).toBe(false)
   })
 
-  it('a frozen gate ignores samples and time, keeping its last state', () => {
+  it('a frozen gate ignores time and holds back its latest reading until the freeze ends', () => {
     let frozen = false
     const g = new Gate(
       running,
@@ -84,10 +84,29 @@ describe('gate', () => {
     frozen = true
     g.tick(10)
     expect(g.holdsFor(false)).toBe(false)
+    g.sample(TIMED_OUT, false, 11)
+    expect(g.input).toBe('unavailable')
     g.sample(v(0), false, 11)
-    expect(g.input).toBe('value')
+    expect(g.holdsFor(false)).toBe(false)
+    // Thawed, it evaluates the stopped engine it was sent while frozen.
     frozen = false
     g.tick(12)
+    g.tick(30)
+    expect(g.holdsFor(false)).toBe(false)
+  })
+
+  it('a gate rebuilt while frozen applies the reading it held back from its stored state', () => {
+    let freeze: { holds: boolean } | undefined = { holds: true }
+    const g = new Gate(
+      running,
+      () => undefined,
+      0,
+      () => freeze
+    )
+    g.sample(v(30), true, 0)
+    g.tick(5)
+    freeze = undefined
+    g.tick(6)
     expect(g.holdsFor(false)).toBe(true)
   })
 
@@ -101,7 +120,6 @@ describe('gate', () => {
     )
     g.sample(v(30), false, 0)
     expect(g.holdsFor(false)).toBe(true)
-    g.sample(v(0), false, 1)
     g.tick(100)
     expect(g.holdsFor(false)).toBe(true)
     // Thawed, it goes on from the state it was frozen at rather than timing its duration again.

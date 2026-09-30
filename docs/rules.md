@@ -167,7 +167,7 @@ A gate puts a rule in use only while a condition on another signal holds, such a
 
 - A gate that stops holding takes the rule out of use and clears its alert. The rule's detector is dropped; when the rule comes back into use it starts afresh, given the last reading, so durations count from then. An accumulator is the exception: it keeps accumulating while its rule is out of use, and only its alert is held back.
 - A gate whose input becomes unavailable keeps its last state: an engine that stopped before its controller went silent stays not running, and a tachometer that fails while the engine runs leaves the rule in use.
-- A gate whose input path is [suppressed](#input-suppression) is frozen: it ignores the input's values and time and keeps the state it had when the suppression started until the suppression ends.
+- A gate whose input path is [suppressed](#input-suppression) is frozen: it ignores time and keeps the state it had when the suppression started until the suppression ends. It holds back the input's latest value and evaluates it when the suppression ends, so an input sent only on change is not left stale.
 - A gate whose input has not been seen since start does not hold, except for an alert adopted at restart (see [Restart](#restart-reconciliation)), which is kept until the gate input reports. For such an alert the gate starts as holding and does not wait out its `duration`.
 - A gate with a wildcard signal is evaluated per instance; a gate without one is shared by every instance.
 - A gate's limit can be a zone limit, resolved like any other; a zone level missing from the path makes the rule inactive with that reason. A gate's zone level does not affect the rule's priority.
