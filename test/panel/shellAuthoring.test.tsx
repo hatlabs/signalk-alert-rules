@@ -13,7 +13,7 @@ import {
 import type { PathSource } from '../../src/panel/paths/selfPaths'
 import { Shell } from '../../src/panel/Shell'
 import { displayUnit } from '../../src/panel/units'
-import { ruleEntry } from './fixtures'
+import { noControls, ruleEntry } from './fixtures'
 
 const EXAMPLES = join(import.meta.dirname, '../../examples/rules')
 const stored = JSON.parse(readFileSync(join(EXAMPLES, 'house-battery-low.json'), 'utf8')) as Rule
@@ -57,7 +57,8 @@ function mockApi(rules: RuleEntry[]) {
         clearsActiveAlert: false,
         discardsTotal: false
       })
-    )
+    ),
+    ...noControls
   } satisfies PanelApi
   return api
 }

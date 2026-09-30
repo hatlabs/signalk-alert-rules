@@ -5,7 +5,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Value } from '@signalk/server-api'
 import { serverDeps } from '../../src/alerts/server'
 import { Application } from '../../src/application'
-import { parseRuleEntry, parseState, type RuleEntry } from '../../src/panel/api'
+import {
+  parseInputPreview,
+  parseRuleEntry,
+  parseState,
+  parseSuppressions,
+  type RuleEntry
+} from '../../src/panel/api'
 import { Store } from '../../src/store/store'
 import { MockServerAPI } from '../helpers/MockServerAPI'
 
@@ -178,6 +184,52 @@ describe('panel parsers against the Application', () => {
   it('read one rule as GET /rules/:origin/:slug answers it', () => {
     const entry = parseRuleEntry(wire(running().rule('user', oil.slug)), '/rules/user/oil')
     expect(entry.slug).toBe(oil.slug)
+  })
+
+  it('read the suppressions in force, of a rule and of an input', () => {
+    const application = running()
+    application.suppressInput(AUX_RPM, { autoEndAfter: 600 }, 'admin')
+    const suppressions = parseSuppressions(wire(application.suppressions()), '/suppressions')
+    // Both start at the same fixed wall time, so their order is not what this checks.
+    expect(suppressions).toHaveLength(2)
+    expect(suppressions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scope: 'input',
+          path: AUX_RPM,
+          actor: 'admin',
+          autoEndAfter: 600
+        }),
+        expect.objectContaining({
+          scope: 'rule',
+          rule: `user.${mismatch.slug}`,
+          origin: 'user',
+          slug: mismatch.slug,
+          actor: 'skipper',
+          note: 'sender loose'
+        })
+      ])
+    )
+  })
+
+  it('read an input suppression preview with what it suppresses and freezes', () => {
+    const application = running()
+    const preview = parseInputPreview(
+      wire(application.previewInputSuppression(COOLANT)),
+      '/preview'
+    )
+    expect(preview.path).toBe(COOLANT)
+    expect(preview.suppresses).toEqual([])
+    expect(preview.freezes).toEqual([
+      expect.objectContaining({ slug: mismatch.slug, gate: 0, states: [{ holds: true }] })
+    ])
+    const read = parseInputPreview(
+      wire(application.previewInputSuppression('electrical.batteries.start.voltage')),
+      '/preview'
+    )
+    expect(read.suppresses).toEqual([
+      { rule: `user.${batteries.slug}`, origin: 'user', slug: batteries.slug, instance: 'start' }
+    ])
   })
 
   it('read the load issues in the state', () => {

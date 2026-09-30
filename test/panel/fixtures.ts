@@ -13,6 +13,28 @@ export const noAuthoring: Pick<
   previewRule: notExpected
 }
 
+/** The control and suppression routes of a fake API, for tests that never use them. */
+export const noControls: Pick<
+  PanelApi,
+  | 'setEnabled'
+  | 'setNote'
+  | 'suppressions'
+  | 'suppressRule'
+  | 'endRuleSuppression'
+  | 'suppressInput'
+  | 'endInputSuppression'
+  | 'previewInputSuppression'
+> = {
+  setEnabled: notExpected,
+  setNote: notExpected,
+  suppressions: () => Promise.resolve([]),
+  suppressRule: notExpected,
+  endRuleSuppression: notExpected,
+  suppressInput: notExpected,
+  endInputSuppression: notExpected,
+  previewInputSuppression: notExpected
+}
+
 /** An idle instance with a value, to override per test. */
 export function instance(overrides: Partial<InstanceStatus> = {}): InstanceStatus {
   return {

@@ -12,7 +12,7 @@ import {
 import type { PathSource } from '../../src/panel/paths/selfPaths'
 import { Shell } from '../../src/panel/Shell'
 import { DISABLED_POLL_INTERVAL_MS, POLL_INTERVAL_MS } from '../../src/panel/shellState'
-import { noAuthoring, ruleEntry } from './fixtures'
+import { noAuthoring, noControls, ruleEntry } from './fixtures'
 
 interface Server {
   state: PluginState | Error
@@ -31,7 +31,8 @@ function mockApi(server: Server) {
       Promise.reject(new Error('not expected'))
     ),
     setEvaluation: vi.fn((enabled: boolean) => Promise.resolve({ enabled })),
-    ...noAuthoring
+    ...noAuthoring,
+    ...noControls
   } satisfies PanelApi
   return api
 }

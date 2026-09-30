@@ -13,7 +13,7 @@ import {
   shownReady,
   type ReadyView
 } from '../../src/panel/shellState'
-import { noAuthoring, ruleEntry } from './fixtures'
+import { noAuthoring, noControls, ruleEntry } from './fixtures'
 
 interface FakeServer {
   state?: PluginState | Error
@@ -32,7 +32,8 @@ function fakeApi(server: FakeServer): PanelApi {
     rules: () => answer(server.rules),
     resetAccumulator: () => Promise.reject(new Error('not expected to be asked')),
     setEvaluation: () => Promise.reject(new Error('not expected to be asked')),
-    ...noAuthoring
+    ...noAuthoring,
+    ...noControls
   }
 }
 
