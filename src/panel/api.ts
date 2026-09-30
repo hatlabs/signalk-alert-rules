@@ -143,7 +143,7 @@ export class SessionExpiredError extends Error {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
@@ -366,18 +366,34 @@ async function failure(res: Response, path: string): Promise<Error> {
   return new Error(`${path} answered ${String(res.status)}`)
 }
 
+/**
+ * A request with the admin UI's session, bounded by the request timeout. A
+ * refused session throws SessionExpiredError, any other failure the server's
+ * own message.
+ */
+async function requestJson(
+  fetchFn: typeof fetch,
+  path: string,
+  init: RequestInit = {}
+): Promise<unknown> {
+  const res = await fetchFn(path, {
+    ...init,
+    credentials: 'same-origin',
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+  })
+  if (res.status === 401 || res.status === 403) throw new SessionExpiredError()
+  if (!res.ok) throw await failure(res, path)
+  return res.json()
+}
+
+/** A JSON `GET` relative to the admin UI's origin, failing as the panel's own requests do. */
+export function getJson(fetchFn: typeof fetch, path: string): Promise<unknown> {
+  return requestJson(fetchFn, path)
+}
+
 /** The API over HTTP, relative to the admin UI's origin. */
 export function httpApi(fetchFn: typeof fetch = (input, init) => fetch(input, init)): PanelApi {
-  const request = async (path: string, init: RequestInit = {}): Promise<unknown> => {
-    const res = await fetchFn(path, {
-      ...init,
-      credentials: 'same-origin',
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
-    })
-    if (res.status === 401 || res.status === 403) throw new SessionExpiredError()
-    if (!res.ok) throw await failure(res, path)
-    return res.json()
-  }
+  const request = (path: string, init: RequestInit = {}) => requestJson(fetchFn, path, init)
   // The server refuses a mutating request without this content type; that is
   // what keeps another site from acting through an admin's session.
   const send = (method: string, path: string, body?: unknown) =>

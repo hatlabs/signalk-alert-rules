@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { REQUEST_TIMEOUT_MS } from '../api'
+import { getJson, isRecord } from '../api'
 import { displayUnit, type DisplayUnit, type UnitMeta } from '../units'
 
 /** A `vessels.self` path the server has a value for, as the picker lists it. */
@@ -23,10 +23,6 @@ export interface PathSource {
 const LEAF_KEYS = new Set(['value', 'values', 'meta', '$source', 'timestamp', 'pgn', 'sentence'])
 
 const SI_METRES: DisplayUnit = displayUnit({ units: 'm' })
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined
@@ -86,15 +82,6 @@ export function parseSelfPaths(tree: unknown): PathEntry[] {
 }
 
 type Fetch = typeof fetch
-
-async function getJson(fetchFn: Fetch, path: string): Promise<unknown> {
-  const res = await fetchFn(path, {
-    credentials: 'same-origin',
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
-  })
-  if (!res.ok) throw new Error(`${path} answered ${String(res.status)}`)
-  return res.json()
-}
 
 async function presetName(fetchFn: Fetch, url: string): Promise<string | undefined> {
   try {

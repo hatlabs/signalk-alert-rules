@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { renderHook, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { SessionExpiredError } from '../../../src/panel/api'
 import {
   httpPathSource,
   parseSelfPaths,
@@ -139,6 +140,18 @@ describe('httpPathSource', () => {
     const paths = await httpPathSource(fetchFn).selfPaths()
     expect(paths).toHaveLength(5)
     expect(fetchFn.mock.calls[0]?.[1]?.credentials).toBe('same-origin')
+  })
+
+  it('reports an expired session when the server refuses the tree with 401', async () => {
+    const fetchFn = fakeFetch({ '/signalk/v1/api/vessels/self': { status: 401, body: {} } })
+    await expect(httpPathSource(fetchFn).selfPaths()).rejects.toBeInstanceOf(SessionExpiredError)
+  })
+
+  it("fails with the server's own message when it gives one", async () => {
+    const fetchFn = fakeFetch({
+      '/signalk/v1/api/vessels/self': { status: 500, body: { error: 'tree unavailable' } }
+    })
+    await expect(httpPathSource(fetchFn).selfPaths()).rejects.toThrow('tree unavailable')
   })
 
   it('fails with the status when the server refuses the tree', async () => {
