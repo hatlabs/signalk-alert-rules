@@ -467,6 +467,26 @@ describe('Shell rules', () => {
     expect(screen.getByText('Idle')).toBeTruthy()
   })
 
+  it('disables a rule and shows it as the server answers after', async () => {
+    window.history.replaceState(null, '', '/#rule=user/oil-pressure-low')
+    const server: Server = { state: running, enabled: true, rules: [rule] }
+    const api = await renderShell(server)
+    const disabled = ruleEntry({
+      enabled: false,
+      status: { badge: 'disabled', reason: 'disabled' }
+    })
+    const setEnabled = vi.fn(() => {
+      server.rules = [disabled]
+      return Promise.resolve(disabled)
+    })
+    Object.assign(api, { setEnabled })
+    fireEvent.click(screen.getByRole('button', { name: 'Disable…' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Disable' }))
+    await settle()
+    expect(setEnabled).toHaveBeenCalledWith('user', 'oil-pressure-low', false)
+    expect(screen.getByRole('button', { name: 'Enable' })).toBeTruthy()
+  })
+
   describe('problems found while loading', () => {
     const issues = ['stored rule broken is not valid and does not run: /signal: required']
 

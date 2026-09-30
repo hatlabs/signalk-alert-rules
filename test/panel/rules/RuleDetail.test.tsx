@@ -210,7 +210,7 @@ describe('RuleDetail', () => {
 
   it('offers editing, not yet available', () => {
     renderDetail(batteries)
-    expect(screen.getByRole<HTMLButtonElement>('button', { name: /edit/i }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Edit' }).disabled).toBe(true)
   })
 
   it('offers an accumulator reset only for an accumulator', () => {

@@ -12,6 +12,7 @@ import {
   type RuleDisplay
 } from './describe'
 import { InstanceTable, isLinked } from './InstanceTable'
+import { EnableToggle, NoteEditor } from './RuleControls'
 import { StatusBadge } from './StatusBadge'
 
 export interface RuleDetailProps {
@@ -30,6 +31,10 @@ export interface RuleDetailProps {
   instance?: string
   /** The linked instance's row, which takes focus when the operator follows the link. */
   instanceRef?: Ref<HTMLTableRowElement>
+  /** Enables or disables the rule; absent where it cannot be changed. A rejection is shown. */
+  setEnabled?: (enabled: boolean) => Promise<void>
+  /** Sets the rule's note, an empty one removing it; a rejection is shown. */
+  setNote?: (note: string) => Promise<void>
 }
 
 function Fact({ term, children }: { term: string; children: ReactNode }) {
@@ -72,7 +77,9 @@ export function RuleDetail({
   units = NO_UNITS,
   edit,
   instance,
-  instanceRef
+  instanceRef,
+  setEnabled,
+  setNote
 }: RuleDetailProps) {
   const confirmation = useConfirmation()
   const { rule, status } = entry
@@ -157,6 +164,8 @@ export function RuleDetail({
         >
           Edit
         </button>
+        {setEnabled !== undefined && <EnableToggle entry={entry} setEnabled={setEnabled} />}
+        {setNote !== undefined && <NoteEditor entry={entry} setNote={setNote} />}
         {isAccumulator && (
           <button
             ref={confirmation.trigger}

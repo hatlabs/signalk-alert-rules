@@ -400,6 +400,14 @@ function Views({ api, view, paths, refresh }: ViewsProps) {
             await api.resetAccumulator(entry.origin, entry.slug)
             refresh()
           }}
+          setEnabled={async (enabled) => {
+            await api.setEnabled(entry.origin, entry.slug, enabled)
+            refresh()
+          }}
+          setNote={async (note) => {
+            await api.setNote(entry.origin, entry.slug, note)
+            refresh()
+          }}
         />
       )
     }
