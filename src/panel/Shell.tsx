@@ -19,6 +19,7 @@ import {
 } from './shellState'
 import { useUnits } from './signalUnits'
 import type { SuppressContext } from './suppression/SuppressButton'
+import { SuppressionsView } from './suppression/SuppressionsView'
 
 const TABS = [
   { id: 'rules', label: 'Rules' },
@@ -512,6 +513,15 @@ function Views({ api, view, paths, refresh }: ViewsProps) {
       )}
       <div role="tabpanel" aria-label={current.label} className="skar-view">
         {tab === 'rules' && rulesTab()}
+        {tab === 'suppressions' && (
+          <SuppressionsView
+            api={api}
+            rules={rules}
+            paths={paths}
+            ruleHref={(origin, slug) => hashWithRule(hash, { origin, slug })}
+            refresh={refresh}
+          />
+        )}
       </div>
     </>
   )

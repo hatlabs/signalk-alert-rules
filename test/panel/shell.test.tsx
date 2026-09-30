@@ -487,6 +487,31 @@ describe('Shell rules', () => {
     expect(screen.getByRole('button', { name: 'Enable' })).toBeTruthy()
   })
 
+  it('lists the suppressions on their tab, each rule linking to its detail', async () => {
+    window.history.replaceState(null, '', `/admin/${ADMIN}`)
+    const api = await renderShell({ state: running, enabled: true, rules: [rule] })
+    const suppressions = vi.fn(() =>
+      Promise.resolve([
+        {
+          scope: 'rule' as const,
+          rule: 'user.oil-pressure-low',
+          origin: 'user',
+          slug: 'oil-pressure-low',
+          since: '2026-09-30T12:00:00.000Z',
+          actor: 'skipper'
+        }
+      ])
+    )
+    Object.assign(api, { suppressions })
+    fireEvent.click(screen.getByRole('tab', { name: 'Suppressions' }))
+    await settle()
+    const link = within(screen.getByRole('tabpanel')).getByRole('link', {
+      name: 'Oil pressure low'
+    })
+    expect(link.getAttribute('href')).toBe(`${ADMIN}#rule=user/oil-pressure-low`)
+    expect(screen.getByRole('tabpanel').textContent).toContain('skipper')
+  })
+
   describe('problems found while loading', () => {
     const issues = ['stored rule broken is not valid and does not run: /signal: required']
 

@@ -39,10 +39,12 @@ export function inputPaths(entry: RuleEntry): string[] {
 /** A button that opens the suppress dialog below it, and takes focus back when it closes. */
 export function SuppressButton({
   target,
-  context
+  context,
+  text = 'Suppress…'
 }: {
   target: SuppressTarget
   context: SuppressContext
+  text?: string
 }) {
   const dialog = useConfirmation()
   return (
@@ -54,7 +56,7 @@ export function SuppressButton({
         disabled={dialog.open}
         onClick={dialog.show}
       >
-        Suppress…
+        {text}
       </button>
       {dialog.open && (
         <SuppressDialog
