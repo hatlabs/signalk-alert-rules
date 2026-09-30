@@ -3,7 +3,7 @@ import type { Plugin, PluginRouter, ServerAPI } from '@signalk/server-api'
 import { Application, CHECKPOINT_MS, TICK_MS } from './application.js'
 import { registerRoutes } from './api/routes.js'
 import { serverDeps } from './alerts/server.js'
-import { discoverRulesets } from './rulesets/discovery.js'
+import { discoverRulesets, type DiscoveryDirs } from './rulesets/discovery.js'
 import { Store } from './store/store.js'
 import { errorMessage } from './util.js'
 
@@ -62,8 +62,8 @@ export default function createPlugin(app: ServerAPI): Plugin {
         // directory is <configPath>/plugin-config-data/<pluginId>, and the
         // server installs plugins, ruleset providers among them, with npm
         // in <configPath> (signalk-server src/modules.ts).
-        const dirs = {
-          nodeModules: join(dirname(dirname(dataDir)), 'node_modules'),
+        const dirs: DiscoveryDirs = {
+          configDir: dirname(dirname(dataDir)),
           dropIn: join(dataDir, RULESETS_DIR)
         }
         running = new Application(serverDeps(app, PLUGIN_ID), new Store(dataDir), () =>

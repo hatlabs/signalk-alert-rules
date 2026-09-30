@@ -21,7 +21,7 @@ A provider package declares its ruleset in `package.json`, with the keyword and 
 
 - The package needs a `name` and a `version`; the operator sees both on every rule of the ruleset.
 - The field is a path relative to the package directory. After resolving symbolic links it must stay inside the package and end in `.yaml`, `.yml` or `.json`.
-- SKAR looks for packages in the `node_modules` directory of the Signal K server's configuration directory, where the server installs plugins, scoped packages included. Only packages at the top level of that directory are found, not those nested in another package's own `node_modules`.
+- SKAR reads the packages listed as `dependencies` in the `package.json` of the Signal K server's configuration directory, from that directory's `node_modules`, scoped packages included. The server records every package it installs there and removes the entry on uninstall, so a provider installed through the server's app store, or with `npm install` in that directory, is found. A package copied into `node_modules` by hand, or installed with `--no-save`, is not; neither is one nested in another package's own `node_modules`. A listed package that is not installed is skipped.
 
 ### As a file
 

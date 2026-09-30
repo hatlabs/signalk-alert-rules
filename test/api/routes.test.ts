@@ -1,4 +1,12 @@
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import type { Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -677,16 +685,28 @@ describe('rulesets API', () => {
   const HOUSE_VOLTAGE = 'electrical.batteries.house.voltage'
   const LOW_ALERT = 'rules.batteries.low'
 
+  /** Records an installed package in the config package.json, as the server's npm install does. */
+  function list(name: string): void {
+    const file = join(configDir, 'package.json')
+    const pkg = existsSync(file)
+      ? (JSON.parse(readFileSync(file, 'utf8')) as { dependencies: Record<string, string> })
+      : { dependencies: {} }
+    pkg.dependencies[name] = '*'
+    writeFileSync(file, JSON.stringify(pkg))
+  }
+
   function installExample(): void {
     cpSync(EXAMPLE, join(configDir, 'node_modules', 'signalk-alert-ruleset-example'), {
       recursive: true
     })
+    list('signalk-alert-ruleset-example')
   }
 
   /** A provider package whose ruleset has the given rules, each a sustained rule on its own path. */
   function installProvider(version: string, slugs: string[]): void {
     const pkg = join(configDir, 'node_modules', 'provider')
     mkdirSync(pkg, { recursive: true })
+    list('provider')
     writeFileSync(
       join(pkg, 'package.json'),
       JSON.stringify({

@@ -3,6 +3,7 @@ import { extname, isAbsolute, join, relative } from 'node:path'
 import { parseDocument, type YAMLError } from 'yaml'
 import type { Ruleset } from '../model/ruleset.js'
 import { validateRuleset } from '../model/validate.js'
+import { isRecord } from '../util.js'
 
 /** package.json keyword marking a package as a ruleset provider. */
 export const RULESET_KEYWORD = 'signalk-alert-ruleset'
@@ -11,6 +12,9 @@ export const RULESET_KEYWORD = 'signalk-alert-ruleset'
 export const RULESET_FIELD = 'signalk-alert-ruleset'
 
 const RULESET_EXTENSIONS = new Set(['.yaml', '.yml', '.json'])
+
+/** An npm package name, scoped or not; it names a directory inside node_modules. */
+const PACKAGE_NAME = /^(?:@[^/.][^/]*\/)?[^/.][^/]*$/
 
 /**
  * Far above any hand-written ruleset. Parsing holds the whole text in memory,
@@ -22,8 +26,11 @@ const MAX_RULESET_BYTES = 1024 * 1024
 const MAX_ALIAS_COUNT = 100
 
 export interface DiscoveryDirs {
-  /** A node_modules directory whose packages may provide rulesets. */
-  nodeModules?: string
+  /**
+   * The server's config directory: the packages its package.json lists as
+   * dependencies, installed in its node_modules, may provide rulesets.
+   */
+  configDir?: string
   /** A directory of ruleset files dropped in by the user. */
   dropIn?: string
 }
@@ -72,18 +79,21 @@ class Malformed extends Error {
 export function discoverRulesets(dirs: DiscoveryDirs): DiscoveryResult {
   const problems: DiscoveryProblem[] = []
   const candidates: Candidate[] = []
-  if (dirs.nodeModules !== undefined)
-    for (const dir of packageDirs(dirs.nodeModules, problems)) {
-      const pkg = readPackageJson(dir)
+  if (dirs.configDir !== undefined) {
+    const nodeModules = join(dirs.configDir, 'node_modules')
+    for (const name of installedPackages(dirs.configDir, problems)) {
       try {
+        if (!PACKAGE_NAME.test(name)) throw new Malformed('not a package name')
+        const dir = join(nodeModules, name)
+        const pkg = readPackageJson(dir)
         const candidate = packageCandidate(dir, pkg)
         if (candidate !== undefined) candidates.push(candidate)
       } catch (err) {
-        // The directory is what the operator installed, as npm names it.
-        const label = typeof pkg?.name === 'string' ? pkg.name : relative(dirs.nodeModules, dir)
-        problems.push(problemOf(`package ${label}`, err))
+        // The name is what the operator installed, as npm recorded it.
+        problems.push(problemOf(`package ${name}`, err))
       }
     }
+  }
   if (dirs.dropIn !== undefined) candidates.push(...dropInCandidates(dirs.dropIn, problems))
 
   const rulesets: LoadedRuleset[] = []
@@ -130,25 +140,47 @@ function listDir(dir: string, problems: DiscoveryProblem[]): string[] {
   }
 }
 
-function packageDirs(nodeModules: string, problems: DiscoveryProblem[]): string[] {
-  const dirs: string[] = []
-  for (const name of listDir(nodeModules, problems)) {
-    if (name.startsWith('@'))
-      for (const scoped of listDir(join(nodeModules, name), problems))
-        dirs.push(join(nodeModules, name, scoped))
-    else dirs.push(join(nodeModules, name))
+/**
+ * The packages the server installed, as its config directory's package.json
+ * lists them: the server installs with `npm install --save` there and removes
+ * the entry on uninstall. Reading only these, rather than every directory in
+ * node_modules with its hundreds of transitive dependencies, keeps
+ * synchronous discovery from stalling a start on slow storage.
+ */
+function installedPackages(configDir: string, problems: DiscoveryProblem[]): string[] {
+  const file = join(configDir, 'package.json')
+  let text: string
+  try {
+    text = readFileSync(file, 'utf8')
+  } catch (err) {
+    const { code } = err as NodeJS.ErrnoException
+    if (code !== 'ENOENT' && code !== 'ENOTDIR') problems.push(problemOf(`file ${file}`, err))
+    return []
   }
-  return dirs
+  try {
+    const parsed: unknown = JSON.parse(text)
+    const dependencies = isRecord(parsed) ? parsed.dependencies : undefined
+    return isRecord(dependencies) ? Object.keys(dependencies).sort() : []
+  } catch (err) {
+    problems.push(problemOf(`file ${file}`, err))
+    return []
+  }
 }
 
 function readPackageJson(dir: string): Record<string, unknown> | undefined {
+  let text: string
   try {
-    const parsed: unknown = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
-    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : undefined
+    text = readFileSync(join(dir, 'package.json'), 'utf8')
+  } catch (err) {
+    // Listed but not installed, as after an interrupted npm run: nothing to load.
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    throw err
+  }
+  try {
+    const parsed: unknown = JSON.parse(text)
+    return isRecord(parsed) ? parsed : undefined
   } catch {
-    // Not a package, or one we cannot read: either way not a ruleset provider.
+    // A package we cannot parse is not a ruleset provider we could load.
     return undefined
   }
 }
