@@ -566,7 +566,7 @@ export class Application {
    * every gate reading it keeps the state it has. Throws when the store
    * cannot write.
    */
-  suppressInput(path: string, request: SuppressionRequest, actor: string): void {
+  suppressInput(path: string, request: SuppressionRequest, actor: string): SuppressionEntry {
     const suppression = this.newSuppression(request, actor)
     this.saveControls({
       ...this.controls,
@@ -575,6 +575,7 @@ export class Application {
     this.suppressedAt.set(`input:${path}`, this.deps.clock())
     this.runner?.refresh()
     this.record({ at: suppression.since, actor, action: 'suppress', path })
+    return { scope: 'input', path, ...suppression }
   }
 
   /** Ends an input suppression; false when there is none. Throws when the store cannot write. */

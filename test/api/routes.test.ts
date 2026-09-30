@@ -478,3 +478,170 @@ describe('REST API', () => {
     expect((await h.call('GET', '/rules')).body).toEqual([])
   })
 })
+
+describe('rule controls API', () => {
+  const RULE = '/rules/user/oil-pressure-low'
+  const RULE_SUPPRESSION = '/suppressions/rules/user/oil-pressure-low'
+  const INPUT_SUPPRESSION = `/suppressions/inputs/${OIL}`
+
+  async function alerting(): Promise<Harness> {
+    storeRule(oil)
+    const h = await serve()
+    h.mock.subscriptionmanager.publish(OIL, 'src', 0)
+    at(5)
+    expect(core(h).getByPath(OIL_ALERT)?.condition).toBe(true)
+    return h
+  }
+
+  it('disables and enables a rule, answering its entry and recording the actor', async () => {
+    const h = await alerting()
+    const off = await h.call('PUT', `${RULE}/enabled`, { enabled: false })
+    expect(off.status).toBe(200)
+    expect(off.body).toMatchObject({
+      enabled: false,
+      status: { badge: 'disabled', reason: 'disabled' }
+    })
+    expect(core(h).getByPath(OIL_ALERT)?.condition).toBe(false)
+
+    const on = await h.call('PUT', `${RULE}/enabled`, { enabled: true })
+    expect(on.body).toMatchObject({ enabled: true })
+    at(5)
+    expect(core(h).getByPath(OIL_ALERT)?.condition).toBe(true)
+    expect((await h.call('GET', '/log')).body).toMatchObject([
+      { actor: 'admin', action: 'enable', rule: 'user.oil-pressure-low' },
+      { actor: 'admin', action: 'disable', rule: 'user.oil-pressure-low' }
+    ])
+  })
+
+  it('sets a rule note', async () => {
+    storeRule(oil)
+    const h = await serve()
+    const reply = await h.call('PUT', `${RULE}/note`, { note: 'sender replaced in spring' })
+    expect(reply.status).toBe(200)
+    expect(reply.body).toMatchObject({ note: 'sender replaced in spring' })
+    expect((await h.call('GET', RULE)).body).toMatchObject({ note: 'sender replaced in spring' })
+  })
+
+  it('suppresses a rule, lists the suppression and ends it', async () => {
+    const h = await alerting()
+    const reply = await h.call('PUT', RULE_SUPPRESSION, {
+      note: 'faulty sender',
+      autoEndAfter: 600
+    })
+    expect(reply.status).toBe(200)
+    expect(reply.body).toMatchObject({
+      suppression: { actor: 'admin', note: 'faulty sender', autoEndAfter: 600 },
+      status: { badge: 'suppressed', subLabels: ['waitingForClear'] }
+    })
+    expect(core(h).getByPath(OIL_ALERT)?.condition).toBe(false)
+    expect((await h.call('GET', '/suppressions')).body).toEqual([
+      {
+        scope: 'rule',
+        rule: 'user.oil-pressure-low',
+        since: expect.any(String) as unknown,
+        actor: 'admin',
+        note: 'faulty sender',
+        autoEndAfter: 600
+      }
+    ])
+
+    expect((await h.call('DELETE', RULE_SUPPRESSION)).status).toBe(204)
+    expect(core(h).getByPath(OIL_ALERT)?.condition).toBe(true)
+    expect((await h.call('GET', '/suppressions')).body).toEqual([])
+  })
+
+  it('suppresses an input path, previews it and ends it', async () => {
+    const h = await alerting()
+    const preview = await h.call('GET', `${INPUT_SUPPRESSION}/preview`)
+    expect(preview.body).toEqual({
+      path: OIL,
+      suppresses: [{ rule: 'user.oil-pressure-low' }],
+      freezes: []
+    })
+    h.user = undefined
+    const reply = await h.call('PUT', INPUT_SUPPRESSION, {})
+    expect(reply.status).toBe(200)
+    expect(reply.body).toEqual({
+      scope: 'input',
+      path: OIL,
+      since: expect.any(String) as unknown,
+      actor: 'unauthenticated'
+    })
+    expect(core(h).getByPath(OIL_ALERT)?.condition).toBe(false)
+    expect((await h.call('DELETE', INPUT_SUPPRESSION)).status).toBe(204)
+    expect(core(h).getByPath(OIL_ALERT)?.condition).toBe(true)
+  })
+
+  it('suppressions survive a plugin restart', async () => {
+    const h = await alerting()
+    await h.call('PUT', RULE_SUPPRESSION, {})
+    await h.call('PUT', INPUT_SUPPRESSION, {})
+    await h.restart()
+    h.mock.subscriptionmanager.publish(OIL, 'src', 0)
+    at(10)
+    expect(core(h).getByPath(OIL_ALERT)?.condition).toBe(false)
+    expect((await h.call('GET', '/suppressions')).body).toMatchObject([
+      { scope: 'rule', rule: 'user.oil-pressure-low' },
+      { scope: 'input', path: OIL }
+    ])
+  })
+
+  it('answers the error paths', async () => {
+    storeRule(oil)
+    const h = await serve()
+    const replies = await Promise.all([
+      h.call('PUT', '/rules/user/missing/enabled', { enabled: false }),
+      h.call('PUT', '/rules/some-ruleset/oil-pressure-low/note', { note: 'x' }),
+      h.call('PUT', '/suppressions/rules/user/missing', {}),
+      h.call('DELETE', '/suppressions/rules/user/missing'),
+      h.call('DELETE', RULE_SUPPRESSION),
+      h.call('DELETE', INPUT_SUPPRESSION),
+      h.call('PUT', `${RULE}/enabled`, { enabled: 'no' }),
+      h.call('PUT', `${RULE}/note`, { note: 5 }),
+      h.call('PUT', `${RULE}/note`, { note: 'x'.repeat(501) }),
+      h.call('PUT', RULE_SUPPRESSION, { autoEndAfter: -1 }),
+      h.call('PUT', RULE_SUPPRESSION, { autoEnd: 60 }),
+      h.call('PUT', RULE_SUPPRESSION, []),
+      h.call('PUT', '/suppressions/inputs/propulsion.*.oilPressure', {}),
+      h.call('PUT', '/suppressions/inputs/propulsion..oilPressure', {}),
+      h.call('GET', '/suppressions/inputs/propulsion.*.oilPressure/preview')
+    ])
+    expect(replies.map((r) => r.status)).toEqual([
+      404, 404, 404, 404, 404, 404, 400, 400, 400, 400, 400, 400, 400, 400, 400
+    ])
+    expect(replies[4].body).toEqual({ error: 'no such suppression' })
+    expect(replies[6].body).toMatchObject({ errors: [{ path: '/enabled' }] })
+    expect(replies[7].body).toMatchObject({ errors: [{ path: '/note' }] })
+    expect(replies[9].body).toMatchObject({ errors: [{ path: '/autoEndAfter' }] })
+    expect(replies[10].body).toMatchObject({ errors: [{ path: '/autoEnd' }] })
+    expect(replies[12].body).toMatchObject({ errors: [{ path: '/path' }] })
+    expect((await h.call('GET', '/log')).body).toEqual([])
+  })
+
+  it('rejects every control change without a JSON content type', async () => {
+    storeRule(oil)
+    const h = await serve()
+    const form = { 'content-type': 'application/x-www-form-urlencoded' }
+    const replies = await Promise.all([
+      h.call('PUT', `${RULE}/enabled`, 'enabled=false', form),
+      h.call('PUT', `${RULE}/note`, 'note=x', form),
+      h.call('PUT', RULE_SUPPRESSION, 'note=x', form),
+      h.call('DELETE', RULE_SUPPRESSION, undefined, {}),
+      h.call('PUT', INPUT_SUPPRESSION, 'note=x', form),
+      h.call('DELETE', INPUT_SUPPRESSION, undefined, {})
+    ])
+    expect(replies.map((r) => r.status)).toEqual([415, 415, 415, 415, 415, 415])
+    expect(existsSync(join(dir, 'controls.json'))).toBe(false)
+  })
+
+  it('answers 503 while the plugin is not running', async () => {
+    const h = await serve({ withAlerts: false })
+    const replies = await Promise.all([
+      h.call('GET', '/suppressions'),
+      h.call('PUT', `${RULE}/enabled`, { enabled: false }),
+      h.call('PUT', INPUT_SUPPRESSION, {}),
+      h.call('GET', `${INPUT_SUPPRESSION}/preview`)
+    ])
+    expect(replies.map((r) => r.status)).toEqual([503, 503, 503, 503])
+  })
+})
