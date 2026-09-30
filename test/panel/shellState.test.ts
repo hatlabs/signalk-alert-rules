@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { PanelApi, PluginState, RuleSummary } from '../../src/panel/api'
-import { probe, keepsPolling } from '../../src/panel/shellState'
+import {
+  DISABLED_POLL_INTERVAL_MS,
+  POLL_INTERVAL_MS,
+  pollDelay,
+  probe
+} from '../../src/panel/shellState'
 
 interface FakeServer {
   state?: PluginState | Error
@@ -78,13 +83,13 @@ describe('probe', () => {
   })
 })
 
-describe('keepsPolling', () => {
-  it('stops only for a disabled plugin', () => {
-    expect(keepsPolling({ kind: 'disabled' })).toBe(false)
-    expect(keepsPolling({ kind: 'loading' })).toBe(true)
-    expect(keepsPolling({ kind: 'restarting' })).toBe(true)
-    expect(keepsPolling({ kind: 'unreachable', reason: 'x' })).toBe(true)
-    expect(keepsPolling({ kind: 'failed', error: 'x' })).toBe(true)
-    expect(keepsPolling({ kind: 'ready', ruleCount: 0 })).toBe(true)
+describe('pollDelay', () => {
+  it('polls a disabled plugin slowly and every other view at the normal interval', () => {
+    expect(pollDelay({ kind: 'disabled' })).toBe(DISABLED_POLL_INTERVAL_MS)
+    expect(pollDelay({ kind: 'loading' })).toBe(POLL_INTERVAL_MS)
+    expect(pollDelay({ kind: 'restarting' })).toBe(POLL_INTERVAL_MS)
+    expect(pollDelay({ kind: 'unreachable', reason: 'x' })).toBe(POLL_INTERVAL_MS)
+    expect(pollDelay({ kind: 'failed', error: 'x' })).toBe(POLL_INTERVAL_MS)
+    expect(pollDelay({ kind: 'ready', ruleCount: 0 })).toBe(POLL_INTERVAL_MS)
   })
 })

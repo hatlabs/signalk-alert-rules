@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { PanelApi } from './api'
-import { keepsPolling, probe, type ShellSnapshot, type ShellView } from './shellState'
-
-export const POLL_INTERVAL_MS = 5000
+import { pollDelay, probe, type ShellSnapshot, type ShellView } from './shellState'
 
 const TABS = [
   { id: 'rules', label: 'Rules' },
@@ -17,9 +15,9 @@ export interface ShellProps {
 }
 
 /**
- * Keeps the plugin's condition current: probes at once, then every
- * `POLL_INTERVAL_MS` while the document is visible and the view can still
- * change. Returns a function that probes again on demand.
+ * Keeps the plugin's condition current: probes at once, then again after the
+ * view's poll delay while the document is visible. Returns a function that
+ * probes again on demand.
  */
 function useSnapshot(api: PanelApi): [ShellSnapshot, () => void] {
   const [snapshot, setSnapshot] = useState<ShellSnapshot>({
@@ -42,8 +40,8 @@ function useSnapshot(api: PanelApi): [ShellSnapshot, () => void] {
       inFlight = false
       if (cancelled) return
       setSnapshot(next)
-      if (keepsPolling(next.view) && !hidden()) {
-        timer = setTimeout(() => void run(), POLL_INTERVAL_MS)
+      if (!hidden()) {
+        timer = setTimeout(() => void run(), pollDelay(next.view))
       }
     }
 

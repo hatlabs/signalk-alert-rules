@@ -44,10 +44,16 @@ export async function probe(api: PanelApi): Promise<ShellSnapshot> {
   }
 }
 
+export const POLL_INTERVAL_MS = 5000
+
 /**
- * A disabled plugin stays disabled until someone enables it, so polling would
- * only repeat the same answer; every other view can change on its own.
+ * A disabled plugin changes only when someone enables it with the toggle
+ * above the panel, and the admin UI does not remount the panel then, so it is
+ * still polled, less often.
  */
-export function keepsPolling(view: ShellView): boolean {
-  return view.kind !== 'disabled'
+export const DISABLED_POLL_INTERVAL_MS = 15_000
+
+/** How long to wait before probing again after showing `view`. */
+export function pollDelay(view: ShellView): number {
+  return view.kind === 'disabled' ? DISABLED_POLL_INTERVAL_MS : POLL_INTERVAL_MS
 }

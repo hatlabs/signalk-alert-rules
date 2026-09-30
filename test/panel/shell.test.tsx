@@ -8,7 +8,8 @@ import {
   type PluginState,
   type RuleSummary
 } from '../../src/panel/api'
-import { POLL_INTERVAL_MS, Shell } from '../../src/panel/Shell'
+import { Shell } from '../../src/panel/Shell'
+import { DISABLED_POLL_INTERVAL_MS, POLL_INTERVAL_MS } from '../../src/panel/shellState'
 
 interface Server {
   state: PluginState | Error
@@ -114,7 +115,7 @@ describe('Shell', () => {
     expect(screen.getAllByRole('tab')).toHaveLength(3)
   })
 
-  it('asks to enable a disabled plugin and does not poll', async () => {
+  it('asks to enable a disabled plugin and notices when it is enabled', async () => {
     const server: Server = {
       state: { running: false, securityEnabled: true },
       enabled: false,
@@ -123,12 +124,28 @@ describe('Shell', () => {
     const api = renderShell(server)
     await settle()
     expect(screen.getByRole('alert').textContent).toMatch(/disabled.*enable/i)
-    await tick(POLL_INTERVAL_MS * 3)
+    await tick(DISABLED_POLL_INTERVAL_MS - 1)
     expect(api.state).toHaveBeenCalledTimes(1)
+    server.enabled = true
+    server.state = running
+    await tick(1)
+    expect(api.state).toHaveBeenCalledTimes(2)
+    expect(screen.getAllByRole('tab')).toHaveLength(3)
+  })
+
+  it('checks a disabled plugin again at once on request', async () => {
+    const server: Server = {
+      state: { running: false, securityEnabled: true },
+      enabled: false,
+      rules: []
+    }
+    const api = renderShell(server)
+    await settle()
     server.enabled = true
     server.state = running
     fireEvent.click(screen.getByRole('button', { name: /check again/i }))
     await settle()
+    expect(api.state).toHaveBeenCalledTimes(2)
     expect(screen.getAllByRole('tab')).toHaveLength(3)
   })
 
