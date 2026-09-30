@@ -147,6 +147,39 @@ describe('SuppressDialog', () => {
       expect(suppress.disabled).toBe(false)
     })
 
+    it('names the state each instance of a gated rule freezes at, or that it has none', async () => {
+      renderDialog(
+        { kind: 'input', path: RPM },
+        {
+          path: RPM,
+          suppresses: [],
+          freezes: [
+            {
+              rule: 'user.rpm-each',
+              origin: 'user',
+              slug: 'rpm-each',
+              gate: 1,
+              states: [
+                { instance: 'house', holds: true },
+                { instance: 'start', holds: false }
+              ]
+            },
+            { rule: 'user.coolant-high', origin: 'user', slug: 'coolant-high', gate: 0, states: [] }
+          ]
+        }
+      )
+      await settle()
+      const frozen = screen.getByRole('list', { name: /gated rules it freezes/i })
+      expect(
+        within(frozen)
+          .getAllByRole('listitem')
+          .map((i) => i.textContent)
+      ).toEqual([
+        'RPM high, each engine: gate 2 frozen as house: holding, start: not holding',
+        'Coolant high: gate 1 with no state yet'
+      ])
+    })
+
     it('says so when no rule reads the path', async () => {
       renderDialog({ kind: 'input', path: 'a.b' }, { path: 'a.b', suppresses: [], freezes: [] })
       await settle()
