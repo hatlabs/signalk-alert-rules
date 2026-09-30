@@ -28,9 +28,9 @@ SKAR serves its rules, their status and its operator actions under the plugin's 
 | `PUT /rules/:origin/:slug/note` | sets a rule's note from `{ "note": "..." }`; an empty note removes it; answers its entry |
 | `GET /suppressions` | every suppression in force, newest first |
 | `PUT /suppressions/rules/:origin/:slug` | suppresses a rule, replacing a suppression it has; answers its entry |
-| `DELETE /suppressions/rules/:origin/:slug` | ends a rule's suppression; 204 |
+| `DELETE /suppressions/rules/:origin/:slug` | ends a rule's suppression; 204, also when the rule is not suppressed or, with a suppression in force, did not load |
 | `PUT /suppressions/inputs/:path` | suppresses an input path, replacing a suppression it has; answers the suppression |
-| `DELETE /suppressions/inputs/:path` | ends an input suppression; 204 |
+| `DELETE /suppressions/inputs/:path` | ends an input suppression; 204, also when the path is not suppressed |
 | `GET /suppressions/inputs/:path/preview` | what suppressing the path would do, without doing it |
 
 `origin` is `user` for rules created through this API. Rules from rulesets and the routes that manage rulesets are not implemented yet. `:path` is a Signal K path relative to `vessels.self`, such as `propulsion.port.revolutions`.
@@ -79,7 +79,7 @@ The rule behaviour behind these routes is in [Enable and suppression](rules.md#e
 - Disabling a rule clears its alerts and stops evaluating it; enabling it starts it as a new rule. Setting the current value changes nothing and is not logged.
 - A note is at most 500 characters.
 - A suppression request body is an object with optional fields: `note`, at most 500 characters, and `autoEndAfter`, seconds above 0 and at most 86400. Without `autoEndAfter` the suppression ends only through `DELETE`. Other fields are refused.
-- Suppressing clears the active alerts it suppresses; ending it raises an alert whose condition still holds as a new alert.
+- Suppressing clears the active alerts it suppresses; ending it raises an alert whose condition still holds as a new alert. Ending a suppression that is not in force, such as one that has just ended by itself, changes nothing, is not logged and answers 204.
 - An input path must be exact: dot-separated segments, no wildcard, at most 255 characters.
 
 A suppression, as `GET /suppressions` lists it and `PUT /suppressions/inputs/:path` answers it:
@@ -171,7 +171,7 @@ Errors answer `{ "error": "<message>" }`. A body that fails validation answers 4
 | Status | When |
 |---|---|
 | 400 | invalid body; an input path that is not exact; a `PUT` or preview whose `slug` differs from the path's; a reset of a rule that is not an accumulator |
-| 404 | no such rule; ending a suppression that does not exist |
+| 404 | no such rule |
 | 409 | `POST /rules` with a slug a stored rule already has |
 | 415 | a mutating request without `Content-Type: application/json` |
 | 500 | the data directory could not be written, or evaluation could not be turned on or off because the server's alerts could not be read. A rule, deletion or evaluation switch that could not be saved is not applied. Evaluation that could not be turned on stays off; evaluation that was turned off is off and in the action log, but SKAR's alerts may not have been cleared. A reset, or a save or deletion that discards an accumulator total, whose totals could not be saved has been applied, but the old total returns after a restart unless a later checkpoint succeeds; a reset or deletion is in the action log all the same. An action whose log entry could not be written has been applied. A deletion whose controls could not be removed has deleted the rule, and a rule later created with its slug takes those controls. |

@@ -276,16 +276,8 @@ export function registerRoutes(router: IRouter, ctx: ApiContext): void {
     requireJson,
     running((skar, req, res) => {
       const { origin, slug } = req.params
-      switch (skar.endRuleSuppression(origin, slug, actorOf(req))) {
-        case 'ok':
-          res.status(204).end()
-          break
-        case 'notFound':
-          notFound(res, 'such rule')
-          break
-        case 'notSuppressed':
-          notFound(res, 'such suppression')
-      }
+      if (skar.endRuleSuppression(origin, slug, actorOf(req)) === 'ok') res.status(204).end()
+      else notFound(res, 'such rule')
     })
   )
 
@@ -308,8 +300,9 @@ export function registerRoutes(router: IRouter, ctx: ApiContext): void {
     '/suppressions/inputs/:path',
     requireJson,
     running((skar, req, res) => {
-      if (skar.endInputSuppression(req.params.path, actorOf(req))) res.status(204).end()
-      else notFound(res, 'such suppression')
+      // Ending one that has already ended, as by its auto-end, is not an error.
+      skar.endInputSuppression(req.params.path, actorOf(req))
+      res.status(204).end()
     })
   )
 

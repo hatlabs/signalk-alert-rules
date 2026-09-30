@@ -594,8 +594,6 @@ describe('rule controls API', () => {
       h.call('PUT', '/rules/some-ruleset/oil-pressure-low/note', { note: 'x' }),
       h.call('PUT', '/suppressions/rules/user/missing', {}),
       h.call('DELETE', '/suppressions/rules/user/missing'),
-      h.call('DELETE', RULE_SUPPRESSION),
-      h.call('DELETE', INPUT_SUPPRESSION),
       h.call('PUT', `${RULE}/enabled`, { enabled: 'no' }),
       h.call('PUT', `${RULE}/note`, { note: 5 }),
       h.call('PUT', `${RULE}/note`, { note: 'x'.repeat(501) }),
@@ -607,14 +605,22 @@ describe('rule controls API', () => {
       h.call('GET', '/suppressions/inputs/propulsion.*.oilPressure/preview')
     ])
     expect(replies.map((r) => r.status)).toEqual([
-      404, 404, 404, 404, 404, 404, 400, 400, 400, 400, 400, 400, 400, 400, 400
+      404, 404, 404, 404, 400, 400, 400, 400, 400, 400, 400, 400, 400
     ])
-    expect(replies[4].body).toEqual({ error: 'no such suppression' })
-    expect(replies[6].body).toMatchObject({ errors: [{ path: '/enabled' }] })
-    expect(replies[7].body).toMatchObject({ errors: [{ path: '/note' }] })
-    expect(replies[9].body).toMatchObject({ errors: [{ path: '/autoEndAfter' }] })
-    expect(replies[10].body).toMatchObject({ errors: [{ path: '/autoEnd' }] })
-    expect(replies[12].body).toMatchObject({ errors: [{ path: '/path' }] })
+    expect(replies[3].body).toEqual({ error: 'no such rule' })
+    expect(replies[4].body).toMatchObject({ errors: [{ path: '/enabled' }] })
+    expect(replies[5].body).toMatchObject({ errors: [{ path: '/note' }] })
+    expect(replies[7].body).toMatchObject({ errors: [{ path: '/autoEndAfter' }] })
+    expect(replies[8].body).toMatchObject({ errors: [{ path: '/autoEnd' }] })
+    expect(replies[10].body).toMatchObject({ errors: [{ path: '/path' }] })
+    expect((await h.call('GET', '/log')).body).toEqual([])
+  })
+
+  it('ending a suppression that is not in force answers 204 and records nothing', async () => {
+    storeRule(oil)
+    const h = await serve()
+    expect((await h.call('DELETE', RULE_SUPPRESSION)).status).toBe(204)
+    expect((await h.call('DELETE', INPUT_SUPPRESSION)).status).toBe(204)
     expect((await h.call('GET', '/log')).body).toEqual([])
   })
 

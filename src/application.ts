@@ -553,18 +553,17 @@ export class Application {
 
   /**
    * Ends a rule's own suppression; an alert whose condition holds is raised
-   * as a new alert. Throws when the store cannot write.
+   * as a new alert. A suppression the controls hold ends even for a rule that
+   * did not load, and a rule that is not suppressed is left as it is. Throws
+   * when the store cannot write.
    */
-  endRuleSuppression(
-    origin: string,
-    slug: string,
-    actor: string
-  ): ControlOutcome | 'notSuppressed' {
-    if (this.find(origin, slug) === undefined) return 'notFound'
+  endRuleSuppression(origin: string, slug: string, actor: string): ControlOutcome {
     const id = ruleId(origin, slug)
-    if (this.control(id).suppression === undefined) return 'notSuppressed'
-    this.endSuppressionOf(id, actor)
-    return 'ok'
+    if (this.control(id).suppression !== undefined) {
+      this.endSuppressionOf(id, actor)
+      return 'ok'
+    }
+    return this.find(origin, slug) === undefined ? 'notFound' : 'ok'
   }
 
   /**

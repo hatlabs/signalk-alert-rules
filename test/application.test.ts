@@ -1037,15 +1037,33 @@ describe('rule controls', () => {
       expect(application.log().map((e) => e.action)).toEqual(['unsuppress', 'suppress'])
     })
 
-    it('refuses to end a suppression that does not exist', () => {
+    it('ending a suppression that is not in force changes nothing; an unknown rule is not found', () => {
       stored(oil)
       const { application } = setup()
-      expect(application.endRuleSuppression('user', 'oil-pressure-low', 'admin')).toBe(
-        'notSuppressed'
-      )
+      expect(application.endRuleSuppression('user', 'oil-pressure-low', 'admin')).toBe('ok')
       expect(application.endRuleSuppression('user', 'missing', 'admin')).toBe('notFound')
       expect(application.suppressRule('user', 'missing', {}, 'admin')).toBe('notFound')
       expect(application.log()).toEqual([])
+      expect(existsSync(join(dir, 'controls.json'))).toBe(false)
+    })
+
+    it('ends a suppression held for a rule that did not load', () => {
+      stored({ ...oil, detector: { ...oil.detector, duration: -1 } })
+      const suppression = { since: WALL, actor: 'admin' }
+      writeFileSync(
+        join(dir, 'controls.json'),
+        JSON.stringify({
+          rules: { 'user.oil-pressure-low': { enabled: true, suppression } },
+          inputs: {}
+        })
+      )
+      const { application } = setup()
+      expect(application.rule('user', 'oil-pressure-low')).toBeUndefined()
+      expect(application.suppressions()).toHaveLength(1)
+      expect(application.endRuleSuppression('user', 'oil-pressure-low', 'admin')).toBe('ok')
+      expect(application.suppressions()).toEqual([])
+      expect(new Store(dir).load().controls.rules).toEqual({})
+      expect(application.log()[0]).toMatchObject({ action: 'unsuppress' })
     })
 
     it('survives a restart', () => {
