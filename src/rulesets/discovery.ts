@@ -200,8 +200,10 @@ function lineOf(error: YAMLError): number | undefined {
 /**
  * The core schema keeps `on`, `yes` and `no` strings, and JSON is a subset of
  * it. The yaml package only warns about an unknown tag and resolves it as a
- * plain value; a ruleset relying on one is rejected rather than silently
- * reinterpreted.
+ * plain value; a ruleset relying on one is rejected as malformed rather than
+ * silently reinterpreted. Explicit YAML 1.1 tags such as `!!binary`, `!!set`
+ * and `!!omap` still resolve under the core schema, to values that validation
+ * then rejects wherever they appear.
  */
 function parseRulesetText(text: string): unknown {
   const document = parseDocument(text, { schema: 'core', uniqueKeys: true })
