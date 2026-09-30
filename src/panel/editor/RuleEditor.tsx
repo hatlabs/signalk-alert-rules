@@ -124,6 +124,14 @@ function EditorForm({ api, paths, units, editing, onSaved, onClose, onDirtyChang
     editing !== undefined && hasAdvancedValues(initial.detector, initial.latching)
   )
   const messageRef = useRef<HTMLTextAreaElement>(null)
+  const headingRef = useRef<HTMLHeadingElement>(null)
+
+  // The form only ever opens on the operator's action and replaces the view
+  // that held focus, so focus moves to its heading; an edit gets here only
+  // once its rule has loaded.
+  useEffect(() => {
+    headingRef.current?.focus()
+  }, [])
 
   const dirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(initial), [form, initial])
   useEffect(() => {
@@ -224,7 +232,7 @@ function EditorForm({ api, paths, units, editing, onSaved, onClose, onDirtyChang
           void save()
         }}
       >
-        <h3 className="h5">
+        <h3 ref={headingRef} tabIndex={-1} className="h5">
           {editing === undefined ? 'New rule' : `Edit ${editing.entry.rule.name}`}
         </h3>
 

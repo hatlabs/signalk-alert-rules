@@ -144,6 +144,28 @@ describe('Shell rule authoring', () => {
     expect(screen.queryByRole('form')).toBeNull()
   })
 
+  it('moves focus to the form heading when it opens, and back to the list when it closes', async () => {
+    renderShell([battery])
+    fireEvent.click(await screen.findByRole('button', { name: 'New rule' }))
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'New rule' }))
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'All rules' }))
+    })
+  })
+
+  it('moves focus to the form heading once an edited rule has loaded', async () => {
+    window.history.replaceState(null, '', '/#rule=user/house-battery-low')
+    renderShell([battery])
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+    const heading = await screen.findByRole('heading', { name: /^edit/i })
+    await waitFor(() => {
+      expect(document.activeElement).toBe(heading)
+    })
+  })
+
   it('opens the form from the empty rule list', async () => {
     renderShell([])
     fireEvent.click(await screen.findByRole('button', { name: 'New rule' }))
