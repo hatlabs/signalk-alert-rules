@@ -97,6 +97,18 @@ export class AlertEmitter {
     if (slot !== undefined) slot.value = { ...slot.value, ...header }
   }
 
+  /**
+   * Emits an active alert at once, as an early heartbeat, so a revised
+   * priority reaches core without waiting for the next beat. Without input
+   * evidence it waits for the beat like any other emission.
+   */
+  repeat(path: string, now: number): void {
+    const slot = this.slots.get(path)
+    if (slot === undefined) return
+    slot.lastBeat = now
+    if (slot.evidence()) this.deps.send(path, slot.value)
+  }
+
   beat(now: number): void {
     for (const [path, slot] of this.slots) {
       if (now - slot.lastBeat < HEARTBEAT_S) continue

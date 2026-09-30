@@ -5,7 +5,7 @@ import {
   type InstanceStatus,
   type RuleEvent
 } from '../engine/evaluator.js'
-import type { Rule } from '../model/rule.js'
+import { priorityOf, type Priority, type Rule } from '../model/rule.js'
 import { alertPathFor } from '../model/validate.js'
 import {
   AlertEmitter,
@@ -41,8 +41,8 @@ export interface RunnerRuleStatus {
 
 const idOf = (entry: LoadedRule) => ruleId(entry.origin, entry.rule.slug)
 
-/** What the rule says about an instance's alert now. */
-function header(rule: Rule, instance: string | undefined, priority = rule.priority): AlertHeader {
+/** What the rule says about an instance's alert at a priority. */
+function header(rule: Rule, instance: string | undefined, priority: Priority): AlertHeader {
   return {
     priority,
     message: rule.message.replaceAll('{instance}', instance ?? ''),
@@ -85,7 +85,15 @@ export class RuleRunner {
       if (rule === undefined) continue
       // The segment is the sanitised name; the raise wrote the name itself into data.
       const name = typeof alert.data?.instance === 'string' ? alert.data.instance : segment
-      this.emitter.adopt(alert, header(rule, name), this.evidence(id, segment ?? ''), now)
+      // Until its evaluator sees a more severe level entered, an adopted
+      // zone-limit alert reports its rule's own level; core keeps any higher
+      // priority it holds.
+      this.emitter.adopt(
+        alert,
+        header(rule, name, priorityOf(rule)),
+        this.evidence(id, segment ?? ''),
+        now
+      )
     }
     for (const [id, entry] of this.entries) this.startRule(id, entry, activeByRule.get(id))
   }
@@ -120,10 +128,10 @@ export class RuleRunner {
     evaluator.update(entry.rule)
     // An edit that restarts the rule has cleared and re-raised already; any
     // other edit reaches core with the next heartbeat of each active alert.
-    for (const { instance, active } of evaluator.status().instances) {
-      if (!active) continue
+    for (const { instance, priority } of evaluator.status().instances) {
+      if (priority === undefined) continue
       const path = alertPathFor(entry.origin, entry.rule.slug, instance?.segment)
-      if (path.ok) this.emitter.revise(path.value, header(entry.rule, instance?.name))
+      if (path.ok) this.emitter.revise(path.value, header(entry.rule, instance?.name, priority))
     }
   }
 
@@ -181,15 +189,21 @@ export class RuleRunner {
       for (const error of path.errors) this.issue(id, error.message)
       return
     }
-    if (event.type === 'raise') {
-      this.emitter.raise(
-        path.value,
-        this.describe(id, event),
-        this.evidence(id, segment ?? ''),
-        now
-      )
-    } else {
-      this.emitter.clear(path.value)
+    switch (event.type) {
+      case 'raise':
+        this.emitter.raise(
+          path.value,
+          this.describe(id, event),
+          this.evidence(id, segment ?? ''),
+          now
+        )
+        break
+      case 'priority':
+        this.emitter.revise(path.value, header(entry.rule, event.instance?.name, event.priority))
+        this.emitter.repeat(path.value, now)
+        break
+      case 'clear':
+        this.emitter.clear(path.value)
     }
   }
 

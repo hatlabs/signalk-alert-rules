@@ -25,6 +25,11 @@ function rule(overrides: Record<string, unknown>): Record<string, unknown> {
   return { ...base, ...overrides }
 }
 
+function unprioritised(overrides: Record<string, unknown>): Record<string, unknown> {
+  const { priority: _priority, ...rest } = rule(overrides)
+  return rest
+}
+
 function errorsOf(
   input: unknown,
   pathInfo?: (path: string) => PathInfo | undefined
@@ -253,7 +258,7 @@ describe('validateRule', () => {
   describe('limits and priority', () => {
     it('rejects a zone level that zones do not raise on', () => {
       const errors = errorsOf(
-        rule({
+        unprioritised({
           detector: {
             type: 'sustained',
             direction: 'below',
@@ -266,7 +271,7 @@ describe('validateRule', () => {
 
     it('requires a zone path when the signal is a combinator', () => {
       const errors = errorsOf(
-        rule({
+        unprioritised({
           signal: { combinator: 'mean', inputs: [{ path: 'a.b' }, { path: 'c.d' }] },
           detector: {
             type: 'sustained',
@@ -278,21 +283,43 @@ describe('validateRule', () => {
       expect(paths(errors)).toEqual(['/detector/limit/path'])
     })
 
-    it('rejects priority from zone: a rule has one priority', () => {
-      expect(
-        paths(
-          errorsOf(
-            rule({
-              priority: 'fromZone',
-              detector: {
-                type: 'sustained',
-                direction: 'below',
-                limit: { kind: 'zone', level: 'warn' }
-              }
-            })
-          )
-        )
-      ).toEqual(['/priority'])
+    const zoneDetector = {
+      type: 'sustained',
+      direction: 'below',
+      limit: { kind: 'zone', level: 'warn' }
+    }
+
+    it('accepts a zone-limit rule without a priority: its levels set it', () => {
+      expect(errorsOf(unprioritised({ detector: zoneDetector }))).toEqual([])
+    })
+
+    it('rejects a priority on a zone-limit rule', () => {
+      const errors = errorsOf(rule({ detector: zoneDetector }))
+      expect(paths(errors)).toEqual(['/priority'])
+      expect(errors[0]?.message).toMatch(/zone/)
+    })
+
+    it.each(['sustained', 'projection', 'match', 'count'])(
+      'requires a priority on a %s rule without a zone limit',
+      (type) => {
+        expect(paths(errorsOf(unprioritised({ detector: minimalDetectors[type] })))).toEqual([
+          '/priority'
+        ])
+      }
+    )
+
+    it('requires a priority when only a gate has a zone limit', () => {
+      const gates = [
+        {
+          signal: { path: 'propulsion.main.revolutions' },
+          direction: 'above',
+          limit: { kind: 'zone', level: 'warn' }
+        }
+      ]
+      expect(paths(errorsOf(unprioritised({ detector: minimalDetectors.match, gates })))).toEqual([
+        '/priority'
+      ])
+      expect(errorsOf(rule({ detector: minimalDetectors.match, gates }))).toEqual([])
     })
 
     it('rejects an unknown priority', () => {

@@ -77,7 +77,6 @@ const batteryLow = valid({
   name: 'House battery low',
   slug: 'house-battery-low',
   message: 'House battery voltage is low',
-  priority: 'warning',
   signal: { path: VOLTAGE },
   detector: {
     type: 'sustained',
@@ -91,41 +90,156 @@ const batteryCritical = valid({
   ...batteryLow,
   name: 'House battery critical',
   slug: 'house-battery-critical',
-  priority: 'alarm',
   detector: { ...batteryLow.detector, limit: { kind: 'zone', level: 'alarm' } }
 })
 
 describe('zone limits', () => {
-  it('each zone level is a rule of its own with its own priority', () => {
-    const meta = { [VOLTAGE]: { zones: batteryZones } }
-    const warning = setup(batteryLow, { meta })
-    const alarm = setup(batteryCritical, { meta })
-    for (const s of [warning, alarm]) {
-      s.at(0, VOLTAGE, 11.3)
-      s.at(29)
-      s.at(30)
-    }
-    expect(warning.log).toEqual([[30, 'raise', '', 'warning']])
-    expect(alarm.log).toEqual([[30, 'raise', '', 'alarm']])
+  const zoned = { meta: { [VOLTAGE]: { zones: batteryZones } } }
+  const escalating = valid({
+    ...batteryLow,
+    detector: { ...batteryLow.detector, hysteresis: 0.1, clearDuration: 10 }
   })
 
-  it('the warning rule stays active while the value is below the alarm threshold', () => {
-    const { at, log, evaluator } = setup(batteryLow, {
-      meta: { [VOLTAGE]: { zones: batteryZones } }
-    })
+  it('entering warn raises at warning, and entering alarm while active escalates the same alert', () => {
+    const { at, log, events, evaluator } = setup(escalating, zoned)
+    at(0, VOLTAGE, 11.8)
+    at(30)
+    expect(evaluator.status().instances[0]).toMatchObject({ level: 'warn', priority: 'warning' })
+    at(40, VOLTAGE, 11.3)
+    at(69)
+    at(70)
+    expect(log).toEqual([
+      [30, 'raise', '', 'warning'],
+      [70, 'priority', '', 'alarm']
+    ])
+    expect(events.at(-1)?.instance).toBeUndefined()
+    expect(evaluator.status().instances[0]).toMatchObject({ level: 'alarm', priority: 'alarm' })
+  })
+
+  it('falling from alarm back to warn reports warning, and the condition ends only when warn clears', () => {
+    const { at, log, evaluator } = setup(escalating, zoned)
+    at(0, VOLTAGE, 11.3)
+    at(30)
+    at(40, VOLTAGE, 11.55)
+    at(100)
+    at(110, VOLTAGE, 11.8)
+    at(120)
+    expect(evaluator.status().instances[0]).toMatchObject({ active: true, level: 'warn' })
+    at(130, VOLTAGE, 12.05)
+    at(200)
+    at(210, VOLTAGE, 12.2)
+    at(220)
+    expect(log).toEqual([
+      [30, 'raise', '', 'alarm'],
+      [120, 'priority', '', 'warning'],
+      [220, 'clear', '']
+    ])
+    expect(evaluator.status().instances[0]).toMatchObject({ active: false })
+    expect(evaluator.status().instances[0]?.level).toBeUndefined()
+    expect(evaluator.status().instances[0]?.priority).toBeUndefined()
+  })
+
+  it('an excursion into alarm shorter than the duration does not escalate', () => {
+    const { at, log } = setup(escalating, zoned)
     at(0, VOLTAGE, 11.8)
     at(30)
     at(40, VOLTAGE, 11.3)
-    at(100)
+    at(69, VOLTAGE, 11.8)
+    at(200)
     expect(log).toEqual([[30, 'raise', '', 'warning']])
-    expect(evaluator.status().instances[0]?.active).toBe(true)
+  })
+
+  it('a path whose zones have no level more severe than the named one is a single-level rule', () => {
+    const { at, log, evaluator } = setup(batteryCritical, zoned)
+    at(0, VOLTAGE, 11.3)
+    at(30)
+    at(40, VOLTAGE, 10)
+    at(200)
+    expect(log).toEqual([[30, 'raise', '', 'alarm']])
+    expect(evaluator.status().instances[0]).toMatchObject({ level: 'alarm', priority: 'alarm' })
+  })
+
+  it('a fixed-limit rule reports its own priority and no level', () => {
+    const { at, evaluator } = setup({ ...oilPressure, gates: undefined })
+    at(0, OIL, 0)
+    at(5)
+    expect(evaluator.status().instances[0]).toMatchObject({ active: true, priority: 'alarm' })
+    expect(evaluator.status().instances[0]?.level).toBeUndefined()
+  })
+
+  it('an adopted zone-limit alert holds its named level until a more severe one is entered', () => {
+    const { at, log, evaluator } = setup(escalating, { ...zoned, adopted: [{}] })
+    expect(evaluator.status().instances[0]).toMatchObject({ active: true, level: 'warn' })
+    at(0, VOLTAGE, 11.3)
+    at(30)
+    expect(log).toEqual([[30, 'priority', '', 'alarm']])
+  })
+
+  it('a gated alert that escalated re-enters use at its named level and waits out the duration again', () => {
+    const rule = valid({
+      ...escalating,
+      gates: [{ signal: { path: RPM }, direction: 'above', limit: { kind: 'fixed', value: 8 } }]
+    })
+    const { at, log } = setup(rule, zoned)
+    at(0, RPM, 30)
+    at(0, VOLTAGE, 11.3)
+    at(30)
+    at(40, RPM, 0)
+    at(50, VOLTAGE, 11.8)
+    at(60, RPM, 30)
+    at(90)
+    at(100, VOLTAGE, 11.3)
+    at(129)
+    at(130)
+    expect(log).toEqual([
+      [30, 'raise', '', 'alarm'],
+      [40, 'clear', ''],
+      [90, 'raise', '', 'warning'],
+      [130, 'priority', '', 'alarm']
+    ])
+  })
+
+  it('a zone edit that removes the held more severe level returns the alert to its named level', () => {
+    const { at, log, meta, evaluator } = setup(escalating, zoned)
+    at(0, VOLTAGE, 11.3)
+    at(30)
+    meta.set(VOLTAGE, { zones: [{ upper: 12, state: 'warn' }] })
+    at(31)
+    expect(log).toEqual([
+      [30, 'raise', '', 'alarm'],
+      [31, 'priority', '', 'warning']
+    ])
+    expect(evaluator.status().instances[0]).toMatchObject({ level: 'warn', priority: 'warning' })
+  })
+
+  it('a gate with a zone limit uses only the level it names', () => {
+    const rule = valid({
+      ...oilPressure,
+      gates: [{ signal: { path: RPM }, direction: 'above', limit: { kind: 'zone', level: 'warn' } }]
+    })
+    const { at, log } = setup(rule, {
+      meta: {
+        [RPM]: {
+          zones: [
+            { lower: 10, upper: 50, state: 'warn' },
+            { lower: 50, state: 'alarm' }
+          ]
+        }
+      }
+    })
+    at(0, RPM, 20)
+    at(0, OIL, 0)
+    at(5)
+    at(6, RPM, 60)
+    at(100)
+    expect(log).toEqual([[5, 'raise', '', 'alarm']])
   })
 
   it('a zone edit that removes the level makes the rule inactive and clears it', () => {
     const { at, log, meta, evaluator } = setup(batteryLow, {
       meta: { [VOLTAGE]: { zones: batteryZones } }
     })
-    at(0, VOLTAGE, 11.3)
+    at(0, VOLTAGE, 11.8)
     at(30)
     meta.set(VOLTAGE, { zones: [{ upper: 11.5, state: 'alarm' }] })
     at(31)
@@ -136,29 +250,31 @@ describe('zone limits', () => {
     expect(evaluator.status().instances[0]?.inactive).toMatch(/no warn zone/)
   })
 
-  it('a projection against a zone limit raises at its own priority', () => {
+  it('a projection against a zone limit alerts at its named level and does not escalate', () => {
     const LEVEL = 'tanks.freshWater.0.currentLevel'
     const rule = valid({
       name: 'Fresh water running out',
       slug: 'fresh-water-running-out',
       message: 'Fresh water tank will be empty soon',
-      priority: 'warning',
       signal: { path: LEVEL },
       detector: {
         type: 'projection',
         direction: 'falling',
-        limit: { kind: 'zone', level: 'warn' },
+        limit: { kind: 'zone', level: 'alert' },
         window: 600,
         horizon: 3600
       }
     })
     const zones: Zone[] = [
-      { upper: 0.0525, state: 'alarm' },
-      { lower: 0.0525, upper: 0.1, state: 'warn' }
+      { upper: 0.02, state: 'emergency' },
+      { lower: 0.02, upper: 0.05, state: 'alarm' },
+      { lower: 0.05, upper: 0.1, state: 'warn' },
+      { lower: 0.1, upper: 0.2, state: 'alert' }
     ]
-    const { at, log } = setup(rule, { meta: { [LEVEL]: { zones } } })
+    const { at, log, evaluator } = setup(rule, { meta: { [LEVEL]: { zones } } })
     for (let t = 0; t <= 2400; t += 10) at(t, LEVEL, 0.3 - t / 6000)
-    expect(log).toEqual([[600, 'raise', '', 'warning']])
+    expect(log).toEqual([[600, 'raise', '', 'caution']])
+    expect(evaluator.status().instances[0]).toMatchObject({ level: 'alert', priority: 'caution' })
   })
 })
 

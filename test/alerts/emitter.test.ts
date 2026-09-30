@@ -137,6 +137,28 @@ describe('alert emitter', () => {
     expect(emitter.status(PATH)).toBeUndefined()
   })
 
+  it('a repeat emits an active alert at once and restarts its heartbeat', () => {
+    const { sent, emitter, evidence } = setup()
+    emitter.raise(PATH, alarm, evidence, 0)
+    const header = { priority: 'emergency' as const, message: alarm.message, latching: false }
+    emitter.revise(PATH, header)
+    emitter.repeat(PATH, 7)
+    expect(sent.at(-1)).toEqual([PATH, { ...header, data: alarm.data }])
+    emitter.beat(HEARTBEAT_S)
+    expect(sent).toHaveLength(2)
+    emitter.beat(7 + HEARTBEAT_S)
+    expect(sent).toHaveLength(3)
+  })
+
+  it('a repeat sends nothing without input evidence, or for an alert it does not hold', () => {
+    const { sent, emitter, evidence, setEvidence } = setup()
+    emitter.repeat(PATH, 0)
+    emitter.raise(PATH, alarm, evidence, 0)
+    setEvidence(false)
+    emitter.repeat(PATH, 1)
+    expect(sent).toHaveLength(1)
+  })
+
   it("adopts an active alert with the rule's header and no data: one heartbeat at once, then only with evidence", () => {
     const { core, sent, emitter, evidence, setEvidence } = setup()
     core.ingest(PLUGIN, PATH, alarm)
