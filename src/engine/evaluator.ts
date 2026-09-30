@@ -812,8 +812,13 @@ export interface EditBasis {
 
 export function editBasis(rule: Rule | EditBasis): EditBasis {
   if (!('detector' in rule)) return rule
-  const d = rule.detector
-  return { ...(d.type === 'accumulator' ? { measure: d.measure } : {}), gates: rule.gates ?? [] }
+  const measure = measureOf(rule)
+  return { ...(measure === undefined ? {} : { measure }), gates: rule.gates ?? [] }
+}
+
+/** The measure of an accumulator rule; undefined for any other detector. */
+export function measureOf(rule: Rule): string | undefined {
+  return rule.detector.type === 'accumulator' ? rule.detector.measure : undefined
 }
 
 /** Whether an edit keeps an accumulator's total: it is still an accumulator of the same measure. */

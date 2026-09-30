@@ -206,7 +206,9 @@ describe('store', () => {
     store.load()
     store.saveRule(oil)
     store.saveEvaluation({ enabled: false, actor: 'admin', at: '2026-09-30T12:00:00.000Z' })
-    store.saveCheckpoints({ 'user.engine-hours': { '': 3600, port: 12.5 } })
+    store.saveCheckpoints({
+      'user.engine-hours': { measure: 'time', totals: { '': 3600, port: 12.5 } }
+    })
 
     const contents = new Store(dir).load()
     expect(contents.rules).toEqual([{ slug: 'oil-pressure-low', value: oil }])
@@ -215,7 +217,9 @@ describe('store', () => {
       actor: 'admin',
       at: '2026-09-30T12:00:00.000Z'
     })
-    expect(contents.accumulators).toEqual({ 'user.engine-hours': { '': 3600, port: 12.5 } })
+    expect(contents.accumulators).toEqual({
+      'user.engine-hours': { measure: 'time', totals: { '': 3600, port: 12.5 } }
+    })
     expect(contents.issues).toEqual([])
   })
 
@@ -284,7 +288,7 @@ describe('store', () => {
     const good = new Store(dir)
     good.load()
     good.saveRule(oil)
-    good.saveCheckpoints({ 'user.engine-hours': { '': 100 } })
+    good.saveCheckpoints({ 'user.engine-hours': { measure: 'time', totals: { '': 100 } } })
 
     const store = new Store(dir, failing)
     store.load()
@@ -292,12 +296,14 @@ describe('store', () => {
       store.saveRule({ ...oil, message: 'changed' })
     }).toThrow(/ENOSPC/)
     expect(() => {
-      store.saveCheckpoints({ 'user.engine-hours': { '': 200 } })
+      store.saveCheckpoints({ 'user.engine-hours': { measure: 'time', totals: { '': 200 } } })
     }).toThrow(/ENOSPC/)
 
     const contents = new Store(dir).load()
     expect(contents.rules).toEqual([{ slug: 'oil-pressure-low', value: oil }])
-    expect(contents.accumulators).toEqual({ 'user.engine-hours': { '': 100 } })
+    expect(contents.accumulators).toEqual({
+      'user.engine-hours': { measure: 'time', totals: { '': 100 } }
+    })
     expect(contents.issues).toEqual([])
     // The half-written temporary file is not left behind.
     expect(readdirSync(dir).filter((f) => f.endsWith('.tmp'))).toEqual([])
@@ -313,9 +319,13 @@ describe('store', () => {
     }
     const store = new Store(dir, partial)
     store.load()
-    store.saveCheckpoints({ 'user.engine-hours': { '': 200, port: 12.5 } })
+    store.saveCheckpoints({
+      'user.engine-hours': { measure: 'time', totals: { '': 200, port: 12.5 } }
+    })
     const contents = new Store(dir).load()
-    expect(contents.accumulators).toEqual({ 'user.engine-hours': { '': 200, port: 12.5 } })
+    expect(contents.accumulators).toEqual({
+      'user.engine-hours': { measure: 'time', totals: { '': 200, port: 12.5 } }
+    })
     expect(contents.issues).toEqual([])
   })
 
@@ -327,14 +337,16 @@ describe('store', () => {
     }
     const good = new Store(dir)
     good.load()
-    good.saveCheckpoints({ 'user.engine-hours': { '': 100 } })
+    good.saveCheckpoints({ 'user.engine-hours': { measure: 'time', totals: { '': 100 } } })
     const store = new Store(dir, full)
     store.load()
     expect(() => {
-      store.saveCheckpoints({ 'user.engine-hours': { '': 200 } })
+      store.saveCheckpoints({ 'user.engine-hours': { measure: 'time', totals: { '': 200 } } })
     }).toThrow(/accumulators\.json/)
     const contents = new Store(dir).load()
-    expect(contents.accumulators).toEqual({ 'user.engine-hours': { '': 100 } })
+    expect(contents.accumulators).toEqual({
+      'user.engine-hours': { measure: 'time', totals: { '': 100 } }
+    })
     expect(contents.issues).toEqual([])
   })
 
@@ -388,7 +400,7 @@ describe('store', () => {
       const store = new Store(dir)
       store.load()
       store.saveEvaluation({ enabled: false })
-      store.saveCheckpoints({ 'user.engine-hours': { '': 100 } })
+      store.saveCheckpoints({ 'user.engine-hours': { measure: 'time', totals: { '': 100 } } })
       store.saveLog([])
       const before = readFileSync(join(dir, name), 'utf8')
       const failing: FileSystem = {

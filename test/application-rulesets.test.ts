@@ -491,7 +491,7 @@ describe('rulesets in the application', () => {
       s.application.setRulesetEnabled('batteries', true, 'admin')
       s.at(20)
       s.application.checkpoint()
-      expect(storedTotals()).toEqual({ 'batteries.hours': { '': 20 } })
+      expect(storedTotals()).toEqual({ 'batteries.hours': { measure: 'time', totals: { '': 20 } } })
       return s
     }
 
@@ -507,7 +507,7 @@ describe('rulesets in the application', () => {
       at(40)
       application.checkpoint()
 
-      expect(storedTotals()).toEqual({ 'batteries.hours': { '': 30 } })
+      expect(storedTotals()).toEqual({ 'batteries.hours': { measure: 'time', totals: { '': 30 } } })
     })
 
     it('are dropped from the store at once when an upgrade removes the rule', () => {
@@ -525,7 +525,7 @@ describe('rulesets in the application', () => {
 
       expect(application.resetAccumulator('batteries', 'hours', 'admin')).toBe('reset')
 
-      expect(storedTotals()).toEqual({ 'batteries.hours': { '': 0 } })
+      expect(storedTotals()).toEqual({ 'batteries.hours': { measure: 'time', totals: { '': 0 } } })
       expect(application.log()[0]).toMatchObject({ action: 'reset', rule: 'batteries.hours' })
     })
 
@@ -547,7 +547,9 @@ describe('rulesets in the application', () => {
       installed.rulesets = [batteries('2.0.0', [integralHours])]
       application.rescan('admin')
 
-      expect(storedTotals()).not.toEqual({ 'batteries.hours': { '': 20 } })
+      expect(storedTotals()).not.toEqual({
+        'batteries.hours': { measure: 'time', totals: { '': 20 } }
+      })
     })
 
     it('are kept across a restart when an upgrade changes only the limit', () => {
@@ -558,7 +560,7 @@ describe('rulesets in the application', () => {
       const { application } = setup({ rulesets: [batteries('2.0.0', [higher])] }, core)
       application.checkpoint()
 
-      expect(storedTotals()).toEqual({ 'batteries.hours': { '': 20 } })
+      expect(storedTotals()).toEqual({ 'batteries.hours': { measure: 'time', totals: { '': 20 } } })
     })
   })
 
@@ -648,6 +650,33 @@ describe('rulesets in the application', () => {
       } finally {
         save.mockRestore()
       }
+    })
+
+    const storedTotals = () => new Store(dir).load().accumulators
+
+    it('drops the old total after an upgrade whose totals could not be saved', () => {
+      const core = new FakeAlertsCore()
+      const first = setup({ rulesets: [batteries('1.0.0', [hours])] }, core)
+      first.at(0, RPM, 30)
+      first.application.setRulesetEnabled('batteries', true, 'admin')
+      first.at(20)
+      first.application.stop()
+      const upgraded = { rulesets: [batteries('2.0.0', [integralHours])] }
+
+      const save = vi.spyOn(Store.prototype, 'saveCheckpoints').mockImplementation(full)
+      try {
+        expect(() => {
+          setup(upgraded, core).application.stop()
+        }).toThrow(/ENOSPC/)
+      } finally {
+        save.mockRestore()
+      }
+
+      const { application } = setup(upgraded, core)
+
+      expect(application.rule('batteries', 'hours')?.status.instances).toEqual([])
+      application.checkpoint()
+      expect(storedTotals()).toEqual({})
     })
   })
 

@@ -565,7 +565,9 @@ describe('rule runner', () => {
     })
     at(0, 'propulsion.main.revolutions', 30)
     run(1, 4)
-    expect(runner.accumulators()).toEqual(new Map([['user.engine-hours', new Map([['', 99]])]]))
+    expect(runner.accumulators()).toEqual(
+      new Map([['user.engine-hours', { measure: 'time', totals: new Map([['', 99]]) }]])
+    )
     run(5, 5)
     expect(sent.map(([path]) => path)).toEqual(['rules.user.engine-hours'])
   })
@@ -585,7 +587,9 @@ describe('rule runner', () => {
     })
     at(0, 'propulsion.main.revolutions', 30)
     at(7)
-    expect(runner.accumulators()).toEqual(new Map([['user.engine-hours', new Map([['', 7]])]]))
+    expect(runner.accumulators()).toEqual(
+      new Map([['user.engine-hours', { measure: 'time', totals: new Map([['', 7]]) }]])
+    )
   })
 
   it('stopping clears nothing', () => {
@@ -850,13 +854,15 @@ describe('rule status', () => {
     it('keeps the total for the checkpoint', () => {
       const runner = failing()
       expect(runner.status(HOURS_ID)?.badge).toBe('errored')
-      expect(runner.accumulators()).toEqual(new Map([[HOURS_ID, new Map([['', 42]])]]))
+      expect(runner.accumulators()).toEqual(
+        new Map([[HOURS_ID, { measure: 'time', totals: new Map([['', 42]]) }]])
+      )
     })
 
     it('keeps the total across an edit that carries it', () => {
       const runner = failing()
       runner.update({ origin: 'user', rule: { ...hours, message: 'Service the engine' } })
-      expect(runner.accumulators().get(HOURS_ID)).toEqual(new Map([['', 42]]))
+      expect(runner.accumulators().get(HOURS_ID)?.totals).toEqual(new Map([['', 42]]))
     })
 
     it('drops the total on a measure change', () => {
@@ -866,7 +872,7 @@ describe('rule status', () => {
         detector: { type: 'accumulator', measure: 'integral', limit: 100 }
       })
       runner.update({ origin: 'user', rule: integral })
-      expect(runner.accumulators().get(HOURS_ID)?.get('') ?? 0).toBe(0)
+      expect(runner.accumulators().get(HOURS_ID)?.totals.get('') ?? 0).toBe(0)
     })
   })
 

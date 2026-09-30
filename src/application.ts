@@ -2,6 +2,7 @@ import type { Verdict } from './alerts/badge.js'
 import { ruleId, ruleRef } from './alerts/paths.js'
 import {
   RuleRunner,
+  type Accumulated,
   type LoadedRule,
   type RunnerDeps,
   type RunnerInstanceStatus,
@@ -13,6 +14,7 @@ import {
   carriesTotals,
   changesGates,
   editBasis,
+  measureOf,
   structuralChanges,
   type EditBasis
 } from './engine/evaluator.js'
@@ -197,9 +199,12 @@ function pathSet(rule: Rule): string {
   return JSON.stringify(rulePaths(rule).sort())
 }
 
-function toMaps(checkpoints: Checkpoints): Map<string, Map<string, number>> {
+function toMaps(checkpoints: Checkpoints): Map<string, Accumulated> {
   return new Map(
-    Object.entries(checkpoints).map(([id, totals]) => [id, new Map(Object.entries(totals))])
+    Object.entries(checkpoints).map(([id, { measure, totals }]) => [
+      id,
+      { measure, totals: new Map(Object.entries(totals)) }
+    ])
   )
 }
 
@@ -273,12 +278,14 @@ export class Application {
   private readonly rulesBySlug = new Map<string, Rule>()
   /** Slugs of stored rule files, loaded or not, so a skipped one can be deleted. */
   private readonly stored: Set<string>
+  /** Slugs of stored rule files that could not be read, which say nothing about their measure. */
+  private readonly unreadable: Set<string>
   /**
    * Checkpointed totals of rules the runner does not hold: a stored rule that
    * no longer validates, kept until the rule is deleted or saved again, and
    * every rule's while evaluation is off.
    */
-  private readonly retained: Map<string, Map<string, number>>
+  private readonly retained: Map<string, Accumulated>
   /**
    * The measure of each stored rule file that did not load but is written as
    * an accumulator, so a valid replacement of the same measure keeps its total.
@@ -344,6 +351,7 @@ export class Application {
       }
     }
     this.retained = toMaps(contents.accumulators)
+    this.unreadable = new Set(contents.unreadableRules)
   }
 
   get evaluation(): EvaluationSwitch {
@@ -373,6 +381,7 @@ export class Application {
     // running: what could not be saved applies in this run.
     this.starting = true
     try {
+      if (this.dropUserTotalsOfOtherMeasure()) this.saveDroppedTotals()
       this.applyDiscovery(this.discover())
     } finally {
       this.starting = false
@@ -413,9 +422,12 @@ export class Application {
    * rewritten, to spare flash storage a flushed write every minute.
    */
   checkpoint(): void {
-    const totals = new Map([...this.retained, ...(this.runner?.accumulators() ?? [])])
-    const checkpoints = Object.fromEntries(
-      [...totals].map(([id, t]) => [id, Object.fromEntries(t)])
+    const held = new Map([...this.retained, ...(this.runner?.accumulators() ?? [])])
+    const checkpoints: Checkpoints = Object.fromEntries(
+      [...held].map(([id, { measure, totals }]) => [
+        id,
+        { measure, totals: Object.fromEntries(totals) }
+      ])
     )
     const text = JSON.stringify(checkpoints)
     if (text === this.lastCheckpoint) return
@@ -591,7 +603,7 @@ export class Application {
       // Its totals are kept, like a disabled rule's, for the ruleset coming back.
       for (const rule of gone.values()) this.stopRule(ruleId(slug, rule.slug))
     }
-    const drops = removed.some((id) => this.hasTotal(id))
+    let drops = removed.some((id) => this.hasTotal(id))
     for (const id of removed) {
       this.runner?.remove(id)
       this.retained.delete(id)
@@ -608,6 +620,8 @@ export class Application {
         // With no rule in memory, at start or on a ruleset's return, what the
         // settings recorded stands in for it.
         if (previous === undefined) {
+          const id = ruleId(loaded.slug, rule.slug)
+          drops = this.dropTotalOfOtherMeasure(id, measureOf(rule)) || drops
           changes.push({ origin: loaded.slug, previous: own(recorded, rule.slug), rule })
         } else if (JSON.stringify(previous) !== JSON.stringify(rule)) {
           changes.push({ origin: loaded.slug, previous: editBasis(previous), rule })
@@ -620,13 +634,31 @@ export class Application {
       if (previous === undefined) this.sync(origin, rule)
       else edits = this.editRulesetRule(origin, previous, rule) || edits
     }
-    // Written now: the next checkpoint could come after a restart that would
-    // give an old total to a rule that no longer carries it.
-    if (drops || edits) {
-      this.tolerating('the accumulator totals', 'the next checkpoint retries', () => {
-        this.checkpoint()
-      })
+    if (drops || edits) this.saveDroppedTotals()
+  }
+
+  /**
+   * Checkpoints a drop at once; while starting, a failure is an issue. A
+   * dropped total left on disk would come back after a restart for a rule
+   * that took up its old measure again.
+   */
+  private saveDroppedTotals(): void {
+    this.tolerating('the accumulator totals', 'the next checkpoint retries', () => {
+      this.checkpoint()
+    })
+  }
+
+  /** Drops the stored totals of user rules built under another measure than their rule file's. */
+  private dropUserTotalsOfOtherMeasure(): boolean {
+    let drops = false
+    for (const id of this.retained.keys()) {
+      const { origin, slug } = ruleRef(id)
+      if (origin !== USER_ORIGIN || !this.stored.has(slug) || this.unreadable.has(slug)) continue
+      const rule = this.rulesBySlug.get(slug)
+      const measure = rule === undefined ? this.unloadedMeasures.get(slug) : measureOf(rule)
+      drops = this.dropTotalOfOtherMeasure(id, measure) || drops
     }
+    return drops
   }
 
   /** Runs a write; while starting, a failure is reported as an issue instead of thrown. */
@@ -655,6 +687,17 @@ export class Application {
     if (this.runner?.has(id) === true) this.runner.update({ origin, rule })
     else this.sync(origin, rule)
     return drops
+  }
+
+  /**
+   * Drops a retained total built under another measure than the one given,
+   * none for a rule that is not an accumulator. Returns whether it did.
+   */
+  private dropTotalOfOtherMeasure(id: string, measure: string | undefined): boolean {
+    const retained = this.retained.get(id)
+    if (retained === undefined || retained.measure === measure) return false
+    this.retained.delete(id)
+    return true
   }
 
   /** Stops a rule, clearing its alerts and keeping its totals, as disabling it does. */
@@ -692,7 +735,7 @@ export class Application {
       // retained total; the runner takes it over.
       const retained = this.retained.get(id)
       this.retained.delete(id)
-      this.runner.update({ origin: USER_ORIGIN, rule }, retained)
+      this.runner.update({ origin: USER_ORIGIN, rule }, retained?.totals)
     }
     // Written now: the next checkpoint could come after a restart that would
     // give the old total to the new rule.
@@ -721,10 +764,10 @@ export class Application {
 
   /** Whether the rule has an accumulator total above zero: one an operator would lose. */
   private hasNonZeroTotal(id: string): boolean {
-    return [...(this.totalsOf(id)?.values() ?? [])].some((total) => total !== 0)
+    return [...(this.totalsOf(id)?.totals.values() ?? [])].some((total) => total !== 0)
   }
 
-  private totalsOf(id: string): ReadonlyMap<string, number> | undefined {
+  private totalsOf(id: string): Accumulated | undefined {
     return this.retained.get(id) ?? this.runner?.accumulators().get(id)
   }
 
@@ -848,7 +891,7 @@ export class Application {
       this.record({ at, actor, action: 'evaluation', enabled })
     } finally {
       if (runner !== undefined) {
-        for (const [id, totals] of runner.accumulators()) this.retained.set(id, totals)
+        for (const [id, accumulated] of runner.accumulators()) this.retained.set(id, accumulated)
         runner.clearAll()
       }
     }
@@ -1063,7 +1106,9 @@ export class Application {
   private startRunner(adopt: boolean, commit?: () => void): void {
     const loaded = this.loaded()
     const ids = new Set(loaded.map(({ origin, rule }) => ruleId(origin, rule.slug)))
-    const accumulated = new Map([...this.retained].filter(([id]) => ids.has(id)))
+    const accumulated = new Map(
+      [...this.retained].filter(([id]) => ids.has(id)).map(([id, { totals }]) => [id, totals])
+    )
     const runner = new RuleRunner(this.deps, loaded, accumulated, this.suppressionsInForce)
     try {
       runner.start(adopt)
@@ -1120,7 +1165,7 @@ export class Application {
 
   private notEvaluatedStatus(origin: string, rule: Rule): NotEvaluatedStatus {
     const id = ruleId(origin, rule.slug)
-    const totals = this.retained.get(id)
+    const totals = this.retained.get(id)?.totals
     if (!this.control(id).enabled) return notEvaluated(rule, totals, 'disabled')
     if (origin !== USER_ORIGIN && !this.rulesetEnabled(origin)) {
       return notEvaluated(rule, totals, 'ruleset is disabled')
@@ -1178,7 +1223,7 @@ export class Application {
     if (should) {
       const retained = this.retained.get(id)
       this.retained.delete(id)
-      runner.update({ origin, rule }, retained)
+      runner.update({ origin, rule }, retained?.totals)
     } else {
       this.stopRule(id)
     }

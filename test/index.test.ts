@@ -124,7 +124,9 @@ describe('plugin', () => {
     vi.advanceTimersByTime(59_000)
     expect(new Store(dir).load().accumulators).toEqual({})
     vi.advanceTimersByTime(1_000)
-    expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 60 } })
+    expect(new Store(dir).load().accumulators).toEqual({
+      'user.engine-hours': { measure: 'time', totals: { '': 60 } }
+    })
 
     await plugin.stop()
   })
@@ -159,11 +161,15 @@ describe('plugin', () => {
     app.subscriptionmanager.publish(RPM, 'src', 30)
     vi.advanceTimersByTime(10_000)
     await plugin.stop()
-    expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 10 } })
+    expect(new Store(dir).load().accumulators).toEqual({
+      'user.engine-hours': { measure: 'time', totals: { '': 10 } }
+    })
 
     vi.advanceTimersByTime(300_000)
     expect(app.core.list()).toEqual([])
-    expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 10 } })
+    expect(new Store(dir).load().accumulators).toEqual({
+      'user.engine-hours': { measure: 'time', totals: { '': 10 } }
+    })
   })
 
   it('runs and reports what it could not load', async () => {
@@ -246,7 +252,9 @@ describe('plugin', () => {
     app.subscriptionmanager.publish(RPM, 'src', 30)
     vi.advanceTimersByTime(60_000)
     // One tick a second: a second set of timers would count twice as fast.
-    expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 60 } })
+    expect(new Store(dir).load().accumulators).toEqual({
+      'user.engine-hours': { measure: 'time', totals: { '': 60 } }
+    })
 
     await plugin.stop()
   })
@@ -367,7 +375,9 @@ describe('plugin', () => {
     expect(app.pluginError).toBeUndefined()
     expect(app.pluginStatus).toBe(running)
     expect(app.pluginStatus).toMatch(/^Running; .*genset-hours/)
-    expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 240 } })
+    expect(new Store(dir).load().accumulators).toEqual({
+      'user.engine-hours': { measure: 'time', totals: { '': 240 } }
+    })
 
     await plugin.stop()
   })

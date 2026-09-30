@@ -33,8 +33,18 @@ export interface EvaluationSwitch {
   at?: string
 }
 
-/** Accumulator totals by rule id, then by instance segment (`''` for a rule without instances). */
-export type Checkpoints = Record<string, Record<string, number>>
+/**
+ * A rule's accumulator totals by instance segment (`''` for a rule without
+ * instances), with the measure they were built under: a rule of another
+ * measure must not take them over, whatever else on disk says.
+ */
+export interface StoredTotals {
+  measure: string
+  totals: Record<string, number>
+}
+
+/** Accumulator totals by rule id. */
+export type Checkpoints = Record<string, StoredTotals>
 
 /** A suppression of a rule or an input path, with who started it and when. */
 export interface Suppression {
@@ -129,14 +139,12 @@ function isEvaluationSwitch(value: unknown): value is EvaluationSwitch {
   )
 }
 
-function isCheckpoints(value: unknown): value is Checkpoints {
+function isStoredTotals(value: unknown): value is StoredTotals {
   return (
     isRecord(value) &&
-    Object.values(value).every(
-      (totals) =>
-        isRecord(totals) &&
-        Object.values(totals).every((t) => typeof t === 'number' && Number.isFinite(t))
-    )
+    typeof value.measure === 'string' &&
+    isRecord(value.totals) &&
+    Object.values(value.totals).every((t) => typeof t === 'number' && Number.isFinite(t))
   )
 }
 
@@ -157,6 +165,8 @@ const recordOf =
   <T>(accepts: (value: unknown) => value is T) =>
   (value: unknown): value is Record<string, T> =>
     isRecord(value) && Object.values(value).every(accepts)
+
+const isCheckpoints = recordOf(isStoredTotals)
 
 const isFrozenGates = recordOf(
   recordOf(recordOf((holds): holds is boolean => typeof holds === 'boolean'))
@@ -248,7 +258,8 @@ function checkSlug(slug: string): void {
  * - `rules/<slug>.json`: one user rule per file, so saving one rule never
  *   rewrites another;
  * - `evaluation.json`: the evaluation switch;
- * - `accumulators.json`: accumulator totals, rewritten whole at each checkpoint;
+ * - `accumulators.json`: accumulator totals, each with the measure it was
+ *   built under, rewritten whole at each checkpoint;
  * - `controls.json`: per-rule enable, note and suppression, input
  *   suppressions, and per-ruleset enable, parameter values and notices,
  *   rewritten whole at each change;

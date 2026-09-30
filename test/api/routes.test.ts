@@ -313,7 +313,9 @@ describe('REST API', () => {
       }
     })
     expect(core(h).getByPath('rules.user.engine-hours')?.condition).toBe(false)
-    expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 0 } })
+    expect(new Store(dir).load().accumulators).toEqual({
+      'user.engine-hours': { measure: 'time', totals: { '': 0 } }
+    })
     const log = await h.call('GET', '/log')
     expect(log.body).toEqual([
       {

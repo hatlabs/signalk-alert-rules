@@ -1,5 +1,6 @@
 import {
   carriesTotals,
+  measureOf,
   RuleEvaluator,
   type Adopted,
   type EvaluatorContext,
@@ -44,6 +45,12 @@ export interface RunnerRuleStatus extends Verdict {
   /** Failures that make the rule errored, such as an evaluation that threw. */
   errors: string[]
   instances: RunnerInstanceStatus[]
+}
+
+/** A rule's accumulator totals by instance segment, with the measure they were built under. */
+export interface Accumulated {
+  measure: string
+  totals: Map<string, number>
 }
 
 const idOf = (entry: LoadedRule) => ruleId(entry.origin, entry.rule.slug)
@@ -238,14 +245,16 @@ export class RuleRunner {
     return this.failed.has(id)
   }
 
-  /** Accumulator totals by rule id and instance segment, for the store's checkpoint. */
-  accumulators(): Map<string, Map<string, number>> {
-    const totals = new Map<string, Map<string, number>>()
+  /** Accumulator totals by rule id, for the store's checkpoint. */
+  accumulators(): Map<string, Accumulated> {
+    const accumulated = new Map<string, Accumulated>()
     for (const [id, evaluator] of this.evaluators) {
-      const rule = evaluator.accumulators()
-      if (rule.size > 0) totals.set(id, rule)
+      const totals = evaluator.accumulators()
+      const rule = this.entries.get(id)?.rule
+      const measure = rule === undefined ? undefined : measureOf(rule)
+      if (totals.size > 0 && measure !== undefined) accumulated.set(id, { measure, totals })
     }
-    return totals
+    return accumulated
   }
 
   status(id: string): RunnerRuleStatus | undefined {

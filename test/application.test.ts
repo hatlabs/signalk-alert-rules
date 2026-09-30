@@ -228,16 +228,16 @@ describe('application', () => {
     stored(hours)
     stored({ ...hours, slug: 'genset-hours', priority: 'loud' })
     new Store(dir).saveCheckpoints({
-      'user.engine-hours': { '': 100 },
-      'user.genset-hours': { '': 50 }
+      'user.engine-hours': { measure: 'time', totals: { '': 100 } },
+      'user.genset-hours': { measure: 'time', totals: { '': 50 } }
     })
     const { application, at } = setup()
     at(0, RPM, 30)
     at(20)
     application.checkpoint()
     expect(new Store(dir).load().accumulators).toEqual({
-      'user.engine-hours': { '': 120 },
-      'user.genset-hours': { '': 50 }
+      'user.engine-hours': { measure: 'time', totals: { '': 120 } },
+      'user.genset-hours': { measure: 'time', totals: { '': 50 } }
     })
 
     application.deleteRule('genset-hours', 'admin')
@@ -267,7 +267,9 @@ describe('application', () => {
     // The failed write is retried although the totals have not changed since.
     application.checkpoint()
     expect(save).toHaveBeenCalledTimes(3)
-    expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 20 } })
+    expect(new Store(dir).load().accumulators).toEqual({
+      'user.engine-hours': { measure: 'time', totals: { '': 20 } }
+    })
   })
 
   it('stopping checkpoints and clears no alert', () => {
@@ -281,7 +283,9 @@ describe('application', () => {
     application.stop()
     expect(alerts()).toEqual([['rules.user.oil-pressure-low', true]])
     expect(server.core.writes).toBe(sent)
-    expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 5 } })
+    expect(new Store(dir).load().accumulators).toEqual({
+      'user.engine-hours': { measure: 'time', totals: { '': 5 } }
+    })
   })
 
   it('exposes the stored evaluation switch', () => {
@@ -386,7 +390,7 @@ describe('application operator actions', () => {
     ])
     application.checkpoint()
     const totals: Partial<Checkpoints> = new Store(dir).load().accumulators
-    expect(totals['user.engine-hours']?.['']).toBe(10)
+    expect(totals['user.engine-hours']?.totals['']).toBe(10)
   })
 
   it('a stored evaluation off is honoured at start: nothing is evaluated or cleared', () => {
@@ -437,13 +441,17 @@ describe('application operator actions', () => {
       application.replaceRule(hours.slug, { ...hours, message: 'Service the engine' }).ok
     ).toBe(true)
     application.checkpoint()
-    expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 20 } })
+    expect(new Store(dir).load().accumulators).toEqual({
+      'user.engine-hours': { measure: 'time', totals: { '': 20 } }
+    })
 
     // Turned on at 50 s, the rule starts from the cached value: still running.
     application.setEvaluation(true, 'admin')
     at(70)
     application.checkpoint()
-    expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 40 } })
+    expect(new Store(dir).load().accumulators).toEqual({
+      'user.engine-hours': { measure: 'time', totals: { '': 40 } }
+    })
   })
 
   it('a measure change while evaluation is off drops the total from the store at once', () => {
@@ -453,14 +461,16 @@ describe('application operator actions', () => {
     at(20)
     application.setEvaluation(false, 'admin')
     application.checkpoint()
-    expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 20 } })
+    expect(new Store(dir).load().accumulators).toEqual({
+      'user.engine-hours': { measure: 'time', totals: { '': 20 } }
+    })
     expect(application.replaceRule(hours.slug, integral).ok).toBe(true)
     expect(new Store(dir).load().accumulators).toEqual({})
   })
 
   it("an accumulator reset clears the rule's alert, zeroes its stored total and records the actor", () => {
     stored(shortHours)
-    new Store(dir).saveCheckpoints({ 'user.engine-hours': { '': 8 } })
+    new Store(dir).saveCheckpoints({ 'user.engine-hours': { measure: 'time', totals: { '': 8 } } })
     const { application, at, alerts } = setup()
     at(0, RPM, 30)
     at(2)
@@ -468,7 +478,9 @@ describe('application operator actions', () => {
 
     expect(application.resetAccumulator('user', 'engine-hours', 'skipper')).toBe('reset')
     expect(alerts()).toEqual([['rules.user.engine-hours', false]])
-    expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 0 } })
+    expect(new Store(dir).load().accumulators).toEqual({
+      'user.engine-hours': { measure: 'time', totals: { '': 0 } }
+    })
     expect(application.log()).toEqual([
       { at: WALL, actor: 'skipper', action: 'reset', rule: 'user.engine-hours' }
     ])
@@ -673,12 +685,12 @@ describe('application accumulator totals across edits', () => {
   const ID = 'user.engine-hours'
   const total = () => {
     const totals: Partial<Checkpoints> = new Store(dir).load().accumulators
-    return totals[ID]?.['']
+    return totals[ID]?.totals['']
   }
 
   it('replacing a stored rule that failed validation with the same measure keeps its total', () => {
     stored(brokenHours)
-    new Store(dir).saveCheckpoints({ [ID]: { '': 100 } })
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
     const { application, at } = setup()
     expect(application.issues.join('\n')).toMatch(/engine-hours is not valid/)
     expect(application.previewRule(hours.slug, hours)).toMatchObject({
@@ -699,7 +711,7 @@ describe('application accumulator totals across edits', () => {
       join(dir, 'rules', 'engine-hours.json'),
       JSON.stringify({ ...hours, slug: 'other-hours' })
     )
-    new Store(dir).saveCheckpoints({ [ID]: { '': 100 } })
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
     const { application, at } = setup()
     expect(application.issues.join('\n')).toMatch(/engine-hours has the slug other-hours/)
 
@@ -712,7 +724,7 @@ describe('application accumulator totals across edits', () => {
 
   it('with evaluation off, the replaced rule keeps the total until evaluation is on', () => {
     stored(brokenHours)
-    new Store(dir).saveCheckpoints({ [ID]: { '': 100 } })
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
     new Store(dir).saveEvaluation({ enabled: false })
     const { application, at } = setup()
 
@@ -728,7 +740,7 @@ describe('application accumulator totals across edits', () => {
 
   it('turning evaluation on when the runner cannot start keeps it off and keeps the totals', () => {
     stored(hours)
-    new Store(dir).saveCheckpoints({ [ID]: { '': 100 } })
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
     new Store(dir).saveEvaluation({ enabled: false })
     const core = new FakeAlertsCore()
     const { application } = setup(new Store(dir), core)
@@ -753,7 +765,7 @@ describe('application accumulator totals across edits', () => {
 
   it('turning evaluation on when the switch cannot be saved stops the started runner', () => {
     stored(hours)
-    new Store(dir).saveCheckpoints({ [ID]: { '': 100 } })
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
     new Store(dir).saveEvaluation({ enabled: false })
     const store = new Store(dir)
     const { application, at } = setup(store)
@@ -777,7 +789,7 @@ describe('application accumulator totals across edits', () => {
 
   it('replacing a stored rule that failed validation with another measure drops its total at once', () => {
     stored(brokenHours)
-    new Store(dir).saveCheckpoints({ [ID]: { '': 100 } })
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
     const { application } = setup()
     expect(application.previewRule(hours.slug, integral)).toMatchObject({
       ok: true,
@@ -787,16 +799,50 @@ describe('application accumulator totals across edits', () => {
     expect(total()).toBe(0)
   })
 
-  it('replacing a stored rule that is not an accumulator drops the total whatever its measure', () => {
+  it('a restart after an edit whose dropped total could not be saved does not restore it', () => {
+    stored(hours)
+    const store = new Store(dir)
+    const first = setup(store)
+    first.at(0, RPM, 30)
+    first.at(20)
+    first.application.checkpoint()
+    expect(total()).toBe(20)
+    vi.spyOn(store, 'saveCheckpoints').mockImplementation(() => {
+      throw new Error('ENOSPC: no space left on device')
+    })
+    expect(() => first.application.replaceRule(hours.slug, integral)).toThrow(/ENOSPC/)
+    expect(() => {
+      first.application.stop()
+    }).toThrow(/ENOSPC/)
+
+    const { application } = setup()
+
+    expect(application.rule('user', hours.slug)?.status.instances).toMatchObject([
+      { progress: { total: 0 } }
+    ])
+    application.checkpoint()
+    expect(total() ?? 0).toBe(0)
+  })
+
+  it('a stored rule that is not an accumulator loses its total at start, whatever its measure', () => {
     stored({ ...hours, detector: { type: 'sustained', measure: 'time', limit: 1000 } })
-    new Store(dir).saveCheckpoints({ [ID]: { '': 100 } })
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
     const { application } = setup()
     expect(application.issues.join('\n')).toMatch(/engine-hours is not valid/)
-    expect(application.previewRule(hours.slug, hours)).toMatchObject({
-      value: { discardsTotal: true }
-    })
+    expect(total()).toBeUndefined()
+
     expect(application.replaceRule(hours.slug, hours).ok).toBe(true)
-    expect(total()).toBe(0)
+    application.checkpoint()
+    expect(total() ?? 0).toBe(0)
+  })
+
+  it('a stored total of another measure than its rule file is dropped at start', () => {
+    stored(hours)
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'integral', totals: { '': 100 } } })
+
+    setup()
+
+    expect(total()).toBeUndefined()
   })
 
   it('a measure change survives a crash right after it: the new rule does not inherit the total', () => {
@@ -931,7 +977,9 @@ describe('rule controls', () => {
         limit: 1000
       })
       application.checkpoint()
-      expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 20 } })
+      expect(new Store(dir).load().accumulators).toEqual({
+        'user.engine-hours': { measure: 'time', totals: { '': 20 } }
+      })
 
       expect(application.setEnabled('user', 'engine-hours', true, 'admin')).toBe('ok')
       at(60)
