@@ -34,9 +34,10 @@ type Listing =
   | { status: 'failed'; error: string }
 
 /**
- * How many rules each input suppression affects. The list does not say; the
- * preview does, from the same comparison the engine applies. A count that
- * cannot be read is left out rather than hiding the list.
+ * How many rules each input suppression affects: those it suppresses and
+ * those with a gate it freezes. The list does not say; the preview does, from
+ * the same comparison the engine applies. A count that cannot be read is left
+ * out rather than hiding the list.
  */
 async function affectedRules(
   api: SuppressionsApi,
@@ -47,7 +48,8 @@ async function affectedRules(
     paths.map(async (path) => {
       try {
         const preview = await api.previewInputSuppression(path)
-        return [[path, new Set(preview.suppresses.map((s) => s.rule)).size] as const]
+        const affected = [...preview.suppresses, ...preview.freezes].map((r) => r.rule)
+        return [[path, new Set(affected).size] as const]
       } catch {
         return []
       }

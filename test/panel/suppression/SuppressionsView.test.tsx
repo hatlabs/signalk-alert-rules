@@ -121,7 +121,7 @@ describe('SuppressionsView', () => {
     fakeServer([inputSuppression, ruleSuppression])
     await settle()
     const input = rowOf(new RegExp(RPM))
-    expect(cell(input, 'Scope').textContent).toBe(`Input ${RPM}affects 1 rule`)
+    expect(cell(input, 'Scope').textContent).toBe(`Input ${RPM}affects 2 rules`)
     const started = within(input).getByText(new Date(SINCE).toLocaleString())
     expect(started.tagName).toBe('TIME')
     expect(started.getAttribute('datetime')).toBe(SINCE)
@@ -141,6 +141,12 @@ describe('SuppressionsView', () => {
     fakeServer([inputSuppression], () => Promise.reject(new Error('timed out')))
     await settle()
     expect(cell(rowOf(new RegExp(RPM)), 'Scope').textContent).toBe(`Input ${RPM}`)
+  })
+
+  it('counts a rule whose gate it freezes as affected', async () => {
+    fakeServer([inputSuppression], () => Promise.resolve({ ...rpmPreview, suppresses: [] }))
+    await settle()
+    expect(cell(rowOf(new RegExp(RPM)), 'Scope').textContent).toBe(`Input ${RPM}affects 1 rule`)
   })
 
   it('says when no suppression is in force', async () => {
@@ -226,7 +232,7 @@ describe('SuppressionsView', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(document.activeElement).toBe(trigger)
     const row = rowOf(new RegExp(RPM))
-    expect(cell(row, 'Scope').textContent).toMatch(/affects 1 rule/)
+    expect(cell(row, 'Scope').textContent).toMatch(/affects 2 rules/)
     expect(within(row).getByText(new Date(SINCE).toLocaleString())).toBeTruthy()
     expect(cell(row, 'By').textContent).toBe('skipper')
   })
