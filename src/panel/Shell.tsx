@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { PanelApi, RuleEntry } from './api'
-import { activeAlerts, EvaluationControl } from './rules/EvaluationControl'
+import { activeAlerts, ClearAllAlerts } from './rules/ClearAllAlerts'
+import { EvaluationOffBanner } from './rules/EvaluationOffBanner'
 import { RuleDetail } from './rules/RuleDetail'
 import { hashWithRule, parseRuleFragment, type RuleRef } from './rules/ruleLink'
 import { RulesView } from './rules/RulesView'
@@ -242,10 +243,9 @@ function Views({ api, rules, evaluationEnabled, refresh }: ViewsProps) {
         />
         {evaluationEnabled && (
           <section className="skar-danger-zone" aria-label="All SKAR alerts">
-            <EvaluationControl
-              evaluationEnabled
+            <ClearAllAlerts
               activeAlerts={activeAlerts(rules)}
-              setEvaluation={setEvaluation}
+              turnOff={() => setEvaluation(false)}
             />
           </section>
         )}
@@ -255,13 +255,7 @@ function Views({ api, rules, evaluationEnabled, refresh }: ViewsProps) {
 
   return (
     <>
-      {!evaluationEnabled && (
-        <EvaluationControl
-          evaluationEnabled={false}
-          activeAlerts={0}
-          setEvaluation={setEvaluation}
-        />
-      )}
+      {!evaluationEnabled && <EvaluationOffBanner turnOn={() => setEvaluation(true)} />}
       <ul className="nav nav-tabs" role="tablist">
         {TABS.map((t) => (
           <li className="nav-item" key={t.id} role="presentation">

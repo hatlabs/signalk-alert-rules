@@ -10,11 +10,10 @@ export function activeAlerts(rules: RuleEntry[]): number {
   )
 }
 
-export interface EvaluationControlProps {
-  evaluationEnabled: boolean
+export interface ClearAllAlertsProps {
   activeAlerts: number
-  /** Resolves once the server has applied the switch; a rejection is shown. */
-  setEvaluation: (enabled: boolean) => Promise<void>
+  /** Resolves once the server has turned evaluation off; a rejection is shown. */
+  turnOff: () => Promise<void>
 }
 
 /**
@@ -22,40 +21,8 @@ export interface EvaluationControlProps {
  * while rules keep evaluating would only raise them again. It sits apart from
  * the per-rule actions so it is not hit by mistake.
  */
-export function EvaluationControl({
-  evaluationEnabled,
-  activeAlerts: count,
-  setEvaluation
-}: EvaluationControlProps) {
+export function ClearAllAlerts({ activeAlerts: count, turnOff }: ClearAllAlertsProps) {
   const [confirming, setConfirming] = useState(false)
-  const [error, setError] = useState<string | undefined>(undefined)
-
-  if (!evaluationEnabled) {
-    const turnOn = async () => {
-      setError(undefined)
-      try {
-        await setEvaluation(true)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err))
-      }
-    }
-    return (
-      <div className="alert alert-warning skar-evaluation">
-        <p>
-          <strong>Evaluation is off.</strong> No rule is evaluated and none raises an alert.
-        </p>
-        {error !== undefined && (
-          <p role="alert" className="text-danger">
-            {error}
-          </p>
-        )}
-        <button type="button" className="btn btn-secondary btn-sm" onClick={() => void turnOn()}>
-          Turn evaluation on
-        </button>
-      </div>
-    )
-  }
-
   const alerts = `${String(count)} active ${count === 1 ? 'alert' : 'alerts'}`
   return (
     <div className="skar-evaluation">
@@ -74,7 +41,7 @@ export function EvaluationControl({
           title="Clear all SKAR alerts?"
           confirmLabel="Clear all alerts"
           onConfirm={async () => {
-            await setEvaluation(false)
+            await turnOff()
             setConfirming(false)
           }}
           onCancel={() => {
