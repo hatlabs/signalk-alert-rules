@@ -380,6 +380,17 @@ describe('RuleEditor, editing', () => {
     })
   })
 
+  it('names a unit mismatch once on the input after a save attempt', async () => {
+    const rpmMismatch = example('engine-rpm-mismatch')
+    renderEditor({ entry: ruleEntry({ slug: rpmMismatch.slug }), rule: rpmMismatch })
+    type(
+      await screen.findByRole('combobox', { name: 'Input path 2' }),
+      'electrical.batteries.house.voltage'
+    )
+    click(screen.getByRole('button', { name: 'Save changes' }))
+    expect(description(combobox('Input path 2')).match(/is in V/g)).toHaveLength(1)
+  })
+
   it('saves nothing on Enter in a field; only the Save button saves', async () => {
     const { api, onSaved } = renderEditor({ entry: active, rule: battery })
     const hysteresis = await screen.findByRole('textbox', { name: 'Hysteresis' })

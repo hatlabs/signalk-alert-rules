@@ -66,9 +66,9 @@ interface SlotProps {
 }
 
 function Slot({ label, at, slot, onChange, paths, units, unitError, wildcard }: SlotProps) {
+  // A save attempt reports the unit mismatch the slot already shows while typing.
   const pathErrors = [
-    ...useFieldErrors(`${at}/path`),
-    ...(unitError === undefined ? [] : [unitError])
+    ...new Set([...useFieldErrors(`${at}/path`), ...(unitError === undefined ? [] : [unitError])])
   ]
   // The instance the wildcard replaced, restored when the toggle is turned off.
   const [instance, setInstance] = useState<string | undefined>(undefined)
