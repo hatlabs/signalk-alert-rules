@@ -33,10 +33,17 @@ export interface EvaluationSwitch {
 /** Accumulator totals by rule id, then by instance segment (`''` for a rule without instances). */
 export type Checkpoints = Record<string, Record<string, number>>
 
+/** An operator action that changed what SKAR raises, with who did it and when. */
+export type LogEntry = { at: string; actor: string } & (
+  { action: 'delete' | 'reset'; rule: string } | { action: 'evaluation'; enabled: boolean }
+)
+
 export interface StoreContents {
   rules: StoredRule[]
   evaluation: EvaluationSwitch
   accumulators: Checkpoints
+  /** Oldest first. */
+  log: LogEntry[]
   /** Files that could not be read; each was moved aside and its part started empty. */
   issues: string[]
 }
@@ -44,6 +51,7 @@ export interface StoreContents {
 const RULES_DIR = 'rules'
 const EVALUATION_FILE = 'evaluation.json'
 const ACCUMULATORS_FILE = 'accumulators.json'
+const LOG_FILE = 'log.json'
 const JSON_SUFFIX = '.json'
 const TMP_SUFFIX = '.tmp'
 const SLUG = new RegExp(SLUG_PATTERN)
@@ -72,6 +80,25 @@ function isCheckpoints(value: unknown): value is Checkpoints {
   )
 }
 
+function isLogEntry(value: unknown): value is LogEntry {
+  if (!isRecord(value) || typeof value.at !== 'string' || typeof value.actor !== 'string') {
+    return false
+  }
+  switch (value.action) {
+    case 'delete':
+    case 'reset':
+      return typeof value.rule === 'string'
+    case 'evaluation':
+      return typeof value.enabled === 'boolean'
+    default:
+      return false
+  }
+}
+
+function isLog(value: unknown): value is LogEntry[] {
+  return Array.isArray(value) && value.every(isLogEntry)
+}
+
 const anything = (_value: unknown): _value is unknown => true
 
 function checkSlug(slug: string): void {
@@ -85,7 +112,8 @@ function checkSlug(slug: string): void {
  * - `rules/<slug>.json`: one user rule per file, so saving one rule never
  *   rewrites another;
  * - `evaluation.json`: the evaluation switch;
- * - `accumulators.json`: accumulator totals, rewritten whole at each checkpoint.
+ * - `accumulators.json`: accumulator totals, rewritten whole at each checkpoint;
+ * - `log.json`: the recent operator actions, rewritten whole at each action.
  *
  * Every write goes to a temporary file in the same directory, is flushed to
  * disk and renamed over the target, so a crash or full disk leaves either
@@ -117,6 +145,7 @@ export class Store {
       rules,
       evaluation: this.read(EVALUATION_FILE, isEvaluationSwitch, issues) ?? { enabled: true },
       accumulators: this.read(ACCUMULATORS_FILE, isCheckpoints, issues) ?? {},
+      log: this.read(LOG_FILE, isLog, issues) ?? [],
       issues
     }
   }
@@ -137,6 +166,10 @@ export class Store {
 
   saveCheckpoints(checkpoints: Checkpoints): void {
     this.write(ACCUMULATORS_FILE, checkpoints)
+  }
+
+  saveLog(log: LogEntry[]): void {
+    this.write(LOG_FILE, log)
   }
 
   /** Reads a JSON file; undefined when it is missing or was moved aside as corrupt. */

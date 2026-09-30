@@ -44,8 +44,38 @@ describe('store', () => {
       rules: [],
       evaluation: { enabled: true },
       accumulators: {},
+      log: [],
       issues: []
     })
+  })
+
+  it('round-trips the action log', () => {
+    const store = new Store(dir)
+    store.load()
+    const log = [
+      { at: '2026-09-30T12:00:00.000Z', actor: 'admin', action: 'delete', rule: 'user.oil' },
+      { at: '2026-09-30T12:01:00.000Z', actor: 'admin', action: 'reset', rule: 'user.hours' },
+      {
+        at: '2026-09-30T12:02:00.000Z',
+        actor: 'unauthenticated',
+        action: 'evaluation',
+        enabled: false
+      }
+    ] as const
+    store.saveLog([...log])
+    expect(new Store(dir).load().log).toEqual(log)
+  })
+
+  it('moves aside a log with an entry it does not recognise', () => {
+    const store = new Store(dir)
+    store.load()
+    writeFileSync(
+      join(dir, 'log.json'),
+      JSON.stringify([{ at: '2026-09-30T12:00:00.000Z', actor: 'admin', action: 'explode' }])
+    )
+    const contents = new Store(dir).load()
+    expect(contents.log).toEqual([])
+    expect(contents.issues).toEqual([expect.stringMatching(/log\.json/)])
   })
 
   it('round-trips rules, the evaluation switch and accumulator checkpoints', () => {
