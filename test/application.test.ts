@@ -324,7 +324,34 @@ describe('application operator actions', () => {
     at(6, OIL, 0)
     at(100)
     expect(core.writes).toBe(writes)
-    expect(application.rules()[0]?.status).toBeNull()
+    expect(application.rules()[0]?.status).toEqual({
+      badge: 'disabled',
+      reason: 'evaluation is off',
+      subLabels: [],
+      issues: [],
+      errors: [],
+      instances: []
+    })
+  })
+
+  it("while evaluation is off an accumulator rule's status shows its retained total", () => {
+    stored(hours)
+    const { application, at } = setup()
+    at(0, RPM, 30)
+    at(20)
+    application.setEvaluation(false, 'admin')
+    expect(application.rule('user', 'engine-hours')?.status).toMatchObject({
+      badge: 'disabled',
+      reason: 'evaluation is off',
+      instances: [
+        {
+          badge: 'disabled',
+          reason: 'evaluation is off',
+          subLabels: [],
+          progress: { kind: 'total', total: 20, limit: 1000 }
+        }
+      ]
+    })
   })
 
   it('evaluation off stops evaluating and keeps the totals when its alerts cannot be cleared', () => {
@@ -353,7 +380,10 @@ describe('application operator actions', () => {
     at(11, RPM, 30)
     at(100)
     expect(core.writes).toBe(writes)
-    expect(application.rules().map((r) => r.status)).toEqual([null, null])
+    expect(application.rules().map((r) => r.status)).toMatchObject([
+      { badge: 'disabled', reason: 'evaluation is off' },
+      { badge: 'disabled', reason: 'evaluation is off' }
+    ])
     application.checkpoint()
     const totals: Partial<Checkpoints> = new Store(dir).load().accumulators
     expect(totals['user.engine-hours']?.['']).toBe(10)
@@ -582,7 +612,7 @@ describe('application operator actions', () => {
     const { application } = setup(undefined, core, () => {
       throw new Error('meta unreadable')
     })
-    expect(application.rule('user', battery.slug)?.status?.badge).toBe('errored')
+    expect(application.rule('user', battery.slug)?.status.badge).toBe('errored')
 
     const reworded = { ...battery, message: 'Check the battery' }
     expect(application.previewRule(battery.slug, reworded)).toEqual({
@@ -632,8 +662,8 @@ describe('application operator actions', () => {
     at(5)
     const [entry] = application.rules()
     expect(entry).toMatchObject({ origin: 'user', slug: 'oil-pressure-low', rule: oil })
-    expect(entry.status?.badge).toBe('alertActive')
-    expect(application.rule('user', 'oil-pressure-low')?.status?.badge).toBe('alertActive')
+    expect(entry.status.badge).toBe('alertActive')
+    expect(application.rule('user', 'oil-pressure-low')?.status.badge).toBe('alertActive')
     expect(application.rule('user', 'missing')).toBeUndefined()
     expect(application.rule('ruleset', 'oil-pressure-low')).toBeUndefined()
   })
@@ -712,7 +742,10 @@ describe('application accumulator totals across edits', () => {
     }).toThrow('alerts unavailable')
     expect(application.evaluation.enabled).toBe(false)
     expect(readFileSync(join(dir, 'evaluation.json'), 'utf8')).toBe(before)
-    expect(application.rules()[0]?.status).toBeNull()
+    expect(application.rules()[0]?.status).toMatchObject({
+      badge: 'disabled',
+      reason: 'evaluation is off'
+    })
     new Store(dir).saveCheckpoints({})
     application.checkpoint()
     expect(total()).toBe(100)
@@ -732,7 +765,10 @@ describe('application accumulator totals across edits', () => {
       application.setEvaluation(true, 'admin')
     }).toThrow('ENOSPC')
     expect(application.evaluation.enabled).toBe(false)
-    expect(application.rules()[0]?.status).toBeNull()
+    expect(application.rules()[0]?.status).toMatchObject({
+      badge: 'disabled',
+      reason: 'evaluation is off'
+    })
     at(0, RPM, 30)
     at(20)
     application.checkpoint()
@@ -832,6 +868,367 @@ describe('application accumulator totals across edits', () => {
     })
     expect(application.previewRule(hours.slug, reworded)).toMatchObject({
       value: { discardsTotal: false }
+    })
+  })
+})
+
+describe('rule controls', () => {
+  const OIL_ALERT = 'rules.user.oil-pressure-low'
+  const AUX_RPM = 'propulsion.aux.revolutions'
+  const rpmHigh = {
+    name: 'RPM high',
+    slug: 'rpm-high',
+    message: 'Engine revolutions are high',
+    priority: 'warning',
+    signal: { path: RPM },
+    detector: { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 60 } }
+  }
+  const rpmMismatch = {
+    ...rpmHigh,
+    name: 'RPM mismatch',
+    slug: 'rpm-mismatch',
+    signal: { combinator: 'absDifference', inputs: [{ path: RPM }, { path: AUX_RPM }] },
+    detector: { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 3 } }
+  }
+  const gatedCoolant = {
+    ...coolant,
+    detector: { ...coolant.detector, duration: 0 },
+    gates: [{ signal: { path: RPM }, direction: 'above', limit: { kind: 'fixed', value: 8 } }]
+  }
+
+  describe('enable', () => {
+    it('disabling clears the alert, stops evaluating and reports the disabled badge', () => {
+      stored(oil)
+      const { application, at, alerts } = setup()
+      at(0, OIL, 0)
+      at(5)
+      expect(alerts()).toEqual([[OIL_ALERT, true]])
+
+      expect(application.setEnabled('user', 'oil-pressure-low', false, 'skipper')).toBe('ok')
+      expect(alerts()).toEqual([[OIL_ALERT, false]])
+      at(6, OIL, 0)
+      at(100)
+      expect(alerts()).toEqual([[OIL_ALERT, false]])
+      expect(application.rule('user', 'oil-pressure-low')).toMatchObject({
+        enabled: false,
+        status: { badge: 'disabled', reason: 'disabled', instances: [] }
+      })
+      expect(application.log()).toEqual([
+        { at: WALL, actor: 'skipper', action: 'disable', rule: 'user.oil-pressure-low' }
+      ])
+    })
+
+    it('enabling starts the rule as a new one, keeping its accumulator total', () => {
+      stored(hours)
+      const { application, at } = setup()
+      at(0, RPM, 30)
+      at(20)
+      application.setEnabled('user', 'engine-hours', false, 'admin')
+      at(50)
+      expect(application.rule('user', 'engine-hours')?.status.instances[0]?.progress).toEqual({
+        kind: 'total',
+        total: 20,
+        limit: 1000
+      })
+      application.checkpoint()
+      expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 20 } })
+
+      expect(application.setEnabled('user', 'engine-hours', true, 'admin')).toBe('ok')
+      at(60)
+      expect(application.rule('user', 'engine-hours')?.status).toMatchObject({
+        badge: 'idle',
+        instances: [{ progress: { kind: 'total', total: 30 } }]
+      })
+      expect(application.log().map((e) => e.action)).toEqual(['enable', 'disable'])
+    })
+
+    it('stays disabled across a restart, and an edit while disabled does not start it', () => {
+      stored(oil)
+      const first = setup()
+      first.application.setEnabled('user', 'oil-pressure-low', false, 'admin')
+      expect(first.application.replaceRule(oil.slug, { ...oil, message: 'Check oil' }).ok).toBe(
+        true
+      )
+      first.at(0, OIL, 0)
+      first.at(10)
+      expect(first.alerts()).toEqual([])
+      first.application.stop()
+
+      const second = setup(new Store(dir), first.server.core)
+      second.at(20, OIL, 0)
+      second.at(30)
+      expect(second.alerts()).toEqual([])
+      expect(second.application.rule('user', 'oil-pressure-low')?.enabled).toBe(false)
+    })
+
+    it('setting the current value changes and records nothing; an unknown rule is not found', () => {
+      stored(oil)
+      const { application } = setup()
+      expect(application.setEnabled('user', 'oil-pressure-low', true, 'admin')).toBe('ok')
+      expect(application.setEnabled('user', 'missing', false, 'admin')).toBe('notFound')
+      expect(application.setEnabled('some-ruleset', 'oil-pressure-low', false, 'admin')).toBe(
+        'notFound'
+      )
+      expect(application.log()).toEqual([])
+      expect(existsSync(join(dir, 'controls.json'))).toBe(false)
+    })
+
+    it('deleting a rule deletes its controls, so a new rule with its slug starts enabled', () => {
+      stored(oil)
+      const { application, at, alerts } = setup()
+      application.setEnabled('user', 'oil-pressure-low', false, 'admin')
+      application.setNote('user', 'oil-pressure-low', 'sender replaced', 'admin')
+      application.deleteRule('oil-pressure-low', 'admin')
+      expect(new Store(dir).load().controls).toEqual({ rules: {}, inputs: {} })
+      expect(application.createRule(oil).ok).toBe(true)
+      at(0, OIL, 0)
+      at(5)
+      expect(alerts()).toEqual([[OIL_ALERT, true]])
+    })
+  })
+
+  describe('note', () => {
+    it('sets and removes a rule note, persisted and recorded', () => {
+      stored(oil)
+      const { application } = setup()
+      expect(application.setNote('user', 'oil-pressure-low', 'sender replaced', 'admin')).toBe('ok')
+      expect(application.rule('user', 'oil-pressure-low')?.note).toBe('sender replaced')
+      expect(new Store(dir).load().controls.rules).toEqual({
+        'user.oil-pressure-low': { enabled: true, note: 'sender replaced' }
+      })
+      application.setNote('user', 'oil-pressure-low', '', 'admin')
+      expect(application.rule('user', 'oil-pressure-low')?.note).toBeUndefined()
+      expect(new Store(dir).load().controls.rules).toEqual({})
+      expect(application.log().map((e) => e.action)).toEqual(['note', 'note'])
+      expect(application.setNote('user', 'missing', 'x', 'admin')).toBe('notFound')
+    })
+  })
+
+  describe('rule suppression', () => {
+    it('clears an active alert and prevents a re-raise while the condition holds', () => {
+      stored(oil)
+      const { application, at, alerts } = setup()
+      at(0, OIL, 0)
+      at(5)
+      expect(
+        application.suppressRule('user', 'oil-pressure-low', { note: 'bad sender' }, 'admin')
+      ).toBe('ok')
+      expect(alerts()).toEqual([[OIL_ALERT, false]])
+      at(6, OIL, 0)
+      at(100)
+      expect(alerts()).toEqual([[OIL_ALERT, false]])
+      expect(application.rule('user', 'oil-pressure-low')).toMatchObject({
+        suppression: { since: WALL, actor: 'admin', note: 'bad sender' },
+        status: { badge: 'suppressed', suppression: { scope: 'rule' } }
+      })
+    })
+
+    it('ending it raises an alert whose condition still holds as a new alert', () => {
+      stored(oil)
+      const { application, at, alerts, server } = setup()
+      application.suppressRule('user', 'oil-pressure-low', {}, 'admin')
+      at(0, OIL, 0)
+      at(10)
+      expect(alerts()).toEqual([])
+      expect(application.endRuleSuppression('user', 'oil-pressure-low', 'admin')).toBe('ok')
+      expect(alerts()).toEqual([[OIL_ALERT, true]])
+      expect(server.core.alertings).toBe(1)
+      expect(application.rule('user', 'oil-pressure-low')?.suppression).toBeUndefined()
+      expect(application.log().map((e) => e.action)).toEqual(['unsuppress', 'suppress'])
+    })
+
+    it('refuses to end a suppression that does not exist', () => {
+      stored(oil)
+      const { application } = setup()
+      expect(application.endRuleSuppression('user', 'oil-pressure-low', 'admin')).toBe(
+        'notSuppressed'
+      )
+      expect(application.endRuleSuppression('user', 'missing', 'admin')).toBe('notFound')
+      expect(application.suppressRule('user', 'missing', {}, 'admin')).toBe('notFound')
+      expect(application.log()).toEqual([])
+    })
+
+    it('survives a restart', () => {
+      stored(oil)
+      const first = setup()
+      first.at(0, OIL, 0)
+      first.at(5)
+      first.application.suppressRule('user', 'oil-pressure-low', { autoEndAfter: 60 }, 'admin')
+      first.application.stop()
+
+      const second = setup(new Store(dir), first.server.core)
+      second.at(10, OIL, 0)
+      second.at(100)
+      expect(second.alerts()).toEqual([[OIL_ALERT, false]])
+      expect(second.application.suppressions()).toEqual([
+        {
+          scope: 'rule',
+          rule: 'user.oil-pressure-low',
+          since: WALL,
+          actor: 'admin',
+          autoEndAfter: 60
+        }
+      ])
+    })
+
+    it('an auto-end suppression on a fault that never clears stays and waits for clear', () => {
+      stored(oil)
+      const { application, at, alerts } = setup()
+      at(0, OIL, 0)
+      at(5)
+      application.suppressRule('user', 'oil-pressure-low', { autoEndAfter: 60 }, 'admin')
+      for (let t = 6; t <= 600; t += 1) at(t)
+      expect(alerts()).toEqual([[OIL_ALERT, false]])
+      expect(application.rule('user', 'oil-pressure-low')?.status).toMatchObject({
+        badge: 'suppressed',
+        suppression: { scope: 'rule', autoEndAfter: 60 },
+        subLabels: ['waitingForClear']
+      })
+      expect(application.suppressions()).toHaveLength(1)
+    })
+
+    it('a clear shorter than the auto-end time does not end it; a long enough one does', () => {
+      stored(oil)
+      const { application, at, alerts } = setup()
+      at(0, OIL, 0)
+      at(5)
+      application.suppressRule('user', 'oil-pressure-low', { autoEndAfter: 60 }, 'admin')
+      at(10, OIL, 200000)
+      for (let t = 11; t <= 50; t += 1) at(t)
+      // The fault returns for long enough to hold again, then clears.
+      at(50, OIL, 0)
+      for (let t = 51; t <= 55; t += 1) at(t)
+      at(56, OIL, 200000)
+      for (let t = 57; t <= 115; t += 1) at(t)
+      expect(application.suppressions()).toHaveLength(1)
+      at(116)
+      expect(application.suppressions()).toEqual([])
+      expect(application.log()[0]).toEqual({
+        at: WALL,
+        actor: 'auto-end',
+        action: 'unsuppress',
+        rule: 'user.oil-pressure-low'
+      })
+      // Nothing to raise: the condition is clear.
+      expect(alerts()).toEqual([[OIL_ALERT, false]])
+    })
+
+    it('a clear before the suppression started does not count toward its auto-end', () => {
+      stored(oil)
+      const { application, at } = setup()
+      at(0, OIL, 200000)
+      at(100)
+      application.suppressRule('user', 'oil-pressure-low', { autoEndAfter: 60 }, 'admin')
+      at(101)
+      expect(application.suppressions()).toHaveLength(1)
+      at(160)
+      expect(application.suppressions()).toEqual([])
+    })
+  })
+
+  describe('input suppression', () => {
+    function running() {
+      stored(rpmHigh)
+      stored(rpmMismatch)
+      stored(gatedCoolant)
+      const s = setup()
+      s.at(0, RPM, 70)
+      s.at(0, AUX_RPM, 20)
+      s.at(0, COOLANT, 380)
+      expect(s.alerts()).toEqual([
+        ['rules.user.rpm-high', true],
+        ['rules.user.rpm-mismatch', true],
+        ['rules.user.coolant-high', true]
+      ])
+      return s
+    }
+
+    it('suppresses the direct and the combinator rule, and freezes the gated rule', () => {
+      const { application, at, alerts } = running()
+      application.suppressInput(RPM, { note: 'tach sender' }, 'admin')
+      expect(alerts()).toEqual([
+        ['rules.user.rpm-high', false],
+        ['rules.user.rpm-mismatch', false],
+        ['rules.user.coolant-high', true]
+      ])
+      at(1, RPM, 0)
+      at(2)
+      expect(alerts()).toEqual([
+        ['rules.user.rpm-high', false],
+        ['rules.user.rpm-mismatch', false],
+        ['rules.user.coolant-high', true]
+      ])
+      expect(application.rule('user', 'rpm-high')?.status).toMatchObject({
+        badge: 'suppressed',
+        suppression: { scope: 'input', path: RPM }
+      })
+      expect(application.suppressions()).toEqual([
+        { scope: 'input', path: RPM, since: WALL, actor: 'admin', note: 'tach sender' }
+      ])
+      expect(application.log()[0]).toEqual({
+        at: WALL,
+        actor: 'admin',
+        action: 'suppress',
+        path: RPM
+      })
+    })
+
+    it('the preview lists the suppressed rules and the gated rule at its current gate state', () => {
+      const { application } = running()
+      expect(application.previewInputSuppression(RPM)).toEqual({
+        path: RPM,
+        suppresses: [{ rule: 'user.rpm-high' }, { rule: 'user.rpm-mismatch' }],
+        freezes: [{ rule: 'user.coolant-high', gate: 0, states: [{ holds: true }] }]
+      })
+      expect(application.suppressions()).toEqual([])
+    })
+
+    it('the preview names the wildcard instance a path suppresses', () => {
+      stored({ ...oil, signal: { path: 'propulsion.*.oilPressure' } })
+      const { application } = setup()
+      expect(application.previewInputSuppression('propulsion.port.oilPressure')).toEqual({
+        path: 'propulsion.port.oilPressure',
+        suppresses: [{ rule: 'user.oil-pressure-low', instance: 'port' }],
+        freezes: []
+      })
+    })
+
+    it('ending it lets the rules raise again; ending one that does not exist is refused', () => {
+      const { application, alerts } = running()
+      application.suppressInput(RPM, {}, 'admin')
+      expect(application.endInputSuppression(RPM, 'admin')).toBe(true)
+      expect(alerts()).toEqual([
+        ['rules.user.rpm-high', true],
+        ['rules.user.rpm-mismatch', true],
+        ['rules.user.coolant-high', true]
+      ])
+      expect(application.endInputSuppression(RPM, 'admin')).toBe(false)
+      expect(application.log().map((e) => e.action)).toEqual(['unsuppress', 'suppress'])
+    })
+
+    it('auto-ends once every rule instance it suppresses directly has stayed clear', () => {
+      const { application, at } = running()
+      application.suppressInput(RPM, { autoEndAfter: 30 }, 'admin')
+      // The mismatch clears at 10 s; both clear from 20 s.
+      at(10, AUX_RPM, 68)
+      at(20, RPM, 59)
+      at(20, AUX_RPM, 60)
+      at(49)
+      expect(application.suppressions()).toHaveLength(1)
+      at(50)
+      expect(application.suppressions()).toEqual([])
+      expect(application.log()[0]).toMatchObject({ actor: 'auto-end', path: RPM })
+    })
+
+    it('survives a restart', () => {
+      const first = running()
+      first.application.suppressInput(RPM, {}, 'admin')
+      first.application.stop()
+      const second = setup(new Store(dir), first.server.core)
+      second.at(10, RPM, 70)
+      second.at(20)
+      expect(second.alerts()).toContainEqual(['rules.user.rpm-high', false])
+      expect(second.application.suppressions()).toMatchObject([{ scope: 'input', path: RPM }])
     })
   })
 })

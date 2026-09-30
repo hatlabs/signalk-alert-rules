@@ -337,7 +337,10 @@ describe('REST API', () => {
       { actor: 'admin', action: 'evaluation', enabled: false }
     ])
     const rules = await h.call('GET', '/rules')
-    expect((rules.body as { status: unknown }[]).map((r) => r.status)).toEqual([null, null])
+    expect((rules.body as { status: unknown }[]).map((r) => r.status)).toMatchObject([
+      { badge: 'disabled', reason: 'evaluation is off' },
+      { badge: 'disabled', reason: 'evaluation is off' }
+    ])
 
     const on = await h.call('PUT', '/evaluation', { enabled: true })
     expect(on.body).toMatchObject({ enabled: true, actor: 'admin' })

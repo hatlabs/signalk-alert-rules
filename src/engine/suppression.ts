@@ -1,4 +1,5 @@
 import type { Signal } from '../model/rule.js'
+import { instanceIn } from './instances.js'
 import { bindPath, type Instance } from './signals.js'
 
 /** What an instance's suppression comes from: its rule, or an input path it reads. */
@@ -31,6 +32,21 @@ export function signalPaths(signal: Signal, instance: Instance | undefined): str
   return 'combinator' in signal
     ? signal.inputs.map((input) => input.path)
     : [bindPath(signal.path, instance)]
+}
+
+/**
+ * Whether a signal reads a concrete path for some instance, and which: the
+ * instance name a wildcard signal binds to read it, or undefined for a
+ * signal without one.
+ */
+export function readsPath(
+  signal: Signal,
+  path: string
+): { reads: false } | { reads: true; instance?: string } {
+  if ('combinator' in signal) return { reads: signal.inputs.some((input) => input.path === path) }
+  if (!signal.path.split('.').includes('*')) return { reads: signal.path === path }
+  const instance = instanceIn(signal.path, path)
+  return instance === undefined ? { reads: false } : { reads: true, instance }
 }
 
 /**
