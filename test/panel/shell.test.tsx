@@ -1,8 +1,14 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { PanelApi, PluginState, RuleSummary } from '../../src/panel/api'
-import { Shell } from '../../src/panel/Shell'
+import {
+  httpApi,
+  REQUEST_TIMEOUT_MS,
+  type PanelApi,
+  type PluginState,
+  type RuleSummary
+} from '../../src/panel/api'
+import { POLL_INTERVAL_MS, Shell } from '../../src/panel/Shell'
 
 interface Server {
   state: PluginState | Error
@@ -159,6 +165,26 @@ describe('Shell', () => {
     renderShell({ state: { running: true, securityEnabled: null }, enabled: true, rules: [] })
     await settle()
     expect(screen.queryByText(/server security is disabled/i)).toBeNull()
+  })
+
+  it('treats a request that never answers as unreachable and polls again', async () => {
+    vi.useFakeTimers()
+    let hang = true
+    const fetchFn = vi.fn<typeof fetch>((_input, init) =>
+      hang
+        ? new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => {
+              reject(init.signal?.reason as Error)
+            })
+          })
+        : Promise.resolve(Response.json({ running: true, securityEnabled: true }))
+    )
+    render(<Shell api={httpApi(fetchFn)} />)
+    await tick(REQUEST_TIMEOUT_MS)
+    expect(screen.getByRole('alert').textContent).toMatch(/cannot reach.*retrying/i)
+    hang = false
+    await tick(POLL_INTERVAL_MS)
+    expect(fetchFn.mock.calls.length).toBeGreaterThan(1)
   })
 
   it('polls every interval and pauses while the tab is hidden', async () => {

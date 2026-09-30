@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { httpApi } from '../../src/panel/api'
+import { httpApi, REQUEST_TIMEOUT_MS } from '../../src/panel/api'
 
 const BASE = '/plugins/signalk-alert-rules'
 
@@ -74,6 +74,32 @@ describe('httpApi', () => {
     ])
     for (const [, init] of fetchFn.mock.calls) {
       expect(init?.credentials).toBe('same-origin')
+    }
+  })
+
+  // Node's AbortSignal.timeout does not follow fake timers; the Shell tests
+  // run in jsdom, whose does, and cover a request that never answers.
+  it('bounds every request with the request timeout', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout')
+    try {
+      const fetchFn = fakeFetch({
+        [`${BASE}/state`]: { body: runningState },
+        [`${BASE}/`]: { body: pluginInfo },
+        [`${BASE}/rules`]: { body: [] }
+      })
+      const api = httpApi(fetchFn)
+      await api.state()
+      await api.pluginEnabled()
+      await api.rules()
+      expect(timeout.mock.calls).toEqual([
+        [REQUEST_TIMEOUT_MS],
+        [REQUEST_TIMEOUT_MS],
+        [REQUEST_TIMEOUT_MS]
+      ])
+      const signals = fetchFn.mock.calls.map(([, init]) => init?.signal)
+      expect(signals).toEqual(timeout.mock.results.map((r) => r.value as AbortSignal))
+    } finally {
+      timeout.mockRestore()
     }
   })
 

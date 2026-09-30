@@ -3,6 +3,12 @@ export const PLUGIN_ID = 'signalk-alert-rules'
 
 const PLUGIN_BASE = `/plugins/${PLUGIN_ID}`
 
+/**
+ * A request that hangs, as on a tablet that lost its Wi-Fi, would otherwise
+ * hold up polling and show stale data as current.
+ */
+export const REQUEST_TIMEOUT_MS = 10_000
+
 /** `GET /state`, as docs/api.md describes it. */
 export interface PluginState {
   running: boolean
@@ -71,7 +77,10 @@ function parseRules(body: unknown): RuleSummary[] {
 /** The API over HTTP, relative to the admin UI's origin. */
 export function httpApi(fetchFn: typeof fetch = (input, init) => fetch(input, init)): PanelApi {
   const getJson = async (path: string): Promise<unknown> => {
-    const res = await fetchFn(path, { credentials: 'same-origin' })
+    const res = await fetchFn(path, {
+      credentials: 'same-origin',
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+    })
     if (!res.ok) throw new Error(`${path} answered ${String(res.status)}`)
     return res.json()
   }
