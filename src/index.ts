@@ -57,7 +57,14 @@ export default function createPlugin(app: ServerAPI): Plugin {
         fail(`Cannot read the data directory: ${errorMessage(err)}`)
         return
       }
-      running.start()
+      try {
+        running.start()
+      } catch (err) {
+        // Escaping start would leave /state with no error and the plugin
+        // looking as if it were still starting.
+        fail(`Cannot start evaluating rules: ${errorMessage(err)}`)
+        return
+      }
       application = running
       const status =
         running.issues.length === 0 ? 'Running' : `Running; ${running.issues.join('; ')}`

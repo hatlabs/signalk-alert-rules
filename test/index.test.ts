@@ -196,6 +196,31 @@ describe('plugin', () => {
     await plugin.stop()
   })
 
+  it('reports an error and does not run when the alerts API cannot list alerts', async () => {
+    storeRule(hours)
+    const app = new MockServerAPI(true, dir)
+    Object.defineProperty(app, 'alerts', {
+      value: {
+        list: () => {
+          throw new Error('alerts unavailable')
+        }
+      }
+    })
+    const plugin = createPlugin(app.asServerAPI())
+    const state = stateOf(plugin)
+
+    expect(() => {
+      plugin.start({}, () => undefined)
+    }).not.toThrow()
+    expect(app.pluginError).toMatch(/alerts unavailable/)
+    expect(app.pluginStatus).toBeUndefined()
+    expect(state()).toMatchObject({ running: false })
+    expect((state() as { error?: string }).error).toMatch(/alerts unavailable/)
+    expect(vi.getTimerCount()).toBe(0)
+
+    await plugin.stop()
+  })
+
   it('the same instance runs normally when started again after a failed start', async () => {
     storeRule(hours)
     const file = join(dir, 'not-a-directory')
