@@ -424,6 +424,25 @@ function priorityErrors(rule: Rule): ValidationError[] {
   return []
 }
 
+// A latching rule holds no alert across a restart, so its condition must be
+// an event, which replayed values cannot produce. A lasting condition is seen
+// again after a restart and would be announced as a new occurrence.
+function latchingErrors(rule: Rule): ValidationError[] {
+  if (rule.latching !== true) return []
+  const d = rule.detector
+  const event =
+    d.type === 'count' || (d.type === 'match' && (d.op === 'changesTo' || d.op === 'decreases'))
+  if (event) return []
+  return [
+    {
+      path: '/latching',
+      message:
+        'only an event count or a changesTo or decreases match can latch; ' +
+        'a lasting condition already waits for acknowledgment after its return to normal'
+    }
+  ]
+}
+
 function semanticErrors(rule: Rule, ctx: ValidationContext): ValidationError[] {
   const signalWildcard = !('combinator' in rule.signal) && hasWildcard(rule.signal.path)
   // A wildcard elsewhere in the rule binds to the signal's instance, so it needs one to bind to.
@@ -432,6 +451,7 @@ function semanticErrors(rule: Rule, ctx: ValidationContext): ValidationError[] {
   const errors = [
     ...signalErrors(rule.signal, '/signal', undefined, ctx),
     ...priorityErrors(rule),
+    ...latchingErrors(rule),
     ...detectorErrors(rule, bound),
     ...timeoutTypeErrors(rule, ctx)
   ]
