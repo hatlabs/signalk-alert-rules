@@ -833,7 +833,7 @@ describe('rulesets API', () => {
       h.call('PUT', '/rulesets/batteries/parameters', { lowVoltage: 20 })
     ])
     expect(replies.map((r) => r.status)).toEqual([404, 404, 404, 400, 400])
-    expect(replies[4].body).toMatchObject({ errors: [{ path: '/values/lowVoltage' }] })
+    expect(replies[4].body).toMatchObject({ errors: [{ path: '/lowVoltage' }] })
   })
 
   it('rejects every ruleset change without a JSON content type', async () => {

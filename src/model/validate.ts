@@ -628,12 +628,15 @@ export function validateRuleset(input: unknown, ctx: ValidationContext = {}): Re
   return resolved.ok ? { ok: true, value: ruleset } : resolved
 }
 
-/** Checks each value against its parameter's declaration, not the rules it makes. */
+/**
+ * Checks each value against its parameter's declaration, not the rules it
+ * makes. Errors point at `/<name>` in the object of values.
+ */
 export function parameterValueErrors(ruleset: Ruleset, values: ParameterValues): ValidationError[] {
   const parameters = new Map(ruleset.parameters?.map((p) => [p.name, p]))
   const errors: ValidationError[] = []
   for (const [name, value] of Object.entries(values)) {
-    const at = pointer('/values', name)
+    const at = pointer('', name)
     const p = parameters.get(name)
     if (p === undefined)
       errors.push({ path: at, message: `${name} is not a parameter of this ruleset` })

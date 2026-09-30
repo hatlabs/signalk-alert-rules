@@ -245,7 +245,7 @@ describe('rulesets in the application', () => {
     expect(outcome).toMatchObject({
       ok: false,
       reason: 'invalid',
-      errors: [{ path: '/values/lowVoltage' }]
+      errors: [{ path: '/lowVoltage' }]
     })
     expect(application.rulesets().rulesets[0]?.values).toEqual({})
     expect(application.setRulesetParameters('other', {}, 'admin')).toEqual({

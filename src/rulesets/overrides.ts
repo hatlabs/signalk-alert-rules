@@ -23,6 +23,22 @@ function describe(errors: readonly ValidationError[]): string {
   return errors.map((e) => e.message).join('; ')
 }
 
+const RULE_POINTER = /^\/rules\/(\d+)(.*)$/
+
+/**
+ * Resolution errors of the rules, which point into the ruleset file, with
+ * the rule and field in the message instead: an operator setting values sees
+ * neither the file nor the rule's index in it.
+ */
+function namingRules(ruleset: Ruleset, errors: readonly ValidationError[]): ValidationError[] {
+  return errors.map(({ path, message }) => {
+    const match = RULE_POINTER.exec(path)
+    const slug = match === null ? undefined : ruleset.rules[Number(match[1])]?.slug
+    if (match === null || slug === undefined) return { path, message }
+    return { path: '', message: `rule ${slug} ${match[2] || '/'}: ${message}` }
+  })
+}
+
 /** The rules at the parameter defaults, which validation has already checked. */
 function atDefaults(ruleset: Ruleset): Rule[] {
   const resolved = resolveRuleset(ruleset, {})
@@ -76,9 +92,8 @@ export function upgradeRuleset(
   }
   let resolved = resolveRuleset(ruleset, parameters)
   if (!resolved.ok) {
-    notice(
-      `the parameter values no longer make valid rules (${describe(resolved.errors)}); the defaults apply`
-    )
+    const errors = describe(namingRules(ruleset, resolved.errors))
+    notice(`the parameter values no longer make valid rules (${errors}); the defaults apply`)
     parameters = {}
     resolved = { ok: true, value: atDefaults(ruleset) }
   }
@@ -102,7 +117,7 @@ export function withParameters(
 ): Result<{ parameters: RulesetControl['parameters']; rules: Rule[] }> {
   if (!isRecord(values)) return { ok: false, errors: [{ path: '', message: 'must be an object' }] }
   const resolved = resolveRuleset(ruleset, values)
-  if (!resolved.ok) return resolved
+  if (!resolved.ok) return { ok: false, errors: namingRules(ruleset, resolved.errors) }
   // Resolving checked each value against its parameter's type.
   const parameters = values as RulesetControl['parameters']
   return { ok: true, value: { parameters, rules: resolved.value } }

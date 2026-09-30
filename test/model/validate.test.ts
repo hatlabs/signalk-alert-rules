@@ -648,17 +648,17 @@ describe('resolveRuleset', () => {
 
   it('rejects a value outside bounds', () => {
     const result = resolveRuleset(parsed(), { lowVoltage: 9 })
-    expect(result.ok ? [] : paths(result.errors)).toEqual(['/values/lowVoltage'])
+    expect(result.ok ? [] : paths(result.errors)).toEqual(['/lowVoltage'])
   })
 
   it('rejects a value of the wrong type', () => {
     const result = resolveRuleset(parsed(), { lowVoltage: 'high' })
-    expect(result.ok ? [] : paths(result.errors)).toEqual(['/values/lowVoltage'])
+    expect(result.ok ? [] : paths(result.errors)).toEqual(['/lowVoltage'])
   })
 
   it('rejects a value for an undeclared parameter', () => {
     const result = resolveRuleset(parsed(), { other: 1 })
-    expect(result.ok ? [] : paths(result.errors)).toEqual(['/values/other'])
+    expect(result.ok ? [] : paths(result.errors)).toEqual(['/other'])
   })
 
   it('reports a substituted path that is invalid', () => {
@@ -696,6 +696,6 @@ describe('resolveRuleset', () => {
     })
     if (!unused.ok) throw new Error(JSON.stringify(unused.errors))
     const result = resolveRuleset(unused.value, { spare: Infinity })
-    expect(result.ok ? [] : paths(result.errors)).toEqual(['/values/spare'])
+    expect(result.ok ? [] : paths(result.errors)).toEqual(['/spare'])
   })
 })

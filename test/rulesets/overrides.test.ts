@@ -121,7 +121,10 @@ describe('upgradeRuleset', () => {
 
     expect(upgrade.control.parameters).toEqual({})
     expect(upgrade.control.notices).toEqual([
-      { at: AT, message: expect.stringMatching(/defaults apply/) as string }
+      {
+        at: AT,
+        message: expect.stringMatching(/rule low \/detector\/duration: .*defaults apply/) as string
+      }
     ])
     expect(upgrade.rules[0]?.detector).toMatchObject({ duration: 12 })
   })
@@ -186,7 +189,15 @@ describe('withParameters', () => {
 
   it('refuses a value out of bounds, naming it', () => {
     const result = withParameters(batteries, { lowVoltage: 20 })
-    expect(result.ok ? [] : result.errors.map((e) => e.path)).toEqual(['/values/lowVoltage'])
+    expect(result.ok ? [] : result.errors.map((e) => e.path)).toEqual(['/lowVoltage'])
+  })
+
+  it('refuses values that make an invalid rule at the body, naming the rule and its field', () => {
+    const result = withParameters(batteries, { prefix: 'electrical..house' })
+    expect(result.ok ? [] : result.errors).toEqual([
+      { path: '', message: expect.stringMatching(/^rule low \/signal\/path: /) as string },
+      { path: '', message: expect.stringMatching(/^rule fixed \/signal\/path: /) as string }
+    ])
   })
 
   it('refuses values that are not an object', () => {
