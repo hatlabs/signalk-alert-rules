@@ -194,6 +194,70 @@ describe('unit storage', () => {
     expect(fromRule(rule, displayed).detector.slopeLimit).toBe('0.6')
   })
 
+  describe('an accumulator on coolant temperature', () => {
+    const accumulator = (edit: (f: RuleForm) => void) =>
+      authored((f) => {
+        Object.assign(f, { name: 'r', slug: 'r', message: 'm', priority: 'warning' })
+        f.signal.slots[0].path = 'propulsion.port.coolantTemperature'
+        f.detector.type = 'accumulator'
+        f.detector.measure = 'integral'
+        f.detector.integralLimit = '10'
+        edit(f)
+      })
+
+    it('stores an integral limit of 10 °C·s as 10 K·s, without the offset', () => {
+      const rule = saved(accumulator(() => undefined))
+      expect(rule.detector).toMatchObject({ limit: 10 })
+      expect(fromRule(rule, displayed).detector.integralLimit).toBe('10')
+    })
+
+    it('stores a reset on reaching 20 °C as 293.15 K', () => {
+      const rule = saved(
+        accumulator((f) => {
+          f.detector.useResetOn = true
+          f.detector.resetOn = { op: 'changesTo', value: { type: 'number', text: '20' } }
+        })
+      )
+      expect(rule.detector).toMatchObject({ resetOn: { op: 'changesTo', value: 293.15 } })
+      expect(fromRule(rule, displayed).detector.resetOn).toEqual({
+        op: 'changesTo',
+        value: { type: 'number', text: '20' }
+      })
+    })
+
+    it('stores a reset on any change without a value', () => {
+      const rule = saved(
+        accumulator((f) => {
+          f.detector.useResetOn = true
+          f.detector.resetOn = { op: 'changes', value: { type: 'number', text: '20' } }
+        })
+      )
+      expect((rule.detector as { resetOn: unknown }).resetOn).toEqual({ op: 'changes' })
+    })
+  })
+
+  it("stores a zone limit on another path with that path, and on the input's own without one", () => {
+    const zone = (path: string) =>
+      authored((f) => {
+        Object.assign(f, { name: 'r', slug: 'r', message: 'm' })
+        f.signal.slots[0].path = 'electrical.batteries.house.voltage'
+        f.detector.type = 'sustained'
+        f.detector.direction = 'below'
+        f.detector.limit = { kind: 'zone', value: '', level: 'warn', path }
+      })
+    const other = saved(zone('electrical.batteries.start.voltage'))
+    expect(other.detector).toMatchObject({
+      limit: { kind: 'zone', level: 'warn', path: 'electrical.batteries.start.voltage' }
+    })
+    expect(fromRule(other, displayed).detector.limit.path).toBe(
+      'electrical.batteries.start.voltage'
+    )
+    expect((saved(zone('')).detector as { limit: object }).limit).toEqual({
+      kind: 'zone',
+      level: 'warn'
+    })
+  })
+
   it('gives back a stored value the user did not change, though its display is rounded', () => {
     const rule: Rule = {
       name: 'r',
