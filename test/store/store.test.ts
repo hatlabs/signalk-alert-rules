@@ -47,10 +47,48 @@ describe('store', () => {
       rules: [],
       evaluation: { enabled: true },
       accumulators: {},
+      controls: { rules: {}, inputs: {} },
       log: [],
       unreadableRules: [],
       issues: []
     })
+  })
+
+  it('round-trips rule controls and input suppressions', () => {
+    const store = new Store(dir)
+    store.load()
+    const controls = {
+      rules: {
+        'user.oil': {
+          enabled: false,
+          note: 'sender replaced in spring',
+          suppression: {
+            since: '2026-09-30T12:00:00.000Z',
+            actor: 'admin',
+            note: 'faulty sender',
+            autoEndAfter: 600
+          }
+        },
+        'halpi.board-temperature': { enabled: true }
+      },
+      inputs: {
+        'propulsion.main.revolutions': { since: '2026-09-30T12:00:00.000Z', actor: 'admin' }
+      }
+    }
+    store.saveControls(controls)
+    expect(new Store(dir).load().controls).toEqual(controls)
+  })
+
+  it('moves aside controls it does not recognise and starts them empty', () => {
+    const store = new Store(dir)
+    store.load()
+    writeFileSync(
+      join(dir, 'controls.json'),
+      JSON.stringify({ rules: { 'user.oil': { enabled: 'no' } }, inputs: {} })
+    )
+    const contents = new Store(dir).load()
+    expect(contents.controls).toEqual({ rules: {}, inputs: {} })
+    expect(contents.issues).toEqual([expect.stringMatching(/^controls\.json could not be read/)])
   })
 
   it('round-trips the action log', () => {
@@ -64,7 +102,14 @@ describe('store', () => {
         actor: 'unauthenticated',
         action: 'evaluation',
         enabled: false
-      }
+      },
+      { at: '2026-09-30T12:03:00.000Z', actor: 'admin', action: 'disable', rule: 'user.oil' },
+      { at: '2026-09-30T12:04:00.000Z', actor: 'admin', action: 'enable', rule: 'user.oil' },
+      { at: '2026-09-30T12:05:00.000Z', actor: 'admin', action: 'note', rule: 'user.oil' },
+      { at: '2026-09-30T12:06:00.000Z', actor: 'admin', action: 'suppress', rule: 'user.oil' },
+      { at: '2026-09-30T12:07:00.000Z', actor: 'auto-end', action: 'unsuppress', rule: 'user.oil' },
+      { at: '2026-09-30T12:08:00.000Z', actor: 'admin', action: 'suppress', path: 'a.b' },
+      { at: '2026-09-30T12:09:00.000Z', actor: 'admin', action: 'unsuppress', path: 'a.b' }
     ] as const
     store.saveLog([...log])
     expect(new Store(dir).load().log).toEqual(log)

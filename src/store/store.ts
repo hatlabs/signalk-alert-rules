@@ -34,15 +34,46 @@ export interface EvaluationSwitch {
 /** Accumulator totals by rule id, then by instance segment (`''` for a rule without instances). */
 export type Checkpoints = Record<string, Record<string, number>>
 
+/** A suppression of a rule or an input path, with who started it and when. */
+export interface Suppression {
+  /** Wall time the suppression started. */
+  since: string
+  actor: string
+  note?: string
+  /** Seconds the condition must stay clear for the suppression to end by itself; manual when absent. */
+  autoEndAfter?: number
+}
+
+/** An operator's settings for one rule; a rule without them is enabled, unsuppressed and has no note. */
+export interface RuleControl {
+  enabled: boolean
+  note?: string
+  suppression?: Suppression
+}
+
+export interface Controls {
+  /** By rule id, `<origin>.<slug>`. */
+  rules: Record<string, RuleControl>
+  /** By exact concrete path. */
+  inputs: Record<string, Suppression>
+}
+
+const RULE_ACTIONS = ['delete', 'reset', 'enable', 'disable', 'note'] as const
+const SUPPRESSION_ACTIONS = ['suppress', 'unsuppress'] as const
+
 /** An operator action that changed what SKAR raises, with who did it and when. */
 export type LogEntry = { at: string; actor: string } & (
-  { action: 'delete' | 'reset'; rule: string } | { action: 'evaluation'; enabled: boolean }
+  | { action: (typeof RULE_ACTIONS)[number]; rule: string }
+  | { action: (typeof SUPPRESSION_ACTIONS)[number]; rule: string }
+  | { action: (typeof SUPPRESSION_ACTIONS)[number]; path: string }
+  | { action: 'evaluation'; enabled: boolean }
 )
 
 export interface StoreContents {
   rules: StoredRule[]
   evaluation: EvaluationSwitch
   accumulators: Checkpoints
+  controls: Controls
   /** Oldest first. */
   log: LogEntry[]
   /** Slugs of rule files that could not be read and are still in place. */
@@ -55,6 +86,7 @@ const RULES_DIR = 'rules'
 const EVALUATION_FILE = 'evaluation.json'
 const ACCUMULATORS_FILE = 'accumulators.json'
 const LOG_FILE = 'log.json'
+const CONTROLS_FILE = 'controls.json'
 const JSON_SUFFIX = '.json'
 const TMP_SUFFIX = '.tmp'
 const SLUG = new RegExp(SLUG_PATTERN)
@@ -79,19 +111,50 @@ function isCheckpoints(value: unknown): value is Checkpoints {
   )
 }
 
+const optional = (value: unknown, type: 'string' | 'number') =>
+  value === undefined || typeof value === type
+
+function isSuppression(value: unknown): value is Suppression {
+  return (
+    isRecord(value) &&
+    typeof value.since === 'string' &&
+    typeof value.actor === 'string' &&
+    optional(value.note, 'string') &&
+    optional(value.autoEndAfter, 'number')
+  )
+}
+
+function isRuleControl(value: unknown): value is RuleControl {
+  return (
+    isRecord(value) &&
+    typeof value.enabled === 'boolean' &&
+    optional(value.note, 'string') &&
+    (value.suppression === undefined || isSuppression(value.suppression))
+  )
+}
+
+function isControls(value: unknown): value is Controls {
+  return (
+    isRecord(value) &&
+    isRecord(value.rules) &&
+    Object.values(value.rules).every(isRuleControl) &&
+    isRecord(value.inputs) &&
+    Object.values(value.inputs).every(isSuppression)
+  )
+}
+
+const isOneOf = <T extends string>(values: readonly T[], value: unknown): value is T =>
+  (values as readonly unknown[]).includes(value)
+
 function isLogEntry(value: unknown): value is LogEntry {
   if (!isRecord(value) || typeof value.at !== 'string' || typeof value.actor !== 'string') {
     return false
   }
-  switch (value.action) {
-    case 'delete':
-    case 'reset':
-      return typeof value.rule === 'string'
-    case 'evaluation':
-      return typeof value.enabled === 'boolean'
-    default:
-      return false
+  if (isOneOf(RULE_ACTIONS, value.action)) return typeof value.rule === 'string'
+  if (isOneOf(SUPPRESSION_ACTIONS, value.action)) {
+    return typeof value.rule === 'string' || typeof value.path === 'string'
   }
+  return value.action === 'evaluation' && typeof value.enabled === 'boolean'
 }
 
 function isLog(value: unknown): value is LogEntry[] {
@@ -112,6 +175,8 @@ function checkSlug(slug: string): void {
  *   rewrites another;
  * - `evaluation.json`: the evaluation switch;
  * - `accumulators.json`: accumulator totals, rewritten whole at each checkpoint;
+ * - `controls.json`: per-rule enable, note and suppression, and input
+ *   suppressions, rewritten whole at each change;
  * - `log.json`: the recent operator actions, rewritten whole at each action.
  *
  * Every write goes to a temporary file in the same directory, is flushed to
@@ -160,6 +225,7 @@ export class Store {
       rules,
       evaluation: this.read(EVALUATION_FILE, isEvaluationSwitch, issues) ?? { enabled: true },
       accumulators: this.read(ACCUMULATORS_FILE, isCheckpoints, issues) ?? {},
+      controls: this.read(CONTROLS_FILE, isControls, issues) ?? { rules: {}, inputs: {} },
       log: this.read(LOG_FILE, isLog, issues) ?? [],
       unreadableRules,
       issues
@@ -183,6 +249,10 @@ export class Store {
 
   saveCheckpoints(checkpoints: Checkpoints): void {
     this.write(ACCUMULATORS_FILE, checkpoints)
+  }
+
+  saveControls(controls: Controls): void {
+    this.write(CONTROLS_FILE, controls)
   }
 
   saveLog(log: LogEntry[]): void {
