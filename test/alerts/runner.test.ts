@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import type { PathValueState, Value } from '@signalk/server-api'
 import { HEARTBEAT_S, type AlertValue } from '../../src/alerts/emitter.js'
 import { RuleRunner, type LoadedRule } from '../../src/alerts/runner.js'
+import type { PathMeta } from '../../src/engine/evaluator.js'
 import type { Rule } from '../../src/model/rule.js'
 import { validateRule } from '../../src/model/validate.js'
 import { FakeAlertsCore } from '../helpers/FakeAlertsCore.js'
@@ -47,10 +48,35 @@ const coolant = valid({
   signal: { path: 'propulsion.*.coolantTemperature' },
   detector: { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 368 } }
 })
+const VOLTAGE = 'electrical.batteries.house.voltage'
+const batteryLow = valid({
+  name: 'House battery low',
+  slug: 'house-battery-low',
+  message: 'House battery voltage is low',
+  signal: { path: VOLTAGE },
+  detector: {
+    type: 'sustained',
+    direction: 'below',
+    limit: { kind: 'zone', level: 'warn' },
+    duration: 5,
+    hysteresis: 0.1,
+    clearDuration: 5
+  }
+})
+const batteryZones: PathMeta = {
+  zones: [
+    { upper: 11.5, state: 'alarm', message: 'Battery flat' },
+    { lower: 11.5, upper: 12, state: 'warn', message: 'Battery low' }
+  ]
+}
+const BATTERY_ALERT = 'rules.user.house-battery-low'
 const OIL_ALERT = 'rules.user.oil-pressure-low'
 const PORT_ALERT = 'rules.user.coolant-high.port'
 
-function setup(rules: Rule[], options: { core?: FakeAlertsCore } = {}) {
+function setup(
+  rules: Rule[],
+  options: { core?: FakeAlertsCore; meta?: Record<string, PathMeta> } = {}
+) {
   const sm = new FakeSubscriptionManager()
   const core = options.core ?? new FakeAlertsCore()
   const sent: [string, AlertValue | null][] = []
@@ -60,7 +86,7 @@ function setup(rules: Rule[], options: { core?: FakeAlertsCore } = {}) {
     {
       pluginId: PLUGIN,
       subscriptions: sm,
-      meta: () => undefined,
+      meta: (path) => options.meta?.[path],
       timeoutSettings: () => ({ enforce: true, useDefaults: true }),
       clock: () => now,
       wallClock: () => new Date('2026-09-29T12:00:00Z'),
@@ -153,6 +179,73 @@ describe('rule runner', () => {
       priority: 'emergency',
       message: 'Check the oil'
     })
+  })
+
+  it('a zone-limit alert escalates at once when a more severe level is entered, and reports a fall', () => {
+    const { at, run, sent, core, runner } = setup([batteryLow], {
+      meta: { [VOLTAGE]: batteryZones }
+    })
+    at(0, VOLTAGE, 11.8)
+    run(1, 5)
+    const raised = sent[0]?.[1]
+    expect(raised).toMatchObject({ priority: 'warning', message: 'House battery voltage is low' })
+    core.acknowledge(BATTERY_ALERT)
+    at(6, VOLTAGE, 11.3)
+    run(7, 11)
+    expect(sent).toEqual([
+      [BATTERY_ALERT, raised],
+      [
+        BATTERY_ALERT,
+        {
+          priority: 'alarm',
+          message: 'House battery voltage is low',
+          latching: false,
+          data: raised?.data
+        }
+      ]
+    ])
+    expect(core.getByPath(BATTERY_ALERT)).toMatchObject({
+      priority: 'alarm',
+      state: 'unacknowledged'
+    })
+    expect(runner.status('user.house-battery-low')?.instances[0]).toMatchObject({
+      level: 'alarm',
+      priority: 'alarm'
+    })
+    at(12, VOLTAGE, 11.8)
+    run(13, 17)
+    expect(sent.at(-1)?.[1]).toMatchObject({ priority: 'warning' })
+    expect(sent).toHaveLength(3)
+    expect(core.getByPath(BATTERY_ALERT)).toMatchObject({ priority: 'alarm', condition: true })
+    run(18, 17 + HEARTBEAT_S)
+    expect(sent.at(-1)?.[1]).toMatchObject({ priority: 'warning' })
+    expect(sent).toHaveLength(4)
+  })
+
+  it("an edit to an active zone-limit rule keeps the level's priority", () => {
+    const { at, run, sent, runner } = setup([batteryLow], { meta: { [VOLTAGE]: batteryZones } })
+    at(0, VOLTAGE, 11.3)
+    run(1, 5)
+    runner.update({ origin: 'user', rule: { ...batteryLow, message: 'Charge the battery' } })
+    run(6, 5 + HEARTBEAT_S)
+    expect(sent.at(-1)?.[1]).toMatchObject({ priority: 'alarm', message: 'Charge the battery' })
+  })
+
+  it('an adopted zone-limit alert is heartbeated at the priority of its named level', () => {
+    const core = new FakeAlertsCore()
+    core.ingest(PLUGIN, BATTERY_ALERT, {
+      priority: 'alarm',
+      message: 'House battery voltage is low',
+      latching: false
+    })
+    const { sent } = setup([batteryLow], { core, meta: { [VOLTAGE]: batteryZones } })
+    expect(sent).toEqual([
+      [
+        BATTERY_ALERT,
+        { priority: 'warning', message: 'House battery voltage is low', latching: false }
+      ]
+    ])
+    expect(core.getByPath(BATTERY_ALERT)?.priority).toBe('alarm')
   })
 
   it("adopts an alert of an existing rule with the rule's current message and no data, without raising", () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { resolveLimit, type Zone } from '../../src/engine/limits.js'
+import { resolveLimit, severerLevels, type Zone } from '../../src/engine/limits.js'
 
 const battery: Zone[] = [
   { upper: 11.5, state: 'alarm' },
@@ -58,5 +58,33 @@ describe('resolveLimit', () => {
     const result = resolveLimit({ kind: 'zone', level: 'alarm' }, 'below', coolant)
     expect(result.ok).toBe(false)
     expect(!result.ok && result.reason).toMatch(/no upper bound/)
+  })
+})
+
+describe('severerLevels', () => {
+  const graded: Zone[] = [
+    { lower: 340, upper: 358, state: 'alert' },
+    ...coolant,
+    { lower: 380, state: 'emergency' }
+  ]
+
+  it('gives every more severe level the zones define, each with its own threshold', () => {
+    expect(severerLevels({ kind: 'zone', level: 'alert' }, 'above', graded)).toEqual([
+      { level: 'warn', value: 358 },
+      { level: 'alarm', value: 368 },
+      { level: 'emergency', value: 380 }
+    ])
+  })
+
+  it('skips a level the zones do not define', () => {
+    const gapped = graded.filter((z) => z.state !== 'alarm')
+    expect(severerLevels({ kind: 'zone', level: 'warn' }, 'above', gapped)).toEqual([
+      { level: 'emergency', value: 380 }
+    ])
+  })
+
+  it('is empty when nothing more severe than the named level is defined', () => {
+    expect(severerLevels({ kind: 'zone', level: 'alarm' }, 'below', battery)).toEqual([])
+    expect(severerLevels({ kind: 'zone', level: 'warn' }, 'below', undefined)).toEqual([])
   })
 })

@@ -1,4 +1,4 @@
-import { ZONE_LEVELS, type Limit, type ZoneLevel } from '../model/rule.js'
+import { ZONE_LEVELS, type Limit, type ZoneLevel, type ZoneLimit } from '../model/rule.js'
 
 /** A `meta.zones` entry. JSON meta may carry a missing bound as null. */
 export interface Zone {
@@ -10,8 +10,13 @@ export interface Zone {
 
 export type LimitResolution = { ok: true; value: number } | { ok: false; reason: string }
 
-function severity(state: string): number {
-  return ZONE_LEVELS.indexOf(state as ZoneLevel)
+/** A zone level's rank; a more severe level ranks higher. */
+export function severity(level: ZoneLevel): number {
+  return ZONE_LEVELS.indexOf(level)
+}
+
+function isLevel(state: string): state is ZoneLevel {
+  return (ZONE_LEVELS as readonly string[]).includes(state)
 }
 
 /**
@@ -27,7 +32,7 @@ export function resolveLimit(
 ): LimitResolution {
   if (limit.kind === 'fixed') return { ok: true, value: limit.value }
   const floor = severity(limit.level)
-  const entering = (zones ?? []).filter((z) => severity(z.state) >= floor)
+  const entering = (zones ?? []).filter((z) => isLevel(z.state) && severity(z.state) >= floor)
   if (!entering.some((z) => z.state === limit.level)) {
     return { ok: false, reason: `the path has no ${limit.level} zone` }
   }
@@ -38,4 +43,20 @@ export function resolveLimit(
     return { ok: false, reason: `a ${limit.level} or more severe zone has no ${side} bound` }
   }
   return { ok: true, value: direction === 'below' ? Math.max(...values) : Math.min(...values) }
+}
+
+/**
+ * The thresholds of every zone level more severe than the limit's own that
+ * the zones define, least severe first, each resolved as {@link resolveLimit}
+ * resolves the limit's own level.
+ */
+export function severerLevels(
+  limit: ZoneLimit,
+  direction: 'above' | 'below',
+  zones: readonly Zone[] | null | undefined
+): { level: ZoneLevel; value: number }[] {
+  return ZONE_LEVELS.slice(severity(limit.level) + 1).flatMap((level) => {
+    const resolved = resolveLimit({ ...limit, level }, direction, zones)
+    return resolved.ok ? [{ level, value: resolved.value }] : []
+  })
 }
