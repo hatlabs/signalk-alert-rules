@@ -2,8 +2,7 @@
  * What saving an edit does to a rule's alerts and totals, in words, for the
  * confirmation shown before an edit that clears an alert or discards a total.
  */
-import type { EditPreview, RuleEntry } from '../api'
-import { instanceName } from '../rules/InstanceTable'
+import type { EditPreview } from '../api'
 
 const CHANGE_WORDS: Readonly<Partial<Record<string, string>>> = {
   signal: 'input',
@@ -27,16 +26,6 @@ function changeWord(change: string): string {
 function joined(words: string[]): string {
   if (words.length <= 1) return words.join('')
   return `${words.slice(0, -1).join(', ')} and ${words.at(-1) ?? ''}`
-}
-
-/** The totals the rule holds now, each shown with `format`, named per instance. */
-export function discardedTotals(entry: RuleEntry, format: (total: number) => string): string[] {
-  return entry.status.instances.flatMap((i) => {
-    if (i.progress?.kind !== 'total' || i.progress.total <= 0) return []
-    const name = instanceName(i)
-    const total = format(i.progress.total)
-    return [name === '' ? total : `${name}: ${total}`]
-  })
 }
 
 /** One sentence per consequence the operator must confirm; none for an edit applied in place. */

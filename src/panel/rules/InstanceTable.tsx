@@ -1,15 +1,11 @@
 import type { GateStatus, InputState, InstanceStatus, Progress } from '../api'
-import { formatDuration, type RuleDisplay } from './describe'
+import { formatDuration, instanceName, type RuleDisplay } from './describe'
 import { StatusBadge } from './StatusBadge'
 
 const INPUT_TEXT: Readonly<Record<InputState, string>> = {
   value: '',
   unavailable: 'unavailable',
   neverSeen: 'never seen'
-}
-
-export function instanceName(i: InstanceStatus): string {
-  return i.instance?.name ?? i.instance?.segment ?? ''
 }
 
 function valueText(i: InstanceStatus, display: RuleDisplay): string {

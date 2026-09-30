@@ -1,9 +1,35 @@
-import { BADGES, type RuleEntry, type RuleInfo, type SignalValue } from '../api'
+import {
+  BADGES,
+  type InstanceStatus,
+  type RuleEntry,
+  type RuleInfo,
+  type SignalValue
+} from '../api'
 import { signalMeasure, type Measure, type UnitLookup } from '../signalUnits'
 import { fromSI } from '../units'
 import { BADGE_LOOK } from './StatusBadge'
 
 export { USER_ORIGIN } from '../api'
+
+export function instanceName(i: InstanceStatus): string {
+  return i.instance?.name ?? i.instance?.segment ?? ''
+}
+
+/**
+ * The accumulated totals a reset or an edit would discard, each shown with
+ * `format`: one per instance holding a total above zero, named for a
+ * wildcard rule.
+ */
+export function discardedTotals(
+  entry: RuleEntry,
+  format: (total: number) => string
+): { name: string; total: string }[] {
+  return entry.status.instances.flatMap((i) =>
+    i.progress?.kind === 'total' && i.progress.total > 0
+      ? [{ name: instanceName(i), total: format(i.progress.total) }]
+      : []
+  )
+}
 
 export function describeDetector(d: RuleInfo['detector']): string {
   if (d.type === 'accumulator' && d.measure !== undefined) return `accumulator (${d.measure})`

@@ -6,11 +6,12 @@ import {
   describeDetector,
   describeInput,
   describePriority,
+  discardedTotals,
   markers,
   ruleDisplay,
   type RuleDisplay
 } from './describe'
-import { InstanceTable, instanceName } from './InstanceTable'
+import { InstanceTable } from './InstanceTable'
 import { StatusBadge } from './StatusBadge'
 
 export interface RuleDetailProps {
@@ -39,12 +40,10 @@ function Fact({ term, children }: { term: string; children: ReactNode }) {
 
 /** What a reset discards: each instance's total, or the one total of a plain rule. */
 function DiscardedTotals({ entry, display }: { entry: RuleEntry; display: RuleDisplay }) {
-  const totals = entry.status.instances.flatMap((i) =>
-    i.progress?.kind === 'total' ? [{ name: instanceName(i), total: i.progress.total }] : []
-  )
+  const totals = discardedTotals(entry, display.total)
   if (totals.length === 0) return <p>There is no accumulated total yet.</p>
   if (totals.length === 1 && totals[0].name === '') {
-    return <p>This discards the total of {display.total(totals[0].total)}.</p>
+    return <p>This discards the total of {totals[0].total}.</p>
   }
   return (
     <>
@@ -52,7 +51,7 @@ function DiscardedTotals({ entry, display }: { entry: RuleEntry; display: RuleDi
       <ul>
         {totals.map(({ name, total }) => (
           <li key={name}>
-            {name}: {display.total(total)}
+            {name}: {total}
           </li>
         ))}
       </ul>

@@ -9,9 +9,9 @@ import {
 } from '../api'
 import type { PathList, PathSource } from '../paths/selfPaths'
 import { Confirm } from '../rules/Confirm'
-import { ruleDisplay } from '../rules/describe'
+import { discardedTotals, ruleDisplay } from '../rules/describe'
 import { signalMeasure, useUnits, type UnitLookup } from '../signalUnits'
-import { discardedTotals, editConsequences } from './consequences'
+import { editConsequences } from './consequences'
 import { AdvancedFields, DetectFields, LimitSectionFields, TimingFields } from './DetectorFields'
 import { Field, FieldErrors, SelectField, TextField } from './fields'
 import {
@@ -182,7 +182,10 @@ function EditorForm({ api, paths, units, editing, onSaved, onClose, onDirtyChang
     try {
       if (editing !== undefined) {
         const preview = await api.previewRule(editing.entry.slug, result.rule)
-        const totals = discardedTotals(editing.entry, ruleDisplay(editing.entry.rule, units).total)
+        const totals = discardedTotals(
+          editing.entry,
+          ruleDisplay(editing.entry.rule, units).total
+        ).map(({ name, total }) => (name === '' ? total : `${name}: ${total}`))
         const lines = editConsequences(preview, totals)
         if (lines.length > 0) {
           setPending({ rule: result.rule, lines })

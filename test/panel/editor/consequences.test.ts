@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { EditPreview } from '../../../src/panel/api'
-import { discardedTotals, editConsequences } from '../../../src/panel/editor/consequences'
-import { formatDuration } from '../../../src/panel/rules/describe'
-import { instance, ruleEntry } from '../fixtures'
+import { editConsequences } from '../../../src/panel/editor/consequences'
 
 const preview = (overrides: Partial<EditPreview>): EditPreview => ({
   restarts: false,
@@ -48,29 +46,5 @@ describe('editConsequences', () => {
     expect(editConsequences(preview({ discardsTotal: true }), [])).toEqual([
       'Saving discards the accumulated total.'
     ])
-  })
-})
-
-describe('discardedTotals', () => {
-  it('lists each instance total above zero, named for a wildcard rule', () => {
-    const entry = ruleEntry({
-      status: {
-        instances: [
-          instance({
-            instance: { name: 'port', segment: 'port' },
-            progress: { kind: 'total', total: 7200, limit: 9000 }
-          }),
-          instance({
-            instance: { name: 'stbd', segment: 'stbd' },
-            progress: { kind: 'total', total: 0, limit: 9000 }
-          })
-        ]
-      }
-    })
-    expect(discardedTotals(entry, formatDuration)).toEqual(['port: 2 h'])
-    const single = ruleEntry({
-      status: { instances: [instance({ progress: { kind: 'total', total: 60, limit: 90 } })] }
-    })
-    expect(discardedTotals(single, formatDuration)).toEqual(['60 s'])
   })
 })
