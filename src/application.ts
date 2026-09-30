@@ -100,7 +100,8 @@ export class Application {
     this.issues = [...contents.issues]
     this.evaluationSwitch = contents.evaluation
     this.actions = contents.log
-    this.stored = new Set(contents.rules.map((r) => r.slug))
+    // A rule file that could not be read is still on disk: a create must not overwrite it.
+    this.stored = new Set([...contents.rules.map((r) => r.slug), ...contents.unreadableRules])
     for (const { slug, value } of contents.rules) {
       const result = validateRule(value)
       const detector = isRecord(value) && isRecord(value.detector) ? value.detector : undefined

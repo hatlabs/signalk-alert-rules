@@ -48,6 +48,7 @@ describe('store', () => {
       evaluation: { enabled: true },
       accumulators: {},
       log: [],
+      unreadableRules: [],
       issues: []
     })
   })
@@ -258,8 +259,33 @@ describe('store', () => {
     }
     const contents = new Store(dir, failing).load()
     expect(contents.rules).toEqual([{ slug: 'oil-pressure-low', value: oil }])
+    expect(contents.unreadableRules).toEqual(['unreadable'])
     expect(contents.issues).toEqual([expect.stringMatching(/unreadable\.json.*EIO/)])
   })
+
+  it.each(['evaluation.json', 'accumulators.json', 'log.json'])(
+    'fails to load when %s cannot be read, and leaves it in place',
+    (name) => {
+      const store = new Store(dir)
+      store.load()
+      store.saveEvaluation({ enabled: false })
+      store.saveCheckpoints({ 'user.engine-hours': { '': 100 } })
+      store.saveLog([])
+      const before = readFileSync(join(dir, name), 'utf8')
+      const failing: FileSystem = {
+        ...fs,
+        readFileSync: ((path: string, options: BufferEncoding) => {
+          if (path.endsWith(name)) {
+            throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' })
+          }
+          return fs.readFileSync(path, options)
+        }) as FileSystem['readFileSync']
+      }
+      expect(() => new Store(dir, failing).load()).toThrow(/EIO/)
+      expect(readFileSync(join(dir, name), 'utf8')).toBe(before)
+      expect(readdirSync(dir).filter((f) => f.startsWith(name))).toEqual([name])
+    }
+  )
 
   it('reports a corrupt file it cannot move aside and loads the rest', () => {
     const store = new Store(dir)

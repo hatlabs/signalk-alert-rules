@@ -195,6 +195,27 @@ describe('application', () => {
     expect(existsSync(join(dir, 'rules', 'coolant-high.json'))).toBe(false)
   })
 
+  it('reports a rule file it cannot read, runs the others and does not let a create overwrite it', () => {
+    stored(oil)
+    stored(coolant)
+    const failing = new Store(dir, {
+      ...fs,
+      readFileSync: ((path: string, options: BufferEncoding) => {
+        if (path.endsWith('coolant-high.json')) {
+          throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' })
+        }
+        return fs.readFileSync(path, options)
+      }) as typeof fs.readFileSync
+    })
+    const { application } = setup(failing)
+    expect(application.issues).toEqual([expect.stringMatching(/coolant-high\.json.*EIO/)])
+    expect(application.userRules().map((r) => r.slug)).toEqual(['oil-pressure-low'])
+    expect(application.createRule(coolant)).toEqual({ ok: false, reason: 'exists' })
+    expect(JSON.parse(readFileSync(join(dir, 'rules', 'coolant-high.json'), 'utf8'))).toEqual(
+      coolant
+    )
+  })
+
   it('reports a corrupt store file and runs the rules it could read', () => {
     stored(oil)
     writeFileSync(join(dir, 'accumulators.json'), '{')

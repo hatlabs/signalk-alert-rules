@@ -45,6 +45,8 @@ export interface StoreContents {
   accumulators: Checkpoints
   /** Oldest first. */
   log: LogEntry[]
+  /** Slugs of rule files that could not be read and are still in place. */
+  unreadableRules: string[]
   /** Files that could not be read; each part started empty, and a corrupt file was moved aside where the filesystem allowed. */
   issues: string[]
 }
@@ -117,9 +119,12 @@ function checkSlug(slug: string): void {
  * the old file or the new one; concurrent writes of one file are last write
  * wins. A file that cannot be parsed is renamed to `<name>.corrupt-<time>`
  * and its part starts empty: the bad content is kept for inspection, is not
- * read again, and cannot be silently overwritten by the next save. A file
- * that cannot be read at all, or moved aside, is reported and its part
- * starts empty too, so the other rules still run.
+ * read again, and cannot be silently overwritten by the next save. A
+ * corrupt file that cannot be moved aside is reported and its part starts
+ * empty too. A rule file that cannot be read at all is reported and skipped,
+ * so the other rules still run; any other file that cannot be read fails
+ * `load`, because starting that part empty would let the next write replace
+ * the totals or the log.
  * `load` creates the directories and must run before any write.
  */
 export class Store {
@@ -135,16 +140,28 @@ export class Store {
     this.removeTemporaries(join(this.dir, RULES_DIR), issues)
 
     const rules: StoredRule[] = []
+    const unreadableRules: string[] = []
     for (const file of this.fs.readdirSync(join(this.dir, RULES_DIR)).sort()) {
       if (file.startsWith('.') || !file.endsWith(JSON_SUFFIX)) continue
-      const value = this.read(join(RULES_DIR, file), anything, issues)
-      if (value !== undefined) rules.push({ slug: file.slice(0, -JSON_SUFFIX.length), value })
+      const name = join(RULES_DIR, file)
+      const slug = file.slice(0, -JSON_SUFFIX.length)
+      let value: unknown
+      try {
+        value = this.read(name, anything, issues)
+      } catch (err) {
+        // One unreadable rule must not keep every other rule from running.
+        issues.push(`${name} could not be read (${errorMessage(err)}); skipped`)
+        unreadableRules.push(slug)
+        continue
+      }
+      if (value !== undefined) rules.push({ slug, value })
     }
     return {
       rules,
       evaluation: this.read(EVALUATION_FILE, isEvaluationSwitch, issues) ?? { enabled: true },
       accumulators: this.read(ACCUMULATORS_FILE, isCheckpoints, issues) ?? {},
       log: this.read(LOG_FILE, isLog, issues) ?? [],
+      unreadableRules,
       issues
     }
   }
@@ -172,7 +189,10 @@ export class Store {
     this.write(LOG_FILE, log)
   }
 
-  /** Reads a JSON file; undefined when it is missing or was moved aside as corrupt. */
+  /**
+   * Reads a JSON file; undefined when it is missing or corrupt. Throws when
+   * it cannot be read at all.
+   */
   private read<T>(
     name: string,
     accepts: (value: unknown) => value is T,
@@ -184,9 +204,7 @@ export class Store {
       text = this.fs.readFileSync(path, 'utf8')
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined
-      // One unreadable file must not keep every other rule from running.
-      issues.push(`${name} could not be read (${errorMessage(err)}); started empty`)
-      return undefined
+      throw err
     }
     let problem: string
     try {

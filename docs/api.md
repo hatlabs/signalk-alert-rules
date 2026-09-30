@@ -97,9 +97,9 @@ The last 200 actions, newest first, kept in the data directory:
 ```
 
 - `running`: whether the plugin is running. While it is not, every other route answers 503.
-- `error`: why the plugin did not start, such as a server without the alerts API.
+- `error`: why the plugin did not start, such as a server without the alerts API, or an evaluation switch, accumulator totals or action log that could not be read from the data directory.
 - `securityEnabled`: whether the server enforces security; `null` when SKAR cannot tell.
-- `evaluation` and `issues`, while running: the evaluation switch, and the problems found while loading the data directory, such as a stored rule that no longer validates. Such a rule is not listed in `GET /rules`; it can be replaced with `PUT` or deleted.
+- `evaluation` and `issues`, while running: the evaluation switch, and the problems found while loading the data directory, such as a stored rule that no longer validates or cannot be read. Such a rule is not listed in `GET /rules`; it can be replaced with `PUT` or deleted.
 
 ## Errors
 
