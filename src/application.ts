@@ -8,7 +8,7 @@ import {
 import { carriesTotals, structuralChanges } from './engine/evaluator.js'
 import { MAX_RULES, type Rule } from './model/rule.js'
 import { USER_ORIGIN } from './model/ruleset.js'
-import { validateRule, type Result, type ValidationError } from './model/validate.js'
+import { validateRule, type ValidationError } from './model/validate.js'
 import type { Checkpoints, EvaluationSwitch, LogEntry, Store } from './store/store.js'
 
 /** How often rules are evaluated: detector durations resolve to this. */
@@ -157,16 +157,11 @@ export class Application {
     return [...this.actions].reverse()
   }
 
-  /**
-   * Creates or replaces the user rule with the input's slug. Returns the
-   * validation errors of an invalid rule; throws when the store cannot write.
-   */
-  saveRule(input: unknown): Result<Rule> {
-    const result = validateRule(input)
-    if (!result.ok) return result
-    const rule = result.value
+  /** Creates or replaces the user rule with a validated rule's slug; throws when the store cannot write. */
+  private saveRule(rule: Rule): SaveOutcome {
     if (!this.rulesBySlug.has(rule.slug) && this.rulesBySlug.size >= MAX_RULES) {
-      return { ok: false, errors: [{ path: '', message: `at most ${String(MAX_RULES)} rules` }] }
+      const message = `at most ${String(MAX_RULES)} rules`
+      return { ok: false, reason: 'invalid', errors: [{ path: '', message }] }
     }
     this.store.saveRule(rule)
     const previous = this.rulesBySlug.get(rule.slug)
@@ -177,7 +172,7 @@ export class Application {
     }
     this.rulesBySlug.set(rule.slug, rule)
     this.runner?.update({ origin: USER_ORIGIN, rule })
-    return result
+    return { ok: true, value: rule }
   }
 
   /** Saves a new user rule; a stored rule file with its slug, valid or not, makes it exist. */
@@ -185,13 +180,13 @@ export class Application {
     const result = validateRule(input)
     if (!result.ok) return { ok: false, reason: 'invalid', errors: result.errors }
     if (this.stored.has(result.value.slug)) return { ok: false, reason: 'exists' }
-    return this.toSaveOutcome(this.saveRule(result.value))
+    return this.saveRule(result.value)
   }
 
   /** Replaces the stored user rule `slug` with an input of the same slug. */
   replaceRule(slug: string, input: unknown): SaveOutcome {
     const checked = this.checkEdit(slug, input)
-    return checked.ok ? this.toSaveOutcome(this.saveRule(checked.value)) : checked
+    return checked.ok ? this.saveRule(checked.value) : checked
   }
 
   /** What replacing the user rule `slug` with the input would do, without doing it. */
@@ -277,10 +272,6 @@ export class Application {
     if (!result.ok) return { ok: false, reason: 'invalid', errors: result.errors }
     if (result.value.slug !== slug) return { ok: false, reason: 'slugMismatch' }
     return result
-  }
-
-  private toSaveOutcome(result: Result<Rule>): SaveOutcome {
-    return result.ok ? result : { ok: false, reason: 'invalid', errors: result.errors }
   }
 
   private record(entry: LogEntry): void {

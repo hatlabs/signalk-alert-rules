@@ -96,7 +96,7 @@ describe('application', () => {
     at(0, OIL, 0)
     at(3)
 
-    const result = application.saveRule(coolant)
+    const result = application.createRule(coolant)
     expect(result.ok).toBe(true)
     expect(JSON.parse(readFileSync(join(dir, 'rules', 'coolant-high.json'), 'utf8'))).toEqual(
       coolant
@@ -120,7 +120,7 @@ describe('application', () => {
     const { application, at, server } = setup()
     at(0, OIL, 0)
     at(5)
-    expect(application.saveRule({ ...oil, message: 'Check the oil' }).ok).toBe(true)
+    expect(application.replaceRule(oil.slug, { ...oil, message: 'Check the oil' }).ok).toBe(true)
     at(25)
     expect(server.core.getByPath('rules.user.oil-pressure-low')?.message).toBe('Check the oil')
     expect(new Store(dir).load().rules[0]?.value).toMatchObject({ message: 'Check the oil' })
@@ -128,9 +128,11 @@ describe('application', () => {
 
   it('rejects an invalid rule with field-path errors and persists nothing', () => {
     const { application } = setup()
-    const result = application.saveRule({ ...oil, priority: 'loud' })
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.errors.map((e) => e.path)).toContain('/priority')
+    const result = application.createRule({ ...oil, priority: 'loud' })
+    expect(result).toMatchObject({ ok: false, reason: 'invalid' })
+    if (!result.ok && result.reason === 'invalid') {
+      expect(result.errors.map((e) => e.path)).toContain('/priority')
+    }
     expect(existsSync(join(dir, 'rules', 'oil-pressure-low.json'))).toBe(false)
     expect(application.userRules()).toEqual([])
   })
@@ -143,7 +145,7 @@ describe('application', () => {
       }
     })
     const { application, at, alerts } = setup(failing)
-    expect(() => application.saveRule(oil)).toThrow(/EROFS/)
+    expect(() => application.createRule(oil)).toThrow(/EROFS/)
     expect(application.userRules()).toEqual([])
     at(0, OIL, 0)
     at(10)
@@ -317,7 +319,9 @@ describe('application operator actions', () => {
     at(20)
     application.setEvaluation(false, 'admin')
     at(50)
-    expect(application.saveRule({ ...hours, message: 'Service the engine' }).ok).toBe(true)
+    expect(
+      application.replaceRule(hours.slug, { ...hours, message: 'Service the engine' }).ok
+    ).toBe(true)
     application.checkpoint()
     expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 20 } })
 
