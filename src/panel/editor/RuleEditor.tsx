@@ -128,6 +128,10 @@ function EditorForm({ api, paths, units, editing, onSaved, onClose, onDirtyChang
     editing !== undefined && hasAdvancedValues(initial.detector, initial.latching)
   )
   const messageRef = useRef<HTMLTextAreaElement>(null)
+  // Each gate keeps what it remembers, such as the instance its wildcard
+  // replaced, only while its key stays with it through a removal.
+  const gateCount = useRef(initial.gates.length)
+  const [gateKeys, setGateKeys] = useState(() => initial.gates.map((_, i) => i))
   const headingRef = useRef<HTMLHeadingElement>(null)
 
   // The form only ever opens on the operator's action and replaces the view
@@ -360,7 +364,7 @@ function EditorForm({ api, paths, units, editing, onSaved, onClose, onDirtyChang
             </p>
             {form.gates.map((gate, i) => (
               <GateFields
-                key={i}
+                key={gateKeys[i]}
                 index={i}
                 gate={gate}
                 paths={paths}
@@ -370,6 +374,7 @@ function EditorForm({ api, paths, units, editing, onSaved, onClose, onDirtyChang
                 }}
                 onRemove={() => {
                   update({ gates: form.gates.filter((_, n) => n !== i) })
+                  setGateKeys((keys) => keys.filter((_, n) => n !== i))
                 }}
               />
             ))}
@@ -379,6 +384,9 @@ function EditorForm({ api, paths, units, editing, onSaved, onClose, onDirtyChang
                 className="btn btn-outline-secondary btn-sm"
                 onClick={() => {
                   update({ gates: [...form.gates, emptyGate()] })
+                  const key = gateCount.current
+                  gateCount.current = key + 1
+                  setGateKeys((keys) => [...keys, key])
                 }}
               >
                 Add gate

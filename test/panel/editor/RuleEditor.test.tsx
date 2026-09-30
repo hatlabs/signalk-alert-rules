@@ -391,6 +391,30 @@ describe('RuleEditor, editing', () => {
     expect(description(combobox('Input path 2')).match(/is in V/g)).toHaveLength(1)
   })
 
+  it('keeps what each gate remembers with that gate when an earlier one is removed', async () => {
+    renderEditor({ entry: active, rule: battery })
+    const addGate = await screen.findByRole('button', { name: 'Add gate' })
+    click(addGate)
+    click(addGate)
+    const gate = (n: number) => within(screen.getByRole('group', { name: `Gate ${String(n)}` }))
+    type(
+      gate(1).getByRole('combobox', { name: 'Gate 1 input path' }),
+      'electrical.batteries.start.voltage'
+    )
+    click(gate(1).getByRole('checkbox', { name: 'Match all instances' }))
+    type(
+      gate(2).getByRole('combobox', { name: 'Gate 2 input path' }),
+      'electrical.batteries.*.voltage'
+    )
+    click(screen.getByRole('button', { name: 'Remove gate 1' }))
+    click(gate(1).getByRole('checkbox', { name: 'Match all instances' }))
+    // Its first match, not the instance the removed gate had replaced.
+    expect(gate(1).getByRole('combobox', { name: 'Gate 1 input path' })).toHaveProperty(
+      'value',
+      'electrical.batteries.house.voltage'
+    )
+  })
+
   it('saves nothing on Enter in a field; only the Save button saves', async () => {
     const { api, onSaved } = renderEditor({ entry: active, rule: battery })
     const hysteresis = await screen.findByRole('textbox', { name: 'Hysteresis' })
