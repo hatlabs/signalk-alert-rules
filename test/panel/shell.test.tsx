@@ -234,4 +234,37 @@ describe('Shell', () => {
     await tick(POLL_INTERVAL_MS)
     expect(api.state).toHaveBeenCalledTimes(4)
   })
+
+  it('stops polling when unmounted', async () => {
+    const api = renderShell({ state: running, enabled: true, rules: [] })
+    await settle()
+    expect(api.state).toHaveBeenCalledTimes(1)
+    cleanup()
+    await tick(POLL_INTERVAL_MS * 5)
+    expect(api.state).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not start a second probe when the tab reappears during one', async () => {
+    vi.useFakeTimers()
+    let answerFirst: (state: PluginState) => void = () => undefined
+    const api = mockApi({ state: running, enabled: true, rules: [] })
+    api.state.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answerFirst = resolve
+        })
+    )
+    render(<Shell api={api} />)
+    setVisibility('hidden')
+    setVisibility('visible')
+    await settle()
+    expect(api.state).toHaveBeenCalledTimes(1)
+    answerFirst(running)
+    await settle()
+    expect(api.state).toHaveBeenCalledTimes(1)
+    await tick(POLL_INTERVAL_MS)
+    expect(api.state).toHaveBeenCalledTimes(2)
+    await tick(POLL_INTERVAL_MS)
+    expect(api.state).toHaveBeenCalledTimes(3)
+  })
 })
