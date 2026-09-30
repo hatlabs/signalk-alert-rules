@@ -50,7 +50,7 @@ SKAR serves its rules, their status and its operator actions under the plugin's 
 - `restarts`: the edit clears and restarts the rule, per the [edit semantics](rules.md#edits). Any edit restarts a rule that failed to start.
 - `changes`: the parts of the rule that make it restart, by field path: `signal`, `gates`, `latching`, `detector.limit.level`, or `detector.<field>`.
 - `activeAlerts`: how many of the rule's instances have an active alert now.
-- `clearsActiveAlert`: saving the edit would clear an active alert; the panel asks for confirmation.
+- `clearsActiveAlert`: the edit restarts the rule while it has an active alert, so saving it clears that alert; the panel asks for confirmation. It counts only clears the restart causes: an edit applied in place, for example a raised limit, can also clear an active alert at the next evaluation, when the current value no longer meets the condition.
 - `discardsTotal`: the rule has an accumulator total, running or kept while it does not run, and saving the edit would discard it: the edit is no longer an accumulator of the same measure. Replacing a stored rule that failed validation keeps its total when the new rule is an accumulator of the measure the stored file names.
 
 The preview uses the same comparison the engine applies when the edit is saved.

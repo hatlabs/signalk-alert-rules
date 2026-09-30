@@ -42,7 +42,10 @@ export interface EditPreview {
   changes: string[]
   /** Instances of the rule whose alert is active now. */
   activeAlerts: number
-  /** Saving the edit would clear an active alert. */
+  /**
+   * The restart clears an active alert. An edit applied in place can still
+   * clear one at the next evaluation; this does not count it.
+   */
   clearsActiveAlert: boolean
   /** The rule has an accumulator total, running or retained, that saving the edit would discard. */
   discardsTotal: boolean
