@@ -334,24 +334,43 @@ export class Application {
     if (enabled === this.evaluationSwitch.enabled) return
     const at = this.now()
     const next = { enabled, actor, at }
-    this.store.saveEvaluation(next)
-    this.evaluationSwitch = next
     if (enabled) {
-      this.startRunner(false)
-    } else if (this.runner !== undefined) {
-      for (const [id, totals] of this.runner.accumulators()) this.retained.set(id, totals)
-      this.runner.clearAll()
-      this.runner = undefined
+      // Saved only once the runner has started, so a runner that cannot
+      // start leaves evaluation off rather than on with nothing evaluated.
+      this.startRunner(false, () => {
+        this.store.saveEvaluation(next)
+      })
+    } else {
+      this.store.saveEvaluation(next)
+      if (this.runner !== undefined) {
+        for (const [id, totals] of this.runner.accumulators()) this.retained.set(id, totals)
+        this.runner.clearAll()
+        this.runner = undefined
+      }
     }
+    this.evaluationSwitch = next
     this.record({ at, actor, action: 'evaluation', enabled })
   }
 
-  private startRunner(adopt: boolean): void {
+  /**
+   * Starts a runner on the stored rules and, once `commit` has succeeded too,
+   * hands it their retained totals. On a throw from either, nothing changes:
+   * a runner that failed to start holds no totals, so keeping it would let
+   * the next checkpoint drop them.
+   */
+  private startRunner(adopt: boolean, commit?: () => void): void {
     const ids = new Set([...this.rulesBySlug.keys()].map((slug) => this.idOf(slug)))
     const accumulated = new Map([...this.retained].filter(([id]) => ids.has(id)))
+    const runner = new RuleRunner(this.deps, this.loaded(), accumulated)
+    runner.start(adopt)
+    try {
+      commit?.()
+    } catch (err) {
+      runner.stop()
+      throw err
+    }
     for (const id of accumulated.keys()) this.retained.delete(id)
-    this.runner = new RuleRunner(this.deps, this.loaded(), accumulated)
-    this.runner.start(adopt)
+    this.runner = runner
   }
 
   private checkEdit(slug: string, input: unknown): SaveOutcome {

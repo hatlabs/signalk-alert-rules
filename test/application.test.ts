@@ -664,6 +664,49 @@ describe('application accumulator totals across edits', () => {
     expect(total()).toBe(120)
   })
 
+  it('turning evaluation on when the runner cannot start keeps it off and keeps the totals', () => {
+    stored(hours)
+    new Store(dir).saveCheckpoints({ [ID]: { '': 100 } })
+    new Store(dir).saveEvaluation({ enabled: false })
+    const core = new FakeAlertsCore()
+    const { application } = setup(new Store(dir), core)
+    const before = readFileSync(join(dir, 'evaluation.json'), 'utf8')
+    vi.spyOn(core, 'list').mockImplementation(() => {
+      throw new Error('alerts unavailable')
+    })
+
+    expect(() => {
+      application.setEvaluation(true, 'admin')
+    }).toThrow('alerts unavailable')
+    expect(application.evaluation.enabled).toBe(false)
+    expect(readFileSync(join(dir, 'evaluation.json'), 'utf8')).toBe(before)
+    expect(application.rules()[0]?.status).toBeNull()
+    new Store(dir).saveCheckpoints({})
+    application.checkpoint()
+    expect(total()).toBe(100)
+  })
+
+  it('turning evaluation on when the switch cannot be saved stops the started runner', () => {
+    stored(hours)
+    new Store(dir).saveCheckpoints({ [ID]: { '': 100 } })
+    new Store(dir).saveEvaluation({ enabled: false })
+    const store = new Store(dir)
+    const { application, at } = setup(store)
+    vi.spyOn(store, 'saveEvaluation').mockImplementation(() => {
+      throw new Error('ENOSPC: no space left on device')
+    })
+
+    expect(() => {
+      application.setEvaluation(true, 'admin')
+    }).toThrow('ENOSPC')
+    expect(application.evaluation.enabled).toBe(false)
+    expect(application.rules()[0]?.status).toBeNull()
+    at(0, RPM, 30)
+    at(20)
+    application.checkpoint()
+    expect(total()).toBe(100)
+  })
+
   it('replacing a stored rule that failed validation with another measure drops its total at once', () => {
     stored(brokenHours)
     new Store(dir).saveCheckpoints({ [ID]: { '': 100 } })
