@@ -30,7 +30,13 @@ export interface SuppressionsViewProps {
 
 type Listing =
   | { status: 'loading' }
-  | { status: 'ready'; suppressions: Suppression[]; affected: ReadonlyMap<string, number> }
+  | {
+      status: 'ready'
+      suppressions: Suppression[]
+      affected: ReadonlyMap<string, number>
+      /** Why the last reload failed; the list is as last read. */
+      reloadError?: string
+    }
   | { status: 'failed'; error: string }
 
 /**
@@ -161,7 +167,12 @@ export function SuppressionsView({ api, rules, paths, ruleHref, refresh }: Suppr
         const affected = await affectedRules(api, suppressions)
         if (!cancelled) setListing({ status: 'ready', suppressions, affected })
       } catch (err) {
-        if (!cancelled) setListing({ status: 'failed', error: failureMessage(err) })
+        if (cancelled) return
+        const error = failureMessage(err)
+        // One dropped poll must not take the list, or an open confirmation, away.
+        setListing((last) =>
+          last.status === 'ready' ? { ...last, reloadError: error } : { status: 'failed', error }
+        )
       }
     }
     void load()
@@ -199,6 +210,12 @@ export function SuppressionsView({ api, rules, paths, ruleHref, refresh }: Suppr
       {listing.status === 'failed' && (
         <div className="alert alert-danger" role="alert">
           The suppressions could not be read: {listing.error}
+        </div>
+      )}
+      {listing.status === 'ready' && listing.reloadError !== undefined && (
+        <div className="alert alert-warning" role="status">
+          The suppressions could not be read again: {listing.reloadError}. They are shown as last
+          read.
         </div>
       )}
       {listing.status === 'ready' &&

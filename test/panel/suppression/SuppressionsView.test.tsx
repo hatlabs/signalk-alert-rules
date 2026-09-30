@@ -83,16 +83,22 @@ function fakeServer(
     })
   }
   const refresh = vi.fn()
-  render(
+  const view = (shown: typeof rules) => (
     <SuppressionsView
       api={api}
-      rules={rules}
+      rules={shown}
       paths={paths}
       ruleHref={(origin, slug) => `#rule=${origin}/${slug}`}
       refresh={refresh}
     />
   )
-  return { api, refresh, server }
+  const { rerender } = render(view(rules))
+  // A new reading of the rules, as each poll brings, reloads the list.
+  const poll = async () => {
+    rerender(view([...rules]))
+    await settle()
+  }
+  return { api, refresh, server, poll }
 }
 
 async function settle() {
@@ -147,6 +153,19 @@ describe('SuppressionsView', () => {
     fakeServer([inputSuppression], () => Promise.resolve({ ...rpmPreview, suppresses: [] }))
     await settle()
     expect(cell(rowOf(new RegExp(RPM)), 'Scope').textContent).toBe(`Input ${RPM}affects 1 rule`)
+  })
+
+  it('keeps the list and an open confirmation when a reload fails, and says so', async () => {
+    const { api, poll } = fakeServer([inputSuppression, ruleSuppression])
+    await settle()
+    fireEvent.click(screen.getByRole('button', { name: 'End the suppression of Oil pressure low' }))
+    api.suppressions.mockRejectedValueOnce(new Error('timed out'))
+    await poll()
+    expect(rowOf(new RegExp(RPM))).toBeTruthy()
+    expect(screen.getByRole('alertdialog', { name: /end the suppression/i })).toBeTruthy()
+    expect(screen.getByText(/could not be read again.*timed out/i)).toBeTruthy()
+    await poll()
+    expect(screen.queryByText(/could not be read again/i)).toBeNull()
   })
 
   it('says when no suppression is in force', async () => {
