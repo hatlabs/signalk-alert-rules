@@ -45,7 +45,7 @@ export interface StoreContents {
   accumulators: Checkpoints
   /** Oldest first. */
   log: LogEntry[]
-  /** Files that could not be read; each was moved aside and its part started empty. */
+  /** Files that could not be read; each part started empty, and a corrupt file was moved aside where the filesystem allowed. */
   issues: string[]
 }
 
@@ -117,7 +117,9 @@ function checkSlug(slug: string): void {
  * the old file or the new one; concurrent writes of one file are last write
  * wins. A file that cannot be parsed is renamed to `<name>.corrupt-<time>`
  * and its part starts empty: the bad content is kept for inspection, is not
- * read again, and cannot be silently overwritten by the next save.
+ * read again, and cannot be silently overwritten by the next save. A file
+ * that cannot be read at all, or moved aside, is reported and its part
+ * starts empty too, so the other rules still run.
  * `load` creates the directories and must run before any write.
  */
 export class Store {
@@ -181,7 +183,9 @@ export class Store {
       text = this.fs.readFileSync(path, 'utf8')
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined
-      throw err
+      // One unreadable file must not keep every other rule from running.
+      issues.push(`${name} could not be read (${errorMessage(err)}); started empty`)
+      return undefined
     }
     let problem: string
     try {
@@ -192,7 +196,15 @@ export class Store {
       problem = errorMessage(err)
     }
     const aside = `${name}.corrupt-${new Date().toISOString().replaceAll(':', '-')}`
-    this.fs.renameSync(path, join(this.dir, aside))
+    try {
+      this.fs.renameSync(path, join(this.dir, aside))
+    } catch (err) {
+      // A filesystem remounted read-only after a power cut refuses the rename.
+      issues.push(
+        `${name} could not be read (${problem}) nor moved aside (${errorMessage(err)}); started empty`
+      )
+      return undefined
+    }
     issues.push(`${name} could not be read (${problem}); moved to ${aside} and started empty`)
     return undefined
   }

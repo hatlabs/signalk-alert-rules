@@ -219,6 +219,46 @@ describe('store', () => {
     expect(new Store(dir).load().issues).toEqual([])
   })
 
+  it('reports a file it cannot read and loads the rest', () => {
+    const store = new Store(dir)
+    store.load()
+    store.saveRule(oil)
+    store.saveRule({ ...oil, slug: 'unreadable' })
+    const failing: FileSystem = {
+      ...fs,
+      readFileSync: ((path: string, options: BufferEncoding) => {
+        if (path.endsWith('unreadable.json')) {
+          throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' })
+        }
+        return fs.readFileSync(path, options)
+      }) as FileSystem['readFileSync']
+    }
+    const contents = new Store(dir, failing).load()
+    expect(contents.rules).toEqual([{ slug: 'oil-pressure-low', value: oil }])
+    expect(contents.issues).toEqual([expect.stringMatching(/unreadable\.json.*EIO/)])
+  })
+
+  it('reports a corrupt file it cannot move aside and loads the rest', () => {
+    const store = new Store(dir)
+    store.load()
+    store.saveRule(oil)
+    writeFileSync(join(dir, 'rules', 'broken.json'), 'not json')
+    writeFileSync(join(dir, 'accumulators.json'), '{')
+    const readOnly: FileSystem = {
+      ...fs,
+      renameSync: () => {
+        throw new Error('EROFS: read-only file system')
+      }
+    }
+    const contents = new Store(dir, readOnly).load()
+    expect(contents.rules).toEqual([{ slug: 'oil-pressure-low', value: oil }])
+    expect(contents.accumulators).toEqual({})
+    expect(contents.issues).toEqual([
+      expect.stringMatching(/broken\.json.*EROFS/),
+      expect.stringMatching(/accumulators\.json.*EROFS/)
+    ])
+  })
+
   it('returns a parseable rule as stored and leaves validating it to the caller', () => {
     const store = new Store(dir)
     store.load()
