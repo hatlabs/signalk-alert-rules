@@ -107,10 +107,19 @@ export interface RuleSuppression {
   autoEndAfter?: number
 }
 
+/** The ruleset that provides a rule, and the package that ships it, if any. */
+export interface RuleSource {
+  name: string
+  version: string
+  package?: { name: string; version: string }
+}
+
 /** A rule entry, as `GET /rules` answers it. */
 export interface RuleEntry {
   origin: string
   slug: string
+  /** Present for a ruleset rule only. */
+  ruleset?: RuleSource
   rule: RuleInfo
   enabled: boolean
   note?: string
@@ -401,6 +410,18 @@ export function parseRuleEntry(body: unknown, what: string): RuleEntry {
     if (typeof v.combinator !== 'string' || !Array.isArray(v.inputs)) throw malformed(what)
     return { paths: v.inputs.map((i) => string(record(i).path)), combinator: v.combinator }
   }
+  const nameVersion = (v: unknown) => {
+    const r = record(v)
+    return { name: string(r.name), version: string(r.version) }
+  }
+  const ruleSource = (v: unknown): RuleSource | undefined => {
+    if (v === undefined) return undefined
+    const r = record(v)
+    return {
+      ...nameVersion(r),
+      ...optional('package', r.package === undefined ? undefined : nameVersion(r.package))
+    }
+  }
   const rule = (r: unknown): RuleInfo => {
     const v = record(r)
     const d = record(v.detector)
@@ -426,6 +447,7 @@ export function parseRuleEntry(body: unknown, what: string): RuleEntry {
   return {
     origin: string(entry.origin),
     slug: string(entry.slug),
+    ...optional('ruleset', ruleSource(entry.ruleset)),
     rule: rule(entry.rule),
     enabled: entry.enabled,
     ...optional('note', text(entry.note)),
@@ -597,17 +619,29 @@ export function getJson(fetchFn: typeof fetch, path: string): Promise<unknown> {
   return requestJson(fetchFn, path)
 }
 
+/**
+ * A mutating JSON request, failing as `getJson` does; answers undefined for a
+ * 204. The server refuses a mutating request without this content type; that
+ * is what keeps another site from acting through an admin's session.
+ */
+export function sendJson(
+  fetchFn: typeof fetch,
+  method: string,
+  path: string,
+  body?: unknown
+): Promise<unknown> {
+  return requestJson(fetchFn, path, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) })
+  })
+}
+
 /** The API over HTTP, relative to the admin UI's origin. */
 export function httpApi(fetchFn: typeof fetch = (input, init) => fetch(input, init)): PanelApi {
   const request = (path: string, init: RequestInit = {}) => requestJson(fetchFn, path, init)
-  // The server refuses a mutating request without this content type; that is
-  // what keeps another site from acting through an admin's session.
   const send = (method: string, path: string, body?: unknown) =>
-    request(path, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) })
-    })
+    sendJson(fetchFn, method, path, body)
   const ruleRoute = (origin: string, slug: string) =>
     `${PLUGIN_BASE}/rules/${encodeURIComponent(origin)}/${encodeURIComponent(slug)}`
   const suppressedRule = (origin: string, slug: string) =>

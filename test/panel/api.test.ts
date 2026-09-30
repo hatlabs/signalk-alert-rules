@@ -317,6 +317,28 @@ describe('httpApi', () => {
       })
     })
 
+    it('reads the ruleset of a ruleset rule', async () => {
+      const ruleset = {
+        name: 'Engine pack',
+        version: '2.1.0',
+        package: { name: 'signalk-engine-pack', version: '2.1.0' }
+      }
+      const fromFile = { name: 'Extra', version: '1' }
+      const api = httpApi(
+        fakeFetch({
+          [`${BASE}/rules`]: {
+            body: [
+              { ...disabledAccumulator, ruleset },
+              { ...disabledAccumulator, slug: 'other', ruleset: fromFile }
+            ]
+          }
+        })
+      )
+      const [packaged, file] = await api.rules()
+      expect(packaged.ruleset).toEqual(ruleset)
+      expect(file.ruleset).toEqual(fromFile)
+    })
+
     it('reads a position value', async () => {
       const position = { latitude: 60.1, longitude: 24.9 }
       const entry = {
