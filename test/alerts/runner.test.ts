@@ -134,29 +134,55 @@ describe('rule runner', () => {
     expect(core.getByPath(OIL_ALERT)?.condition).toBe(false)
   })
 
-  it('a message edit on an active rule is not emitted until the next raise', () => {
-    const { at, run, runner, sent } = setup([oil])
+  it('a message or priority edit on an active rule is sent with the next heartbeat', () => {
+    const { at, run, runner, sent, core } = setup([oil])
     at(0, OIL, 0)
     run(1, 5)
-    runner.update({ origin: 'user', rule: { ...oil, message: 'Check the oil' } })
-    run(6, 30)
-    expect(sent.length).toBeGreaterThan(1)
-    expect(sent.map(([, v]) => v?.message)).toEqual(sent.map(() => 'Engine oil pressure is low'))
-    at(31, OIL, 300000)
-    run(32, 45)
-    at(46, OIL, 0)
-    run(47, 51)
-    expect(sent.at(-1)?.[1]?.message).toBe('Check the oil')
+    const raised = sent[0]?.[1]
+    runner.update({
+      origin: 'user',
+      rule: { ...oil, message: 'Check the oil', priority: 'emergency' }
+    })
+    expect(sent).toHaveLength(1)
+    run(6, 5 + HEARTBEAT_S)
+    expect(sent.at(-1)).toEqual([
+      OIL_ALERT,
+      { priority: 'emergency', message: 'Check the oil', latching: false, data: raised?.data }
+    ])
+    expect(core.getByPath(OIL_ALERT)).toMatchObject({
+      priority: 'emergency',
+      message: 'Check the oil'
+    })
   })
 
-  it('adopts an alert of an existing rule with core message and priority, without raising', () => {
+  it("adopts an alert of an existing rule with the rule's current message and no data, without raising", () => {
     const core = coreWith(OIL_ALERT, 'Old message')
     const { at, run, sent } = setup([{ ...oil, message: 'New message' }], { core })
     at(0, OIL, 0)
     run(1, 2 * HEARTBEAT_S)
-    expect(core.alertings).toBe(0)
     expect(sent.length).toBeGreaterThan(1)
-    expect(sent.every(([, v]) => v?.message === 'Old message')).toBe(true)
+    expect(sent.every(([, v]) => v?.message === 'New message' && v.data === undefined)).toBe(true)
+    expect(core.getByPath(OIL_ALERT)?.data).toEqual({ rule: 'user.oil-pressure-low' })
+  })
+
+  it("an adopted wildcard alert's message keeps the instance name its raise used", () => {
+    const core = new FakeAlertsCore()
+    core.ingest(PLUGIN, 'rules.user.coolant-high.port_aft', {
+      priority: 'alarm',
+      message: 'Coolant high on port.aft',
+      latching: false,
+      data: { rule: 'user.coolant-high', instance: 'port.aft' }
+    })
+    core.alertings = 0
+    const { sent } = setup([coolant], { core })
+    expect(sent.at(0)?.[1]?.message).toBe('Coolant high on port.aft')
+    expect(core.alertings).toBe(0)
+  })
+
+  it("an adopted wildcard alert's message names its instance", () => {
+    const core = coreWith(PORT_ALERT)
+    const { sent } = setup([coolant], { core })
+    expect(sentTo(sent, PORT_ALERT)[0]?.[1]?.message).toBe('Coolant high on port')
   })
 
   it('clears an alert whose rule was deleted', () => {

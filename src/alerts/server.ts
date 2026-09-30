@@ -69,8 +69,7 @@ export function serverDeps(app: ServerAPI, pluginId: string): RunnerDeps {
     clock: monotonic,
     wallClock: () => new Date(),
     alerts: {
-      list: (): CoreAlert[] => alerts.list(),
-      getByPath: (path) => alerts.getByPath(path)
+      list: (): CoreAlert[] => alerts.list()
     },
     send: (path, value) => {
       const delta: Partial<Delta> = {
