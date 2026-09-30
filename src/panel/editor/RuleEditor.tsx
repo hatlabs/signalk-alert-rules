@@ -86,9 +86,18 @@ interface FormProps extends Omit<RuleEditorProps, 'paths'> {
 
 function Section({ id, children }: { id: SectionId; children: ReactNode }) {
   const headingId = useId()
+  // The name section holds a single field labelled Name; a heading of the
+  // same word straight above it would read as a stray label.
+  if (id === 'name') {
+    return (
+      <section className="skar-form-section" aria-label={HEADINGS[id]}>
+        {children}
+      </section>
+    )
+  }
   return (
     <section className="skar-form-section" aria-labelledby={headingId}>
-      <h4 id={headingId} className="h6">
+      <h4 id={headingId} className="skar-section-heading">
         {HEADINGS[id]}
       </h4>
       {children}
@@ -291,7 +300,7 @@ function EditorForm({ api, paths, units, editing, onSaved, onClose, onDirtyChang
               setAdvancedOpen(event.currentTarget.open)
             }}
           >
-            <summary className="h6">{HEADINGS.advanced}</summary>
+            <summary className="skar-section-heading">{HEADINGS.advanced}</summary>
             <AdvancedFields
               detector={form.detector}
               update={updateDetector}
