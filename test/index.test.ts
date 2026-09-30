@@ -188,4 +188,29 @@ describe('plugin', () => {
 
     await plugin.stop()
   })
+
+  it('logs a failing checkpoint once and restores the status when the disk recovers', async () => {
+    storeRule(hours)
+    storeRule({ ...hours, slug: 'genset-hours', priority: 'loud' })
+    const app = new MockServerAPI(true, dir)
+    const plugin = createPlugin(app.asServerAPI())
+    plugin.start({}, () => undefined)
+    const running = app.pluginStatus
+    const loadErrors = app.errors.length
+    app.subscriptionmanager.publish(RPM, 'src', 30)
+    mkdirSync(join(dir, 'accumulators.json', 'blocker'), { recursive: true })
+
+    vi.advanceTimersByTime(180_000)
+    expect(app.pluginError).toMatch(/accumulator totals/)
+    expect(app.errors.slice(loadErrors)).toEqual([expect.stringMatching(/accumulator totals/)])
+
+    rmSync(join(dir, 'accumulators.json'), { recursive: true })
+    vi.advanceTimersByTime(60_000)
+    expect(app.pluginError).toBeUndefined()
+    expect(app.pluginStatus).toBe(running)
+    expect(app.pluginStatus).toMatch(/^Running; .*genset-hours/)
+    expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 240 } })
+
+    await plugin.stop()
+  })
 })

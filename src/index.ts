@@ -38,16 +38,6 @@ export default function createPlugin(app: ServerAPI): Plugin {
     app.setPluginError(text)
   }
 
-  const checkpoint = (running: Application) => {
-    try {
-      running.checkpoint()
-    } catch (err) {
-      const text = `Could not save accumulator totals: ${errorMessage(err)}`
-      app.error(text)
-      app.setPluginError(text)
-    }
-  }
-
   const plugin: Plugin = {
     id: PLUGIN_ID,
     name: 'Alert Rules',
@@ -69,6 +59,27 @@ export default function createPlugin(app: ServerAPI): Plugin {
       }
       running.start()
       application = running
+      const status =
+        running.issues.length === 0 ? 'Running' : `Running; ${running.issues.join('; ')}`
+      // A disk that stays full fails every checkpoint: report the failure
+      // once, and the recovery.
+      let checkpointFailed = false
+      const checkpoint = () => {
+        try {
+          running.checkpoint()
+        } catch (err) {
+          if (checkpointFailed) return
+          checkpointFailed = true
+          const text = `Could not save accumulator totals: ${errorMessage(err)}`
+          app.error(text)
+          app.setPluginError(text)
+          return
+        }
+        if (checkpointFailed) {
+          checkpointFailed = false
+          app.setPluginStatus(status)
+        }
+      }
       timers = [
         setInterval(() => {
           // An exception escaping a timer would take the whole server down.
@@ -78,14 +89,10 @@ export default function createPlugin(app: ServerAPI): Plugin {
             app.error(`Evaluation failed: ${errorMessage(err)}`)
           }
         }, TICK_MS),
-        setInterval(() => {
-          checkpoint(running)
-        }, CHECKPOINT_MS)
+        setInterval(checkpoint, CHECKPOINT_MS)
       ]
       for (const issue of running.issues) app.error(issue)
-      app.setPluginStatus(
-        running.issues.length === 0 ? 'Running' : `Running; ${running.issues.join('; ')}`
-      )
+      app.setPluginStatus(status)
     },
 
     stop() {
