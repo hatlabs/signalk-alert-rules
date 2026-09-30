@@ -78,6 +78,19 @@ describe('alert emitter', () => {
     expect(core.getByPath(PATH)?.state).toBe('rtn-unacknowledged')
   })
 
+  it('a latching raise is sent once and held nowhere: no heartbeat, repeat or clear follows', () => {
+    const { core, sent, emitter, evidence } = setup()
+    const event = { ...alarm, latching: true }
+    emitter.raise(PATH, event, evidence, 0)
+    emitter.beat(HEARTBEAT_S)
+    emitter.repeat(PATH, HEARTBEAT_S + 1)
+    emitter.beat(2 * HEARTBEAT_S)
+    emitter.clear(PATH)
+    expect(sent).toEqual([[PATH, event]])
+    expect(emitter.status(PATH)).toBeUndefined()
+    expect(core.getByPath(PATH)).toMatchObject({ condition: false, state: 'unacknowledged' })
+  })
+
   it('without input evidence it stops heartbeating, so core can mark the alert stale', () => {
     const { sent, emitter, evidence, setEvidence } = setup()
     emitter.raise(PATH, alarm, evidence, 0)

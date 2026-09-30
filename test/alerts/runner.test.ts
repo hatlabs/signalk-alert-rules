@@ -69,9 +69,20 @@ const batteryZones: PathMeta = {
     { lower: 11.5, upper: 12, state: 'warn', message: 'Battery low' }
   ]
 }
+const PUMP = 'electrical.switches.bilgePump.state'
+const pumpCycling = valid({
+  name: 'Bilge pump cycling',
+  slug: 'bilge-pump-cycling',
+  message: 'Bilge pump is cycling',
+  priority: 'alarm',
+  signal: { path: PUMP },
+  detector: { type: 'count', event: { op: 'changesTo', value: true }, window: 60, limit: 1 }
+})
+const latchingPump = valid({ ...pumpCycling, latching: true })
 const BATTERY_ALERT = 'rules.user.house-battery-low'
 const OIL_ALERT = 'rules.user.oil-pressure-low'
 const PORT_ALERT = 'rules.user.coolant-high.port'
+const PUMP_ALERT = 'rules.user.bilge-pump-cycling'
 
 function setup(
   rules: Rule[],
@@ -122,6 +133,24 @@ function coreWith(path: string, message = 'Engine oil pressure is low'): FakeAle
     latching: false,
     data: { rule: 'user.oil-pressure-low' }
   })
+  core.alertings = 0
+  return core
+}
+
+/** Two pump starts from `t`, which puts the pump rule over its limit at `t + 3`. */
+function pumpStarts(at: (t: number, path: string, value: Value) => void, t: number): void {
+  for (const [dt, on] of [
+    [0, false],
+    [1, true],
+    [2, false],
+    [3, true]
+  ] as const)
+    at(t + dt, PUMP, on)
+}
+
+function coreWithLatching(path: string, message: string): FakeAlertsCore {
+  const core = new FakeAlertsCore()
+  core.ingest(PLUGIN, path, { priority: 'alarm', message, latching: true })
   core.alertings = 0
   return core
 }
@@ -405,6 +434,60 @@ describe('rule runner', () => {
     core.reportEnded('alerts-api', OIL_ALERT)
     run(6, 5 + HEARTBEAT_S)
     expect(core.getByPath(OIL_ALERT)?.condition).toBe(true)
+  })
+
+  it('a latching rule raises once on entry, and sends nothing while its condition lasts or when it ends', () => {
+    const { at, run, runner, sent, core } = setup([latchingPump])
+    pumpStarts(at, 0)
+    pumpStarts(at, 10)
+    runner.update({ origin: 'user', rule: { ...latchingPump, message: 'Check the bilge' } })
+    run(14, 13 + 60 + 3 * HEARTBEAT_S)
+    expect(sent).toEqual([
+      [PUMP_ALERT, expect.objectContaining({ priority: 'alarm', latching: true })]
+    ])
+    expect(core.getByPath(PUMP_ALERT)).toMatchObject({ condition: false, state: 'unacknowledged' })
+  })
+
+  it('a latching rule raises again when its condition returns, and core alerts each time', () => {
+    const { at, run, sent, core } = setup([latchingPump])
+    pumpStarts(at, 0)
+    run(4, 70)
+    pumpStarts(at, 100)
+    run(104, 103 + HEARTBEAT_S)
+    expect(sent.map(([, v]) => v?.latching)).toEqual([true, true])
+    expect(core.alertings).toBe(2)
+  })
+
+  it('a latching alert core holds at start is neither adopted nor sent anything', () => {
+    const core = coreWithLatching(PUMP_ALERT, 'Bilge pump is cycling')
+    const { at, run, sent, runner } = setup([latchingPump], { core })
+    at(0, PUMP, false)
+    run(1, 3 * HEARTBEAT_S)
+    expect(sent).toEqual([])
+    expect(runner.status('user.bilge-pump-cycling')?.instances[0]).toMatchObject({
+      active: false,
+      adopted: false
+    })
+    expect(core.getByPath(PUMP_ALERT)).toMatchObject({ condition: false, state: 'unacknowledged' })
+  })
+
+  it('turning latching on clears an active alert, and the next occurrence raises once as an event', () => {
+    const { at, run, runner, sent } = setup([pumpCycling])
+    pumpStarts(at, 0)
+    runner.update({ origin: 'user', rule: latchingPump })
+    pumpStarts(at, 10)
+    run(14, 13 + 3 * HEARTBEAT_S)
+    expect(sent.map(([, v]) => v?.latching ?? null)).toEqual([false, null, true])
+  })
+
+  it('turning latching off has nothing to clear, and the next occurrence raises an active alert', () => {
+    const { at, run, runner, sent, core } = setup([latchingPump])
+    pumpStarts(at, 0)
+    runner.update({ origin: 'user', rule: pumpCycling })
+    pumpStarts(at, 10)
+    run(14, 13 + HEARTBEAT_S)
+    expect(sent.map(([, v]) => v?.latching ?? null)).toEqual([true, false, false])
+    expect(core.getByPath(PUMP_ALERT)).toMatchObject({ condition: true, latching: false })
   })
 
   it('starts a rule added while running', () => {

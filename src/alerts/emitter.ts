@@ -60,15 +60,21 @@ export interface AlertStatus {
  * core no longer holds as active. A clear reports that the condition ended
  * and is the last thing SKAR says about the alert. Heartbeats repeat the
  * raise while `evidence` says the rule's input is reporting; without it core
- * marks the alert stale instead of SKAR clearing it. Stopping never clears.
+ * marks the alert stale instead of SKAR clearing it. A latching raise is the
+ * whole of its alert. Stopping never clears.
  */
 export class AlertEmitter {
   private readonly slots = new Map<string, Slot>()
 
   constructor(private readonly deps: EmitterDeps) {}
 
+  /**
+   * A latching raise reports a momentary event, which core holds as ended
+   * from the start and announces anew on every raise, so it is sent once and
+   * not held: a heartbeat or repeat of it would be another occurrence.
+   */
   raise(path: string, value: AlertValue, evidence: () => boolean, now: number): void {
-    this.slots.set(path, { value, evidence, lastBeat: now })
+    if (!value.latching) this.slots.set(path, { value, evidence, lastBeat: now })
     this.deps.send(path, value)
   }
 
