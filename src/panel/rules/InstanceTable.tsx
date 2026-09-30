@@ -19,9 +19,15 @@ function ProgressCell({ progress, display }: { progress?: Progress; display: Rul
     case 'timer': {
       const text = `${formatDuration(progress.elapsed)} of ${formatDuration(progress.target)} toward ${progress.toward}`
       return (
+        // Beside the bar the text wraps mid-phrase in a narrow table; under it, it stays whole.
         <>
-          <progress value={progress.elapsed} max={progress.target} aria-label={text} />{' '}
-          <span>{text}</span>
+          <progress
+            className="d-block w-100"
+            value={progress.elapsed}
+            max={progress.target}
+            aria-label={text}
+          />
+          <span className="small text-nowrap">{text}</span>
         </>
       )
     }
@@ -77,8 +83,9 @@ export function InstanceTable({ instances, display }: InstanceTableProps) {
                   <div className="skar-instance-summary">at {i.priority}</div>
                 )}
               </td>
-              <td>{valueText(i, display)}</td>
-              <td>{i.limit === undefined ? '' : display.value(i.limit)}</td>
+              {/* A number wrapped apart from its unit reads as two values. */}
+              <td className="text-nowrap">{valueText(i, display)}</td>
+              <td className="text-nowrap">{i.limit === undefined ? '' : display.value(i.limit)}</td>
               <td>
                 <ProgressCell progress={i.progress} display={display} />
               </td>
