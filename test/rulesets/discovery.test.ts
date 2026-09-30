@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, cp, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -261,6 +261,46 @@ describe('discoverRulesets', () => {
       dropIn: join(root, 'nada')
     })
     expect(result).toEqual({ rulesets: [], problems: [] })
+  })
+
+  it('reports an unreadable scope directory and loads the other packages', async () => {
+    await writePackage(
+      '@locked/rules',
+      { [RULESET_FIELD]: 'r.yaml' },
+      { 'r.yaml': rulesetYaml('locked') }
+    )
+    await writePackage('open', { [RULESET_FIELD]: 'r.yaml' }, { 'r.yaml': rulesetYaml('open') })
+    const scope = join(nodeModules, '@locked')
+    await chmod(scope, 0o000)
+    let result: DiscoveryResult
+    try {
+      result = await discover()
+    } finally {
+      // Without read permission the temporary tree cannot be removed.
+      await chmod(scope, 0o755)
+    }
+
+    expect(slugs(result)).toEqual(['open'])
+    expect(result.problems).toEqual([
+      { source: `directory ${scope}`, message: expect.stringContaining('EACCES') as string }
+    ])
+  })
+
+  it('reports an unreadable drop-in directory and loads the packages', async () => {
+    await writePackage('open', { [RULESET_FIELD]: 'r.yaml' }, { 'r.yaml': rulesetYaml('open') })
+    await writeFile(join(dropIn, 'hidden.yaml'), rulesetYaml('hidden'))
+    await chmod(dropIn, 0o000)
+    let result: DiscoveryResult
+    try {
+      result = await discover()
+    } finally {
+      await chmod(dropIn, 0o755)
+    }
+
+    expect(slugs(result)).toEqual(['open'])
+    expect(result.problems).toEqual([
+      { source: `directory ${dropIn}`, message: expect.stringContaining('EACCES') as string }
+    ])
   })
 
   it('keeps unquoted on, yes, no and stopped as strings', async () => {

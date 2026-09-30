@@ -65,7 +65,7 @@ export async function discoverRulesets(dirs: DiscoveryDirs): Promise<DiscoveryRe
   const problems: DiscoveryProblem[] = []
   const candidates: Candidate[] = []
   if (dirs.nodeModules !== undefined)
-    for (const dir of await packageDirs(dirs.nodeModules)) {
+    for (const dir of await packageDirs(dirs.nodeModules, problems)) {
       const pkg = await readPackageJson(dir)
       try {
         const candidate = await packageCandidate(dir, pkg)
@@ -75,7 +75,7 @@ export async function discoverRulesets(dirs: DiscoveryDirs): Promise<DiscoveryRe
         problems.push(problemOf(`package ${label}`, err))
       }
     }
-  if (dirs.dropIn !== undefined) candidates.push(...(await dropInCandidates(dirs.dropIn)))
+  if (dirs.dropIn !== undefined) candidates.push(...(await dropInCandidates(dirs.dropIn, problems)))
 
   const rulesets: LoadedRuleset[] = []
   const taken = new Map<string, string>()
@@ -105,21 +105,25 @@ function problemOf(source: string, err: unknown): DiscoveryProblem {
   return { source, message: err instanceof Error ? err.message : String(err) }
 }
 
-async function listDir(dir: string): Promise<string[]> {
+/**
+ * An unreadable directory, such as a root-owned scope left by `sudo npm
+ * install`, is reported and skipped so that it cannot hide every other ruleset.
+ */
+async function listDir(dir: string, problems: DiscoveryProblem[]): Promise<string[]> {
   try {
     return (await readdir(dir)).filter((name) => !name.startsWith('.')).sort()
   } catch (err) {
     const { code } = err as NodeJS.ErrnoException
-    if (code === 'ENOENT' || code === 'ENOTDIR') return []
-    throw err
+    if (code !== 'ENOENT' && code !== 'ENOTDIR') problems.push(problemOf(`directory ${dir}`, err))
+    return []
   }
 }
 
-async function packageDirs(nodeModules: string): Promise<string[]> {
+async function packageDirs(nodeModules: string, problems: DiscoveryProblem[]): Promise<string[]> {
   const dirs: string[] = []
-  for (const name of await listDir(nodeModules)) {
+  for (const name of await listDir(nodeModules, problems)) {
     if (name.startsWith('@'))
-      for (const scoped of await listDir(join(nodeModules, name)))
+      for (const scoped of await listDir(join(nodeModules, name), problems))
         dirs.push(join(nodeModules, name, scoped))
     else dirs.push(join(nodeModules, name))
   }
@@ -167,8 +171,8 @@ async function packageCandidate(
   return { source: `package ${name}`, package: { name, version }, file }
 }
 
-async function dropInCandidates(dir: string): Promise<Candidate[]> {
-  return (await listDir(dir))
+async function dropInCandidates(dir: string, problems: DiscoveryProblem[]): Promise<Candidate[]> {
+  return (await listDir(dir, problems))
     .filter((name) => RULESET_EXTENSIONS.has(extname(name).toLowerCase()))
     .map((name) => ({ source: `file ${name}`, file: join(dir, name) }))
 }
