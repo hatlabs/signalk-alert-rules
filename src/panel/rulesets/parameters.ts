@@ -1,8 +1,9 @@
 /**
  * The parameter form of a ruleset: what each field shows, and the values
- * object a save sends. A save replaces every stored value, so a parameter at
- * its default is always left out, never sent as its default: an upgrade that
- * changes the default then applies it.
+ * object a save sends. A save replaces every stored value, so a parameter set
+ * to its default is left out, never sent as its default: an upgrade that
+ * changes the default then applies it. Only a value already stored as the
+ * default stays, since the form cannot tell whether that was meant.
  */
 import type { FieldError } from '../api'
 import type { PathEntry } from '../paths/selfPaths'
@@ -80,11 +81,15 @@ export function valuesToSend(
     if (text === initial[p.name] && Object.hasOwn(stored, p.name)) {
       values[p.name] = stored[p.name]
     } else if (p.type === 'string') {
-      values[p.name] = text
+      if (text !== p.default) values[p.name] = text
     } else {
+      const unit = unitOf(p)
       const typed = text.trim() === '' ? NaN : Number(text)
-      if (Number.isFinite(typed)) values[p.name] = toSI('absolute', typed, unitOf(p))
-      else errors.push({ path: `/${p.name}`, message: 'must be a number' })
+      if (!Number.isFinite(typed)) errors.push({ path: `/${p.name}`, message: 'must be a number' })
+      // Compared as shown, since the round trip through the display unit can move the last digits.
+      else if (typed !== Number(shownValue(p, p.default, unit))) {
+        values[p.name] = toSI('absolute', typed, unit)
+      }
     }
   }
   return errors.length > 0 ? { ok: false, errors } : { ok: true, values }

@@ -100,6 +100,26 @@ describe('valuesToSend', () => {
     expect(outcome).toEqual({ ok: true, values: {} })
   })
 
+  it('leaves out a default typed back in, so a later default applies', () => {
+    const outcome = valuesToSend(
+      parameters,
+      stored,
+      initial,
+      { ...initial, hot: '80.0', prefix: 'electrical.batteries.house' },
+      inCelsius
+    )
+    expect(outcome).toEqual({ ok: true, values: {} })
+  })
+
+  it('keeps a stored value equal to the default while it is untouched', () => {
+    const pinned = { hot: 353.15 }
+    const draft = initialDraft(parameters, pinned, inCelsius)
+    expect(valuesToSend(parameters, pinned, draft, draft, inCelsius)).toEqual({
+      ok: true,
+      values: pinned
+    })
+  })
+
   it('sends an untouched stored value exactly, not through the display unit', () => {
     const odd = { hot: 363.1500000001 }
     const draft = initialDraft(parameters, odd, inCelsius)
