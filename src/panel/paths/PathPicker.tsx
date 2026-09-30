@@ -9,6 +9,8 @@ export interface PathPickerProps {
   value: string
   paths: PathList
   onChange: (path: string) => void
+  /** Why the path is not accepted, announced with the input. */
+  errors?: readonly string[]
 }
 
 /** Every whitespace-separated word occurs in the path or the display name. */
@@ -46,11 +48,12 @@ function statusText(paths: PathList, open: boolean, matching: number): string {
  * aria-activedescendant. A typed path is kept as is, because a rule may name
  * a path that has not reported yet.
  */
-export function PathPicker({ label, value, paths, onChange }: PathPickerProps) {
+export function PathPicker({ label, value, paths, onChange, errors = [] }: PathPickerProps) {
   const id = useId()
   const inputId = `${id}-input`
   const listboxId = `${id}-listbox`
   const statusId = `${id}-status`
+  const errorId = `${id}-error`
   const optionId = (index: number) => `${id}-option-${String(index)}`
 
   const [open, setOpen] = useState(false)
@@ -140,7 +143,8 @@ export function PathPicker({ label, value, paths, onChange }: PathPickerProps) {
         aria-expanded={expanded}
         aria-controls={expanded ? listboxId : undefined}
         aria-activedescendant={expanded && active !== null ? optionId(active) : undefined}
-        aria-describedby={statusId}
+        aria-describedby={errors.length === 0 ? statusId : `${statusId} ${errorId}`}
+        aria-invalid={errors.length === 0 ? undefined : true}
         value={value}
         onChange={(event) => {
           onChange(event.target.value)
@@ -181,6 +185,11 @@ export function PathPicker({ label, value, paths, onChange }: PathPickerProps) {
       <div id={statusId} role="status" className="form-text">
         {status}
       </div>
+      {errors.length > 0 && (
+        <div id={errorId} className="invalid-feedback d-block">
+          {errors.join('; ')}
+        </div>
+      )}
     </div>
   )
 }

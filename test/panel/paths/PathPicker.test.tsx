@@ -205,6 +205,22 @@ describe('PathPicker', () => {
     expect(status()).toMatch(/loading paths/i)
   })
 
+  it('marks the input invalid and describes it by its errors', () => {
+    render(
+      <PathPicker
+        label="Input path"
+        value="a.b"
+        paths={ready}
+        errors={['is in V, the other inputs in Hz']}
+        onChange={vi.fn()}
+      />
+    )
+    expect(input().getAttribute('aria-invalid')).toBe('true')
+    const described = (input().getAttribute('aria-describedby') ?? '').split(' ')
+    const texts = described.map((id) => document.getElementById(id)?.textContent)
+    expect(texts).toContain('is in V, the other inputs in Hz')
+  })
+
   it('says why the paths could not be loaded', () => {
     render(<Harness list={{ status: 'failed', error: 'answered 500' }} />)
     expect(screen.getByText(/could not load paths: answered 500/i)).toBeTruthy()
