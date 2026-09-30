@@ -10,13 +10,13 @@ export default tseslint.config(
   {
     languageOptions: {
       parserOptions: {
-        project: ['./tsconfig.lint.json'],
+        project: ['./tsconfig.lint.json', './tsconfig.panel.json'],
         tsconfigRootDir: import.meta.dirname
       }
     }
   },
   {
-    files: ['**/*.ts'],
+    files: ['**/*.{ts,tsx}'],
     rules: {
       eqeqeq: ['error', 'always'],
       'no-return-assign': ['error', 'always'],
@@ -33,6 +33,6 @@ export default tseslint.config(
     }
   },
   {
-    ignores: ['node_modules/**', 'dist/**', '*.config.{js,ts}']
+    ignores: ['node_modules/**', 'dist/**', 'public/**', '*.config.{js,ts}']
   }
 )
