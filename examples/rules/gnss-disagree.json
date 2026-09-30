@@ -1,0 +1,32 @@
+{
+  "name": "GNSS receivers disagree",
+  "slug": "gnss-disagree",
+  "message": "GNSS positions disagree",
+  "priority": "warning",
+  "signal": {
+    "combinator": "positionSpread",
+    "inputs": [
+      {
+        "path": "navigation.position",
+        "source": "gnss.bow"
+      },
+      {
+        "path": "navigation.position",
+        "source": "gnss.stern"
+      },
+      {
+        "path": "navigation.position",
+        "source": "gnss.mast"
+      }
+    ]
+  },
+  "detector": {
+    "type": "sustained",
+    "direction": "above",
+    "limit": {
+      "kind": "fixed",
+      "value": 50
+    },
+    "duration": 20
+  }
+}

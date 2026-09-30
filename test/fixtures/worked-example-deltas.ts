@@ -36,7 +36,7 @@ function value(v: Extract<Reading, { available: true }>['value']): Reading {
 }
 
 export const workedExampleDeltas: Record<string, WorkedExampleDeltas> = {
-  batteryLowFromZones: {
+  'house-battery-low': {
     meta: {
       'electrical.batteries.house.voltage': {
         zones: [
@@ -51,18 +51,18 @@ export const workedExampleDeltas: Record<string, WorkedExampleDeltas> = {
     ],
     expected: [{ signal: 'signal', reading: value(11.8) }]
   },
-  bilgePumpCyclesPerHour: {
+  'bilge-pump-cycling': {
     deltas: [
       { path: 'electrical.switches.bilgePump.state', source: 'relay.1', value: true },
       { path: 'electrical.switches.bilgePump.state', source: 'relay.1', value: false }
     ],
     expected: [{ signal: 'signal', reading: value(false) }]
   },
-  engineHoursSinceService: {
+  'engine-service-due': {
     deltas: [{ path: 'propulsion.main.revolutions', source: 'n2k.10', value: 28.3 }],
     expected: [{ signal: 'signal', reading: value(28.3) }]
   },
-  coolantTemperatureTrend: {
+  'coolant-temperature-rising': {
     deltas: [
       { path: 'propulsion.port.coolantTemperature', source: 'n2k.10', value: 350.1 },
       { path: 'propulsion.starboard.coolantTemperature', source: 'n2k.11', value: 351.4 },
@@ -76,14 +76,14 @@ export const workedExampleDeltas: Record<string, WorkedExampleDeltas> = {
       { signal: 'gate0', instance: 'starboard', reading: { available: false, timedOut: true } }
     ]
   },
-  freshWaterProjectedEmpty: {
+  'fresh-water-running-out': {
     deltas: [
       { path: 'tanks.freshWater.0.currentLevel', source: 'tank.0', value: 0.42 },
       { path: 'tanks.freshWater.0.currentLevel', source: 'tank.0', value: 0.41 }
     ],
     expected: [{ signal: 'signal', reading: value(0.41) }]
   },
-  twinEngineRpmDifference: {
+  'engine-rpm-mismatch': {
     deltas: [
       { path: 'propulsion.port.revolutions', source: 'n2k.10', value: 30 },
       { path: 'propulsion.starboard.revolutions', source: 'n2k.11', value: 26 }
@@ -94,7 +94,7 @@ export const workedExampleDeltas: Record<string, WorkedExampleDeltas> = {
       { signal: 'gate1', reading: value(26) }
     ]
   },
-  gnssPositionSpread: {
+  'gnss-disagree': {
     ranking: ['gnss.mast', 'gnss.bow', 'gnss.stern'],
     deltas: [
       { path: 'navigation.position', source: 'gnss.bow', value: { latitude: 60, longitude: 25 } },
@@ -112,11 +112,11 @@ export const workedExampleDeltas: Record<string, WorkedExampleDeltas> = {
     // 0.0002° of latitude on the mean-radius sphere.
     expected: [{ signal: 'signal', reading: value((6371008.8 * 0.0002 * Math.PI) / 180) }]
   },
-  watchAcknowledgementAbsent: {
+  'watch-not-acknowledged': {
     deltas: [{ path: 'navigation.watch.acknowledged', source: 'panel', value: true }],
     expected: [{ signal: 'signal', reading: value(true) }]
   },
-  headingDifference: {
+  'compasses-disagree': {
     ranking: ['compass.a', 'compass.b'],
     deltas: [
       { path: 'navigation.headingMagnetic', source: 'compass.a', value: 358 * DEG },
@@ -124,14 +124,14 @@ export const workedExampleDeltas: Record<string, WorkedExampleDeltas> = {
     ],
     expected: [{ signal: 'signal', reading: value(5 * DEG) }]
   },
-  engineStateChange: {
+  'engine-stopped': {
     deltas: [
       { path: 'propulsion.port.state', source: 'n2k.10', value: 'started' },
       { path: 'propulsion.port.state', source: 'n2k.10', value: 'stopped' }
     ],
     expected: [{ signal: 'signal', instance: 'port', reading: value('stopped') }]
   },
-  depthSensorTimeout: {
+  'depth-sensor-silent': {
     deltas: [
       { path: 'environment.depth.belowTransducer', source: 'n2k.35', value: 7.3 },
       { path: 'environment.depth.belowTransducer', source: 'n2k.35', value: null, state: timedOut }

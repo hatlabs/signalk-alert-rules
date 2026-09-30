@@ -1,0 +1,29 @@
+{
+  "name": "Compasses disagree",
+  "slug": "compasses-disagree",
+  "message": "Compass headings disagree",
+  "priority": "caution",
+  "signal": {
+    "combinator": "absDifference",
+    "angular": true,
+    "inputs": [
+      {
+        "path": "navigation.headingMagnetic",
+        "source": "compass.a"
+      },
+      {
+        "path": "navigation.headingMagnetic",
+        "source": "compass.b"
+      }
+    ]
+  },
+  "detector": {
+    "type": "sustained",
+    "direction": "above",
+    "limit": {
+      "kind": "fixed",
+      "value": 0.1
+    },
+    "duration": 60
+  }
+}
