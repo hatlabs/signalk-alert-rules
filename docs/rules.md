@@ -310,18 +310,18 @@ An adopted alert ends by its rule's clear criterion or a gate not holding, like 
 
 ### Stopping
 
-Stopping the plugin never clears alerts. Stop runs on every configuration save, enable, disable and server shutdown, and SKAR cannot tell them apart; clearing would re-alert the operator each time. On a server without the alerts API the plugin reports an error and evaluates nothing.
+Stopping the plugin never clears alerts. Stop runs on every configuration save, enable, disable and server shutdown, and SKAR cannot tell them apart; clearing would re-alert the operator each time. On a server without the alerts API the plugin reports an error and evaluates nothing. To clear all of SKAR's alerts, turn evaluation off through the [REST API](api.md#evaluation-switch).
 
 ## Edits
 
-The engine applies an edited rule in place of the running one, without restarting the plugin or other rules. The REST API that delivers edits is not yet implemented (see below).
+An edited rule saved through the [REST API](api.md) replaces the running one without restarting the plugin or other rules. The API can preview an edit, saying whether it would clear an active alert.
 
 | Edit | Effect on an active alert |
 |---|---|
 | signal (paths, sources, combinator, `angular`), gates, `latching`, detector `type`; a match's `op` or `value`; `direction`; a zone limit's `level`; an accumulator's `measure`, `while` or `resetOn`; a count's or absence's `event` | cleared, and the rule restarts from nothing; it raises again once its condition holds |
 | limits (a fixed value, or a zone limit's `path`), `duration`, `clearDuration`, `hysteresis`, `window`, `horizon`, `within`, a count's or accumulator's `limit` | re-evaluated in place; timers and windows are kept, and the current value is checked against the new limit before any timer counts |
 | `message`, `priority` | sent with the next emission; core decides whether it re-alerts |
-| delete | cleared |
+| delete, accumulator reset | cleared |
 
 A restarted accumulator keeps its total when its `measure` is unchanged.
 
@@ -422,10 +422,9 @@ Each rule in [`examples/rules`](../examples/rules) runs in `test/examples.test.t
 
 ## Decided, not yet implemented
 
-The plan (issue 1) has decided the following; later units implement them. The plugin evaluates the user rules stored in its data directory (`rules/<slug>.json`, validated at start; an invalid one is skipped and named in the plugin status), but nothing yet creates them except by hand.
+The plan (issue 1) has decided the following; later units implement them. User rules are stored in the plugin's data directory (`rules/<slug>.json`, validated at start; an invalid one is skipped and named in the plugin status) and managed through the [REST API](api.md).
 
-- **Store and REST API** ([Unit 7](https://github.com/hatlabs/signalk-alert-rules/issues/8)): rules stored in SKAR's data directory behind SKAR's own admin-only REST API, applied per rule without restarting the plugin; accumulator totals persisted, checkpointed every 60 s and on stop; a route serving the status.
-- **Enable and suppression** ([Unit 8](https://github.com/hatlabs/signalk-alert-rules/issues/9)): per-rule enable, suppression per rule and per input path with a note, ending manually or after the alert clears, recording the acting user; disabling, suppressing and accumulator reset clear the rule's alert; a gate whose input is suppressed keeps its last state; clearing all of SKAR's alerts together with disabling evaluation.
+- **Enable and suppression** ([Unit 8](https://github.com/hatlabs/signalk-alert-rules/issues/9)): per-rule enable, suppression per rule and per input path with a note, ending manually or after the alert clears, recording the acting user; disabling and suppressing clear the rule's alert; a gate whose input is suppressed keeps its last state.
 - **Rulesets** ([Unit 9](https://github.com/hatlabs/signalk-alert-rules/issues/10)): discovery from installed packages (keyword `signalk-alert-ruleset`) and a drop-in directory, YAML files, rulesets starting disabled, user overrides that survive upgrades, a rule inactive while its paths are missing, and an upgrade that removes a rule clearing its alert.
 - **Panel** ([Unit 12](https://github.com/hatlabs/signalk-alert-rules/issues/13), [Unit 13](https://github.com/hatlabs/signalk-alert-rules/issues/14)): a confirmation before any edit that clears an active alert, and a link from the alert to its rule, under a documented key in alert data.
 - **Zone and timeout proposals** ([Unit 10](https://github.com/hatlabs/signalk-alert-rules/issues/11), after the MVP).
