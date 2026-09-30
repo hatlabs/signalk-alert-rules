@@ -453,7 +453,7 @@ Each rule in [`examples/rules`](../examples/rules) runs in `test/examples.test.t
 
 ## Decided, not yet implemented
 
-The plan (issue 1) has decided the following; later units implement them. User rules are stored in the plugin's data directory (`rules/<slug>.json`, validated at start; an invalid one is skipped and named in the plugin status) and managed through the [REST API](api.md). Rules from rulesets will take the same [controls](#enable-and-suppression) under their own rule ids.
+The plan (issue 1) has decided the following; later units implement them. Rules from rulesets will take the same [controls](#enable-and-suppression) as user rules, under their own rule ids.
 
 - **Rulesets** ([Unit 9](https://github.com/hatlabs/signalk-alert-rules/issues/10)): discovery from installed packages (keyword `signalk-alert-ruleset`) and a drop-in directory, YAML files, rulesets starting disabled, user overrides that survive upgrades, a rule inactive while its paths are missing, and an upgrade that removes a rule clearing its alert.
 - **Panel** ([Unit 12](https://github.com/hatlabs/signalk-alert-rules/issues/13), [Unit 13](https://github.com/hatlabs/signalk-alert-rules/issues/14)): a confirmation before any edit that clears an active alert, and a link from the alert to its rule, under a documented key in alert data.

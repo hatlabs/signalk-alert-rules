@@ -33,7 +33,7 @@ SKAR serves its rules, their status and its operator actions under the plugin's 
 | `DELETE /suppressions/inputs/:path` | ends an input suppression; 204, also when the path is not suppressed |
 | `GET /suppressions/inputs/:path/preview` | what suppressing the path would do, without doing it |
 
-`origin` is `user` for rules created through this API. Rules from rulesets and the routes that manage rulesets are not implemented yet. `:path` is a Signal K path relative to `vessels.self`, such as `propulsion.port.revolutions`.
+`origin` is `user` for rules created through this API. User rules are stored in the plugin's data directory, one file per rule as `rules/<slug>.json`, and validated at start; one that no longer validates does not run and is named in the plugin status. Rules from rulesets and the routes that manage rulesets are not implemented yet. `:path` is a Signal K path relative to `vessels.self`, such as `propulsion.port.revolutions`.
 
 ### Rule entry
 
@@ -128,7 +128,7 @@ An input suppression preview:
 
 - A rule is named by its id, `rule`, and by the `origin` and `slug` it is made of, as in the rule routes; so is a rule suppression.
 - `suppresses`: the rules whose signal or combinator reads the path, with the wildcard instance that does.
-- `freezes`: per gate that reads the path, by its index in the rule's `gates`, the state each instance of the rule would be frozen at: `instance` for a wildcard rule, and `holds`. `states` is empty for a rule that is not evaluated or has no instance yet.
+- `freezes`: per gate that reads the path, by its index in the rule's `gates`, the state each instance of the rule would be frozen at: `instance` for a wildcard rule, and `holds`. `states` is empty for a rule that is not evaluated or has no instance yet. Suppressing the path stores these states and freezes the gates at them; see [Input suppression](rules.md#input-suppression).
 
 ### Accumulator reset
 
