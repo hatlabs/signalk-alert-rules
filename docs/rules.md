@@ -147,7 +147,7 @@ Active when the value, extended along the trend of the last `window` seconds (as
 
 `measure` (`time` or `integral`), `while`, `resetOn`, `limit`.
 
-Accumulates while the input is available and `while` holds: seconds for `time`, the value integrated over seconds for `integral`. A value holds until the next sample. `while` is `{ "op": "above" | "below" | "equals" | "notEquals", "value": ... }`; `above` and `below` need a number. The condition becomes active when the total reaches `limit` and stays active until a `resetOn` event sets the total to zero. Without `resetOn` it never ends. Only time while the server runs counts. Without `while`, an input that stops reporting without a timed-out marker keeps accumulating.
+Accumulates while the input is available and `while` holds: seconds for `time`, the value integrated over seconds for `integral`. A value holds until the next sample. `while` is `{ "op": "above" | "below" | "equals" | "notEquals", "value": ... }`; `above` and `below` need a number. The condition becomes active when the total reaches `limit` and stays active until a `resetOn` event sets the total to zero. Without `resetOn` it never ends. Only time while the server runs counts. Totals survive a plugin or server restart: SKAR saves them every 60 s and when the plugin stops, so a crash loses at most the last minute. Without `while`, an input that stops reporting without a timed-out marker keeps accumulating.
 
 ### count
 
@@ -364,7 +364,7 @@ Each rule in [`examples/rules`](../examples/rules) runs in `test/examples.test.t
 
 ## Decided, not yet implemented
 
-The plan (issue 1) has decided the following; later units implement them. Until the store lands, the plugin loads no rules and evaluates nothing.
+The plan (issue 1) has decided the following; later units implement them. The plugin evaluates the user rules stored in its data directory (`rules/<slug>.json`, validated at start; an invalid one is skipped and named in the plugin status), but nothing yet creates them except by hand.
 
 - **Store and REST API** ([Unit 7](https://github.com/hatlabs/signalk-alert-rules/issues/8)): rules stored in SKAR's data directory behind SKAR's own admin-only REST API, applied per rule without restarting the plugin; accumulator totals persisted, checkpointed every 60 s and on stop; a status route reporting each instance's live values and time beyond the limit; how an edit of a zone limit's named level reaches an active alert.
 - **Enable and suppression** ([Unit 8](https://github.com/hatlabs/signalk-alert-rules/issues/9)): per-rule enable, suppression per rule and per input path with a note, ending manually or after the alert clears, recording the acting user; disabling, suppressing and accumulator reset clear the rule's alert; a gate whose input is suppressed keeps its last state; clearing all of SKAR's alerts together with disabling evaluation.
