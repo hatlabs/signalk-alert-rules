@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, type RefObject } from 'react'
 import type { RuleEntry } from '../api'
 import { useConfirmation } from '../rules/Confirm'
 import { SuppressDialog, type SuppressContext, type SuppressTarget } from './SuppressDialog'
@@ -29,17 +29,23 @@ export function inputPaths(entry: RuleEntry): string[] {
 export function SuppressButton({
   target,
   context,
-  text = 'Suppress…'
+  text = 'Suppress…',
+  buttonRef
 }: {
   target: SuppressTarget
   context: SuppressContext
   text?: string
+  /** The button, for a view that moves focus to it. */
+  buttonRef?: RefObject<HTMLButtonElement | null>
 }) {
   const dialog = useConfirmation()
   return (
     <>
       <button
-        ref={dialog.trigger}
+        ref={(el) => {
+          dialog.trigger.current = el
+          if (buttonRef !== undefined) buttonRef.current = el
+        }}
         type="button"
         className="btn btn-outline-secondary btn-sm me-2"
         disabled={dialog.open}

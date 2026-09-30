@@ -200,11 +200,19 @@ describe('SuppressionsView', () => {
     fireEvent.click(end)
     const confirm = screen.getByRole('alertdialog', { name: /end the suppression of input/i })
     expect(confirm.textContent).toMatch(/raised again as a new alert/i)
-    await click(within(confirm).getByRole('button', { name: 'End suppression' }))
+    const confirmButton = within(confirm).getByRole('button', { name: 'End suppression' })
+    confirmButton.focus()
+    await click(confirmButton)
     expect(api.endInputSuppression).toHaveBeenCalledWith(RPM)
     expect(refresh).toHaveBeenCalled()
     expect(screen.queryByRole('row', { name: new RegExp(RPM) })).toBeNull()
     expect(rowOf(/oil pressure low/i)).toBeTruthy()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Suppress input…' }))
+    expect(
+      screen
+        .getAllByRole('status')
+        .some((s) => s.textContent === `Ended the suppression of input ${RPM}.`)
+    ).toBe(true)
   })
 
   it('ends a rule suppression by its origin and slug', async () => {

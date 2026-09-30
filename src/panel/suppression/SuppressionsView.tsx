@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { PanelApi, RuleEntry, Suppression } from '../api'
 import { failureMessage } from '../failure'
 import type { PathSource } from '../paths/selfPaths'
@@ -158,6 +158,13 @@ function SuppressionRow({
 export function SuppressionsView({ api, rules, paths, ruleHref, refresh }: SuppressionsViewProps) {
   const [listing, setListing] = useState<Listing>({ status: 'loading' })
   const [reloads, setReloads] = useState(0)
+  const [ended, setEnded] = useState<{ name: string } | undefined>(undefined)
+  const suppressInput = useRef<HTMLButtonElement | null>(null)
+
+  // The ended suppression's row held focus; without a place to go it would drop to the page.
+  useEffect(() => {
+    if (ended !== undefined) suppressInput.current?.focus()
+  }, [ended])
 
   useEffect(() => {
     let cancelled = false
@@ -189,6 +196,13 @@ export function SuppressionsView({ api, rules, paths, ruleHref, refresh }: Suppr
   const end = async (s: Suppression) => {
     if (s.scope === 'rule') await api.endRuleSuppression(s.origin, s.slug)
     else await api.endInputSuppression(s.path)
+    // The server has ended it, so its row goes now rather than after the reload.
+    setListing((last) =>
+      last.status === 'ready'
+        ? { ...last, suppressions: last.suppressions.filter((x) => x !== s) }
+        : last
+    )
+    setEnded({ name: scopeName(s, rules) })
     changed()
   }
 
@@ -204,7 +218,11 @@ export function SuppressionsView({ api, rules, paths, ruleHref, refresh }: Suppr
           target={{ kind: 'input' }}
           context={{ api, rules, paths, done: changed }}
           text="Suppress input…"
+          buttonRef={suppressInput}
         />
+      </div>
+      <div role="status" className="visually-hidden">
+        {ended === undefined ? '' : `Ended the suppression of ${ended.name}.`}
       </div>
       {listing.status === 'loading' && <p role="status">Loading…</p>}
       {listing.status === 'failed' && (
