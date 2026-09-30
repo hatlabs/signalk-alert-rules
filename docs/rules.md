@@ -318,12 +318,14 @@ The engine applies an edited rule in place of the running one, without restartin
 
 | Edit | Effect on an active alert |
 |---|---|
-| signal (paths, sources, combinator, `angular`), gates, `latching`, detector `type`; a match's `op` or `value`; `direction`; an accumulator's `measure`, `while` or `resetOn`; a count's or absence's `event` | cleared, and the rule restarts from nothing; it raises again once its condition holds |
-| limits (a fixed value, or a zone limit's `level` or `path`), `duration`, `clearDuration`, `hysteresis`, `window`, `horizon`, `within`, a count's or accumulator's `limit` | re-evaluated in place; timers and windows are kept, and the current value is checked against the new limit before any timer counts |
+| signal (paths, sources, combinator, `angular`), gates, `latching`, detector `type`; a match's `op` or `value`; `direction`; a zone limit's `level`; an accumulator's `measure`, `while` or `resetOn`; a count's or absence's `event` | cleared, and the rule restarts from nothing; it raises again once its condition holds |
+| limits (a fixed value, or a zone limit's `path`), `duration`, `clearDuration`, `hysteresis`, `window`, `horizon`, `within`, a count's or accumulator's `limit` | re-evaluated in place; timers and windows are kept, and the current value is checked against the new limit before any timer counts |
 | `message`, `priority` | sent with the next emission; core decides whether it re-alerts |
 | delete | cleared |
 
 A restarted accumulator keeps its total when its `measure` is unchanged.
+
+A zone limit's `level` changes what the alert means, so it restarts the rule. Re-evaluated in place, an active alert would report the new level at once, while its detector waits out `clearDuration`, although the value may never have entered that level. After the restart the rule raises at the new level only once the value has been in it for `duration`.
 
 ## Resource bounds
 
@@ -366,7 +368,7 @@ Each rule in [`examples/rules`](../examples/rules) runs in `test/examples.test.t
 
 The plan (issue 1) has decided the following; later units implement them. The plugin evaluates the user rules stored in its data directory (`rules/<slug>.json`, validated at start; an invalid one is skipped and named in the plugin status), but nothing yet creates them except by hand.
 
-- **Store and REST API** ([Unit 7](https://github.com/hatlabs/signalk-alert-rules/issues/8)): rules stored in SKAR's data directory behind SKAR's own admin-only REST API, applied per rule without restarting the plugin; accumulator totals persisted, checkpointed every 60 s and on stop; a status route reporting each instance's live values and time beyond the limit; how an edit of a zone limit's named level reaches an active alert.
+- **Store and REST API** ([Unit 7](https://github.com/hatlabs/signalk-alert-rules/issues/8)): rules stored in SKAR's data directory behind SKAR's own admin-only REST API, applied per rule without restarting the plugin; accumulator totals persisted, checkpointed every 60 s and on stop; a status route reporting each instance's live values and time beyond the limit.
 - **Enable and suppression** ([Unit 8](https://github.com/hatlabs/signalk-alert-rules/issues/9)): per-rule enable, suppression per rule and per input path with a note, ending manually or after the alert clears, recording the acting user; disabling, suppressing and accumulator reset clear the rule's alert; a gate whose input is suppressed keeps its last state; clearing all of SKAR's alerts together with disabling evaluation.
 - **Rulesets** ([Unit 9](https://github.com/hatlabs/signalk-alert-rules/issues/10)): discovery from installed packages (keyword `signalk-alert-ruleset`) and a drop-in directory, YAML files, rulesets starting disabled, user overrides that survive upgrades, a rule inactive while its paths are missing, and an upgrade that removes a rule clearing its alert.
 - **Panel** ([Unit 12](https://github.com/hatlabs/signalk-alert-rules/issues/13), [Unit 13](https://github.com/hatlabs/signalk-alert-rules/issues/14)): a confirmation before any edit that clears an active alert, and a link from the alert to its rule, under a documented key in alert data.

@@ -215,6 +215,59 @@ describe('zone limits', () => {
     expect(evaluator.status().instances[0]).toMatchObject({ level: 'warn', priority: 'warning' })
   })
 
+  describe('an edit of the named level clears and restarts', () => {
+    const graded = {
+      meta: {
+        [VOLTAGE]: {
+          zones: [
+            { upper: 11.5, state: 'alarm' },
+            { lower: 11.5, upper: 12, state: 'warn' },
+            { lower: 12, upper: 12.4, state: 'alert' }
+          ]
+        }
+      }
+    }
+    const watchAlert = valid({
+      ...batteryLow,
+      detector: {
+        ...batteryLow.detector,
+        limit: { kind: 'zone', level: 'alert' },
+        hysteresis: 0.1,
+        clearDuration: 60
+      }
+    })
+    const raiseToWarn = (rule: Rule): Rule =>
+      ({ ...rule, detector: { ...rule.detector, limit: { kind: 'zone', level: 'warn' } } }) as Rule
+
+    it('and a value only in the old level raises nothing at the new one', () => {
+      const { at, log, evaluator } = setup(watchAlert, graded)
+      at(0, VOLTAGE, 12.2)
+      at(30)
+      at(40)
+      evaluator.update(raiseToWarn(watchAlert))
+      for (let t = 41; t <= 200; t++) at(t)
+      expect(log).toEqual([
+        [30, 'raise', '', 'caution'],
+        [40, 'clear', '']
+      ])
+      expect(evaluator.status().instances[0]).toMatchObject({ active: false, limit: 12 })
+    })
+
+    it('and a value in the new level raises at it once the duration has run again', () => {
+      const { at, log, evaluator } = setup(watchAlert, graded)
+      at(0, VOLTAGE, 11.8)
+      at(30)
+      at(40)
+      evaluator.update(raiseToWarn(watchAlert))
+      for (let t = 41; t <= 100; t++) at(t)
+      expect(log).toEqual([
+        [30, 'raise', '', 'warning'],
+        [40, 'clear', ''],
+        [70, 'raise', '', 'warning']
+      ])
+    })
+  })
+
   it('a gate with a zone limit uses only the level it names', () => {
     const rule = valid({
       ...oilPressure,

@@ -172,12 +172,16 @@ function canonical(value: unknown): string {
   )
 }
 
+// A zone limit's named level is structural too: re-evaluated in place, an
+// active alert would at once report the new level, which the value may never
+// have entered, while its detector waits out the clear duration.
 function structure(rule: Rule): string {
   const fields: readonly string[] = ['type', ...STRUCTURAL[rule.detector.type]]
   return canonical({
     signal: rule.signal,
     gates: rule.gates ?? [],
     latching: rule.latching ?? false,
+    level: zoneLimitOf(rule)?.level ?? null,
     detector: Object.fromEntries(
       Object.entries(rule.detector).filter(([key]) => fields.includes(key))
     )
