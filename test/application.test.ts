@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Value } from '@signalk/server-api'
 import { Application, LOG_LIMIT } from '../src/application.js'
+import type { RunnerDeps } from '../src/alerts/runner.js'
 import { serverDeps } from '../src/alerts/server.js'
 import { Store } from '../src/store/store.js'
 import { FakeAlertsCore } from './helpers/FakeAlertsCore.js'
@@ -66,11 +67,13 @@ function stored(rule: Record<string, unknown> & { slug: string }): void {
   writeFileSync(join(dir, 'rules', `${rule.slug}.json`), JSON.stringify(rule))
 }
 
-function setup(store = new Store(dir), core = new FakeAlertsCore()) {
+function setup(store = new Store(dir), core = new FakeAlertsCore(), meta?: RunnerDeps['meta']) {
   const server = new MockServerAPI(true, dir, core)
   let now = 0
+  const serverSide = serverDeps(server.asServerAPI(), PLUGIN)
   const deps = {
-    ...serverDeps(server.asServerAPI(), PLUGIN),
+    ...serverSide,
+    meta: meta ?? serverSide.meta,
     clock: () => now,
     wallClock: () => new Date(WALL)
   }
@@ -456,6 +459,32 @@ describe('application operator actions', () => {
         clearsActiveAlert: false
       }
     })
+  })
+
+  it('previews any edit of a rule that failed to start as a restart clearing its adopted alert', () => {
+    const battery = {
+      name: 'House battery low',
+      slug: 'house-battery-low',
+      message: 'House battery voltage is low',
+      signal: { path: 'electrical.batteries.house.voltage' },
+      detector: { type: 'sustained', direction: 'below', limit: { kind: 'zone', level: 'warn' } }
+    }
+    stored(battery)
+    const core = new FakeAlertsCore()
+    const alert = 'rules.user.house-battery-low'
+    core.ingest(PLUGIN, alert, { priority: 'warning', message: 'x', latching: false })
+    const { application } = setup(undefined, core, () => {
+      throw new Error('meta unreadable')
+    })
+    expect(application.rule('user', battery.slug)?.status?.badge).toBe('errored')
+
+    const reworded = { ...battery, message: 'Check the battery' }
+    expect(application.previewRule(battery.slug, reworded)).toEqual({
+      ok: true,
+      value: { restarts: true, changes: [], activeAlerts: 1, clearsActiveAlert: true }
+    })
+    expect(application.replaceRule(battery.slug, reworded).ok).toBe(true)
+    expect(core.getByPath(alert)?.condition).toBe(false)
   })
 
   it('create refuses an existing slug; replace and preview need an existing rule with the same slug', () => {

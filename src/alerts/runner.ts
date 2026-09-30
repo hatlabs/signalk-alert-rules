@@ -151,6 +151,9 @@ export class RuleRunner {
         carriesTotals(previous.rule, entry.rule)
           ? evaluator.accumulators()
           : undefined
+      // The new evaluator starts without adoption, so the failed one's adopted
+      // alerts would otherwise be heartbeated with nothing to clear them.
+      evaluator?.remove()
       this.startRule(id, entry, undefined, carried)
       return
     }
@@ -191,6 +194,11 @@ export class RuleRunner {
     this.entries.delete(id)
     this.errors.delete(id)
     this.failed.delete(id)
+  }
+
+  /** Whether the rule's evaluator threw at start, so any edit starts it again. */
+  failedToStart(id: string): boolean {
+    return this.failed.has(id)
   }
 
   /** Accumulator totals by rule id and instance segment, for the store's checkpoint. */

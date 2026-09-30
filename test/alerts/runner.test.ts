@@ -772,6 +772,44 @@ describe('rule status', () => {
     expect(sent.map(([path]) => path)).toEqual([OIL_ALERT, BATTERY_ALERT])
   })
 
+  describe('a rule that failed to start with an adopted alert', () => {
+    const failing = () => {
+      const core = new FakeAlertsCore()
+      core.ingest(PLUGIN, BATTERY_ALERT, {
+        priority: 'warning',
+        message: 'House battery voltage is low',
+        latching: false
+      })
+      const meta = {
+        get [VOLTAGE](): PathMeta {
+          throw new Error('meta unreadable')
+        }
+      }
+      const env = setup([batteryLow], { core, meta })
+      expect(env.runner.failedToStart('user.house-battery-low')).toBe(true)
+      expect(core.getByPath(BATTERY_ALERT)?.condition).toBe(true)
+      return env
+    }
+
+    it('clears the alert when edited', () => {
+      const { core, run, runner, sent } = failing()
+      runner.update({ origin: 'user', rule: { ...batteryLow, message: 'Check the battery' } })
+      expect(core.getByPath(BATTERY_ALERT)?.condition).toBe(false)
+      const cleared = sent.length
+      run(1, 120)
+      expect(sent.slice(cleared)).toEqual([])
+    })
+
+    it('clears the alert when deleted', () => {
+      const { core, run, runner, sent } = failing()
+      runner.remove('user.house-battery-low')
+      expect(core.getByPath(BATTERY_ALERT)?.condition).toBe(false)
+      const cleared = sent.length
+      run(1, 120)
+      expect(sent.slice(cleared)).toEqual([])
+    })
+  })
+
   it('a failed start keeps the restored accumulator total for the checkpoint', () => {
     const hours = valid({
       name: 'Engine hours',

@@ -41,7 +41,7 @@ SKAR serves its rules, their status and its operator actions under the plugin's 
 { "restarts": true, "changes": ["detector.type"], "activeAlerts": 1, "clearsActiveAlert": true }
 ```
 
-- `restarts`: the edit clears and restarts the rule, per the [edit semantics](rules.md#edits).
+- `restarts`: the edit clears and restarts the rule, per the [edit semantics](rules.md#edits). Any edit restarts a rule that failed to start.
 - `changes`: the parts of the rule that make it restart, by field path: `signal`, `gates`, `latching`, `detector.limit.level`, or `detector.<field>`.
 - `activeAlerts`: how many of the rule's instances have an active alert now.
 - `clearsActiveAlert`: saving the edit would clear an active alert; the panel asks for confirmation.

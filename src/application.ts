@@ -208,7 +208,7 @@ export class Application {
     const changes = current === undefined ? [] : structuralChanges(current, checked.value)
     const status = this.runner?.status(this.idOf(slug))
     const activeAlerts = status?.instances.filter((i) => i.active).length ?? 0
-    const restarts = changes.length > 0
+    const restarts = changes.length > 0 || this.runner?.failedToStart(this.idOf(slug)) === true
     return {
       ok: true,
       value: { restarts, changes, activeAlerts, clearsActiveAlert: restarts && activeAlerts > 0 }
