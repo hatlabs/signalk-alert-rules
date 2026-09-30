@@ -25,6 +25,14 @@ export type SignalValue = number | string | boolean | Position
 export type Reading =
   { available: true; value: SignalValue } | { available: false; timedOut: boolean }
 
+/** Whether an input has a value, is unavailable, or has never been seen since start. */
+export type InputState = 'value' | 'unavailable' | 'neverSeen'
+
+export function inputState(reading: Reading | undefined): InputState {
+  if (reading === undefined) return 'neverSeen'
+  return reading.available ? 'value' : 'unavailable'
+}
+
 export interface Instance {
   /** The path segment the rule's wildcard matched. */
   name: string

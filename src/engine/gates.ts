@@ -1,7 +1,7 @@
 import type { Gate as GateModel } from '../model/rule.js'
 import { createDetector, type Detector } from './detectors/index.js'
 import { resolveLimit, type Zone } from './limits.js'
-import type { Reading } from './signals.js'
+import { inputState, type InputState, type Reading } from './signals.js'
 
 /**
  * Whether a rule is in use, as a sustained comparison on the gate's own
@@ -36,8 +36,8 @@ export class Gate {
     return this.seen && this.problem === undefined && comparison?.active === true
   }
 
-  get inputUnavailable(): boolean {
-    return this.last?.available === false
+  get input(): InputState {
+    return inputState(this.last)
   }
 
   /** Why the gate cannot hold, such as a zone level that is missing. */

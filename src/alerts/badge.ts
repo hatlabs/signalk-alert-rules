@@ -1,5 +1,5 @@
 import type { Progress } from '../engine/detectors/index.js'
-import type { InputState } from '../engine/evaluator.js'
+import type { InputState } from '../engine/signals.js'
 
 /** The closed status list, most important first; disabled and suppressed join it above errored. */
 export const BADGES = [

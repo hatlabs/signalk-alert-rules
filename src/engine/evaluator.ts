@@ -14,17 +14,22 @@ import {
   createDetector,
   type Detector,
   type DetectorOptions,
-  type DetectorSpec
+  type DetectorSpec,
+  type Progress
 } from './detectors/index.js'
 import { Gate } from './gates.js'
 import { resolveLimit, severerLevels, severity, type Zone } from './limits.js'
 import {
+  inputState,
   openSignal,
+  type InputState,
   type Instance,
   type Reading,
   type Sample,
   type SignalValue
 } from './signals.js'
+
+export type { InputState }
 
 /** The parts of a path's `meta` the evaluator reads. */
 export interface PathMeta {
@@ -70,17 +75,27 @@ export type RuleEvent =
   | { type: 'priority'; instance?: Instance; priority: Priority }
   | { type: 'clear'; instance?: Instance }
 
-/** Whether an input has a value, is unavailable, or has never been seen since start. */
-export type InputState = 'value' | 'unavailable' | 'neverSeen'
+export interface GateStatus {
+  /** Whether the gate holds for this instance, as the rule reads it. */
+  holds: boolean
+  input: InputState
+}
 
 export interface InstanceStatus {
   instance?: Instance
   active: boolean
   inUse: boolean
   input: InputState
+  /** The signal's current value in SI units, while it has one; a combined signal's combined value. */
+  value?: SignalValue
+  /** The limit in force, in SI units; a zone limit's named-level threshold. */
+  limit?: number
+  /** How far the detector is toward its next transition. */
+  progress?: Progress
+  /** One entry per gate of the rule, in its order. */
+  gates: GateStatus[]
   /** The alert was adopted from core at start and has not cleared since. */
   adopted: boolean
-  gateInputUnavailable: boolean
   /** The most severe zone level an active zone-limit alert holds. */
   level?: ZoneLevel
   /** The priority an active alert has now. */
@@ -304,20 +319,35 @@ export class RuleEvaluator {
   }
 
   status(): RuleStatus {
+    const now = this.ctx.clock()
     return {
       issues: [...this.issues],
       instances: [...this.units.values()].map((u) => ({
         instance: u.instance,
         active: u.alerting,
         inUse: u.inUse,
-        input: u.last === undefined ? 'neverSeen' : u.last.available ? 'value' : 'unavailable',
+        input: inputState(u.last),
+        value: u.last?.available === true ? u.last.value : undefined,
+        limit: u.limit,
+        progress: u.detector?.progress(now),
+        gates: this.gateStatus(u),
         adopted: u.adoptedAlert,
-        gateInputUnavailable: this.existingGatesOf(u).some((g) => g.inputUnavailable),
         level: u.alerting ? u.level : undefined,
         priority: u.alerting ? priorityOf(this.rule, u.level) : undefined,
         inactive: u.inactive
       }))
     }
+  }
+
+  /**
+   * What an instance's input evidence depends on, read without building the
+   * status: the heartbeat asks for it for every active alert.
+   */
+  evidence(segment: string): Pick<InstanceStatus, 'input' | 'adopted'> | undefined {
+    const unit = this.units.get(segment)
+    return unit === undefined
+      ? undefined
+      : { input: inputState(unit.last), adopted: unit.adoptedAlert }
   }
 
   private unit(key: string, instance?: Instance): Unit {
@@ -380,11 +410,18 @@ export class RuleEvaluator {
     return (this.rule.gates ?? []).map((_, i) => this.gate(i, unit.key, unit.instance))
   }
 
-  private existingGatesOf(unit: Unit): Gate[] {
-    return (this.rule.gates ?? []).flatMap((model, i) => {
+  /** The gates as the unit reads them, without creating any. */
+  private gateStatus(unit: Unit): GateStatus[] {
+    return (this.rule.gates ?? []).map((model, i) => {
       const gate = this.gates[i]?.get(isWildcard(model.signal) ? unit.key : '')
-      return gate === undefined ? [] : [gate]
+      return gate === undefined
+        ? { holds: unit.adoptedAlert, input: 'neverSeen' }
+        : { holds: this.holds(gate, unit), input: gate.input }
     })
+  }
+
+  private holds(gate: Gate, unit: Unit): boolean {
+    return gate.seen ? gate.holdsFor(unit.adoptedAlert) : unit.adoptedAlert
   }
 
   private zones(limit: Limit, signal: Signal, instance: Instance | undefined) {
@@ -450,10 +487,9 @@ export class RuleEvaluator {
       gates.find((g) => g.seen && g.issue !== undefined)?.issue ??
       (resolved.ok ? undefined : resolved.reason)
     unit.inactive = problem
+    unit.limit = resolved.ok ? resolved.limit : undefined
 
-    const gatesHold = gates.every((g) =>
-      g.seen ? g.holdsFor(unit.adoptedAlert) : unit.adoptedAlert
-    )
+    const gatesHold = gates.every((g) => this.holds(g, unit))
     if (problem !== undefined || !gatesHold || !resolved.ok) {
       unit.inUse = false
       if (resolved.ok && resolved.spec.type === 'accumulator') {
@@ -466,7 +502,6 @@ export class RuleEvaluator {
       return
     }
     unit.inUse = true
-    unit.limit = resolved.limit
     const transition = this.drive(unit, resolved, now, feed)
     this.driveLevels(unit, resolved.levels, now, feed)
     const detector = unit.detector

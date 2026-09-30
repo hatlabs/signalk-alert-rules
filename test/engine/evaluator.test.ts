@@ -393,7 +393,7 @@ describe('gates', () => {
     expect(log).toEqual([])
     expect(evaluator.status().instances[0]).toMatchObject({
       inUse: false,
-      gateInputUnavailable: true
+      gates: [{ holds: false, input: 'unavailable' }]
     })
   })
 
@@ -406,7 +406,7 @@ describe('gates', () => {
     at(30, OIL, 0)
     at(35)
     expect(log).toEqual([[35, 'raise', '', 'alarm']])
-    expect(evaluator.status().instances[0]?.gateInputUnavailable).toBe(true)
+    expect(evaluator.status().instances[0]?.gates).toEqual([{ holds: true, input: 'unavailable' }])
   })
 
   it('a gate input never seen since start does not hold', () => {
@@ -993,5 +993,87 @@ describe('zone changes and adopted gates', () => {
     expect(evaluator.status().instances.find((i) => i.instance?.segment === 'port')?.active).toBe(
       true
     )
+  })
+})
+
+describe('live status', () => {
+  it('reports the value, the limit, the timer toward set and toward clear, and each gate', () => {
+    const rule = valid({
+      ...oilPressure,
+      detector: { ...oilPressure.detector, hysteresis: 50000, clearDuration: 10 }
+    })
+    const { at, evaluator } = setup(rule)
+    at(0, RPM, 30)
+    at(0, OIL, 300000)
+    at(10)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      value: 300000,
+      limit: 100000,
+      gates: [{ holds: true, input: 'value' }]
+    })
+    expect(evaluator.status().instances[0]?.progress).toBeUndefined()
+    at(12, OIL, 90000)
+    at(15)
+    expect(evaluator.status().instances[0]?.progress).toEqual({
+      kind: 'timer',
+      toward: 'set',
+      elapsed: 3,
+      target: 5
+    })
+    at(17)
+    at(20, OIL, 200000)
+    at(24)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      active: true,
+      value: 200000,
+      progress: { kind: 'timer', toward: 'clear', elapsed: 4, target: 10 }
+    })
+  })
+
+  it('a gate input never seen does not hold, and one gone unavailable keeps its state', () => {
+    const { at, evaluator } = setup(oilPressure)
+    at(0, OIL, 300000)
+    expect(evaluator.status().instances[0]?.gates).toEqual([{ holds: false, input: 'neverSeen' }])
+    at(1, RPM, 30)
+    at(11)
+    at(12, RPM, null)
+    expect(evaluator.status().instances[0]?.gates).toEqual([{ holds: true, input: 'unavailable' }])
+  })
+
+  it('reports the zone limit resolved to its threshold', () => {
+    const { at, evaluator } = setup(batteryLow, { meta: { [VOLTAGE]: { zones: batteryZones } } })
+    at(0, VOLTAGE, 12.6)
+    expect(evaluator.status().instances[0]).toMatchObject({ value: 12.6, limit: 12 })
+  })
+
+  it('an unavailable input reports no value', () => {
+    const { at, evaluator } = setup(batteryLow, { meta: { [VOLTAGE]: { zones: batteryZones } } })
+    at(0, VOLTAGE, 12.6)
+    at(1, VOLTAGE, null)
+    expect(evaluator.status().instances[0]).toMatchObject({ input: 'unavailable' })
+    expect(evaluator.status().instances[0]?.value).toBeUndefined()
+  })
+
+  it('reports an accumulator total while its rule is out of use', () => {
+    const rule = valid({
+      ...oilPressure,
+      detector: { type: 'accumulator', measure: 'time', limit: 100 }
+    })
+    const { at, evaluator } = setup(rule)
+    at(0, RPM, 0)
+    at(0, OIL, 300000)
+    at(40)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      inUse: false,
+      progress: { kind: 'total', total: 40, limit: 100 }
+    })
+  })
+
+  it('reports the input and adoption of one instance without building the status', () => {
+    const { at, evaluator } = setup(oilPressure, { adopted: [{}] })
+    expect(evaluator.evidence('')).toEqual({ input: 'neverSeen', adopted: true })
+    at(0, OIL, 0)
+    expect(evaluator.evidence('')).toEqual({ input: 'value', adopted: true })
+    expect(evaluator.evidence('port')).toBeUndefined()
   })
 })
