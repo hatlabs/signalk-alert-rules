@@ -9,7 +9,8 @@ import {
   type Event,
   type Limit,
   type Rule,
-  type Signal
+  type Signal,
+  zoneLimitOf
 } from './rule.js'
 import { RulesetSchema, USER_ORIGIN, type ParameterValues, type Ruleset } from './ruleset.js'
 import { RULES_PREFIX } from '../alerts/paths.js'
@@ -404,6 +405,25 @@ function timeoutTypeErrors(rule: Rule, ctx: ValidationContext): ValidationError[
   return []
 }
 
+// A zone-limit rule's priority comes from its zone levels rather than from the
+// rule: a sustained rule escalates through them, a projection keeps the level
+// it names.
+function priorityErrors(rule: Rule): ValidationError[] {
+  const zoned = zoneLimitOf(rule) !== undefined
+  if (zoned && rule.priority !== undefined) {
+    return [
+      {
+        path: '/priority',
+        message: 'a zone-limit rule takes its priority from the zone level it is in'
+      }
+    ]
+  }
+  if (!zoned && rule.priority === undefined) {
+    return [{ path: '/priority', message: 'a rule without a zone limit needs a priority' }]
+  }
+  return []
+}
+
 function semanticErrors(rule: Rule, ctx: ValidationContext): ValidationError[] {
   const signalWildcard = !('combinator' in rule.signal) && hasWildcard(rule.signal.path)
   // A wildcard elsewhere in the rule binds to the signal's instance, so it needs one to bind to.
@@ -411,6 +431,7 @@ function semanticErrors(rule: Rule, ctx: ValidationContext): ValidationError[] {
 
   const errors = [
     ...signalErrors(rule.signal, '/signal', undefined, ctx),
+    ...priorityErrors(rule),
     ...detectorErrors(rule, bound),
     ...timeoutTypeErrors(rule, ctx)
   ]

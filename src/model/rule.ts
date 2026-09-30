@@ -50,6 +50,14 @@ export type Priority = (typeof PRIORITIES)[number]
 export const ZONE_LEVELS = ['alert', 'warn', 'alarm', 'emergency'] as const
 export type ZoneLevel = (typeof ZONE_LEVELS)[number]
 
+/** The priority a zone-limit rule raises at while a zone level is the most severe it holds. */
+export const LEVEL_PRIORITY: Readonly<Record<ZoneLevel, Priority>> = {
+  alert: 'caution',
+  warn: 'warning',
+  alarm: 'alarm',
+  emergency: 'emergency'
+}
+
 type NumberField<N extends TSchema> = (quantity: Quantity, options?: TNumberOptions) => N
 
 /**
@@ -182,7 +190,8 @@ export function ruleSchemas<N extends TSchema>(num: NumberField<N>) {
         [PATTERN_MESSAGE_KEY]: SLUG_MESSAGE
       }),
       message: Type.String({ minLength: 1, maxLength: 500 }),
-      priority: Type.Enum(PRIORITIES),
+      /** Required unless the detector has a zone limit, whose levels set the priority. */
+      priority: Type.Optional(Type.Enum(PRIORITIES)),
       latching: Type.Optional(Type.Boolean()),
       signal: Signal,
       detector: Detector,
@@ -208,3 +217,25 @@ export type Limit = Static<typeof schemas.Limit>
 export type Detector = Static<typeof schemas.Detector>
 export type Gate = Static<typeof schemas.Gate>
 export type Event = Static<typeof schemas.Event>
+
+export type ZoneLimit = Extract<Limit, { kind: 'zone' }>
+
+/** The zone limit of the rule's detector; a gate's zone limit does not count. */
+export function zoneLimitOf(rule: Pick<Rule, 'detector'>): ZoneLimit | undefined {
+  const d = rule.detector
+  if (d.type !== 'sustained' && d.type !== 'projection') return undefined
+  return d.limit.kind === 'zone' ? d.limit : undefined
+}
+
+/**
+ * The priority of a rule's alert while it holds a zone level, or while it
+ * holds its own level when none is given. A rule without a zone limit has one
+ * priority.
+ */
+export function priorityOf(rule: Rule, level?: ZoneLevel): Priority {
+  const held = level ?? zoneLimitOf(rule)?.level
+  if (held !== undefined) return LEVEL_PRIORITY[held]
+  // Validation requires a priority on every rule without a zone limit.
+  if (rule.priority === undefined) throw new Error(`rule ${rule.slug} has no priority`)
+  return rule.priority
+}

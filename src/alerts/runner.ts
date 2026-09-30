@@ -5,7 +5,7 @@ import {
   type InstanceStatus,
   type RuleEvent
 } from '../engine/evaluator.js'
-import type { Rule } from '../model/rule.js'
+import { priorityOf, type Rule } from '../model/rule.js'
 import { alertPathFor } from '../model/validate.js'
 import {
   AlertEmitter,
@@ -42,7 +42,11 @@ export interface RunnerRuleStatus {
 const idOf = (entry: LoadedRule) => ruleId(entry.origin, entry.rule.slug)
 
 /** What the rule says about an instance's alert now. */
-function header(rule: Rule, instance: string | undefined, priority = rule.priority): AlertHeader {
+function header(
+  rule: Rule,
+  instance: string | undefined,
+  priority = priorityOf(rule)
+): AlertHeader {
   return {
     priority,
     message: rule.message.replaceAll('{instance}', instance ?? ''),

@@ -77,7 +77,6 @@ const batteryLow = valid({
   name: 'House battery low',
   slug: 'house-battery-low',
   message: 'House battery voltage is low',
-  priority: 'warning',
   signal: { path: VOLTAGE },
   detector: {
     type: 'sustained',
@@ -91,7 +90,6 @@ const batteryCritical = valid({
   ...batteryLow,
   name: 'House battery critical',
   slug: 'house-battery-critical',
-  priority: 'alarm',
   detector: { ...batteryLow.detector, limit: { kind: 'zone', level: 'alarm' } }
 })
 
@@ -142,7 +140,6 @@ describe('zone limits', () => {
       name: 'Fresh water running out',
       slug: 'fresh-water-running-out',
       message: 'Fresh water tank will be empty soon',
-      priority: 'warning',
       signal: { path: LEVEL },
       detector: {
         type: 'projection',

@@ -1,5 +1,5 @@
 import type { SubscriptionManager } from '@signalk/server-api'
-import type { Limit, Priority, Rule, Signal } from '../model/rule.js'
+import { priorityOf, type Limit, type Priority, type Rule, type Signal } from '../model/rule.js'
 import type { Clock } from './clock.js'
 import {
   AccumulatorDetector,
@@ -444,7 +444,7 @@ export class RuleEvaluator {
     this.onEvent({
       type: 'raise',
       instance: unit.instance,
-      priority: this.rule.priority,
+      priority: priorityOf(this.rule),
       rule: this.rule,
       value,
       limit: unit.limit
