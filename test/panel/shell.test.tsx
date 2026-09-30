@@ -12,7 +12,7 @@ import {
 import type { PathSource } from '../../src/panel/paths/selfPaths'
 import { Shell } from '../../src/panel/Shell'
 import { DISABLED_POLL_INTERVAL_MS, POLL_INTERVAL_MS } from '../../src/panel/shellState'
-import { ruleEntry } from './fixtures'
+import { noAuthoring, ruleEntry } from './fixtures'
 
 interface Server {
   state: PluginState | Error
@@ -30,7 +30,8 @@ function mockApi(server: Server) {
     resetAccumulator: vi.fn((_origin: string, _slug: string): Promise<RuleEntry> =>
       Promise.reject(new Error('not expected'))
     ),
-    setEvaluation: vi.fn((enabled: boolean) => Promise.resolve({ enabled }))
+    setEvaluation: vi.fn((enabled: boolean) => Promise.resolve({ enabled })),
+    ...noAuthoring
   } satisfies PanelApi
   return api
 }

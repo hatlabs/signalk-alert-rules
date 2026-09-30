@@ -3,7 +3,7 @@ import { signalMeasure, type Measure, type UnitLookup } from '../signalUnits'
 import { fromSI } from '../units'
 import { BADGE_LOOK } from './StatusBadge'
 
-export const USER_ORIGIN = 'user'
+export { USER_ORIGIN } from '../api'
 
 export function describeDetector(d: RuleInfo['detector']): string {
   if (d.type === 'accumulator' && d.measure !== undefined) return `accumulator (${d.measure})`

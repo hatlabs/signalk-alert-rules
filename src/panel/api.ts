@@ -1,4 +1,8 @@
 import { BADGES, SUB_LABELS, type Badge, type SubLabel } from '../alerts/badge'
+import type { Rule } from '../model/rule'
+
+/** The origin of rules written through the panel; only they can be edited. */
+export const USER_ORIGIN = 'user'
 
 export { BADGES, SUB_LABELS, type Badge, type SubLabel }
 
@@ -130,6 +134,41 @@ export interface PanelApi {
   resetAccumulator(origin: string, slug: string): Promise<RuleEntry>
   /** Off clears every alert SKAR owns and stops evaluating; on starts every rule afresh. */
   setEvaluation(enabled: boolean): Promise<Evaluation>
+  /** The whole stored rule, which the rule list abbreviates. */
+  ruleDefinition(origin: string, slug: string): Promise<Rule>
+  /** Creates a user rule; it starts enabled. A refused rule rejects with RuleRejectedError. */
+  createRule(rule: Rule): Promise<RuleEntry>
+  /** Replaces a user rule; a refused rule rejects with RuleRejectedError. */
+  updateRule(slug: string, rule: Rule): Promise<RuleEntry>
+  /** What replacing a user rule would do to its alerts and totals, without doing it. */
+  previewRule(slug: string, rule: Rule): Promise<EditPreview>
+}
+
+/** `POST /rules/user/:slug/preview`, as docs/api.md describes it. */
+export interface EditPreview {
+  restarts: boolean
+  /** The parts of the rule that make it restart, by field path. */
+  changes: string[]
+  activeAlerts: number
+  clearsActiveAlert: boolean
+  discardsTotal: boolean
+}
+
+/** A field the server refused, as a JSON pointer into the rule. */
+export interface FieldError {
+  path: string
+  message: string
+}
+
+/** The server refused a rule body; `errors` names each offending field. */
+export class RuleRejectedError extends Error {
+  constructor(
+    message: string,
+    readonly errors: FieldError[]
+  ) {
+    super(message)
+    this.name = 'RuleRejectedError'
+  }
 }
 
 /**
@@ -359,11 +398,70 @@ function parseRules(body: unknown): RuleEntry[] {
   return body.map((entry) => parseRuleEntry(entry, '/rules'))
 }
 
-/** The server's own message from an error body, or the status when it has none. */
+function fieldErrors(v: unknown): FieldError[] | undefined {
+  if (!Array.isArray(v)) return undefined
+  return v.flatMap((e) =>
+    isRecord(e) && typeof e.path === 'string' && typeof e.message === 'string'
+      ? [{ path: e.path, message: e.message }]
+      : []
+  )
+}
+
+/**
+ * The server's own message from an error body, or the status when it has
+ * none. A refused rule carries its field errors; a slug conflict, which the
+ * server reports without them, belongs to the slug.
+ */
 async function failure(res: Response, path: string): Promise<Error> {
   const body: unknown = await res.json().catch(() => undefined)
-  if (isRecord(body) && typeof body.error === 'string') return new Error(body.error)
-  return new Error(`${path} answered ${String(res.status)}`)
+  if (!isRecord(body) || typeof body.error !== 'string') {
+    return new Error(`${path} answered ${String(res.status)}`)
+  }
+  const errors = fieldErrors(body.errors)
+  if (errors !== undefined) return new RuleRejectedError(body.error, errors)
+  if (res.status === 409) {
+    return new RuleRejectedError(body.error, [{ path: '/slug', message: body.error }])
+  }
+  return new Error(body.error)
+}
+
+/**
+ * The stored rule in an entry. The server stores only rules that passed its
+ * validation, so the checks here only catch a server and panel that disagree.
+ */
+function parseRuleDefinition(body: unknown, what: string): Rule {
+  const rule = isRecord(body) ? body.rule : undefined
+  if (
+    !isRecord(rule) ||
+    typeof rule.name !== 'string' ||
+    typeof rule.slug !== 'string' ||
+    typeof rule.message !== 'string' ||
+    !isRecord(rule.signal) ||
+    !isRecord(rule.detector)
+  ) {
+    throw malformed(what)
+  }
+  return rule as unknown as Rule
+}
+
+function parsePreview(body: unknown, what: string): EditPreview {
+  if (
+    !isRecord(body) ||
+    typeof body.restarts !== 'boolean' ||
+    !Array.isArray(body.changes) ||
+    typeof body.activeAlerts !== 'number' ||
+    typeof body.clearsActiveAlert !== 'boolean' ||
+    typeof body.discardsTotal !== 'boolean'
+  ) {
+    throw malformed(what)
+  }
+  return {
+    restarts: body.restarts,
+    changes: body.changes.filter((c): c is string => typeof c === 'string'),
+    activeAlerts: body.activeAlerts,
+    clearsActiveAlert: body.clearsActiveAlert,
+    discardsTotal: body.discardsTotal
+  }
 }
 
 /**
@@ -416,6 +514,22 @@ export function httpApi(fetchFn: typeof fetch = (input, init) => fetch(input, in
     setEvaluation: async (enabled) => {
       const path = `${PLUGIN_BASE}/evaluation`
       return parseEvaluation(await send('PUT', path, { enabled }), path)
+    },
+    ruleDefinition: async (origin, slug) => {
+      const path = ruleRoute(origin, slug)
+      return parseRuleDefinition(await request(path), path)
+    },
+    createRule: async (rule) => {
+      const path = `${PLUGIN_BASE}/rules`
+      return parseRuleEntry(await send('POST', path, rule), path)
+    },
+    updateRule: async (slug, rule) => {
+      const path = ruleRoute(USER_ORIGIN, slug)
+      return parseRuleEntry(await send('PUT', path, rule), path)
+    },
+    previewRule: async (slug, rule) => {
+      const path = `${ruleRoute(USER_ORIGIN, slug)}/preview`
+      return parsePreview(await send('POST', path, rule), path)
     }
   }
 }

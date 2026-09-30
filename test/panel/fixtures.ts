@@ -1,4 +1,17 @@
-import type { InstanceStatus, RuleEntry } from '../../src/panel/api'
+import type { InstanceStatus, PanelApi, RuleEntry } from '../../src/panel/api'
+
+const notExpected = () => Promise.reject(new Error('not expected to be asked'))
+
+/** The authoring routes of a fake API, for tests that never author a rule. */
+export const noAuthoring: Pick<
+  PanelApi,
+  'ruleDefinition' | 'createRule' | 'updateRule' | 'previewRule'
+> = {
+  ruleDefinition: notExpected,
+  createRule: notExpected,
+  updateRule: notExpected,
+  previewRule: notExpected
+}
 
 /** An idle instance with a value, to override per test. */
 export function instance(overrides: Partial<InstanceStatus> = {}): InstanceStatus {

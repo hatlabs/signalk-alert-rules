@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
-import { httpApi, REQUEST_TIMEOUT_MS, SessionExpiredError } from '../../src/panel/api'
+import type { Rule } from '../../src/model/rule'
+import {
+  httpApi,
+  REQUEST_TIMEOUT_MS,
+  RuleRejectedError,
+  SessionExpiredError
+} from '../../src/panel/api'
 
 const BASE = '/plugins/signalk-alert-rules'
 
@@ -409,6 +415,76 @@ describe('httpApi', () => {
     it('rejects an enabled flag that is not a boolean', async () => {
       const api = httpApi(fakeFetch({ [`${BASE}/`]: { body: { ...pluginInfo, enabled: 'yes' } } }))
       await expect(api.pluginEnabled()).rejects.toThrow(/unexpected response/)
+    })
+  })
+
+  describe('rule authoring', () => {
+    const rule = ruleEntry.rule as unknown as Rule
+
+    it('reads the full stored rule of an entry', async () => {
+      const fetchFn = fakeFetch({ [`${BASE}/rules/user/house-battery-low`]: { body: ruleEntry } })
+      expect(await httpApi(fetchFn).ruleDefinition('user', 'house-battery-low')).toEqual(rule)
+    })
+
+    it('rejects an entry whose rule has no signal or detector', async () => {
+      const broken = { ...ruleEntry, rule: { name: 'x', slug: 'x' } }
+      const api = httpApi(fakeFetch({ [`${BASE}/rules/user/x`]: { body: broken } }))
+      await expect(api.ruleDefinition('user', 'x')).rejects.toThrow(/unexpected response/)
+    })
+
+    it('creates a rule with a JSON POST and reads the entry it answers', async () => {
+      const fetchFn = fakeFetch({ [`${BASE}/rules`]: { status: 201, body: ruleEntry } })
+      const entry = await httpApi(fetchFn).createRule(rule)
+      expect(entry.slug).toBe('house-battery-low')
+      const [, init] = fetchFn.mock.calls[0]
+      expect(init?.method).toBe('POST')
+      expect(init?.body).toBe(JSON.stringify(rule))
+      expect(new Headers(init?.headers).get('content-type')).toBe('application/json')
+    })
+
+    it('replaces a user rule with a PUT on its slug', async () => {
+      const fetchFn = fakeFetch({ [`${BASE}/rules/user/house-battery-low`]: { body: ruleEntry } })
+      await httpApi(fetchFn).updateRule('house-battery-low', rule)
+      expect(fetchFn.mock.calls[0][1]?.method).toBe('PUT')
+    })
+
+    it('previews an edit', async () => {
+      const preview = {
+        restarts: true,
+        changes: ['signal'],
+        activeAlerts: 1,
+        clearsActiveAlert: true,
+        discardsTotal: false
+      }
+      const fetchFn = fakeFetch({
+        [`${BASE}/rules/user/house-battery-low/preview`]: { body: preview }
+      })
+      expect(await httpApi(fetchFn).previewRule('house-battery-low', rule)).toEqual(preview)
+      expect(fetchFn.mock.calls[0][1]?.method).toBe('POST')
+    })
+
+    it('carries the field errors of a refused rule', async () => {
+      const errors = [{ path: '/detector/limit/value', message: 'must be a number' }]
+      const api = httpApi(
+        fakeFetch({
+          [`${BASE}/rules`]: { status: 400, body: { error: 'invalid request body', errors } }
+        })
+      )
+      const refused = await api.createRule(rule).catch((err: unknown) => err)
+      expect(refused).toBeInstanceOf(RuleRejectedError)
+      expect((refused as RuleRejectedError).errors).toEqual(errors)
+    })
+
+    it('attaches a slug conflict to the slug', async () => {
+      const api = httpApi(
+        fakeFetch({
+          [`${BASE}/rules`]: { status: 409, body: { error: 'a rule with this slug exists' } }
+        })
+      )
+      const refused = await api.createRule(rule).catch((err: unknown) => err)
+      expect((refused as RuleRejectedError).errors).toEqual([
+        { path: '/slug', message: 'a rule with this slug exists' }
+      ])
     })
   })
 })
