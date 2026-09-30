@@ -178,7 +178,7 @@ describe('withParameters', () => {
 
   it('resolves the rules with the values given and the defaults for the rest', () => {
     const result = withParameters(batteries, { lowVoltage: 13 })
-    expect(result.ok && result.value.map((r) => r.detector)).toMatchObject([
+    expect(result.ok && result.value.rules.map((r) => r.detector)).toMatchObject([
       { limit: { value: 13 } },
       { limit: { value: 11 } }
     ])

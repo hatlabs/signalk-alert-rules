@@ -96,7 +96,14 @@ export function upgradeRuleset(
 }
 
 /** The ruleset's rules with new parameter values, as an operator's change sets them. */
-export function withParameters(ruleset: Ruleset, values: unknown): Result<Rule[]> {
+export function withParameters(
+  ruleset: Ruleset,
+  values: unknown
+): Result<{ parameters: RulesetControl['parameters']; rules: Rule[] }> {
   if (!isRecord(values)) return { ok: false, errors: [{ path: '', message: 'must be an object' }] }
-  return resolveRuleset(ruleset, values)
+  const resolved = resolveRuleset(ruleset, values)
+  if (!resolved.ok) return resolved
+  // Resolving checked each value against its parameter's type.
+  const parameters = values as RulesetControl['parameters']
+  return { ok: true, value: { parameters, rules: resolved.value } }
 }

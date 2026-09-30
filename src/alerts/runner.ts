@@ -229,6 +229,10 @@ export class RuleRunner {
     this.failed.delete(id)
   }
 
+  has(id: string): boolean {
+    return this.entries.has(id)
+  }
+
   /** Whether the rule's evaluator threw at start, so any edit starts it again. */
   failedToStart(id: string): boolean {
     return this.failed.has(id)
