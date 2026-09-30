@@ -461,6 +461,80 @@ const depthTimeout = valid({
   detector: { type: 'match', op: 'timedOut', duration: 30 }
 })
 
+describe('checks when a path reports', () => {
+  const HDG_A = 'navigation.headingMagnetic'
+  const HDG_B = 'navigation.headingTrue'
+  const compasses = valid({
+    name: 'Compasses disagree',
+    slug: 'compasses-disagree',
+    message: 'Compasses disagree',
+    priority: 'caution',
+    signal: {
+      combinator: 'absDifference',
+      angular: true,
+      inputs: [{ path: HDG_A }, { path: HDG_B }]
+    },
+    detector: { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 0.1 } }
+  })
+
+  it('an angular combination whose input reports units other than radians is inactive', () => {
+    const { at, log, evaluator } = setup(compasses, {
+      meta: { [HDG_A]: { units: 'rad' }, [HDG_B]: { units: 'deg' } }
+    })
+    at(0, HDG_A, 0.1)
+    at(0, HDG_B, 90)
+    expect(log).toEqual([])
+    expect(evaluator.status().instances[0]?.inactive).toBe(
+      `${HDG_B}: angular combination needs radians, the path is in deg`
+    )
+  })
+
+  it('units that arrive after the values make an active angular rule inactive and clear it', () => {
+    const { at, log, evaluator, meta } = setup(compasses)
+    at(0, HDG_A, 0.1)
+    at(0, HDG_B, 1.5)
+    expect(log).toEqual([[0, 'raise', '', 'caution']])
+    meta.set(HDG_B, { units: 'deg' })
+    at(1)
+    expect(log).toEqual([
+      [0, 'raise', '', 'caution'],
+      [1, 'clear', '']
+    ])
+    expect(evaluator.status().instances[0]?.inactive).toMatch(/needs radians/)
+  })
+
+  it('an angular combination in radians evaluates', () => {
+    const { at, log, evaluator } = setup(compasses, {
+      meta: { [HDG_A]: { units: 'rad' }, [HDG_B]: { units: 'rad' } }
+    })
+    at(0, HDG_A, 0.1)
+    at(0, HDG_B, 1.5)
+    expect(log).toEqual([[0, 'raise', '', 'caution']])
+    expect(evaluator.status().instances[0]?.inactive).toBeUndefined()
+  })
+
+  it.each([
+    ['boolean', true],
+    ['string', 'ok']
+  ])(
+    'a timeout rule whose path reports a %s value is inactive, and its adopted alert clears',
+    (type, value) => {
+      const { at, log, evaluator } = setup(depthTimeout, { adopted: [{}] })
+      at(5, DEPTH, value)
+      expect(log).toEqual([[5, 'clear', '']])
+      expect(evaluator.status().instances[0]?.inactive).toBe(`core never times out ${type} paths`)
+      at(100, DEPTH, null, TIMED_OUT)
+      expect(log).toHaveLength(1)
+    }
+  )
+
+  it('a timeout rule on a numeric path evaluates', () => {
+    const { at, evaluator } = setup(depthTimeout)
+    at(0, DEPTH, 7.3)
+    expect(evaluator.status().instances[0]?.inactive).toBeUndefined()
+  })
+})
+
 describe('timeout rules', () => {
   it('fire when the path has not been seen for the duration since start', () => {
     const { at, log } = setup(depthTimeout)

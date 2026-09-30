@@ -36,9 +36,10 @@ function isZone(value: unknown): value is Zone {
 /** The meta fields the evaluator reads, keeping only well-formed values. */
 function pathMeta(value: unknown): PathMeta | undefined {
   if (!isRecord(value)) return undefined
-  const { zones, timeout, updateContract } = value
+  const { zones, units, timeout, updateContract } = value
   return {
     zones: Array.isArray(zones) ? zones.filter(isZone) : undefined,
+    units: typeof units === 'string' ? units : undefined,
     timeout: typeof timeout === 'number' || typeof timeout === 'string' ? timeout : undefined,
     updateContract: typeof updateContract === 'string' ? updateContract : undefined
   }

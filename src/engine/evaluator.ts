@@ -8,6 +8,7 @@ import {
   type Signal,
   type ZoneLevel
 } from '../model/rule.js'
+import { angularUnitsMessage, timeoutValueTypeMessage } from '../model/validate.js'
 import type { Clock } from './clock.js'
 import {
   AccumulatorDetector,
@@ -34,6 +35,7 @@ export type { InputState }
 /** The parts of a path's `meta` the evaluator reads. */
 export interface PathMeta {
   zones?: Zone[] | null
+  units?: string
   timeout?: number | string
   updateContract?: string
 }
@@ -121,6 +123,8 @@ interface Unit extends Track {
   key: string
   instance?: Instance
   last?: Reading
+  /** The last value the input had, which outlives an unavailable reading. */
+  lastValue?: SignalValue
   /** Detectors of the zone levels more severe than the rule's own. */
   levels: Map<ZoneLevel, Track>
   /** The most severe zone level the active alert holds, for a zone-limit rule. */
@@ -380,6 +384,7 @@ export class RuleEvaluator {
   private onSignal(sample: Sample): void {
     const unit = this.unit(sample.instance?.segment ?? '', sample.instance)
     unit.last = sample.reading
+    if (sample.reading.available) unit.lastValue = sample.reading.value
     this.step(unit, this.ctx.clock(), sample)
   }
 
@@ -457,11 +462,26 @@ export class RuleEvaluator {
     return { ok: true, spec: { ...d, limit: resolved.value }, limit: resolved.value, levels }
   }
 
+  /** An angular combination of an input the server reports in units other than radians. */
+  private unitsProblem(): string | undefined {
+    const signal = this.rule.signal
+    if (!('combinator' in signal) || signal.angular !== true) return undefined
+    for (const input of signal.inputs) {
+      const units = this.ctx.meta(input.path)?.units
+      if (units !== undefined && units !== 'rad') {
+        return `${input.path}: ${angularUnitsMessage(units)}`
+      }
+    }
+    return undefined
+  }
+
   private timeoutProblem(unit: Unit): string | undefined {
     const d = this.rule.detector
     if (d.type !== 'match' || d.op !== 'timedOut' || 'combinator' in this.rule.signal) {
       return undefined
     }
+    if (typeof unit.lastValue === 'boolean') return timeoutValueTypeMessage('boolean')
+    if (typeof unit.lastValue === 'string') return timeoutValueTypeMessage('string')
     const settings = this.ctx.timeoutSettings()
     if (settings !== undefined && !settings.enforce) {
       return 'the server does not enforce data timeouts'
@@ -490,6 +510,7 @@ export class RuleEvaluator {
     const gates = this.gatesOf(unit)
     const problem =
       this.timeoutProblem(unit) ??
+      this.unitsProblem() ??
       gates.find((g) => g.seen && g.issue !== undefined)?.issue ??
       (resolved.ok ? undefined : resolved.reason)
     unit.inactive = problem
