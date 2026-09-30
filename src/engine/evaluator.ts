@@ -21,6 +21,7 @@ import {
 import { Gate } from './gates.js'
 import { resolveLimit, severerLevels, severity, type Zone } from './limits.js'
 import {
+  bindPath,
   inputState,
   openSignal,
   type InputState,
@@ -204,14 +205,6 @@ export function structuralChanges(current: Rule, next: Rule): string[] {
 
 export function isWildcard(signal: Signal): boolean {
   return !('combinator' in signal) && signal.path.split('.').includes('*')
-}
-
-function bind(path: string, instance: Instance | undefined): string {
-  if (instance === undefined) return path
-  return path
-    .split('.')
-    .map((s) => (s === '*' ? instance.name : s))
-    .join('.')
 }
 
 /**
@@ -471,7 +464,7 @@ export class RuleEvaluator {
   private zones(limit: Limit, signal: Signal, instance: Instance | undefined) {
     if (limit.kind !== 'zone') return undefined
     const path = limit.path ?? ('combinator' in signal ? undefined : signal.path)
-    return path === undefined ? undefined : this.ctx.meta(bind(path, instance))?.zones
+    return path === undefined ? undefined : this.ctx.meta(bindPath(path, instance))?.zones
   }
 
   private resolve(unit: Unit): Resolved {
@@ -522,7 +515,7 @@ export class RuleEvaluator {
     // Meta exists only once the path has a value; a path never seen since
     // start is the dead-at-boot case, which fires without a marker.
     if (unit.last === undefined) return undefined
-    const meta = this.ctx.meta(bind(this.rule.signal.path, unit.instance))
+    const meta = this.ctx.meta(bindPath(this.rule.signal.path, unit.instance))
     const contract = meta?.updateContract
     if (contract !== undefined && contract !== 'periodic') {
       return `the path's update contract is ${contract}, so the server never times it out`

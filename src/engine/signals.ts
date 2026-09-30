@@ -40,6 +40,15 @@ export interface Instance {
   segment: string
 }
 
+/** A path with its wildcard segment replaced by the instance's name. */
+export function bindPath(path: string, instance: Instance | undefined): string {
+  if (instance === undefined) return path
+  return path
+    .split('.')
+    .map((s) => (s === '*' ? instance.name : s))
+    .join('.')
+}
+
 export interface Sample {
   /** Set for a wildcard signal only. */
   instance?: Instance

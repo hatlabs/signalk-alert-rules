@@ -129,6 +129,8 @@ describe('status badge', () => {
 
   it('lists the badges in precedence order', () => {
     expect(BADGES).toEqual([
+      'disabled',
+      'suppressed',
       'errored',
       'inactive',
       'alertActive',
@@ -138,5 +140,28 @@ describe('status badge', () => {
       'timerRunning',
       'idle'
     ])
+  })
+})
+
+describe('suppressed status', () => {
+  it('an input-suppressed instance is suppressed with its scope, above an error', () => {
+    const scope = { scope: 'input', path: 'propulsion.port.oilPressure' } as const
+    const status = statusBadge(['evaluation failed: boom'], [{ ...idle, suppression: scope }, idle])
+    expect(status).toMatchObject({ badge: 'suppressed', suppression: scope, subLabels: [] })
+    expect(status.reason).toBeUndefined()
+    expect(status.instances.map((i) => i.badge)).toEqual(['suppressed', 'idle'])
+    expect(status.instances[0]?.suppression).toEqual(scope)
+  })
+
+  it('a rule-level suppression makes a rule with no instance yet suppressed', () => {
+    const scope = { scope: 'rule' } as const
+    expect(statusBadge([], [], scope)).toMatchObject({ badge: 'suppressed', suppression: scope })
+  })
+
+  it('a suppression that ends by itself waits for clear', () => {
+    const scope = { scope: 'rule', autoEndAfter: 600 } as const
+    const status = statusBadge([], [{ ...idle, suppression: scope }], scope)
+    expect(status.subLabels).toEqual(['waitingForClear'])
+    expect(status.instances[0]?.subLabels).toEqual(['waitingForClear'])
   })
 })
