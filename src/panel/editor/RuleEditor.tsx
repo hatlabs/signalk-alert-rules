@@ -118,7 +118,11 @@ function EditorForm({ api, paths, units, editing, onSaved, onClose, onDirtyChang
   const [errors, setErrors] = useState<FieldError[]>([])
   const [failure, setFailure] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
-  const [pending, setPending] = useState<{ rule: Rule; lines: string[] } | undefined>(undefined)
+  // Held with the form it was previewed for: a field changed under the
+  // confirmation would otherwise be dropped from the rule it stores.
+  const [pending, setPending] = useState<
+    { form: RuleForm; rule: Rule; lines: string[] } | undefined
+  >(undefined)
   const [leaving, setLeaving] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(
     editing !== undefined && hasAdvancedValues(initial.detector, initial.latching)
@@ -196,7 +200,7 @@ function EditorForm({ api, paths, units, editing, onSaved, onClose, onDirtyChang
         ).map(({ name, total }) => (name === '' ? total : `${name}: ${total}`))
         const lines = editConsequences(preview, totals)
         if (lines.length > 0) {
-          setPending({ rule: result.rule, lines })
+          setPending({ form, rule: result.rule, lines })
           return
         }
       }
@@ -435,7 +439,7 @@ function EditorForm({ api, paths, units, editing, onSaved, onClose, onDirtyChang
           </div>
         )}
 
-        {pending !== undefined && (
+        {pending?.form === form && (
           <Confirm
             title={`Save ${form.name}?`}
             confirmLabel="Save"

@@ -316,6 +316,32 @@ describe('RuleEditor, editing', () => {
     })
   })
 
+  it('drops the confirmation when a field changes under it, so the change is previewed too', async () => {
+    const { api } = renderEditor({ entry: active, rule: battery })
+    const clears: EditPreview = {
+      restarts: true,
+      changes: ['signal'],
+      activeAlerts: 1,
+      clearsActiveAlert: true,
+      discardsTotal: false
+    }
+    api.previewRule.mockResolvedValue(clears)
+    type(
+      await screen.findByRole('combobox', { name: 'Input path' }),
+      'electrical.batteries.start.voltage'
+    )
+    click(screen.getByRole('button', { name: 'Save changes' }))
+    await screen.findByRole('alertdialog')
+    type(textbox('Hysteresis'), '0.3')
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    click(screen.getByRole('button', { name: 'Save changes' }))
+    click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Save' }))
+    await waitFor(() => {
+      expect(api.updateRule).toHaveBeenCalled()
+    })
+    expect(api.updateRule.mock.calls[0]?.[1].detector).toMatchObject({ hysteresis: 0.3 })
+  })
+
   it('saves an edit applied in place without asking', async () => {
     const { api, onSaved } = renderEditor({ entry: active, rule: battery })
     type(await screen.findByRole('textbox', { name: 'Hysteresis' }), '0.3')
