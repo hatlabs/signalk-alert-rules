@@ -17,9 +17,8 @@ function setup(options: { drop?: number } = {}) {
   const sent: [string, AlertValue | null][] = []
   let evidence = true
   let drop = options.drop ?? 0
+  // The emitter gets no reader of core's alerts: what it sends never depends on core's state.
   const emitter = new AlertEmitter({
-    pluginId: PLUGIN,
-    alerts: core,
     send: (path, value) => {
       sent.push([path, value])
       // Core refuses a raise when its active set is full of more urgent alerts.
@@ -94,7 +93,7 @@ describe('alert emitter', () => {
     ])
   })
 
-  it('an active alert core does not hold as active is raised again at the next heartbeat', () => {
+  it('an active alert core does not hold as active is raised again by the next heartbeat', () => {
     const { core, sent, emitter, evidence } = setup({ drop: 1 })
     emitter.raise(PATH, alarm, evidence, 0)
     expect(core.getByPath(PATH)).toBeNull()
@@ -106,41 +105,49 @@ describe('alert emitter', () => {
     expect(core.getByPath(PATH)?.condition).toBe(true)
   })
 
-  it('emits nothing for a path another source owns, reports it, and resumes once it is free', () => {
+  it('emits on a path another source raised, and clears it: core keys alerts on path alone', () => {
     const { core, sent, emitter, evidence } = setup()
     core.raiseFrom('other-plugin', PATH)
     emitter.raise(PATH, alarm, evidence, 0)
-    emitter.beat(HEARTBEAT_S)
-    expect(sent).toEqual([])
-    expect(emitter.status(PATH)?.conflict).toMatch(/other-plugin/)
-    core.acknowledge(PATH)
-    core.reportEnded('other-plugin', PATH)
-    emitter.beat(2 * HEARTBEAT_S)
-    expect(sent).toEqual([[PATH, alarm]])
     expect(core.getByPath(PATH)?.$source).toBe(PLUGIN)
-    expect(emitter.status(PATH)?.conflict).toBeUndefined()
+    emitter.clear(PATH)
+    expect(sent).toEqual([
+      [PATH, alarm],
+      [PATH, null]
+    ])
   })
 
-  it('never clears an alert another source took over', () => {
+  it('a revised header goes out with the next heartbeat and keeps the data of the raise', () => {
     const { core, sent, emitter, evidence } = setup()
     emitter.raise(PATH, alarm, evidence, 0)
-    core.raiseFrom('other-plugin', PATH, 'emergency')
-    emitter.clear(PATH)
+    core.acknowledge(PATH)
+    const header = { priority: 'emergency' as const, message: 'Check the oil', latching: false }
+    emitter.revise(PATH, header)
     expect(sent).toHaveLength(1)
-    expect(core.getByPath(PATH)?.condition).toBe(true)
+    emitter.beat(HEARTBEAT_S)
+    expect(sent.at(-1)).toEqual([PATH, { ...header, data: alarm.data }])
+    expect(core.getByPath(PATH)).toMatchObject({ ...header, state: 'unacknowledged' })
   })
 
-  it('adopts an active alert without raising it: one heartbeat at once, then only with evidence', () => {
+  it('revising an alert it does not hold does nothing', () => {
+    const { sent, emitter } = setup()
+    emitter.revise(PATH, alarm)
+    emitter.beat(HEARTBEAT_S)
+    expect(sent).toEqual([])
+    expect(emitter.status(PATH)).toBeUndefined()
+  })
+
+  it("adopts an active alert with the rule's header and no data: one heartbeat at once, then only with evidence", () => {
     const { core, sent, emitter, evidence, setEvidence } = setup()
-    core.ingest(PLUGIN, PATH, { ...alarm, message: 'old message' })
-    const writes = core.writes
+    core.ingest(PLUGIN, PATH, alarm)
     const adopted = core.getByPath(PATH)
     if (adopted === null) throw new Error('not raised')
+    const { data: _data, ...header } = alarm
     setEvidence(false)
-    emitter.adopt(adopted, evidence, 0)
+    emitter.adopt(adopted, header, evidence, 0)
     emitter.beat(HEARTBEAT_S)
-    expect(sent).toEqual([[PATH, { ...alarm, message: 'old message' }]])
-    expect(core.writes).toBe(writes)
+    expect(sent).toEqual([[PATH, header]])
+    expect(core.getByPath(PATH)?.data).toEqual(alarm.data)
     expect(core.alertings).toBe(1)
   })
 
@@ -150,11 +157,12 @@ describe('alert emitter', () => {
     core.markStale(PATH)
     const stale = core.getByPath(PATH)
     if (stale === null) throw new Error('not raised')
+    const { data: _data, ...header } = alarm
     setEvidence(false)
-    emitter.adopt(stale, evidence, 0)
+    emitter.adopt(stale, header, evidence, 0)
     expect(sent).toEqual([])
     setEvidence(true)
     emitter.beat(HEARTBEAT_S)
-    expect(sent).toEqual([[PATH, alarm]])
+    expect(sent).toEqual([[PATH, header]])
   })
 })

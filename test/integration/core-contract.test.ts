@@ -170,7 +170,7 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
     })
   })
 
-  it("reports the last emitter's id as the source, which is what SKAR's ownership check reads", async () => {
+  it("reports the last emitter's id as the source, which the restart reconciliation reads", async () => {
     const path = 'rules.contract.taken-over'
     deps.send(path, raise('taken'))
     await until(() => alerts().getByPath(path), 'the raise')
@@ -198,6 +198,25 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
     expect(alerts().getByPath(path)?.state).toBe('acknowledged')
   })
 
+  it('re-alerts an acknowledged alert when a heartbeat carries a changed message', async () => {
+    const path = 'rules.contract.edited'
+    deps.send(path, raise('before'))
+    const alert = await until(() => alerts().getByPath(path), 'the raise')
+    await alerts().acknowledge(alert.id, 'contract-test')
+    deps.send(path, raise('after'))
+    await alerts().ingressSettled()
+    expect(alerts().getByPath(path)).toMatchObject({ state: 'unacknowledged', message: 'after' })
+  })
+
+  it('keeps stored data when a heartbeat omits it', async () => {
+    const path = 'rules.contract.no-data'
+    deps.send(path, { ...raise('data'), data: { rule: 'contract.no-data' } })
+    await until(() => alerts().getByPath(path), 'the raise')
+    deps.send(path, raise('data'))
+    await alerts().ingressSettled()
+    expect(alerts().getByPath(path)?.data).toEqual({ rule: 'contract.no-data' })
+  })
+
   it('holds a cleared unacknowledged alarm, and reactivates it on a new raise', async () => {
     const path = 'rules.contract.held'
     deps.send(path, raise('held'))
@@ -217,7 +236,7 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
   })
 
   it(
-    'marks an alert stale 60 s after its last emission, and a raise when input returns revives it',
+    'marks an active alert stale 60 s after its last emission, never one whose condition ended, and a raise revives it',
     async () => {
       const silent = 'rules.contract.silent'
       const cleared = 'rules.contract.cleared'
@@ -229,10 +248,8 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
       )
       await sleep(STALE_WAIT_MS)
       expect(alerts().getByPath(silent)?.stale).toBe(true)
-      // Documents a core gap: liveness also runs for an alert whose condition
-      // ended and that core keeps for acknowledgement, and SKAR sends nothing
-      // after the clear, so it shows stale.
-      expect(alerts().getByPath(cleared)).toMatchObject({ condition: false, stale: true })
+      // SKAR sends nothing after its clear, so an alert core keeps for acknowledgement must not go stale.
+      expect(alerts().getByPath(cleared)).toMatchObject({ condition: false, stale: false })
       deps.send(silent, raise(silent))
       await alerts().ingressSettled()
       expect(alerts().getByPath(silent)?.stale).toBe(false)
@@ -245,22 +262,18 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
   })
 
   it(
-    'restores alerts on restart, and gives them no liveness while SKAR is disabled',
+    'restores active alerts on restart and times them from load, so they go stale while SKAR is disabled',
     async () => {
       const restoredPath = 'rules.contract.restart-restored'
-      const live = 'rules.contract.restart-live'
       deps.send(restoredPath, raise('restored'))
-      deps.send(live, raise('live'))
       await alerts().ingressSettled()
       await running().stop()
       setPluginEnabled(configDir, false)
       server = await startServer(SERVER ?? '', configDir, port)
       try {
-        const restored = alerts().getByPath(restoredPath)
-        expect(restored?.condition).toBe(true)
+        expect(alerts().getByPath(restoredPath)).toMatchObject({ condition: true, stale: false })
         await sleep(STALE_WAIT_MS)
-        // Documents a core gap: restored alerts get no liveness timer until re-emitted.
-        expect(alerts().getByPath(live)?.stale).toBe(false)
+        expect(alerts().getByPath(restoredPath)?.stale).toBe(true)
       } finally {
         await running().stop()
         await boot()
@@ -292,16 +305,15 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
     await alerts().acknowledge(raised.id, 'contract-test')
     first.stop()
 
-    // An edit made while stopped: without adoption the new message would re-alert.
-    const edited = [{ origin: 'contract', rule: { ...validated.value, message: 'Check the oil' } }]
-    const second = new RuleRunner(deps, edited)
+    const second = new RuleRunner(deps, rules)
     second.start()
     second.tick()
     await alerts().ingressSettled()
-    const adopted = alerts().getByPath(path)
-    expect(adopted?.state).toBe('acknowledged')
-    expect(adopted?.message).toBe('Engine oil pressure is low')
-    expect(adopted?.condition).toBe(true)
+    expect(alerts().getByPath(path)).toMatchObject({
+      state: 'acknowledged',
+      condition: true,
+      data: raised.data
+    })
     second.stop()
   })
 })

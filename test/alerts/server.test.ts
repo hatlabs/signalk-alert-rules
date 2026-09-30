@@ -29,8 +29,7 @@ function app(extra: Record<string, unknown> = {}) {
     getSelfPath: (path: string) => selfPaths[path],
     handleMessage: (id: string, delta: unknown) => handled.push({ id, delta }),
     alerts: {
-      list: () => [alert],
-      getByPath: (path: string) => (path === alert.path ? alert : null)
+      list: () => [alert]
     },
     ...extra
   }
@@ -68,8 +67,7 @@ describe('server adapter', () => {
 
   it('reads alerts and path meta', () => {
     const deps = serverDeps(app().app, 'signalk-alert-rules')
-    expect(deps.alerts.getByPath('rules.user.x')).toMatchObject({ condition: true })
-    expect(deps.alerts.list()).toHaveLength(1)
+    expect(deps.alerts.list()).toEqual([expect.objectContaining({ condition: true })])
     expect(deps.meta('electrical.batteries.house.voltage')?.zones).toHaveLength(1)
     expect(deps.meta('nowhere')).toBeUndefined()
   })

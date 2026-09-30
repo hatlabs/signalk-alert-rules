@@ -7,11 +7,21 @@ import {
 } from '../engine/evaluator.js'
 import type { Rule } from '../model/rule.js'
 import { alertPathFor } from '../model/validate.js'
-import { AlertEmitter, type AlertStatus, type AlertValue, type EmitterDeps } from './emitter.js'
+import {
+  AlertEmitter,
+  type AlertHeader,
+  type AlertStatus,
+  type AlertValue,
+  type AlertsReader,
+  type EmitterDeps
+} from './emitter.js'
 import { ruleId } from './paths.js'
 import { reconcile } from './reconcile.js'
 
 export interface RunnerDeps extends EvaluatorContext, EmitterDeps {
+  pluginId: string
+  /** Read once at start, to adopt or clear the alerts SKAR already has in core. */
+  alerts: AlertsReader
   /** Wall time, only for the raise timestamp in alert data. */
   wallClock: () => Date
 }
@@ -30,6 +40,15 @@ export interface RunnerRuleStatus {
 }
 
 const idOf = (entry: LoadedRule) => ruleId(entry.origin, entry.rule.slug)
+
+/** What the rule says about an instance's alert now. */
+function header(rule: Rule, instance: string | undefined, priority = rule.priority): AlertHeader {
+  return {
+    priority,
+    message: rule.message.replaceAll('{instance}', instance ?? ''),
+    latching: rule.latching ?? false
+  }
+}
 
 /**
  * Runs a set of rules against the server: one evaluator per rule, their
@@ -62,7 +81,11 @@ export class RuleRunner {
     )
     for (const alert of orphaned) this.deps.send(alert.path, null)
     for (const { alert, ruleId: id, segment } of kept) {
-      this.emitter.adopt(alert, this.evidence(id, segment ?? ''), now)
+      const rule = this.entries.get(id)?.rule
+      if (rule === undefined) continue
+      // The segment is the sanitised name; the raise wrote the name itself into data.
+      const name = typeof alert.data?.instance === 'string' ? alert.data.instance : segment
+      this.emitter.adopt(alert, header(rule, name), this.evidence(id, segment ?? ''), now)
     }
     for (const [id, entry] of this.entries) this.startRule(id, entry, activeByRule.get(id))
   }
@@ -90,8 +113,18 @@ export class RuleRunner {
     this.entries.set(id, entry)
     this.issues.delete(id)
     const evaluator = this.evaluators.get(id)
-    if (evaluator === undefined) this.startRule(id, entry, undefined)
-    else evaluator.update(entry.rule)
+    if (evaluator === undefined) {
+      this.startRule(id, entry, undefined)
+      return
+    }
+    evaluator.update(entry.rule)
+    // An edit that restarts the rule has cleared and re-raised already; any
+    // other edit reaches core with the next heartbeat of each active alert.
+    for (const { instance, active } of evaluator.status().instances) {
+      if (!active) continue
+      const path = alertPathFor(entry.origin, entry.rule.slug, instance?.segment)
+      if (path.ok) this.emitter.revise(path.value, header(entry.rule, instance?.name))
+    }
   }
 
   /** Clears a rule's alerts and forgets it, for a deleted rule. */
@@ -165,18 +198,13 @@ export class RuleRunner {
    * changes rarely, so heartbeats never rewrite it; live values are in status.
    */
   private describe(id: string, event: Extract<RuleEvent, { type: 'raise' }>): AlertValue {
-    const { rule, instance, priority, limit, value } = event
+    const { rule, instance, limit, value } = event
     const data: Record<string, unknown> = { rule: id, name: rule.name }
     if (instance !== undefined) data.instance = instance.name
     if (limit !== undefined) data.limit = limit
     if (value !== undefined) data.valueAtRaise = value
     data.raisedAt = this.deps.wallClock().toISOString()
-    return {
-      priority,
-      message: rule.message.replaceAll('{instance}', instance?.name ?? ''),
-      latching: rule.latching ?? false,
-      data
-    }
+    return { ...header(rule, instance?.name, event.priority), data }
   }
 
   private evidence(id: string, segment: string): () => boolean {

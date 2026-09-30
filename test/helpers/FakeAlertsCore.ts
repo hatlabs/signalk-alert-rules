@@ -13,7 +13,8 @@ type FakeAlert = CoreAlert & { state: string }
  * `alertStateMachine.ts`): an unchanged re-emission of a condition-active
  * alert only refreshes its description, a clear holds an unacknowledged
  * non-caution alert, acknowledging a held alert removes it, a raise on a held
- * alert reactivates it, and nothing checks who owns a path. Ingress is applied
+ * alert reactivates it, an omitted `data` keeps the stored data, and nothing
+ * checks who owns a path. Ingress is applied
  * synchronously and there is no liveness timer; both are pinned against the
  * real server by the contract tests.
  */
@@ -37,11 +38,15 @@ export class FakeAlertsCore {
     ) {
       const changed =
         existing.$source !== source ||
-        !isDeepStrictEqual(value.data, existing.data) ||
+        (value.data !== undefined && !isDeepStrictEqual(value.data, existing.data)) ||
         value.latching !== existing.latching ||
         existing.stale
       if (changed) {
-        Object.assign(existing, { $source: source, data: value.data, stale: false })
+        Object.assign(existing, {
+          $source: source,
+          data: value.data ?? existing.data,
+          stale: false
+        })
         existing.latching = value.latching
         this.writes++
       }
@@ -56,7 +61,7 @@ export class FakeAlertsCore {
       priority: existing !== undefined && !rises ? existing.priority : value.priority,
       message: value.message,
       latching: value.latching,
-      data: value.data,
+      data: value.data ?? existing?.data,
       condition: true,
       state: 'unacknowledged',
       stale: false
