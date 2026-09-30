@@ -2,13 +2,20 @@ import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   RULESET_FIELD,
   RULESET_KEYWORD,
   discoverRulesets,
   type DiscoveryResult
 } from '../../src/rulesets/discovery.js'
+
+// APFS lists names already sorted and ext4 does not; reversing every listing
+// keeps the tests from passing only because of the host filesystem's order.
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const fs = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...fs, readdir: async (dir: string) => (await fs.readdir(dir)).reverse() }
+})
 
 const exampleDir = join(dirname(fileURLToPath(import.meta.url)), '../../examples/ruleset-example')
 
