@@ -370,6 +370,16 @@ describe('Shell rules', () => {
     expect(screen.getByText('Idle')).toBeTruthy()
   })
 
+  it('does not offer to clear all alerts while evaluation is off', async () => {
+    await renderShell({
+      state: { ...running, evaluation: { enabled: false } },
+      enabled: true,
+      rules: [rule, hours]
+    })
+    expect(screen.getByText(/evaluation is off/i)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /clear all skar alerts/i })).toBeNull()
+  })
+
   it('clears all alerts by turning evaluation off, then offers to turn it on', async () => {
     const server: Server = { state: running, enabled: true, rules: [rule, hours] }
     const api = await renderShell(server)
