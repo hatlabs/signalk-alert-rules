@@ -140,7 +140,10 @@ function Condition({ view, stale, checkAgain }: ConditionProps) {
     case 'sessionExpired':
       return (
         <div className="alert alert-warning" role="alert">
-          <p>Your session has expired or lacks administrator rights; log in as an administrator.</p>
+          <p>
+            Your session has expired or lacks administrator rights; log in as an administrator.
+            {lastRead}
+          </p>
           <button type="button" className="btn btn-secondary btn-sm" onClick={checkAgain}>
             Check again
           </button>

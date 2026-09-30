@@ -4,7 +4,12 @@ import { join } from 'node:path'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { Rule } from '../../src/model/rule'
-import type { PanelApi, PluginState, RuleEntry } from '../../src/panel/api'
+import {
+  SessionExpiredError,
+  type PanelApi,
+  type PluginState,
+  type RuleEntry
+} from '../../src/panel/api'
 import type { PathSource } from '../../src/panel/paths/selfPaths'
 import { Shell } from '../../src/panel/Shell'
 import { displayUnit } from '../../src/panel/units'
@@ -164,6 +169,20 @@ describe('Shell rule authoring', () => {
     await waitFor(() => {
       expect(document.activeElement).toBe(heading)
     })
+  })
+
+  it('keeps what was typed when a probe finds the session expired', async () => {
+    const api = renderShell([battery])
+    fireEvent.click(await screen.findByRole('button', { name: 'New rule' }))
+    change(await screen.findByRole('combobox', { name: 'Input path' }), 'a.b')
+    api.state.mockRejectedValue(new SessionExpiredError())
+    // A tablet waking from sleep probes at once.
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+    document.dispatchEvent(new Event('visibilitychange'))
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect((await screen.findByText(/your session has expired/i)).textContent).toMatch(/last read/)
+    expect(screen.getByRole('combobox', { name: 'Input path' })).toHaveProperty('value', 'a.b')
   })
 
   it('opens the form from the empty rule list', async () => {

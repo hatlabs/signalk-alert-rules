@@ -143,14 +143,14 @@ describe('shownReady', () => {
     expect(shownReady(now, last)).toBe(now)
   })
 
-  it('keeps the last ready view while the plugin is unreachable or restarting', () => {
+  it('keeps the last ready view while the plugin is unreachable or restarting, or the session expired', () => {
     expect(shownReady({ kind: 'unreachable', reason: 'x' }, last)).toBe(last)
     expect(shownReady({ kind: 'restarting' }, last)).toBe(last)
+    expect(shownReady({ kind: 'sessionExpired' }, last)).toBe(last)
   })
 
-  it('drops it once the plugin is disabled or failed, or the session expired', () => {
+  it('drops it once the plugin is disabled or failed', () => {
     expect(shownReady({ kind: 'disabled' }, last)).toBeUndefined()
     expect(shownReady({ kind: 'failed', error: 'x' }, last)).toBeUndefined()
-    expect(shownReady({ kind: 'sessionExpired' }, last)).toBeUndefined()
   })
 })
