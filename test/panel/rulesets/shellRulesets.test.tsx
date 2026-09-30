@@ -180,5 +180,8 @@ describe('Shell with rulesets', () => {
     await settle()
     expect(screen.getByRole('tab', { name: 'Rulesets' }).getAttribute('aria-selected')).toBe('true')
     expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Battery monitoring' }))
+    // A browser fires no hashchange for a link to the hash it already shows.
+    const back = screen.getByRole('link', { name: 'Battery low' }).getAttribute('href')
+    expect(back).not.toBe(window.location.hash)
   })
 })

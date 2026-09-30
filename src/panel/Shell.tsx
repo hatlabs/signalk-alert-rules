@@ -442,8 +442,8 @@ function Views({ api, rulesets, view, paths, refresh }: ViewsProps) {
             entry.ruleset === undefined
               ? undefined
               : () => {
+                  showTab('rulesets')
                   setShownRuleset(entry.origin)
-                  setTab('rulesets')
                 }
           }
         />
