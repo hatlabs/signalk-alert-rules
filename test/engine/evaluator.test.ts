@@ -589,6 +589,33 @@ describe('rule edits', () => {
     expect(log.slice(1, 2)).toEqual([[expect.any(Number), 'raise', '', 'alarm']])
   })
 
+  it('changing latching clears and restarts, and the restarted rule counts only live events', () => {
+    const PUMP = 'electrical.switches.bilgePump.state'
+    const pumpCycling = valid({
+      name: 'Bilge pump cycling',
+      slug: 'bilge-pump-cycling',
+      message: 'Bilge pump is cycling',
+      priority: 'alarm',
+      signal: { path: PUMP },
+      detector: { type: 'count', event: { op: 'changesTo', value: true }, window: 600, limit: 1 }
+    })
+    const { evaluator, log, at } = setup(pumpCycling)
+    at(0, PUMP, true)
+    at(1, PUMP, false)
+    at(2, PUMP, true)
+    evaluator.update({ ...pumpCycling, latching: true })
+    expect(log).toEqual([
+      [2, 'raise', '', 'alarm'],
+      [2, 'clear', '']
+    ])
+    at(3, PUMP, false)
+    at(4, PUMP, true)
+    expect(log).toHaveLength(2)
+    at(5, PUMP, false)
+    at(6, PUMP, true)
+    expect(log.at(-1)).toEqual([6, 'raise', '', 'alarm'])
+  })
+
   it('a new limit value is evaluated in place', () => {
     const { evaluator, log, at } = raised()
     at(30)
@@ -616,17 +643,23 @@ describe('rule edits', () => {
     expect(log.at(-1)).toEqual([55, 'raise', '', 'emergency'])
   })
 
-  it('message and latching edits take effect at the next raise', () => {
+  it('a message edit takes effect at the next raise', () => {
     const { evaluator, log, at, events } = raised()
     at(30)
-    evaluator.update({ ...oilPressure, message: 'Check the oil', latching: true })
+    evaluator.update({ ...oilPressure, message: 'Check the oil' })
     expect(log).toEqual([])
     at(40, OIL, 300000)
     at(50, OIL, 0)
     at(55)
     const last = events.at(-1)
     expect(last?.type === 'raise' && last.rule.message).toBe('Check the oil')
-    expect(last?.type === 'raise' && last.rule.latching).toBe(true)
+  })
+
+  it('stating latching false is not an edit', () => {
+    const { evaluator, log, at } = raised()
+    at(30)
+    evaluator.update({ ...oilPressure, latching: false })
+    expect(log).toEqual([])
   })
 
   it('removing a rule clears its alerts', () => {
