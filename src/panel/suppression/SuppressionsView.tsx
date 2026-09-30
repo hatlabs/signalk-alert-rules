@@ -3,11 +3,9 @@ import type { PanelApi, RuleEntry, Suppression } from '../api'
 import { failureMessage } from '../failure'
 import type { PathSource } from '../paths/selfPaths'
 import { Confirm, useConfirmation } from '../rules/Confirm'
-import { formatDuration } from '../rules/describe'
-import { plural } from '../rules/RuleControls'
+import { formatDuration, plural, ruleName } from '../rules/describe'
 import { SUB_LABEL_TEXT } from '../rules/StatusBadge'
 import { SuppressButton } from './SuppressButton'
-import { ruleName } from './SuppressDialog'
 
 export type SuppressionsApi = Pick<
   PanelApi,

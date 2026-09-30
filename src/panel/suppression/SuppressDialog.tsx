@@ -11,7 +11,7 @@ import { DURATION_FACTORS, type DurationField } from '../editor/formModel'
 import { failureMessage } from '../failure'
 import { PathPicker } from '../paths/PathPicker'
 import { useSelfPaths, type PathSource } from '../paths/selfPaths'
-import { MAX_NOTE_LENGTH, plural } from '../rules/RuleControls'
+import { activeCount, MAX_NOTE_LENGTH, plural, ruleName } from '../rules/describe'
 
 /** What a suppression is for: a rule, or an input path given or still to be picked. */
 export type SuppressTarget = { kind: 'rule'; entry: RuleEntry } | { kind: 'input'; path?: string }
@@ -42,10 +42,6 @@ type PreviewState =
   | { status: 'loading' }
   | { status: 'ready'; preview: InputSuppressionPreview }
   | { status: 'failed'; error: string }
-
-export function ruleName(rules: RuleEntry[], origin: string, slug: string): string {
-  return rules.find((r) => r.origin === origin && r.slug === slug)?.rule.name ?? `${origin}/${slug}`
-}
 
 function frozenText(states: { instance?: string; holds: boolean }[]): string {
   const state = (holds: boolean) => (holds ? 'holding' : 'not holding')
@@ -206,10 +202,7 @@ export function SuppressDialog({
       : fixedPath === undefined
         ? 'Suppress an input'
         : `Suppress input ${fixedPath}`
-  const alerts =
-    target.kind === 'rule'
-      ? target.entry.status.instances.filter((i) => i.active === true).length
-      : 0
+  const alerts = target.kind === 'rule' ? activeCount(target.entry) : 0
   const ready = target.kind === 'rule' || preview.status === 'ready'
 
   return (

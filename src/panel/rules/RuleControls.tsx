@@ -2,17 +2,7 @@ import { useId, useState } from 'react'
 import type { RuleEntry } from '../api'
 import { failureMessage } from '../failure'
 import { Confirm, useConfirmation } from './Confirm'
-
-/** The longest note the server accepts. */
-export const MAX_NOTE_LENGTH = 500
-
-function activeCount(entry: RuleEntry): number {
-  return entry.status.instances.filter((i) => i.active === true).length
-}
-
-export function plural(count: number, noun: string): string {
-  return `${String(count)} ${noun}${count === 1 ? '' : 's'}`
-}
+import { activeCount, MAX_NOTE_LENGTH, plural } from './describe'
 
 /**
  * Enables a disabled rule at once, and disables one after a confirmation:
