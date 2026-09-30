@@ -29,7 +29,7 @@ export function parseRuleFragment(hash: string): RuleRef | undefined {
   if (at < 0) return undefined
   // Every part is percent-encoded, so a literal `&` only separates parameters.
   const [ref, ...params] = hash.slice(at + MARKER.length).split('&')
-  // A slug has no slash; a scoped package origin may, so split at the last one.
+  // Neither an origin nor a slug has a slash, so the one that separates them is the last.
   const cut = ref.lastIndexOf('/')
   if (cut < 0) return undefined
   const origin = decode(ref.slice(0, cut))

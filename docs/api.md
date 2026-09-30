@@ -235,7 +235,7 @@ A link to one instance of a wildcard rule adds the instance:
 /admin/#/apps/configuration/signalk-alert-rules#rule=<origin>/<slug>&instance=<name>
 ```
 
-- `origin`, `slug` and the instance are each percent-encoded as `encodeURIComponent` does. A slug contains no slash and an origin, a scoped package name, may, so the slug is what follows the last `/`.
+- `origin`, `slug` and the instance are each percent-encoded as `encodeURIComponent` does. The origin is `user` or a ruleset's slug, so neither it nor the rule's slug contains a `/`.
 - The instance is its name, the path segment the rule's wildcard matched, or its segment in the alert path `alerts.rules.<origin>.<slug>.<instance>`, so a consumer can build the link from an alert's path. The detail view highlights that instance's row, and moves focus to it when the panel is already open.
 - A link to a rule that is not listed, because it was deleted or no longer validates, shows that the rule was not found. A link to an instance the rule does not have now shows the rule with a notice saying so.
 
