@@ -1,4 +1,38 @@
-import { useId, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react'
+
+export interface Confirmation {
+  open: boolean
+  show: () => void
+  close: () => void
+  /** For the button that opens the confirmation. */
+  trigger: RefObject<HTMLButtonElement | null>
+}
+
+/**
+ * Whether a confirmation is open. Closing it returns focus to its trigger:
+ * the confirmation held focus, and removing it would otherwise drop focus to
+ * the page body, losing a keyboard or screen reader user's place.
+ */
+export function useConfirmation(): Confirmation {
+  const [open, setOpen] = useState(false)
+  const trigger = useRef<HTMLButtonElement | null>(null)
+  const wasOpen = useRef(false)
+  useEffect(() => {
+    // The trigger is disabled while open, so it can take focus only after this render.
+    if (wasOpen.current && !open) trigger.current?.focus()
+    wasOpen.current = open
+  }, [open])
+  return {
+    open,
+    show: () => {
+      setOpen(true)
+    },
+    close: () => {
+      setOpen(false)
+    },
+    trigger
+  }
+}
 
 export interface ConfirmProps {
   title: string

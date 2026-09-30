@@ -253,6 +253,23 @@ describe('RuleDetail', () => {
     expect(reset).not.toHaveBeenCalled()
   })
 
+  it('returns focus to the reset button when the confirmation is cancelled or done', async () => {
+    renderDetail(engineHours)
+    const trigger = screen.getByRole('button', { name: /reset accumulator/i })
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
+    expect(document.activeElement).toBe(trigger)
+    fireEvent.click(trigger)
+    await act(async () => {
+      fireEvent.click(
+        within(screen.getByRole('alertdialog')).getByRole('button', { name: /^reset/i })
+      )
+      await Promise.resolve()
+    })
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(document.activeElement).toBe(trigger)
+  })
+
   it('keeps the confirmation open with the error when the reset fails', async () => {
     renderDetail(
       engineHours,

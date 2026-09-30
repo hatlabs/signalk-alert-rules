@@ -1,6 +1,6 @@
-import { useId, useState, type ReactNode } from 'react'
+import { useId, type ReactNode } from 'react'
 import type { RuleEntry } from '../api'
-import { Confirm } from './Confirm'
+import { Confirm, useConfirmation } from './Confirm'
 import { describeDetector, describeInput, describePriority, formatValue, markers } from './describe'
 import { InstanceTable, instanceName } from './InstanceTable'
 import { StatusBadge } from './StatusBadge'
@@ -54,7 +54,7 @@ function DiscardedTotals({ entry }: { entry: RuleEntry }) {
 
 /** One rule with its status and per-instance rows: the target of an alert's link. */
 export function RuleDetail({ entry, backHref, reset }: RuleDetailProps) {
-  const [confirming, setConfirming] = useState(false)
+  const confirmation = useConfirmation()
   const { rule, status } = entry
   const errorsId = useId()
   const isAccumulator = rule.detector.type === 'accumulator'
@@ -121,28 +121,25 @@ export function RuleDetail({ entry, backHref, reset }: RuleDetailProps) {
         </button>
         {isAccumulator && (
           <button
+            ref={confirmation.trigger}
             type="button"
             className="btn btn-outline-danger btn-sm"
-            disabled={confirming}
-            onClick={() => {
-              setConfirming(true)
-            }}
+            disabled={confirmation.open}
+            onClick={confirmation.show}
           >
             Reset accumulator…
           </button>
         )}
       </div>
-      {confirming && (
+      {confirmation.open && (
         <Confirm
           title={`Reset ${rule.name}?`}
           confirmLabel="Reset total"
           onConfirm={async () => {
             await reset()
-            setConfirming(false)
+            confirmation.close()
           }}
-          onCancel={() => {
-            setConfirming(false)
-          }}
+          onCancel={confirmation.close}
         >
           <DiscardedTotals entry={entry} />
           <p className="mb-0">

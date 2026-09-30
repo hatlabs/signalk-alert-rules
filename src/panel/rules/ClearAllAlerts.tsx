@@ -1,6 +1,5 @@
-import { useState } from 'react'
 import type { RuleEntry } from '../api'
-import { Confirm } from './Confirm'
+import { Confirm, useConfirmation } from './Confirm'
 
 /** The alerts SKAR's rules hold now, as their status reports them. */
 export function activeAlerts(rules: RuleEntry[]): number {
@@ -22,31 +21,28 @@ export interface ClearAllAlertsProps {
  * the per-rule actions so it is not hit by mistake.
  */
 export function ClearAllAlerts({ activeAlerts: count, turnOff }: ClearAllAlertsProps) {
-  const [confirming, setConfirming] = useState(false)
+  const confirmation = useConfirmation()
   const alerts = `${String(count)} active ${count === 1 ? 'alert' : 'alerts'}`
   return (
     <div className="skar-evaluation">
       <button
+        ref={confirmation.trigger}
         type="button"
         className="btn btn-outline-danger btn-sm"
-        disabled={confirming}
-        onClick={() => {
-          setConfirming(true)
-        }}
+        disabled={confirmation.open}
+        onClick={confirmation.show}
       >
         Clear all SKAR alerts…
       </button>
-      {confirming && (
+      {confirmation.open && (
         <Confirm
           title="Clear all SKAR alerts?"
           confirmLabel="Clear all alerts"
           onConfirm={async () => {
             await turnOff()
-            setConfirming(false)
+            confirmation.close()
           }}
-          onCancel={() => {
-            setConfirming(false)
-          }}
+          onCancel={confirmation.close}
         >
           <p>
             This clears every alert SKAR raised, {alerts} now, and stops evaluating every rule until

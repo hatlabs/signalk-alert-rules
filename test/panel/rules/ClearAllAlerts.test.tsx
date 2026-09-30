@@ -57,4 +57,13 @@ describe('ClearAllAlerts', () => {
     expect(screen.queryByRole('alertdialog')).toBeNull()
     expect(turnOff).not.toHaveBeenCalled()
   })
+
+  it('returns focus to its button when the confirmation closes', () => {
+    renderControl(2)
+    const trigger = screen.getByRole('button', { name: /clear all skar alerts/i })
+    fireEvent.click(trigger)
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /cancel/i }))
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
+    expect(document.activeElement).toBe(trigger)
+  })
 })
