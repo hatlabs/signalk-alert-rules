@@ -279,6 +279,22 @@ export function SuppressDialog({ target, context, onClose }: SuppressDialogProps
         {preview.status === 'failed' && (
           <div className="alert alert-danger" role="alert">
             {preview.error}
+            {fixedPath !== undefined && (
+              // A picked path is asked again from its own button; a given one has no other way.
+              <div className="mt-2">
+                <button
+                  type="button"
+                  className="btn btn-outline-secondary btn-sm"
+                  onClick={() => {
+                    // The button goes while the preview loads, which would drop focus to the page.
+                    heading.current?.focus()
+                    void loadPreview(fixedPath)
+                  }}
+                >
+                  Try again
+                </button>
+              </div>
+            )}
           </div>
         )}
         <div className="skar-field">

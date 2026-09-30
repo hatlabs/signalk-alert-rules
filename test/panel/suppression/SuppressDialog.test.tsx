@@ -50,7 +50,11 @@ const paths: PathSource = {
   distanceUnit: () => Promise.resolve(displayUnit({ units: 'm' }))
 }
 
-function renderDialog(target: SuppressTarget, answer = preview) {
+function renderDialog(
+  target: SuppressTarget,
+  answer = preview,
+  answers: (() => Promise<InputSuppressionPreview>)[] = []
+) {
   const api = {
     suppressRule: vi.fn((_o: string, _s: string, _r: SuppressionRequest) =>
       Promise.resolve<RuleEntry>(oil)
@@ -58,7 +62,9 @@ function renderDialog(target: SuppressTarget, answer = preview) {
     suppressInput: vi.fn((path: string, _r: SuppressionRequest) =>
       Promise.resolve<Suppression>({ scope: 'input', path, since: '', actor: 'admin' })
     ),
-    previewInputSuppression: vi.fn((_path: string) => Promise.resolve(answer))
+    previewInputSuppression: vi.fn(
+      (_path: string) => answers.shift()?.() ?? Promise.resolve(answer)
+    )
   }
   const onDone = vi.fn()
   const onClose = vi.fn()
@@ -121,6 +127,24 @@ describe('SuppressDialog', () => {
       expect(api.suppressInput).toHaveBeenCalledWith(RPM, { note: 'Tachometer sender faulty' })
       expect(onClose).toHaveBeenCalledOnce()
       expect(onDone).toHaveBeenCalledOnce()
+    })
+
+    it('offers to ask again when the preview of a given path fails', async () => {
+      const { api } = renderDialog({ kind: 'input', path: RPM }, preview, [
+        () => Promise.reject(new Error('timed out'))
+      ])
+      await settle()
+      expect(screen.getByRole('alert').textContent).toContain('timed out')
+      const suppress = within(dialog()).getByRole<HTMLButtonElement>('button', { name: 'Suppress' })
+      expect(suppress.disabled).toBe(true)
+      const retry = screen.getByRole('button', { name: 'Try again' })
+      retry.focus()
+      await click(retry)
+      expect(api.previewInputSuppression).toHaveBeenCalledTimes(2)
+      expect(screen.getByRole('list', { name: /rules it suppresses/i })).toBeTruthy()
+      expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+      expect(document.activeElement).toBe(screen.getByRole('heading', { name: /suppress input/i }))
+      expect(suppress.disabled).toBe(false)
     })
 
     it('says so when no rule reads the path', async () => {
