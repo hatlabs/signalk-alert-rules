@@ -15,6 +15,8 @@ export interface RulesViewProps {
   rules: RuleEntry[]
   /** The link that opens a rule's detail view. */
   ruleHref: (origin: string, slug: string) => string
+  /** Opens the authoring form on a new rule. */
+  onNew?: () => void
 }
 
 function matches(entry: RuleEntry, text: string, badge: Badge | ''): boolean {
@@ -62,7 +64,7 @@ function RuleRow({ entry, href }: { entry: RuleEntry; href: string }) {
   )
 }
 
-function RuleTable({ rules, ruleHref }: RulesViewProps) {
+function RuleTable({ rules, ruleHref }: Omit<RulesViewProps, 'onNew'>) {
   return (
     <div className="table-responsive">
       <table className="table table-sm align-middle skar-rules">
@@ -86,7 +88,7 @@ function RuleTable({ rules, ruleHref }: RulesViewProps) {
 }
 
 /** The rule list: filters, then the rules grouped by origin. */
-export function RulesView({ rules, ruleHref }: RulesViewProps) {
+export function RulesView({ rules, ruleHref, onNew }: RulesViewProps) {
   const [text, setText] = useState('')
   const [badge, setBadge] = useState<Badge | ''>('')
   const filterId = useId()
@@ -131,8 +133,12 @@ export function RulesView({ rules, ruleHref }: RulesViewProps) {
             ))}
           </select>
         </div>
-        {/* The authoring form comes later; the entry point is visible but inert until then. */}
-        <button type="button" className="btn btn-primary btn-sm" disabled>
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          disabled={onNew === undefined}
+          onClick={onNew}
+        >
           New rule
         </button>
       </div>

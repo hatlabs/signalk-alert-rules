@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RuleEntry } from '../../../src/panel/api'
 import { RulesView } from '../../../src/panel/rules/RulesView'
 import { instance, ruleEntry } from '../fixtures'
@@ -161,9 +161,16 @@ describe('RulesView', () => {
     expect(screen.queryAllByRole('group')).toHaveLength(0)
   })
 
-  it('offers rule creation, not yet available', () => {
+  it('offers rule creation only where it is wired', () => {
     renderView([oil])
     const button = screen.getByRole('button', { name: /new rule/i })
     expect((button as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('opens the authoring form from New rule', () => {
+    const onNew = vi.fn()
+    render(<RulesView rules={[oil]} ruleHref={() => '#'} onNew={onNew} />)
+    fireEvent.click(screen.getByRole('button', { name: /new rule/i }))
+    expect(onNew).toHaveBeenCalledOnce()
   })
 })
