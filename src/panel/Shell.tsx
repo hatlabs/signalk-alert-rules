@@ -14,15 +14,14 @@ type Tab = (typeof TABS)[number]['id']
 
 export interface ShellProps {
   api: PanelApi
-  pollMs?: number
 }
 
 /**
- * Keeps the plugin's condition current: probes at once, then every `pollMs`
- * while the document is visible and the view can still change. Returns a
- * function that probes again on demand.
+ * Keeps the plugin's condition current: probes at once, then every
+ * `POLL_INTERVAL_MS` while the document is visible and the view can still
+ * change. Returns a function that probes again on demand.
  */
-function useSnapshot(api: PanelApi, pollMs: number): [ShellSnapshot, () => void] {
+function useSnapshot(api: PanelApi): [ShellSnapshot, () => void] {
   const [snapshot, setSnapshot] = useState<ShellSnapshot>({
     view: { kind: 'loading' },
     securityEnabled: null
@@ -44,7 +43,7 @@ function useSnapshot(api: PanelApi, pollMs: number): [ShellSnapshot, () => void]
       if (cancelled) return
       setSnapshot(next)
       if (keepsPolling(next.view) && !hidden()) {
-        timer = setTimeout(() => void run(), pollMs)
+        timer = setTimeout(() => void run(), POLL_INTERVAL_MS)
       }
     }
 
@@ -64,7 +63,7 @@ function useSnapshot(api: PanelApi, pollMs: number): [ShellSnapshot, () => void]
       clearTimeout(timer)
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
-  }, [api, pollMs, requests])
+  }, [api, requests])
 
   return [
     snapshot,
@@ -177,8 +176,8 @@ function Views({ ruleCount }: { ruleCount: number }) {
   )
 }
 
-export function Shell({ api, pollMs = POLL_INTERVAL_MS }: ShellProps) {
-  const [snapshot, checkAgain] = useSnapshot(api, pollMs)
+export function Shell({ api }: ShellProps) {
+  const [snapshot, checkAgain] = useSnapshot(api)
   const { view, securityEnabled } = snapshot
 
   return (

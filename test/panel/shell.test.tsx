@@ -29,7 +29,6 @@ function mockApi(server: Server) {
 
 const running: PluginState = { running: true, securityEnabled: true }
 const rule: RuleSummary = { origin: 'user', slug: 'oil-pressure-low' }
-const POLL_MS = 5000
 
 function setVisibility(state: DocumentVisibilityState) {
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: state })
@@ -59,7 +58,7 @@ describe('Shell', () => {
   function renderShell(server: Server) {
     vi.useFakeTimers()
     const api = mockApi(server)
-    render(<Shell api={api} pollMs={POLL_MS} />)
+    render(<Shell api={api} />)
     return api
   }
 
@@ -95,7 +94,7 @@ describe('Shell', () => {
       /cannot reach.*failed to fetch.*retrying/i
     )
     server.state = running
-    await tick(POLL_MS)
+    await tick(POLL_INTERVAL_MS)
     expect(screen.queryByText(/cannot reach/i)).toBeNull()
     expect(screen.getAllByRole('tab')).toHaveLength(3)
     expect(api.state).toHaveBeenCalledTimes(2)
@@ -111,7 +110,7 @@ describe('Shell', () => {
     await settle()
     expect(screen.getByRole('alert').textContent).toMatch(/restarting.*retrying/i)
     server.state = running
-    await tick(POLL_MS)
+    await tick(POLL_INTERVAL_MS)
     expect(screen.getAllByRole('tab')).toHaveLength(3)
   })
 
@@ -124,7 +123,7 @@ describe('Shell', () => {
     const api = renderShell(server)
     await settle()
     expect(screen.getByRole('alert').textContent).toMatch(/disabled.*enable/i)
-    await tick(POLL_MS * 3)
+    await tick(POLL_INTERVAL_MS * 3)
     expect(api.state).toHaveBeenCalledTimes(1)
     server.enabled = true
     server.state = running
@@ -157,7 +156,7 @@ describe('Shell', () => {
     await settle()
     expect(screen.getByText(/server security is disabled/i)).toBeTruthy()
     server.state = { running: false, securityEnabled: false }
-    await tick(POLL_MS)
+    await tick(POLL_INTERVAL_MS)
     expect(screen.getByText(/server security is disabled/i)).toBeTruthy()
   })
 
@@ -190,15 +189,15 @@ describe('Shell', () => {
   it('polls every interval and pauses while the tab is hidden', async () => {
     const api = renderShell({ state: running, enabled: true, rules: [] })
     await settle()
-    await tick(POLL_MS)
+    await tick(POLL_INTERVAL_MS)
     expect(api.state).toHaveBeenCalledTimes(2)
     setVisibility('hidden')
-    await tick(POLL_MS * 3)
+    await tick(POLL_INTERVAL_MS * 3)
     expect(api.state).toHaveBeenCalledTimes(2)
     setVisibility('visible')
     await settle()
     expect(api.state).toHaveBeenCalledTimes(3)
-    await tick(POLL_MS)
+    await tick(POLL_INTERVAL_MS)
     expect(api.state).toHaveBeenCalledTimes(4)
   })
 })
