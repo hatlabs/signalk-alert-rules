@@ -1,4 +1,4 @@
-import { useId, useMemo, useState, type SyntheticEvent } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type SyntheticEvent } from 'react'
 import { RuleRejectedError, type FieldError } from '../api'
 import { Field, FieldErrors } from '../editor/fields'
 import { unitLabel, type DisplayUnit } from '../units'
@@ -51,6 +51,20 @@ export function ParametersForm({ ruleset, unitOf, save }: ParametersFormProps) {
   const [failure, setFailure] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const headingId = useId()
+  const form = useRef<HTMLFormElement | null>(null)
+  // Counts refusals, so each one moves focus even when its errors repeat.
+  const [refusals, setRefusals] = useState(0)
+
+  // The save button is disabled while saving and so drops focus; the first
+  // refused field takes it instead, and a screen reader reads its error.
+  useEffect(() => {
+    if (refusals > 0) form.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus()
+  }, [refusals])
+
+  const refuse = (found: FieldError[]) => {
+    setErrors(found)
+    setRefusals((n) => n + 1)
+  }
 
   const dirty = parameters.some((p) => draft[p.name] !== initial[p.name])
   const byField = new Map<string, string[]>()
@@ -66,7 +80,7 @@ export function ParametersForm({ ruleset, unitOf, save }: ParametersFormProps) {
     setFailure(undefined)
     const outcome = valuesToSend(parameters, values, initial, draft, unitOf)
     if (!outcome.ok) {
-      setErrors(outcome.errors)
+      refuse(outcome.errors)
       return
     }
     setErrors([])
@@ -74,7 +88,7 @@ export function ParametersForm({ ruleset, unitOf, save }: ParametersFormProps) {
     try {
       await save(outcome.values)
     } catch (err) {
-      if (err instanceof RuleRejectedError && err.errors.length > 0) setErrors(err.errors)
+      if (err instanceof RuleRejectedError && err.errors.length > 0) refuse(err.errors)
       else setFailure(err instanceof Error ? err.message : String(err))
     } finally {
       setBusy(false)
@@ -84,6 +98,7 @@ export function ParametersForm({ ruleset, unitOf, save }: ParametersFormProps) {
   return (
     <FieldErrors.Provider value={byField}>
       <form
+        ref={form}
         aria-label={`Parameters of ${ruleset.name}`}
         className="skar-parameters"
         onSubmit={(e) => void submit(e)}

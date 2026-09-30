@@ -318,6 +318,8 @@ describe('RulesetsView', () => {
       const messages = described.map((id) => document.getElementById(id)?.textContent)
       expect(messages).toContain('must be <= 14')
       expect((low as HTMLInputElement).value).toBe('20')
+      // Focus on the field has a screen reader read it with its error.
+      expect(document.activeElement).toBe(low)
     })
 
     it('shows an error in a rule the values make above the form', async () => {
