@@ -21,12 +21,21 @@ const SOURCE_TIMEOUT_MS = 60_000
 const STALE_WAIT_MS = SOURCE_TIMEOUT_MS + 5_000
 const SLOW_TEST_MS = 3 * SOURCE_TIMEOUT_MS
 const SETTLE_MS = 3_000
+const STAMP_GAP_MS = 10
 
 // Core's own alerts API, which also backs the plugin surface; readable while the plugin is disabled.
+type ServerAlert = CoreAlert & {
+  id: string
+  state: string
+  silenced: boolean
+  stateChangedAt: string
+}
+
 interface CoreAlertsApi {
-  list(): (CoreAlert & { id: string; state: string })[]
-  getByPath(path: string): (CoreAlert & { id: string; state: string }) | null
+  list(): ServerAlert[]
+  getByPath(path: string): ServerAlert | null
   acknowledge(id: string, by: string): Promise<unknown>
+  silence(id: string): Promise<unknown>
   /** Resolves once every queued `alerts.*` delta has been applied. */
   ingressSettled(): Promise<void>
 }
@@ -251,6 +260,24 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
       'the re-raise'
     )
     expect(alerts().getByPath(path)?.state).toBe('unacknowledged')
+  })
+
+  it('holds a latching raise as ended, and re-announces the held alert on the next latching raise', async () => {
+    const path = 'rules.contract.latching'
+    const event: AlertValue = { ...raise('latching'), latching: true }
+    deps.send(path, event)
+    const first = await until(() => alerts().getByPath(path), 'the raise')
+    expect(first).toMatchObject({ latching: true, condition: false, state: 'unacknowledged' })
+    await alerts().silence(first.id)
+    // Core stamps state changes in milliseconds; a later occurrence must be told apart.
+    await sleep(STAMP_GAP_MS)
+    deps.send(path, event)
+    await alerts().ingressSettled()
+    const second = alerts().getByPath(path)
+    expect(second).toMatchObject({ condition: false, state: 'unacknowledged', silenced: false })
+    expect(Date.parse(second?.stateChangedAt ?? '')).toBeGreaterThan(
+      Date.parse(first.stateChangedAt)
+    )
   })
 
   it(

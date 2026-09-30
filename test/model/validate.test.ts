@@ -353,6 +353,44 @@ describe('validateRule', () => {
     })
   })
 
+  describe('latching', () => {
+    it.each<[string, unknown]>([
+      ['a count', minimalDetectors.count],
+      ['a changesTo match', { type: 'match', op: 'changesTo', value: true }],
+      ['a decreases match', { type: 'match', op: 'decreases' }]
+    ])('accepts latching on %s, whose condition is an event', (_what, detector) => {
+      expect(errorsOf(rule({ latching: true, detector }))).toEqual([])
+    })
+
+    it.each<[string, unknown]>([
+      ['an equals match', { type: 'match', op: 'equals', value: 1 }],
+      ['a notEquals match', { type: 'match', op: 'notEquals', value: 1 }],
+      ['a timedOut match', { type: 'match', op: 'timedOut', duration: 30 }],
+      ['a sustained detector', minimalDetectors.sustained],
+      ['a slope detector', minimalDetectors.slope],
+      ['a projection detector', minimalDetectors.projection],
+      ['an accumulator', minimalDetectors.accumulator],
+      ['an absence detector', minimalDetectors.absence]
+    ])('rejects latching on %s, whose condition lasts', (_what, detector) => {
+      const errors = errorsOf(rule({ latching: true, detector }))
+      expect(paths(errors)).toEqual(['/latching'])
+      expect(errors[0]?.message).toContain('return to normal')
+    })
+
+    it('rejects latching on a zone-limit rule', () => {
+      const detector = {
+        type: 'sustained',
+        direction: 'below',
+        limit: { kind: 'zone', level: 'warn' }
+      }
+      expect(paths(errorsOf(unprioritised({ latching: true, detector })))).toEqual(['/latching'])
+    })
+
+    it('accepts latching false on any detector', () => {
+      expect(errorsOf(rule({ latching: false, detector: minimalDetectors.sustained }))).toEqual([])
+    })
+  })
+
   describe('timeout rules', () => {
     const timeout = { type: 'match', op: 'timedOut', duration: 30 }
 

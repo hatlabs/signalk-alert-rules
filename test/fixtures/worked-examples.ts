@@ -131,7 +131,6 @@ export const workedExamples: Record<string, unknown> = {
     slug: 'watch-not-acknowledged',
     message: 'No watch acknowledgement received',
     priority: 'alarm',
-    latching: true,
     signal: { path: 'navigation.watch.acknowledged' },
     detector: { type: 'absence', event: { op: 'changes' }, within: 900 }
   },

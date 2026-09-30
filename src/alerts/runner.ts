@@ -74,12 +74,12 @@ export class RuleRunner {
   start(): void {
     const now = this.deps.clock()
     const rules = new Map([...this.entries].map(([id, e]) => [id, e.rule]))
-    const { kept, activeByRule, orphaned } = reconcile(
+    const { kept, activeByRule, toClear } = reconcile(
       this.deps.alerts.list(),
       this.deps.pluginId,
       rules
     )
-    for (const alert of orphaned) this.deps.send(alert.path, null)
+    for (const alert of toClear) this.deps.send(alert.path, null)
     for (const { alert, ruleId: id, segment } of kept) {
       const rule = this.entries.get(id)?.rule
       if (rule === undefined) continue

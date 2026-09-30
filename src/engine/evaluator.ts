@@ -124,7 +124,9 @@ type Resolved =
   | { ok: false; reason: string }
 
 // Rule fields whose change clears and restarts the rule; every other detector
-// field is re-evaluated in place.
+// field is re-evaluated in place. Latching is one of them because a latching
+// rule holds no active alert: an ongoing alert is cleared before the rule
+// turns momentary, and a momentary one is raised afresh when it turns ongoing.
 const STRUCTURAL: {
   [T in DetectorSpec['type']]: (keyof Extract<DetectorSpec, { type: T }>)[]
 } = {
@@ -150,6 +152,7 @@ function structure(rule: Rule): string {
   return canonical({
     signal: rule.signal,
     gates: rule.gates ?? [],
+    latching: rule.latching ?? false,
     detector: Object.fromEntries(
       Object.entries(rule.detector).filter(([key]) => fields.includes(key))
     )
