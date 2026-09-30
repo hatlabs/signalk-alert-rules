@@ -100,6 +100,8 @@ function setup(
     meta?: Record<string, PathMeta>
     /** Values already in the server's delta cache, replayed when the runner subscribes. */
     cached?: [string, Value][]
+    /** Accumulator totals restored from the store, by rule id and instance segment. */
+    accumulated?: Map<string, Map<string, number>>
   } = {}
 ) {
   const sm = new FakeSubscriptionManager()
@@ -121,7 +123,8 @@ function setup(
         core.ingest(PLUGIN, path, value)
       }
     },
-    loaded
+    loaded,
+    options.accumulated
   )
   for (const [path, value] of options.cached ?? []) sm.publish(path, 'src', value)
   runner.start()
@@ -540,6 +543,46 @@ describe('rule runner', () => {
     run(1, 5)
     expect(sent).toHaveLength(1)
     expect(runner.status('user.oil-pressure-low')).toBeDefined()
+  })
+
+  it('restores accumulator totals per rule and reports them for checkpoints', () => {
+    const hours = valid({
+      name: 'Engine hours',
+      slug: 'engine-hours',
+      message: 'Engine service due',
+      priority: 'caution',
+      signal: { path: 'propulsion.main.revolutions' },
+      detector: { type: 'accumulator', measure: 'time', limit: 100 }
+    })
+    const { at, run, runner, sent } = setup([hours, oil], {
+      accumulated: new Map([
+        ['user.engine-hours', new Map([['', 95]])],
+        ['user.deleted-rule', new Map([['', 5]])]
+      ])
+    })
+    at(0, 'propulsion.main.revolutions', 30)
+    run(1, 4)
+    expect(runner.accumulators()).toEqual(new Map([['user.engine-hours', new Map([['', 99]])]]))
+    run(5, 5)
+    expect(sent.map(([path]) => path)).toEqual(['rules.user.engine-hours'])
+  })
+
+  it('a rule added while running reports its accumulator total', () => {
+    const { at, runner } = setup([])
+    runner.update({
+      origin: 'user',
+      rule: valid({
+        name: 'Engine hours',
+        slug: 'engine-hours',
+        message: 'Engine service due',
+        priority: 'caution',
+        signal: { path: 'propulsion.main.revolutions' },
+        detector: { type: 'accumulator', measure: 'time', limit: 100 }
+      })
+    })
+    at(0, 'propulsion.main.revolutions', 30)
+    at(7)
+    expect(runner.accumulators()).toEqual(new Map([['user.engine-hours', new Map([['', 7]])]]))
   })
 
   it('stopping clears nothing', () => {

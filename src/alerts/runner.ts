@@ -63,9 +63,14 @@ export class RuleRunner {
   private readonly evaluators = new Map<string, RuleEvaluator>()
   private readonly issues = new Map<string, Set<string>>()
 
+  /**
+   * @param accumulated accumulator totals restored from the store, by rule id
+   *   and instance segment; applied to the rules started by `start`.
+   */
   constructor(
     private readonly deps: RunnerDeps,
-    rules: readonly LoadedRule[]
+    rules: readonly LoadedRule[],
+    private readonly accumulated: ReadonlyMap<string, ReadonlyMap<string, number>> = new Map()
   ) {
     this.emitter = new AlertEmitter(deps)
     for (const entry of rules) this.entries.set(idOf(entry), entry)
@@ -95,7 +100,9 @@ export class RuleRunner {
         now
       )
     }
-    for (const [id, entry] of this.entries) this.startRule(id, entry, activeByRule.get(id))
+    for (const [id, entry] of this.entries) {
+      this.startRule(id, entry, activeByRule.get(id), this.accumulated.get(id))
+    }
   }
 
   tick(): void {
@@ -122,7 +129,7 @@ export class RuleRunner {
     this.issues.delete(id)
     const evaluator = this.evaluators.get(id)
     if (evaluator === undefined) {
-      this.startRule(id, entry, undefined)
+      this.startRule(id, entry, undefined, undefined)
       return
     }
     evaluator.update(entry.rule)
@@ -143,6 +150,16 @@ export class RuleRunner {
     this.issues.delete(id)
   }
 
+  /** Accumulator totals by rule id and instance segment, for the store's checkpoint. */
+  accumulators(): Map<string, Map<string, number>> {
+    const totals = new Map<string, Map<string, number>>()
+    for (const [id, evaluator] of this.evaluators) {
+      const rule = evaluator.accumulators()
+      if (rule.size > 0) totals.set(id, rule)
+    }
+    return totals
+  }
+
   status(id: string): RunnerRuleStatus | undefined {
     const entry = this.entries.get(id)
     const evaluator = this.evaluators.get(id)
@@ -160,14 +177,20 @@ export class RuleRunner {
     }
   }
 
-  private startRule(id: string, entry: LoadedRule, adopted: Adopted[] | undefined): void {
+  private startRule(
+    id: string,
+    entry: LoadedRule,
+    adopted: Adopted[] | undefined,
+    accumulated: ReadonlyMap<string, number> | undefined
+  ): void {
     const evaluator = new RuleEvaluator(
       entry.rule,
       this.deps,
       (event) => {
         this.onEvent(id, event)
       },
-      adopted
+      adopted,
+      accumulated
     )
     this.evaluators.set(id, evaluator)
     evaluator.start()

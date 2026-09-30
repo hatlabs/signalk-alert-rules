@@ -193,9 +193,11 @@ export class RuleEvaluator {
     private rule: Rule,
     private readonly ctx: EvaluatorContext,
     private readonly onEvent: (event: RuleEvent) => void,
-    adopted: readonly Adopted[] = []
+    adopted: readonly Adopted[] = [],
+    accumulated: ReadonlyMap<string, number> = new Map()
   ) {
     this.adopted = new Set(adopted.map((a) => a.segment ?? ''))
+    this.carried = new Map(accumulated)
   }
 
   start(): void {
@@ -280,6 +282,22 @@ export class RuleEvaluator {
   remove(): void {
     for (const unit of this.units.values()) if (unit.alerting) this.clear(unit)
     this.stop()
+  }
+
+  /**
+   * An accumulator rule's totals by instance segment, for the store's
+   * checkpoint. An instance restored but not seen since start keeps its
+   * restored total, so a checkpoint before it reports does not lose it.
+   */
+  accumulators(): Map<string, number> {
+    if (this.rule.detector.type !== 'accumulator') return new Map()
+    const totals = new Map(this.carried)
+    for (const unit of this.units.values()) {
+      if (unit.detector instanceof AccumulatorDetector) {
+        totals.set(unit.key, unit.detector.accumulated)
+      }
+    }
+    return totals
   }
 
   status(): RuleStatus {
@@ -565,19 +583,13 @@ export class RuleEvaluator {
   private totals(next: Rule): Map<string, number> {
     const current = this.rule.detector
     const edited = next.detector
-    const carried = new Map<string, number>()
     if (
       current.type !== 'accumulator' ||
       edited.type !== 'accumulator' ||
       current.measure !== edited.measure
     ) {
-      return carried
+      return new Map()
     }
-    for (const unit of this.units.values()) {
-      if (unit.detector instanceof AccumulatorDetector) {
-        carried.set(unit.key, unit.detector.accumulated)
-      }
-    }
-    return carried
+    return this.accumulators()
   }
 }

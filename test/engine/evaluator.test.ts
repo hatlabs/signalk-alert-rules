@@ -25,6 +25,8 @@ interface Options {
   meta?: Record<string, PathMeta>
   settings?: TimeoutSettings
   adopted?: Adopted[]
+  /** Accumulator totals restored from the store, by instance segment. */
+  accumulated?: Map<string, number>
   /** Values already in the server's delta cache when the rule starts. */
   cached?: [string, Value][]
 }
@@ -50,7 +52,8 @@ function setup(rule: Rule, options: Options = {}) {
       const key = e.instance?.segment ?? ''
       log.push(e.type === 'clear' ? [now, e.type, key] : [now, e.type, key, e.priority])
     },
-    options.adopted
+    options.adopted,
+    options.accumulated
   )
   for (const [path, value] of options.cached ?? []) sm.publish(path, 'src', value)
   evaluator.start()
@@ -803,6 +806,53 @@ describe('restarts and status', () => {
     for (let t = 0; t <= 60; t += 10) s.at(t, RPM, 30)
     return s
   }
+
+  it('continues from a restored accumulator total', () => {
+    const { at, log, evaluator } = setup(genset, { accumulated: new Map([['', 90]]) })
+    expect(evaluator.accumulators()).toEqual(new Map([['', 90]]))
+    at(0, RPM, 30)
+    at(9)
+    expect(log).toEqual([])
+    at(10)
+    expect(log).toEqual([[10, 'raise', '', 'caution']])
+    expect(evaluator.accumulators()).toEqual(new Map([['', 100]]))
+  })
+
+  it("reports each instance's total, keeping restored ones not yet seen", () => {
+    const hours = valid({ ...genset, signal: { path: 'propulsion.*.revolutions' } })
+    const { at, evaluator } = setup(hours, {
+      accumulated: new Map([
+        ['port', 40],
+        ['starboard', 7]
+      ])
+    })
+    at(0, 'propulsion.port.revolutions', 30)
+    at(0, 'propulsion.centre.revolutions', 30)
+    at(20)
+    expect(evaluator.accumulators()).toEqual(
+      new Map([
+        ['port', 60],
+        ['starboard', 7],
+        ['centre', 20]
+      ])
+    )
+  })
+
+  it('a structural edit keeps a restored total of an instance not yet seen', () => {
+    const hours = valid({ ...genset, signal: { path: 'propulsion.*.revolutions' } })
+    const { evaluator } = setup(hours, { accumulated: new Map([['port', 40]]) })
+    evaluator.update({
+      ...hours,
+      detector: { ...hours.detector, while: { op: 'above', value: 0 } }
+    } as Rule)
+    expect(evaluator.accumulators()).toEqual(new Map([['port', 40]]))
+  })
+
+  it('reports no totals for a rule that is not an accumulator', () => {
+    const { at, evaluator } = setup({ ...oilPressure, gates: undefined })
+    at(0, OIL, 0)
+    expect(evaluator.accumulators()).toEqual(new Map())
+  })
 
   it('a structural edit keeps an accumulator total with the same measure', () => {
     const { at, log, evaluator } = running(genset)
