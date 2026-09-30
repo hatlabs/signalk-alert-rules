@@ -10,6 +10,7 @@ import { MAX_RULES, type Rule } from './model/rule.js'
 import { USER_ORIGIN } from './model/ruleset.js'
 import { validateRule, type ValidationError } from './model/validate.js'
 import type { Checkpoints, EvaluationSwitch, LogEntry, Store } from './store/store.js'
+import { isRecord } from './util.js'
 
 /** How often rules are evaluated: detector durations resolve to this. */
 export const TICK_MS = 1000
@@ -43,6 +44,8 @@ export interface EditPreview {
   activeAlerts: number
   /** Saving the edit would clear an active alert. */
   clearsActiveAlert: boolean
+  /** The rule has an accumulator total, running or retained, that saving the edit would discard. */
+  discardsTotal: boolean
 }
 
 export type PreviewOutcome = { ok: true; value: EditPreview } | Exclude<SaveOutcome, { ok: true }>
@@ -76,6 +79,11 @@ export class Application {
    * every rule's while evaluation is off.
    */
   private readonly retained: Map<string, Map<string, number>>
+  /**
+   * The detector measure each stored rule file that did not load names, as
+   * written, so a valid replacement of the same measure keeps its total.
+   */
+  private readonly unloadedMeasures = new Map<string, unknown>()
   /** Oldest first, as stored. */
   private readonly actions: LogEntry[]
   /** The totals last written, serialised; undefined until a checkpoint succeeds. */
@@ -92,6 +100,12 @@ export class Application {
     this.stored = new Set(contents.rules.map((r) => r.slug))
     for (const { slug, value } of contents.rules) {
       const result = validateRule(value)
+      if (!result.ok || result.value.slug !== slug) {
+        this.unloadedMeasures.set(
+          slug,
+          isRecord(value) && isRecord(value.detector) ? value.detector.measure : undefined
+        )
+      }
       if (!result.ok) {
         const errors = result.errors.map((e) => `${e.path || '/'} ${e.message}`).join('; ')
         this.issues.push(`stored rule ${slug} is not valid and does not run: ${errors}`)
@@ -173,16 +187,45 @@ export class Application {
       const message = `at most ${String(MAX_RULES)} rules`
       return { ok: false, reason: 'invalid', errors: [{ path: '', message }] }
     }
+    const id = this.idOf(rule.slug)
+    const carries = this.carriesTotal(rule)
+    const drops = this.hasTotal(id) && !carries
     this.store.saveRule(rule)
-    const previous = this.rulesBySlug.get(rule.slug)
     this.stored.add(rule.slug)
+    this.unloadedMeasures.delete(rule.slug)
     // While evaluation is off an edit keeps the total, as the runner would.
-    if (previous === undefined || !carriesTotals(previous, rule)) {
-      this.retained.delete(this.idOf(rule.slug))
-    }
+    if (!carries) this.retained.delete(id)
     this.rulesBySlug.set(rule.slug, rule)
-    this.runner?.update({ origin: USER_ORIGIN, rule })
+    if (this.runner !== undefined) {
+      // While evaluation is on, only a rule the runner does not hold has a
+      // retained total; the runner takes it over.
+      const retained = this.retained.get(id)
+      this.retained.delete(id)
+      this.runner.update({ origin: USER_ORIGIN, rule }, retained)
+    }
+    // Written now: the next checkpoint could come after a restart that would
+    // give the old total to the new rule.
+    if (drops) this.checkpoint()
     return { ok: true, value: rule }
+  }
+
+  /**
+   * Whether saving the rule keeps the accumulator total its slug has: an
+   * edit of a loaded rule per the edit semantics, or the replacement of a
+   * stored rule that did not load, by the measure its file names.
+   */
+  private carriesTotal(rule: Rule): boolean {
+    const previous = this.rulesBySlug.get(rule.slug)
+    if (previous !== undefined) return carriesTotals(previous, rule)
+    return (
+      rule.detector.type === 'accumulator' &&
+      this.unloadedMeasures.get(rule.slug) === rule.detector.measure
+    )
+  }
+
+  /** Whether the rule has an accumulator total, running or retained. */
+  private hasTotal(id: string): boolean {
+    return this.retained.has(id) || (this.runner?.accumulators().has(id) ?? false)
   }
 
   /** Saves a new user rule; a stored rule file with its slug, valid or not, makes it exist. */
@@ -211,7 +254,13 @@ export class Application {
     const restarts = changes.length > 0 || this.runner?.failedToStart(this.idOf(slug)) === true
     return {
       ok: true,
-      value: { restarts, changes, activeAlerts, clearsActiveAlert: restarts && activeAlerts > 0 }
+      value: {
+        restarts,
+        changes,
+        activeAlerts,
+        clearsActiveAlert: restarts && activeAlerts > 0,
+        discardsTotal: this.hasTotal(this.idOf(slug)) && !this.carriesTotal(checked.value)
+      }
     }
   }
 
@@ -221,11 +270,17 @@ export class Application {
    */
   deleteRule(slug: string, actor: string): boolean {
     if (!this.stored.has(slug)) return false
+    const id = this.idOf(slug)
+    const drops = this.hasTotal(id)
     this.store.deleteRule(slug)
     this.stored.delete(slug)
-    this.retained.delete(this.idOf(slug))
-    if (this.rulesBySlug.delete(slug)) this.runner?.remove(this.idOf(slug))
-    this.record({ at: this.now(), actor, action: 'delete', rule: this.idOf(slug) })
+    this.unloadedMeasures.delete(slug)
+    this.retained.delete(id)
+    if (this.rulesBySlug.delete(slug)) this.runner?.remove(id)
+    // Written now: a restart before the next checkpoint would give the old
+    // total to a rule re-created with this slug.
+    if (drops) this.checkpoint()
+    this.record({ at: this.now(), actor, action: 'delete', rule: id })
     return true
   }
 

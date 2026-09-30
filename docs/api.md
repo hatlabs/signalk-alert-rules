@@ -38,13 +38,20 @@ SKAR serves its rules, their status and its operator actions under the plugin's 
 ### Edit preview
 
 ```json
-{ "restarts": true, "changes": ["detector.type"], "activeAlerts": 1, "clearsActiveAlert": true }
+{
+  "restarts": true,
+  "changes": ["detector.type"],
+  "activeAlerts": 1,
+  "clearsActiveAlert": true,
+  "discardsTotal": false
+}
 ```
 
 - `restarts`: the edit clears and restarts the rule, per the [edit semantics](rules.md#edits). Any edit restarts a rule that failed to start.
 - `changes`: the parts of the rule that make it restart, by field path: `signal`, `gates`, `latching`, `detector.limit.level`, or `detector.<field>`.
 - `activeAlerts`: how many of the rule's instances have an active alert now.
 - `clearsActiveAlert`: saving the edit would clear an active alert; the panel asks for confirmation.
+- `discardsTotal`: the rule has an accumulator total, running or kept while it does not run, and saving the edit would discard it: the edit is no longer an accumulator of the same measure. Replacing a stored rule that failed validation keeps its total when the new rule is an accumulator of the measure the stored file names.
 
 The preview uses the same comparison the engine applies when the edit is saved.
 
@@ -104,5 +111,5 @@ Errors answer `{ "error": "<message>" }`. A body that fails validation answers 4
 | 404 | no such rule |
 | 409 | `POST /rules` with a slug a stored rule already has |
 | 415 | a mutating request without `Content-Type: application/json` |
-| 500 | the data directory could not be written. A rule, deletion or evaluation switch that could not be saved is not applied. A reset whose zero total could not be saved has been applied, but the old total returns after a restart unless a later checkpoint succeeds. An action whose log entry could not be written has been applied. |
+| 500 | the data directory could not be written. A rule, deletion or evaluation switch that could not be saved is not applied. A reset, or a save or deletion that discards an accumulator total, whose totals could not be saved has been applied, but the old total returns after a restart unless a later checkpoint succeeds. An action whose log entry could not be written has been applied. |
 | 503 | the plugin is not running |

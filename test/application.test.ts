@@ -7,7 +7,7 @@ import type { Value } from '@signalk/server-api'
 import { Application, LOG_LIMIT } from '../src/application.js'
 import type { RunnerDeps } from '../src/alerts/runner.js'
 import { serverDeps } from '../src/alerts/server.js'
-import { Store } from '../src/store/store.js'
+import { Store, type Checkpoints } from '../src/store/store.js'
 import { FakeAlertsCore } from './helpers/FakeAlertsCore.js'
 import { MockServerAPI } from './helpers/MockServerAPI.js'
 
@@ -51,6 +51,10 @@ const hours = {
   signal: { path: RPM },
   detector: { type: 'accumulator', measure: 'time', limit: 1000 }
 }
+
+const integral = { ...hours, detector: { type: 'accumulator', measure: 'integral', limit: 1000 } }
+/** Fails validation: an accumulator limit must be positive. */
+const brokenHours = { ...hours, detector: { ...hours.detector, limit: -5 } }
 
 let dir: string
 
@@ -359,6 +363,18 @@ describe('application operator actions', () => {
     expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 40 } })
   })
 
+  it('a measure change while evaluation is off drops the total from the store at once', () => {
+    stored(hours)
+    const { application, at } = setup()
+    at(0, RPM, 30)
+    at(20)
+    application.setEvaluation(false, 'admin')
+    application.checkpoint()
+    expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 20 } })
+    expect(application.replaceRule(hours.slug, integral).ok).toBe(true)
+    expect(new Store(dir).load().accumulators).toEqual({})
+  })
+
   it("an accumulator reset clears the rule's alert, zeroes its stored total and records the actor", () => {
     stored(shortHours)
     new Store(dir).saveCheckpoints({ 'user.engine-hours': { '': 8 } })
@@ -440,7 +456,13 @@ describe('application operator actions', () => {
     const limit = { ...oil, detector: { ...oil.detector, limit: { kind: 'fixed', value: 90000 } } }
     expect(application.previewRule('oil-pressure-low', limit)).toEqual({
       ok: true,
-      value: { restarts: false, changes: [], activeAlerts: 1, clearsActiveAlert: false }
+      value: {
+        restarts: false,
+        changes: [],
+        activeAlerts: 1,
+        clearsActiveAlert: false,
+        discardsTotal: false
+      }
     })
     // A preview changes nothing.
     expect(application.userRules()[0]).toMatchObject({ detector: { type: 'sustained' } })
@@ -456,7 +478,8 @@ describe('application operator actions', () => {
         restarts: true,
         changes: ['detector.direction'],
         activeAlerts: 0,
-        clearsActiveAlert: false
+        clearsActiveAlert: false,
+        discardsTotal: false
       }
     })
   })
@@ -481,7 +504,13 @@ describe('application operator actions', () => {
     const reworded = { ...battery, message: 'Check the battery' }
     expect(application.previewRule(battery.slug, reworded)).toEqual({
       ok: true,
-      value: { restarts: true, changes: [], activeAlerts: 1, clearsActiveAlert: true }
+      value: {
+        restarts: true,
+        changes: [],
+        activeAlerts: 1,
+        clearsActiveAlert: true,
+        discardsTotal: false
+      }
     })
     expect(application.replaceRule(battery.slug, reworded).ok).toBe(true)
     expect(core.getByPath(alert)?.condition).toBe(false)
@@ -524,5 +553,114 @@ describe('application operator actions', () => {
     expect(application.rule('user', 'oil-pressure-low')?.status?.badge).toBe('alertActive')
     expect(application.rule('user', 'missing')).toBeUndefined()
     expect(application.rule('ruleset', 'oil-pressure-low')).toBeUndefined()
+  })
+})
+
+describe('application accumulator totals across edits', () => {
+  const ID = 'user.engine-hours'
+  const total = () => {
+    const totals: Partial<Checkpoints> = new Store(dir).load().accumulators
+    return totals[ID]?.['']
+  }
+
+  it('replacing a stored rule that failed validation with the same measure keeps its total', () => {
+    stored(brokenHours)
+    new Store(dir).saveCheckpoints({ [ID]: { '': 100 } })
+    const { application, at } = setup()
+    expect(application.issues.join('\n')).toMatch(/engine-hours is not valid/)
+    expect(application.previewRule(hours.slug, hours)).toMatchObject({
+      ok: true,
+      value: { discardsTotal: false }
+    })
+
+    expect(application.replaceRule(hours.slug, hours).ok).toBe(true)
+    at(0, RPM, 30)
+    at(20)
+    application.checkpoint()
+    expect(total()).toBe(120)
+  })
+
+  it('with evaluation off, the replaced rule keeps the total until evaluation is on', () => {
+    stored(brokenHours)
+    new Store(dir).saveCheckpoints({ [ID]: { '': 100 } })
+    new Store(dir).saveEvaluation({ enabled: false })
+    const { application, at } = setup()
+
+    expect(application.replaceRule(hours.slug, hours).ok).toBe(true)
+    application.checkpoint()
+    expect(total()).toBe(100)
+    application.setEvaluation(true, 'admin')
+    at(0, RPM, 30)
+    at(20)
+    application.checkpoint()
+    expect(total()).toBe(120)
+  })
+
+  it('replacing a stored rule that failed validation with another measure drops its total at once', () => {
+    stored(brokenHours)
+    new Store(dir).saveCheckpoints({ [ID]: { '': 100 } })
+    const { application } = setup()
+    expect(application.previewRule(hours.slug, integral)).toMatchObject({
+      ok: true,
+      value: { discardsTotal: true }
+    })
+    expect(application.replaceRule(hours.slug, integral).ok).toBe(true)
+    expect(total()).toBe(0)
+  })
+
+  it('a measure change survives a crash right after it: the new rule does not inherit the total', () => {
+    stored(hours)
+    const first = setup()
+    first.at(0, RPM, 30)
+    first.at(10)
+    first.application.checkpoint()
+    expect(first.application.replaceRule(hours.slug, integral).ok).toBe(true)
+
+    // No stop: the process died before the next checkpoint.
+    const second = setup()
+    second.application.checkpoint()
+    expect(total()).toBe(0)
+  })
+
+  it('a delete and re-create survives a crash right after it: the new rule starts from zero', () => {
+    stored(hours)
+    const first = setup()
+    first.at(0, RPM, 30)
+    first.at(10)
+    first.application.checkpoint()
+    first.application.deleteRule(hours.slug, 'admin')
+    expect(first.application.createRule(hours).ok).toBe(true)
+
+    const second = setup()
+    second.at(0, RPM, 30)
+    second.at(5)
+    second.application.checkpoint()
+    expect(total()).toBe(5)
+  })
+
+  it('the preview says whether an edit discards a running or retained total', () => {
+    stored(hours)
+    stored(oil)
+    const { application, at } = setup()
+    at(0, RPM, 30)
+    at(10)
+    const reworded = { ...hours, message: 'Service the engine' }
+    expect(application.previewRule(hours.slug, integral)).toMatchObject({
+      value: { discardsTotal: true }
+    })
+    expect(application.previewRule(hours.slug, reworded)).toMatchObject({
+      value: { discardsTotal: false }
+    })
+    expect(application.previewRule(oil.slug, { ...oil, message: 'x' })).toMatchObject({
+      value: { discardsTotal: false }
+    })
+
+    application.setEvaluation(false, 'admin')
+    expect(application.previewRule(hours.slug, integral)).toMatchObject({
+      value: { discardsTotal: true }
+    })
+    expect(application.previewRule(hours.slug, reworded)).toMatchObject({
+      value: { discardsTotal: false }
+    })
   })
 })

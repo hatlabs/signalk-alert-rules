@@ -379,7 +379,8 @@ describe('REST API', () => {
       restarts: false,
       changes: [],
       activeAlerts: 1,
-      clearsActiveAlert: false
+      clearsActiveAlert: false,
+      discardsTotal: false
     })
     // Neither preview applied anything.
     expect(core(h).getByPath(OIL_ALERT)?.condition).toBe(true)

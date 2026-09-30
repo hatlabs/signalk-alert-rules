@@ -136,8 +136,13 @@ export class RuleRunner {
     for (const evaluator of this.evaluators.values()) evaluator.stop()
   }
 
-  /** Applies an edited rule, or starts a new one. */
-  update(entry: LoadedRule): void {
+  /**
+   * Applies an edited rule, or starts a new one.
+   *
+   * @param accumulated accumulator totals a rule the runner does not hold
+   *   starts with, by instance segment.
+   */
+  update(entry: LoadedRule, accumulated?: ReadonlyMap<string, number>): void {
     const id = idOf(entry)
     const previous = this.entries.get(id)
     this.entries.set(id, entry)
@@ -145,12 +150,14 @@ export class RuleRunner {
     const evaluator = this.evaluators.get(id)
     if (evaluator === undefined || this.failed.has(id)) {
       this.failed.delete(id)
-      const carried =
+      let carried = evaluator === undefined ? accumulated : undefined
+      if (
         evaluator !== undefined &&
         previous !== undefined &&
         carriesTotals(previous.rule, entry.rule)
-          ? evaluator.accumulators()
-          : undefined
+      ) {
+        carried = evaluator.accumulators()
+      }
       // The new evaluator starts without adoption, so the failed one's adopted
       // alerts would otherwise be heartbeated with nothing to clear them.
       evaluator?.remove()
