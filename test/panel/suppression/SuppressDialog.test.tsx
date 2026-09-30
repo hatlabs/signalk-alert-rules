@@ -148,6 +148,39 @@ describe('SuppressDialog', () => {
       expect(suppress.disabled).toBe(true)
     })
 
+    it('suppresses the path it previewed, without the spaces around it', async () => {
+      const { api } = renderDialog({ kind: 'input' })
+      fireEvent.change(screen.getByRole('combobox', { name: 'Input path' }), {
+        target: { value: `${RPM} ` }
+      })
+      await click(screen.getByRole('button', { name: /show what it suppresses/i }))
+      expect(api.previewInputSuppression).toHaveBeenCalledWith(RPM)
+      await click(within(dialog()).getByRole('button', { name: 'Suppress' }))
+      expect(api.suppressInput).toHaveBeenCalledWith(RPM, {})
+    })
+
+    it('ignores a preview that answers after the path has changed', async () => {
+      const { api } = renderDialog({ kind: 'input' })
+      let answer: (preview: InputSuppressionPreview) => void = () => undefined
+      api.previewInputSuppression.mockReturnValue(
+        new Promise((resolve) => {
+          answer = resolve
+        })
+      )
+      const field = screen.getByRole('combobox', { name: 'Input path' })
+      fireEvent.change(field, { target: { value: RPM } })
+      await click(screen.getByRole('button', { name: /show what it suppresses/i }))
+      fireEvent.change(field, { target: { value: 'propulsion.stbd.revolutions' } })
+      await act(async () => {
+        answer(preview)
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+      expect(screen.queryByRole('list', { name: /rules it suppresses/i })).toBeNull()
+      expect(
+        within(dialog()).getByRole<HTMLButtonElement>('button', { name: 'Suppress' }).disabled
+      ).toBe(true)
+    })
+
     it("shows the server's message when the preview is refused", async () => {
       const { api } = renderDialog({ kind: 'input' })
       api.previewInputSuppression.mockRejectedValue(

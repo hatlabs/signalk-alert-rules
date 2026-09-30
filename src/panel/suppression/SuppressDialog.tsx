@@ -145,12 +145,16 @@ export function SuppressDialog({ target, context, onClose }: SuppressDialogProps
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
 
+  // An answer for a path edited away since, on a slow link, must not stand for the new one.
+  const requested = useRef<string | undefined>(undefined)
   const loadPreview = async (of: string) => {
+    requested.current = of
     setPreview({ status: 'loading' })
     try {
-      setPreview({ status: 'ready', preview: await api.previewInputSuppression(of) })
+      const answer = await api.previewInputSuppression(of)
+      if (requested.current === of) setPreview({ status: 'ready', preview: answer })
     } catch (err) {
-      setPreview({ status: 'failed', error: failureMessage(err) })
+      if (requested.current === of) setPreview({ status: 'failed', error: failureMessage(err) })
     }
   }
 
@@ -177,7 +181,7 @@ export function SuppressDialog({ target, context, onClose }: SuppressDialogProps
       if (target.kind === 'rule') {
         await api.suppressRule(target.entry.origin, target.entry.slug, request)
       } else {
-        await api.suppressInput(path, request)
+        await api.suppressInput(path.trim(), request)
       }
       onClose()
       context.done()
@@ -204,7 +208,8 @@ export function SuppressDialog({ target, context, onClose }: SuppressDialogProps
         ? 'Suppress an input'
         : `Suppress input ${fixedPath}`
   const alerts = target.kind === 'rule' ? activeCount(target.entry) : 0
-  const ready = target.kind === 'rule' || preview.status === 'ready'
+  const ready =
+    target.kind === 'rule' || (preview.status === 'ready' && preview.preview.path === path.trim())
 
   return (
     <section
@@ -250,6 +255,7 @@ export function SuppressDialog({ target, context, onClose }: SuppressDialogProps
               source={paths}
               value={path}
               onChange={(next) => {
+                requested.current = undefined
                 setPath(next)
                 setPreview({ status: 'none' })
               }}
