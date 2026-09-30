@@ -148,6 +148,15 @@ export class RuleRunner {
     }
   }
 
+  /** Restarts the clear count of a rule's instances, or of the instances of any rule that read a path. */
+  restartClearCount(target: { rule: string } | { path: string }): void {
+    if ('rule' in target) {
+      this.evaluators.get(target.rule)?.restartClearCount()
+      return
+    }
+    for (const evaluator of this.evaluators.values()) evaluator.restartClearCount(target.path)
+  }
+
   /** Stops evaluating without clearing anything: stop runs on every configuration save. */
   stop(): void {
     for (const evaluator of this.evaluators.values()) evaluator.stop()

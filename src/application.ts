@@ -167,17 +167,12 @@ function notEvaluated(
 }
 
 /**
- * How long every instance has stayed clear since the suppression started;
- * zero without an instance, which leaves nothing to judge by.
+ * How long every instance has stayed clear, counted from the suppression's
+ * start; zero without an instance, which leaves nothing to judge by.
  */
-function stayedClearFor(
-  instances: readonly Pick<RunnerInstanceStatus, 'clearFor'>[],
-  started: number | undefined,
-  now: number
-): number {
+function stayedClearFor(instances: readonly Pick<RunnerInstanceStatus, 'clearFor'>[]): number {
   if (instances.length === 0) return 0
-  const sinceStart = started === undefined ? Infinity : now - started
-  return Math.min(sinceStart, ...instances.map((i) => i.clearFor ?? 0))
+  return Math.min(...instances.map((i) => i.clearFor ?? 0))
 }
 
 /**
@@ -212,13 +207,6 @@ export class Application {
   /** The totals last written, serialised; undefined until a checkpoint succeeds. */
   private lastCheckpoint: string | undefined
   private controls: Controls
-  /**
-   * When each suppression started in this run, on the monotonic clock, by
-   * `rule:<id>` or `input:<path>`: a clear before it does not count toward
-   * its auto-end. One loaded at start needs none, as every evaluator starts
-   * then.
-   */
-  private readonly suppressedAt = new Map<string, number>()
   private readonly suppressionsInForce: Suppressions = {
     rule: (id) => own(this.controls.rules, id)?.suppression,
     path: (path) => own(this.controls.inputs, path)
@@ -426,7 +414,6 @@ export class Application {
     this.stored.delete(slug)
     this.unloadedMeasures.delete(slug)
     this.retained.delete(id)
-    this.suppressedAt.delete(`rule:${id}`)
     if (this.rulesBySlug.delete(slug)) this.runner?.remove(id)
     // Logged first: the delete is applied even when the checkpoint fails.
     try {
@@ -555,7 +542,7 @@ export class Application {
     const id = ruleId(origin, slug)
     const suppression = this.newSuppression(request, actor)
     this.saveControls(this.withRule(id, { ...this.control(id), suppression }))
-    this.suppressedAt.set(`rule:${id}`, this.deps.clock())
+    this.runner?.restartClearCount({ rule: id })
     this.runner?.refresh()
     this.record({ at: suppression.since, actor, action: 'suppress', rule: id })
     return 'ok'
@@ -594,7 +581,7 @@ export class Application {
       ...this.controls,
       inputs: { ...this.controls.inputs, [path]: suppression }
     })
-    this.suppressedAt.set(`input:${path}`, this.deps.clock())
+    this.runner?.restartClearCount({ path })
     this.runner?.refresh()
     this.record({ at: suppression.since, actor, action: 'suppress', path })
     return inputEntry(path, suppression)
@@ -604,7 +591,6 @@ export class Application {
   endInputSuppression(path: string, actor: string): boolean {
     if (own(this.controls.inputs, path) === undefined) return false
     this.saveControls({ ...this.controls, inputs: without(this.controls.inputs, path) })
-    this.suppressedAt.delete(`input:${path}`)
     this.runner?.refresh()
     this.record({ at: this.now(), actor, action: 'unsuppress', path })
     return true
@@ -662,7 +648,6 @@ export class Application {
 
   private endSuppressionOf(id: string, actor: string): void {
     this.saveControls(this.withRule(id, { ...this.control(id), suppression: undefined }))
-    this.suppressedAt.delete(`rule:${id}`)
     this.runner?.refresh()
     this.record({ at: this.now(), actor, action: 'unsuppress', rule: id })
   }
@@ -676,12 +661,11 @@ export class Application {
   private endClearedSuppressions(): void {
     const runner = this.runner
     if (runner === undefined) return
-    const now = this.deps.clock()
     for (const [id, { enabled, suppression }] of Object.entries(this.controls.rules)) {
       const after = suppression?.autoEndAfter
       if (after === undefined || !enabled) continue
       const instances = runner.status(id)?.instances ?? []
-      if (stayedClearFor(instances, this.suppressedAt.get(`rule:${id}`), now) >= after) {
+      if (stayedClearFor(instances) >= after) {
         this.endSuppressionOf(id, AUTO_END_ACTOR)
       }
     }
@@ -692,7 +676,7 @@ export class Application {
         const instances = runner.status(ruleId(origin, rule.slug))?.instances ?? []
         return instances.filter((row) => signalPaths(rule.signal, row.instance).includes(path))
       })
-      if (stayedClearFor(direct, this.suppressedAt.get(`input:${path}`), now) >= autoEndAfter) {
+      if (stayedClearFor(direct) >= autoEndAfter) {
         this.endInputSuppression(path, AUTO_END_ACTOR)
       }
     }

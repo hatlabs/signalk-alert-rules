@@ -1113,6 +1113,42 @@ describe('rule controls', () => {
       expect(alerts()).toEqual([[OIL_ALERT, false]])
     })
 
+    it('time out of use because a gate does not hold does not count toward its auto-end', () => {
+      stored(gatedCoolant)
+      const { application, at } = setup()
+      at(0, RPM, 70)
+      at(0, COOLANT, 380)
+      application.suppressRule('user', 'coolant-high', { autoEndAfter: 60 }, 'admin')
+      // The engine stops overnight with the fault still there.
+      at(1, RPM, 0)
+      for (let t = 2; t <= 600; t += 1) at(t)
+      expect(application.suppressions()).toHaveLength(1)
+      // Running again with the fault fixed, it counts from then.
+      at(600, COOLANT, 300)
+      at(600, RPM, 70)
+      at(659)
+      expect(application.suppressions()).toHaveLength(1)
+      at(660)
+      expect(application.suppressions()).toEqual([])
+    })
+
+    it('a clear before the suppression started does not count, even across a pause', () => {
+      stored(gatedCoolant)
+      const { application, at } = setup()
+      at(0, RPM, 70)
+      at(0, COOLANT, 300)
+      at(100)
+      application.suppressRule('user', 'coolant-high', { autoEndAfter: 60 }, 'admin')
+      at(100, RPM, 0)
+      at(1000, RPM, 70)
+      at(1010)
+      expect(application.suppressions()).toHaveLength(1)
+      at(1059)
+      expect(application.suppressions()).toHaveLength(1)
+      at(1060)
+      expect(application.suppressions()).toEqual([])
+    })
+
     it('a clear before the suppression started does not count toward its auto-end', () => {
       stored(oil)
       const { application, at } = setup()
@@ -1218,6 +1254,19 @@ describe('rule controls', () => {
       at(50)
       expect(application.suppressions()).toEqual([])
       expect(application.log()[0]).toMatchObject({ actor: 'auto-end', path: RPM })
+    })
+
+    it('a clear before it started does not count toward its auto-end', () => {
+      stored(rpmHigh)
+      const { application, at } = setup()
+      at(0, RPM, 50)
+      at(100)
+      application.suppressInput(RPM, { autoEndAfter: 60 }, 'admin')
+      at(101)
+      at(159)
+      expect(application.suppressions()).toHaveLength(1)
+      at(160)
+      expect(application.suppressions()).toEqual([])
     })
 
     it('survives a restart', () => {

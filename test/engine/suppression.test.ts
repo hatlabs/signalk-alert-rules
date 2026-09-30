@@ -241,10 +241,25 @@ describe('clear time', () => {
     expect(instances()[0]?.clearFor).toBeUndefined()
   })
 
-  it('counts while a gate does not hold, since the rule is out of use', () => {
+  it('pauses while a gate does not hold: the count neither grows nor restarts', () => {
+    const { at, instances } = setup(coolantHigh)
+    at(0, RPM, 20)
+    at(0, 'propulsion.port.coolantTemperature', 300)
+    at(10)
+    expect(instances()[0]?.clearFor).toBe(10)
+    at(10, RPM, 0)
+    at(100)
+    expect(instances()[0]?.clearFor).toBe(10)
+    at(100, RPM, 20)
+    at(110)
+    expect(instances()[0]?.clearFor).toBe(20)
+  })
+
+  it('does not start counting while a gate does not hold', () => {
     const { at, instances } = setup(coolantHigh)
     at(0, RPM, 0)
+    at(0, 'propulsion.port.coolantTemperature', 300)
     at(30)
-    expect(instances()[0]?.clearFor).toBe(30)
+    expect(instances()[0]?.clearFor).toBeUndefined()
   })
 })

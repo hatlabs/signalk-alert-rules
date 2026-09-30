@@ -340,7 +340,7 @@ A disabled rule is not evaluated. Disabling it clears its active alerts, as a de
 
 A suppressed rule goes on evaluating but raises nothing. Suppressing it clears its active alerts, and their heartbeats stop. When the suppression ends, an alert whose condition still holds is raised again as a new alert, so core announces it again.
 
-A suppression ends manually, or by itself once the rule's condition has stayed clear for the suppression's `autoEndAfter` seconds. Clear means, for every instance of the rule, that the rule is out of use because a gate does not hold, or that it is in use with a value and its detector not active; an unavailable or never-seen input is not clear, and a wildcard rule with no instance yet never is. Only time since the suppression started counts. Any moment the condition holds restarts the count, so an intermittent fault whose clear spells are shorter than `autoEndAfter` keeps the suppression, and one that never clears keeps it indefinitely. Until it ends the rule's status shows the `waitingForClear` sub-label.
+A suppression ends manually, or by itself once the rule's condition has stayed clear for the suppression's `autoEndAfter` seconds. Clear means, for every instance of the rule, that the rule is in use with a value and its detector not active; an unavailable or never-seen input is not clear, and a wildcard rule with no instance yet never is. While the rule is out of use because a gate does not hold, the count pauses: that time does not count and does not restart the count, so a suppressed fault on an engine-gated rule does not end its suppression overnight with the engine stopped. Only time since the suppression started counts. Any moment the condition holds restarts the count, so an intermittent fault whose clear spells are shorter than `autoEndAfter` keeps the suppression, and one that never clears keeps it indefinitely. Until it ends the rule's status shows the `waitingForClear` sub-label.
 
 ### Input suppression
 
@@ -398,7 +398,7 @@ Per instance:
 | `awaitingInput` | an alert without input evidence, whose heartbeat has stopped |
 | `inactive` | why the rule cannot evaluate this instance |
 | `suppression` | the instance is suppressed: `{ "scope": "rule" }` or `{ "scope": "input", "path" }`, with `autoEndAfter` when it ends by itself |
-| `clearFor` | seconds the condition has been continuously clear, as [auto-end](#rule-suppression) measures it; absent while it is not |
+| `clearFor` | seconds the condition has stayed clear, as [auto-end](#rule-suppression) measures it: time out of use because a gate does not hold is not counted; absent while it is not clear |
 
 `progress` is one of:
 

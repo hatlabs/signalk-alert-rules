@@ -116,8 +116,9 @@ export interface InstanceStatus {
   /** The suppression the instance is under; it evaluates but raises nothing. */
   suppression?: SuppressionScope
   /**
-   * Seconds the condition has been continuously clear: out of use, or in use
-   * with a value and the detector not active. Absent while it is not.
+   * Seconds the condition has stayed clear: in use with a value and the
+   * detector not active. Time out of use because a gate does not hold
+   * neither counts nor restarts the count. Absent while it is not clear.
    */
   clearFor?: number
 }
@@ -153,9 +154,17 @@ interface Unit extends Track {
   limit?: number
   inUse: boolean
   inactive?: string
-  /** When the condition was last seen to become clear, while it stays so. */
+  /** Seconds counted clear before the current stretch; undefined while the condition is not clear. */
+  clearCounted?: number
+  /** When the current stretch of counting began, while the count runs. */
   clearSince?: number
 }
+
+/**
+ * How an evaluation bears on the clear count: it counts, it pauses while the
+ * rule is out of use because a gate does not hold, or the condition is not clear.
+ */
+type ClearState = 'clear' | 'paused' | 'notClear'
 
 interface LevelSpec {
   level: ZoneLevel
@@ -314,6 +323,21 @@ export class RuleEvaluator {
     for (const unit of this.units.values()) this.step(unit, now)
   }
 
+  /**
+   * Restarts the clear count of the instances whose signal reads a path, or
+   * of every instance, so a suppression's auto-end counts from its start.
+   */
+  restartClearCount(path?: string): void {
+    const now = this.ctx.clock()
+    for (const unit of this.units.values()) {
+      if (path !== undefined && !signalPaths(this.rule.signal, unit.instance).includes(path)) {
+        continue
+      }
+      if (unit.clearCounted !== undefined) unit.clearCounted = 0
+      if (unit.clearSince !== undefined) unit.clearSince = now
+    }
+  }
+
   /** Applies an edited rule per the edit semantics. */
   update(rule: Rule): void {
     // A stopped evaluator must not clear: stop means the plugin is going away.
@@ -401,7 +425,10 @@ export class RuleEvaluator {
         priority: u.alerting ? priorityOf(this.rule, u.level) : undefined,
         inactive: u.inactive,
         suppression: this.suppression(u),
-        clearFor: u.clearSince === undefined ? undefined : now - u.clearSince
+        clearFor:
+          u.clearCounted === undefined
+            ? undefined
+            : u.clearCounted + (u.clearSince === undefined ? 0 : now - u.clearSince)
       }))
     }
   }
@@ -602,7 +629,7 @@ export class RuleEvaluator {
     const resolved = this.resolve(unit)
     // Zones are readable only once the path has a value; until then hold.
     if (!resolved.ok && unit.last === undefined) {
-      this.trackClear(unit, now, false)
+      this.trackClear(unit, now, 'notClear')
       return
     }
     const gates = this.gatesOf(unit)
@@ -624,8 +651,9 @@ export class RuleEvaluator {
       }
       unit.levels.clear()
       if (unit.alerting) this.clear(unit)
-      // A rule out of use because a gate does not hold has no condition.
-      this.trackClear(unit, now, problem === undefined && resolved.ok)
+      // A rule out of use because a gate does not hold has no condition to
+      // judge, such as an engine-gated fault with the engine stopped.
+      this.trackClear(unit, now, problem === undefined && resolved.ok ? 'paused' : 'notClear')
       return
     }
     unit.inUse = true
@@ -633,11 +661,8 @@ export class RuleEvaluator {
     this.driveLevels(unit, resolved.levels, now, feed)
     const detector = unit.detector
     if (detector === undefined) return
-    this.trackClear(
-      unit,
-      now,
-      transition !== 'pulse' && !detector.active && inputState(unit.last) === 'value'
-    )
+    const clear = transition !== 'pulse' && !detector.active && inputState(unit.last) === 'value'
+    this.trackClear(unit, now, clear ? 'clear' : 'notClear')
     if (suppressed) return
     const level = this.held(unit)
     if (transition === 'pulse') {
@@ -719,8 +744,22 @@ export class RuleEvaluator {
       : detector.sample(feed.reading, feed.replayed, now)
   }
 
-  private trackClear(unit: Unit, now: number, clear: boolean): void {
-    unit.clearSince = clear ? (unit.clearSince ?? now) : undefined
+  private trackClear(unit: Unit, now: number, state: ClearState): void {
+    switch (state) {
+      case 'clear':
+        unit.clearCounted ??= 0
+        unit.clearSince ??= now
+        break
+      case 'paused':
+        if (unit.clearSince !== undefined && unit.clearCounted !== undefined) {
+          unit.clearCounted += now - unit.clearSince
+        }
+        unit.clearSince = undefined
+        break
+      case 'notClear':
+        unit.clearCounted = undefined
+        unit.clearSince = undefined
+    }
   }
 
   private raise(unit: Unit, level: ZoneLevel | undefined): void {
