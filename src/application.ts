@@ -354,8 +354,21 @@ export class Application {
    * Loads the rulesets and starts evaluating, adopting the alerts SKAR
    * already has in core. With evaluation off nothing is evaluated and
    * nothing is cleared: the alerts were cleared when it was turned off.
+   * A start that throws leaves no subscription behind.
    */
   start(): void {
+    try {
+      this.startEvaluating()
+    } catch (err) {
+      // The plugin is started again on the next configuration save; each
+      // failed start would otherwise leave its subscriptions running. A
+      // runner that fails to start stops itself.
+      this.presence.stop()
+      throw err
+    }
+  }
+
+  private startEvaluating(): void {
     // A full disk must not keep every rule, user rules included, from
     // running: what could not be saved applies in this run.
     this.starting = true
@@ -1052,8 +1065,8 @@ export class Application {
     const ids = new Set(loaded.map(({ origin, rule }) => ruleId(origin, rule.slug)))
     const accumulated = new Map([...this.retained].filter(([id]) => ids.has(id)))
     const runner = new RuleRunner(this.deps, loaded, accumulated, this.suppressionsInForce)
-    runner.start(adopt)
     try {
+      runner.start(adopt)
       commit?.()
     } catch (err) {
       runner.stop()

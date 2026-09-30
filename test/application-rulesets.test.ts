@@ -651,6 +651,31 @@ describe('rulesets in the application', () => {
     })
   })
 
+  it.each([
+    ['adopting alerts', 1],
+    ['starting the runner', 2]
+  ])('a start that fails while %s leaves no subscription behind', (_, failingCall) => {
+    const core = new FakeAlertsCore()
+    const list = core.list.bind(core)
+    let calls = 0
+    vi.spyOn(core, 'list').mockImplementation(() => {
+      calls += 1
+      if (calls === failingCall) throw new Error('alerts unavailable')
+      return list()
+    })
+    const server = new MockServerAPI(true, dir, core)
+    const deps = { ...serverDeps(server.asServerAPI(), PLUGIN), wallClock: () => new Date(WALL) }
+    const application = new Application(deps, new Store(dir), () => ({
+      rulesets: [batteries()],
+      problems: []
+    }))
+
+    expect(() => {
+      application.start()
+    }).toThrow('alerts unavailable')
+    expect(server.subscriptionmanager.activeSubscriptions).toBe(0)
+  })
+
   it('an unknown ruleset cannot be enabled', () => {
     const { application } = setup({ rulesets: [] })
     expect(application.setRulesetEnabled('batteries', true, 'admin')).toBe('notFound')
