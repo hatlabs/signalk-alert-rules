@@ -83,10 +83,10 @@ export class Application {
    */
   private readonly retained: Map<string, Map<string, number>>
   /**
-   * The detector measure each stored rule file that did not load names, as
-   * written, so a valid replacement of the same measure keeps its total.
+   * The measure of each stored rule file that did not load but is written as
+   * an accumulator, so a valid replacement of the same measure keeps its total.
    */
-  private readonly unloadedMeasures = new Map<string, unknown>()
+  private readonly unloadedMeasures = new Map<string, string>()
   /** Oldest first, as stored. */
   private readonly actions: LogEntry[]
   /** The totals last written, serialised; undefined until a checkpoint succeeds. */
@@ -103,11 +103,13 @@ export class Application {
     this.stored = new Set(contents.rules.map((r) => r.slug))
     for (const { slug, value } of contents.rules) {
       const result = validateRule(value)
-      if (!result.ok || result.value.slug !== slug) {
-        this.unloadedMeasures.set(
-          slug,
-          isRecord(value) && isRecord(value.detector) ? value.detector.measure : undefined
-        )
+      const detector = isRecord(value) && isRecord(value.detector) ? value.detector : undefined
+      if (
+        (!result.ok || result.value.slug !== slug) &&
+        detector?.type === 'accumulator' &&
+        typeof detector.measure === 'string'
+      ) {
+        this.unloadedMeasures.set(slug, detector.measure)
       }
       if (!result.ok) {
         const errors = result.errors.map((e) => `${e.path || '/'} ${e.message}`).join('; ')
@@ -215,7 +217,7 @@ export class Application {
   /**
    * Whether saving the rule keeps the accumulator total its slug has: an
    * edit of a loaded rule per the edit semantics, or the replacement of a
-   * stored rule that did not load, by the measure its file names.
+   * stored rule that did not load, by the accumulator measure its file names.
    */
   private carriesTotal(rule: Rule): boolean {
     const previous = this.rulesBySlug.get(rule.slug)

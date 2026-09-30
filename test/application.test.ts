@@ -608,6 +608,18 @@ describe('application accumulator totals across edits', () => {
     expect(total()).toBe(0)
   })
 
+  it('replacing a stored rule that is not an accumulator drops the total whatever its measure', () => {
+    stored({ ...hours, detector: { type: 'sustained', measure: 'time', limit: 1000 } })
+    new Store(dir).saveCheckpoints({ [ID]: { '': 100 } })
+    const { application } = setup()
+    expect(application.issues.join('\n')).toMatch(/engine-hours is not valid/)
+    expect(application.previewRule(hours.slug, hours)).toMatchObject({
+      value: { discardsTotal: true }
+    })
+    expect(application.replaceRule(hours.slug, hours).ok).toBe(true)
+    expect(total()).toBe(0)
+  })
+
   it('a measure change survives a crash right after it: the new rule does not inherit the total', () => {
     stored(hours)
     const first = setup()
