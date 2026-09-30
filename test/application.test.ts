@@ -2,7 +2,7 @@ import * as fs from 'node:fs'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Value } from '@signalk/server-api'
 import { Application, LOG_LIMIT } from '../src/application.js'
 import { serverDeps } from '../src/alerts/server.js'
@@ -216,6 +216,30 @@ describe('application', () => {
     application.deleteRule('engine-hours', 'admin')
     application.checkpoint()
     expect(new Store(dir).load().accumulators).toEqual({})
+  })
+
+  it('a checkpoint writes only totals that changed since the last successful one', () => {
+    stored(hours)
+    const store = new Store(dir)
+    const save = vi.spyOn(store, 'saveCheckpoints')
+    const { application, at } = setup(store)
+    at(0, RPM, 30)
+    at(10)
+    application.checkpoint()
+    application.checkpoint()
+    expect(save).toHaveBeenCalledTimes(1)
+
+    at(20)
+    save.mockImplementationOnce(() => {
+      throw new Error('ENOSPC: no space left on device')
+    })
+    expect(() => {
+      application.checkpoint()
+    }).toThrow(/ENOSPC/)
+    // The failed write is retried although the totals have not changed since.
+    application.checkpoint()
+    expect(save).toHaveBeenCalledTimes(3)
+    expect(new Store(dir).load().accumulators).toEqual({ 'user.engine-hours': { '': 20 } })
   })
 
   it('stopping checkpoints and clears no alert', () => {

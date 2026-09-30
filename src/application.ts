@@ -78,6 +78,8 @@ export class Application {
   private readonly retained: Map<string, Map<string, number>>
   /** Oldest first, as stored. */
   private readonly actions: LogEntry[]
+  /** The totals last written, serialised; undefined until a checkpoint succeeds. */
+  private lastCheckpoint: string | undefined
 
   constructor(
     private readonly deps: RunnerDeps,
@@ -119,12 +121,20 @@ export class Application {
     this.runner?.tick()
   }
 
-  /** Saves accumulator totals; throws when the store cannot write them. */
+  /**
+   * Saves accumulator totals that changed since the last successful save;
+   * throws when the store cannot write them. Unchanged totals are not
+   * rewritten, to spare flash storage a flushed write every minute.
+   */
   checkpoint(): void {
     const totals = new Map([...this.retained, ...(this.runner?.accumulators() ?? [])])
-    this.store.saveCheckpoints(
-      Object.fromEntries([...totals].map(([id, t]) => [id, Object.fromEntries(t)]))
+    const checkpoints = Object.fromEntries(
+      [...totals].map(([id, t]) => [id, Object.fromEntries(t)])
     )
+    const text = JSON.stringify(checkpoints)
+    if (text === this.lastCheckpoint) return
+    this.store.saveCheckpoints(checkpoints)
+    this.lastCheckpoint = text
   }
 
   /**
