@@ -81,17 +81,13 @@ export function instanceSummary(entry: RuleEntry): string {
 }
 
 /**
- * Operator controls the badge does not already show: a disabled rule while
- * evaluation is off, and a suppression under a higher-ranking badge.
+ * Operator controls the badge does not already show: a suppression under a
+ * higher-ranking badge. A disabled rule always shows the disabled badge.
  */
 export function markers(entry: RuleEntry): string[] {
-  const { status } = entry
-  const shown = []
-  if (!entry.enabled && !(status.badge === 'disabled' && status.reason === 'disabled')) {
-    shown.push('disabled')
-  }
-  if (entry.suppression !== undefined && status.badge !== 'suppressed') shown.push('suppressed')
-  return shown
+  return entry.suppression !== undefined && entry.status.badge !== 'suppressed'
+    ? ['suppressed']
+    : []
 }
 
 function formatNumber(value: number): string {

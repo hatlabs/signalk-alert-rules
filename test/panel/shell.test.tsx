@@ -28,7 +28,6 @@ function mockApi(server: Server) {
     resetAccumulator: vi.fn((_origin: string, _slug: string): Promise<RuleEntry> =>
       Promise.reject(new Error('not expected'))
     ),
-    setEvaluation: vi.fn((enabled: boolean) => Promise.resolve({ enabled })),
     ...noAuthoring,
     ...noControls
   } satisfies PanelApi
@@ -629,34 +628,12 @@ describe('Shell rules', () => {
     })
   })
 
-  it('does not offer to clear all alerts while evaluation is off', async () => {
-    await renderShell({
-      state: { ...running, evaluation: { enabled: false } },
-      rules: [rule, hours]
-    })
-    expect(screen.getByText(/evaluation is off/i)).toBeTruthy()
-    expect(screen.queryByRole('button', { name: /clear all skar alerts/i })).toBeNull()
-    expect(document.activeElement).toBe(document.body)
-  })
-
-  it('clears all alerts by turning evaluation off, then offers to turn it on', async () => {
-    const server: Server = { state: running, rules: [rule, hours] }
-    const api = await renderShell(server)
-    api.setEvaluation.mockImplementation((enabled: boolean) => {
-      server.state = { ...running, evaluation: { enabled } }
-      return Promise.resolve({ enabled })
-    })
-    fireEvent.click(screen.getByRole('button', { name: /clear all skar alerts/i }))
-    expect(screen.getByRole('alertdialog').textContent).toMatch(/1 active alert\b/)
-    fireEvent.click(screen.getByRole('button', { name: /clear all alerts/i }))
-    await settle()
-    expect(api.setEvaluation).toHaveBeenCalledWith(false)
-    expect(screen.getByText(/evaluation is off/i)).toBeTruthy()
-    // The clear-all button is gone, so focus goes where the next action is.
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: /turn evaluation on/i }))
-    fireEvent.click(screen.getByRole('button', { name: /turn evaluation on/i }))
-    await settle()
-    expect(api.setEvaluation).toHaveBeenLastCalledWith(true)
+  it('lists the rules with no control to clear every alert or pause evaluation', async () => {
+    await renderShell({ state: running, rules: [rule, hours] })
+    expect(screen.getByText('Oil pressure low')).toBeTruthy()
+    expect(screen.getByText('Engine hours')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /clear all/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /evaluation/i })).toBeNull()
     expect(screen.queryByText(/evaluation is off/i)).toBeNull()
   })
 })

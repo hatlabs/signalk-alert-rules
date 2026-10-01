@@ -62,7 +62,6 @@ function fakeApi() {
     state: vi.fn(),
     rules: vi.fn(),
     resetAccumulator: vi.fn(),
-    setEvaluation: vi.fn(),
     ...noAuthoring,
     ...noControls,
     createRule: vi.fn((rule: Rule) => Promise.resolve(ruleEntry({ slug: rule.slug }))),

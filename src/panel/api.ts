@@ -17,18 +17,11 @@ export const PLUGIN_BASE = `/plugins/${PLUGIN_ID}`
  */
 export const REQUEST_TIMEOUT_MS = 10_000
 
-/** The evaluation switch; off, no rule is evaluated and SKAR holds no alert. */
-export interface Evaluation {
-  enabled: boolean
-}
-
 /** `GET /state`, as docs/api.md describes it. */
 export interface PluginState {
   running: boolean
   error?: string
   securityEnabled: boolean | null
-  /** Present while the plugin runs. */
-  evaluation?: Evaluation
   /**
    * Present while the plugin runs: problems found while loading the data
    * directory, such as a stored rule that no longer validates and so is not
@@ -161,8 +154,6 @@ export interface PanelApi {
   rules(): Promise<RuleEntry[]>
   /** Clears the rule's active alerts and sets its accumulator totals to zero. */
   resetAccumulator(origin: string, slug: string): Promise<RuleEntry>
-  /** Off clears every alert SKAR owns and stops evaluating; on starts every rule afresh. */
-  setEvaluation(enabled: boolean): Promise<Evaluation>
   /** The whole stored rule, which the rule list abbreviates. */
   ruleDefinition(origin: string, slug: string): Promise<Rule>
   /** Creates a user rule; it starts enabled. A refused rule rejects with RuleRejectedError. */
@@ -233,14 +224,9 @@ export function malformed(what: string): Error {
   return new Error(`unexpected response from ${what}`)
 }
 
-function parseEvaluation(body: unknown, what: string): Evaluation {
-  if (!isRecord(body) || typeof body.enabled !== 'boolean') throw malformed(what)
-  return { enabled: body.enabled }
-}
-
 export function parseState(body: unknown): PluginState {
   if (!isRecord(body) || typeof body.running !== 'boolean') throw malformed('/state')
-  const { running, error, securityEnabled, evaluation, issues } = body
+  const { running, error, securityEnabled, issues } = body
   if (
     issues !== undefined &&
     !(Array.isArray(issues) && issues.every((i): i is string => typeof i === 'string'))
@@ -251,7 +237,6 @@ export function parseState(body: unknown): PluginState {
     running,
     ...(typeof error === 'string' ? { error } : {}),
     securityEnabled: typeof securityEnabled === 'boolean' ? securityEnabled : null,
-    ...(evaluation === undefined ? {} : { evaluation: parseEvaluation(evaluation, '/state') }),
     ...(issues === undefined ? {} : { issues })
   }
 }
@@ -637,10 +622,6 @@ export function httpApi(fetchFn: typeof fetch = (input, init) => fetch(input, in
     resetAccumulator: async (origin, slug) => {
       const path = `${ruleRoute(origin, slug)}/reset`
       return parseRuleEntry(await send('POST', path), path)
-    },
-    setEvaluation: async (enabled) => {
-      const path = `${PLUGIN_BASE}/evaluation`
-      return parseEvaluation(await send('PUT', path, { enabled }), path)
     },
     ruleDefinition: async (origin, slug) => {
       const path = ruleRoute(origin, slug)

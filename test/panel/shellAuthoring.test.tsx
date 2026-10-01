@@ -40,7 +40,6 @@ function mockApi(rules: RuleEntry[]) {
     state: vi.fn(() => Promise.resolve(running)),
     rules: vi.fn(() => Promise.resolve(server.rules)),
     resetAccumulator: vi.fn(() => Promise.reject(new Error('not expected'))),
-    setEvaluation: vi.fn((enabled: boolean) => Promise.resolve({ enabled })),
     ruleDefinition: vi.fn((_origin: string, _slug: string) => Promise.resolve(stored)),
     createRule: vi.fn((rule: Rule) => {
       const entry = ruleEntry({ slug: rule.slug, rule: { name: rule.name } })

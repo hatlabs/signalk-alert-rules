@@ -107,23 +107,16 @@ describe('RulesView', () => {
     expect(rowOf('Battery low').textContent).toContain('zone warn')
   })
 
-  it('marks a disabled or suppressed rule when the badge does not already say so', () => {
+  it('marks a suppressed rule when the badge does not already say so', () => {
     const suppressedAndDisabled = ruleEntry({
       enabled: false,
       suppression: { since: '2026-09-30T12:00:00.000Z', actor: 'admin' },
       status: { badge: 'disabled', reason: 'disabled' }
     })
-    const offDuringEvaluationOff = ruleEntry({
-      slug: 'b',
-      rule: { name: 'Off' },
-      enabled: false,
-      status: { badge: 'disabled', reason: 'evaluation is off' }
-    })
-    renderView([suppressedAndDisabled, offDuringEvaluationOff])
+    renderView([suppressedAndDisabled])
     const shownMarkers = (name: string) =>
       [...rowOf(name).querySelectorAll('.skar-marker')].map((m) => m.textContent)
     expect(shownMarkers('Oil pressure low')).toEqual(['suppressed'])
-    expect(shownMarkers('Off')).toEqual(['disabled'])
   })
 
   it('summarises the instances of a wildcard rule by precedence', () => {

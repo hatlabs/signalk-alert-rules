@@ -60,7 +60,6 @@ function fakeServer() {
     state: vi.fn(() => Promise.resolve(running)),
     rules: vi.fn(() => Promise.resolve([rule()])),
     resetAccumulator: vi.fn(() => Promise.reject(new Error('not expected'))),
-    setEvaluation: vi.fn((enabled: boolean) => Promise.resolve({ enabled })),
     ...noAuthoring,
     ...noControls
   } satisfies PanelApi

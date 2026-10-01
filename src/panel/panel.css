@@ -138,10 +138,3 @@ details:not([open]) > .skar-section-heading {
 .skar-suppress {
   margin-top: 1rem;
 }
-
-/* Kept away from the per-rule actions so it is not hit by mistake. */
-.skar-danger-zone {
-  margin-top: 2rem;
-  padding-top: 1rem;
-  border-top: 1px solid rgba(0, 0, 0, 0.125);
-}
