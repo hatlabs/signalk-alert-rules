@@ -52,6 +52,7 @@ const batteries = {
 const mismatch = {
   name: 'RPM mismatch',
   slug: 'rpm-mismatch',
+  condition: 'revolutionsMismatch',
   message: 'Engine revolutions differ',
   priority: 'warning',
   signal: { combinator: 'absDifference', inputs: [{ path: RPM }, { path: AUX_RPM }] },

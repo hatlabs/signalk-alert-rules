@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { Rule } from '../../../src/model/rule'
+import { validateRule } from '../../../src/model/validate'
 import {
   RuleRejectedError,
   type EditPreview,
@@ -16,8 +17,12 @@ import { displayUnit } from '../../../src/panel/units'
 import { instance, noAuthoring, noControls, ruleEntry } from '../fixtures'
 
 const EXAMPLES = join(import.meta.dirname, '../../../examples/rules')
-const example = (slug: string) =>
-  JSON.parse(readFileSync(join(EXAMPLES, `${slug}.json`), 'utf8')) as Rule
+// As the server stores them: validated, with the default alert path filled in.
+function example(slug: string): Rule {
+  const result = validateRule(JSON.parse(readFileSync(join(EXAMPLES, `${slug}.json`), 'utf8')))
+  if (!result.ok) throw new Error(`${slug} is not valid`)
+  return result.value
+}
 
 const volts = displayUnit({ units: 'V', displayUnits: { formula: 'value * 1', symbol: 'V' } })
 const rpm = displayUnit({ units: 'Hz', displayUnits: { formula: 'value * 60', symbol: 'rpm' } })
@@ -165,6 +170,114 @@ describe('RuleEditor, new rule', () => {
     expect(api.createRule).toHaveBeenCalledWith(example('house-battery-low'))
   })
 
+  it('shows the default condition name as a placeholder until one is typed', async () => {
+    const { api, onSaved } = renderEditor()
+    await pathsLoaded()
+    type(combobox('Input path'), 'electrical.batteries.house.voltage')
+    click(screen.getByRole('radio', { name: /above or below a limit/i }))
+    choose('Alert when the input is', 'below')
+    type(textbox('Limit'), '11.8')
+    type(textbox('Message'), 'Low')
+    choose('Priority', 'warning')
+    type(textbox('Name'), 'House battery low')
+    const condition = textbox('Alert path')
+    expect(condition).toHaveProperty('readOnly', false)
+    // The parent the input gives is shown, and not editable.
+    expect(screen.getByText('alerts.electrical.batteries.house.')).toBeTruthy()
+    expect(condition).toHaveProperty('value', '')
+    expect(condition).toHaveProperty('placeholder', 'voltageLow')
+    expect(screen.getByText(/Follows the input and detector until you type a name\./)).toBeTruthy()
+    choose('Alert when the input is', 'above')
+    expect(condition).toHaveProperty('placeholder', 'voltageHigh')
+    type(condition, 'overvoltage')
+    choose('Alert when the input is', 'below')
+    expect(condition).toHaveProperty('value', 'overvoltage')
+    expect(
+      screen.getByText(/Kept as written\. Clear it to follow the input and detector again\./)
+    ).toBeTruthy()
+    click(screen.getByRole('button', { name: 'Create rule' }))
+    await waitFor(() => {
+      expect(onSaved).toHaveBeenCalled()
+    })
+    expect(api.createRule).toHaveBeenCalledWith(
+      expect.objectContaining({ condition: 'overvoltage' })
+    )
+  })
+
+  it('saves no condition name while it follows the default', async () => {
+    const { api, onSaved } = renderEditor()
+    await pathsLoaded()
+    type(combobox('Input path'), 'electrical.batteries.house.voltage')
+    click(screen.getByRole('radio', { name: /above or below a limit/i }))
+    choose('Alert when the input is', 'below')
+    type(textbox('Limit'), '11.8')
+    type(textbox('Message'), 'Low')
+    choose('Priority', 'warning')
+    type(textbox('Name'), 'House battery low')
+    click(screen.getByRole('button', { name: 'Create rule' }))
+    await waitFor(() => {
+      expect(onSaved).toHaveBeenCalled()
+    })
+    expect(api.createRule.mock.calls[0]?.[0]).not.toHaveProperty('condition')
+  })
+
+  it('follows the default again once the typed condition name is cleared', async () => {
+    renderEditor()
+    await pathsLoaded()
+    type(combobox('Input path'), 'electrical.batteries.house.voltage')
+    click(screen.getByRole('radio', { name: /above or below a limit/i }))
+    choose('Alert when the input is', 'below')
+    type(textbox('Limit'), '11.8')
+    type(textbox('Message'), 'Low')
+    choose('Priority', 'warning')
+    type(textbox('Name'), 'House battery low')
+    const condition = textbox('Alert path')
+    type(condition, 'overvoltage')
+    type(condition, '')
+    expect(condition).toHaveProperty('value', '')
+    expect(condition).toHaveProperty('placeholder', 'voltageLow')
+    choose('Alert when the input is', 'above')
+    expect(condition).toHaveProperty('placeholder', 'voltageHigh')
+  })
+
+  it('takes exactly the typed text after a typed name is backspaced to empty', async () => {
+    const { api, onSaved } = renderEditor()
+    await pathsLoaded()
+    type(combobox('Input path'), 'electrical.batteries.house.voltage')
+    click(screen.getByRole('radio', { name: /above or below a limit/i }))
+    choose('Alert when the input is', 'below')
+    type(textbox('Limit'), '11.8')
+    type(textbox('Message'), 'Low')
+    choose('Priority', 'warning')
+    type(textbox('Name'), 'House battery low')
+    const condition = textbox('Alert path')
+    type(condition, 'o')
+    type(condition, '')
+    // A keystroke appends to what the input shows.
+    type(condition, `${(condition as HTMLInputElement).value}flat`)
+    expect(condition).toHaveProperty('value', 'flat')
+    click(screen.getByRole('button', { name: 'Create rule' }))
+    await waitFor(() => {
+      expect(onSaved).toHaveBeenCalled()
+    })
+    expect(api.createRule).toHaveBeenCalledWith(expect.objectContaining({ condition: 'flat' }))
+  })
+
+  it('keeps the wildcard of a wildcard input in the alert path prefix', async () => {
+    renderEditor()
+    await pathsLoaded()
+    type(combobox('Input path'), 'electrical.batteries.house.voltage')
+    click(screen.getByRole('checkbox', { name: 'Match all instances' }))
+    click(screen.getByRole('radio', { name: /above or below a limit/i }))
+    choose('Alert when the input is', 'below')
+    type(textbox('Limit'), '11.8')
+    type(textbox('Message'), 'Low')
+    choose('Priority', 'warning')
+    type(textbox('Name'), 'Battery low')
+    expect(screen.getByText('alerts.electrical.batteries.*.')).toBeTruthy()
+    expect(textbox('Alert path')).toHaveProperty('placeholder', 'voltageLow')
+  })
+
   it('rejects a combined input whose unit differs from the others, as it is picked', async () => {
     renderEditor()
     await pathsLoaded()
@@ -178,6 +291,25 @@ describe('RuleEditor, new rule', () => {
     type(combobox('Input path 2'), 'propulsion.starboard.revolutions')
     expect(combobox('Input path 2').hasAttribute('aria-invalid')).toBe(false)
     expect(section('What to detect')).not.toBeNull()
+  })
+
+  it('asks for a condition name where the input gives no default', async () => {
+    renderEditor()
+    await pathsLoaded()
+    click(screen.getByRole('radio', { name: 'Combine paths' }))
+    choose('Input combination', 'absDifference')
+    type(combobox('Input path 1'), 'propulsion.port.revolutions')
+    type(combobox('Input path 2'), 'propulsion.starboard.revolutions')
+    click(screen.getByRole('radio', { name: /above or below a limit/i }))
+    choose('Alert when the input is', 'above')
+    type(textbox('Limit'), '50')
+    type(textbox('Message'), 'Engine speeds differ')
+    choose('Priority', 'warning')
+    type(textbox('Name'), 'Engine speed mismatch')
+    expect(screen.getByText('alerts.propulsion.')).toBeTruthy()
+    expect(textbox('Alert path').getAttribute('placeholder') ?? '').toBe('')
+    expect(screen.getByText(/There is no default name here; type one\./)).toBeTruthy()
+    expect(screen.queryByText(/Follows the input and detector/)).toBeNull()
   })
 
   it('matches all instances of a picked path and previews them', async () => {
@@ -356,16 +488,47 @@ describe('RuleEditor, editing', () => {
     status: { badge: 'alertActive', instances: [instance({ badge: 'alertActive', active: true })] }
   })
 
-  it('opens fully expanded, with the slug read-only beside the alert path', async () => {
+  it('opens fully expanded, with the slug read-only and the alert path editable', async () => {
     renderEditor({ entry: active, rule: battery })
     await screen.findByRole('region', { name: 'Name' })
     for (const name of ['What to detect', 'Limit', 'Timing', 'Priority and message', 'Gates']) {
       expect(section(name)).not.toBeNull()
     }
     expect(textbox('Slug')).toHaveProperty('readOnly', true)
-    expect(description(textbox('Slug'))).toContain('alerts.rules.house-battery-low')
+    expect(textbox('Alert path')).toHaveProperty('readOnly', false)
+    expect(screen.getByText('alerts.electrical.batteries.house.')).toBeTruthy()
+    expect(textbox('Alert path')).toHaveProperty('value', '')
+    expect(textbox('Alert path')).toHaveProperty('placeholder', 'voltageLow')
     expect(textbox('Hysteresis')).toHaveProperty('value', '0.2')
     expect(textbox('For at least')).toHaveProperty('value', '1')
+  })
+
+  it('follows the default of a saved rule that stores no condition name, until one is typed', async () => {
+    renderEditor({ entry: active, rule: battery })
+    await screen.findByRole('region', { name: 'Name' })
+    const condition = textbox('Alert path')
+    choose('Alert when the input is', 'above')
+    expect(condition).toHaveProperty('value', '')
+    expect(condition).toHaveProperty('placeholder', 'voltageHigh')
+    type(condition, 'overvoltage')
+    choose('Alert when the input is', 'below')
+    expect(condition).toHaveProperty('value', 'overvoltage')
+  })
+
+  it("keeps a saved rule's stored condition name when its detector changes", async () => {
+    // Equal to the default, it is still the rule's own name: typed text, which stays.
+    const named = { ...battery, condition: 'voltageLow' }
+    const { api } = renderEditor({ entry: active, rule: named })
+    await screen.findByRole('region', { name: 'Name' })
+    expect(textbox('Alert path')).toHaveProperty('value', 'voltageLow')
+    expect(screen.getByText(/Kept as written\./)).toBeTruthy()
+    choose('Alert when the input is', 'above')
+    expect(textbox('Alert path')).toHaveProperty('value', 'voltageLow')
+    click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => {
+      expect(api.previewRule).toHaveBeenCalled()
+    })
+    expect(api.previewRule.mock.calls[0]?.[1]).toMatchObject({ condition: 'voltageLow' })
   })
 
   it('confirms an edit that clears an active alert, naming the consequence', async () => {

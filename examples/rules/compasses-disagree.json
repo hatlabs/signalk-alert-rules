@@ -1,6 +1,7 @@
 {
   "name": "Compasses disagree",
   "slug": "compasses-disagree",
+  "condition": "compassesDisagree",
   "message": "Compass headings disagree",
   "priority": "caution",
   "signal": {

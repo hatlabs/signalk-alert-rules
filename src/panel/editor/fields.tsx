@@ -22,12 +22,22 @@ interface FieldProps {
   hint?: ReactNode
   /** Extra messages, such as a check made while typing. */
   extraErrors?: (string | undefined)[]
+  /** Read-only text before the control, such as the fixed part of a path. */
+  prefix?: string
   unit?: string
   children: (control: ControlProps) => ReactNode
 }
 
 /** A label, a control, its unit, hint and errors, wired together for assistive technology. */
-export function Field({ label, pointer, hint, extraErrors = [], unit, children }: FieldProps) {
+export function Field({
+  label,
+  pointer,
+  hint,
+  extraErrors = [],
+  prefix,
+  unit,
+  children
+}: FieldProps) {
   const id = useId()
   const errors = [
     ...useFieldErrors(pointer),
@@ -48,12 +58,15 @@ export function Field({ label, pointer, hint, extraErrors = [], unit, children }
       <label htmlFor={id} className="form-label">
         {label}
       </label>
-      {unit === undefined || unit === '' ? (
+      {(unit === undefined || unit === '') && prefix === undefined ? (
         children(control)
       ) : (
         <div className="input-group input-group-sm">
+          {prefix !== undefined && (
+            <span className="input-group-text text-wrap text-break">{prefix}</span>
+          )}
           {children(control)}
-          <span className="input-group-text">{unit}</span>
+          {unit !== undefined && unit !== '' && <span className="input-group-text">{unit}</span>}
         </div>
       )}
       {hint !== undefined && (
@@ -78,12 +91,22 @@ interface TextProps {
   hint?: ReactNode
   unit?: string
   extraErrors?: (string | undefined)[]
+  prefix?: string
+  placeholder?: string
   /** A number: the keyboard offers digits, and the text is kept as typed. */
   numeric?: boolean
   readOnly?: boolean
 }
 
-export function TextField({ label, value, onChange, numeric, readOnly, ...field }: TextProps) {
+export function TextField({
+  label,
+  value,
+  onChange,
+  numeric,
+  readOnly,
+  placeholder,
+  ...field
+}: TextProps) {
   return (
     <Field label={label} {...field}>
       {(control) => (
@@ -93,6 +116,7 @@ export function TextField({ label, value, onChange, numeric, readOnly, ...field 
           className="form-control form-control-sm"
           inputMode={numeric === true ? 'decimal' : undefined}
           readOnly={readOnly}
+          placeholder={placeholder}
           value={value}
           onChange={(e) => {
             onChange(e.target.value)

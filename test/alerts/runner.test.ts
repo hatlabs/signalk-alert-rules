@@ -88,10 +88,10 @@ const pumpOn = valid({
   signal: { path: PUMP },
   detector: { type: 'match', op: 'changesTo', value: true }
 })
-const BATTERY_ALERT = 'rules.house-battery-low'
-const OIL_ALERT = 'rules.oil-pressure-low'
-const PORT_ALERT = 'rules.coolant-high.port'
-const PUMP_ALERT = 'rules.bilge-pump-cycling'
+const BATTERY_ALERT = 'electrical.batteries.house.voltageLow'
+const OIL_ALERT = 'propulsion.main.oilPressureLow'
+const PORT_ALERT = 'propulsion.port.coolantTemperatureHigh'
+const PUMP_ALERT = 'electrical.switches.bilgePump.stateFrequent'
 
 function setup(
   rules: Rule[],
@@ -312,7 +312,7 @@ describe('rule runner', () => {
 
   it("an adopted wildcard alert's message keeps the instance name its raise used", () => {
     const core = new FakeAlertsCore()
-    core.ingest(PLUGIN, 'rules.coolant-high.port_aft', {
+    core.ingest(PLUGIN, 'propulsion.port_aft.coolantTemperatureHigh', {
       priority: 'alarm',
       message: 'Coolant high on port.aft',
       latching: false,
@@ -331,9 +331,9 @@ describe('rule runner', () => {
   })
 
   it('clears an alert whose rule was deleted', () => {
-    const core = coreWith('rules.deleted-rule')
+    const core = coreWith('electrical.batteries.start.voltageLow')
     const { sent } = setup([oil], { core })
-    expect(sent).toEqual([['rules.deleted-rule', null]])
+    expect(sent).toEqual([['electrical.batteries.start.voltageLow', null]])
   })
 
   it('leaves an alert whose condition ended to core across a restart, and raises it on re-entry', () => {
@@ -413,7 +413,7 @@ describe('rule runner', () => {
   })
 
   it('an adopted absence alert keeps heartbeating while its input stays silent', () => {
-    const WATCH_ALERT = 'rules.watch-not-acknowledged'
+    const WATCH_ALERT = 'navigation.watch.acknowledgedMissing'
     const watch = valid({
       name: 'Watch not acknowledged',
       slug: 'watch-not-acknowledged',
@@ -532,7 +532,7 @@ describe('rule runner', () => {
   })
 
   it('a latching changesTo match does not raise again at restart when its value is replayed', () => {
-    const alert = 'rules.bilge-pump-on'
+    const alert = 'electrical.switches.bilgePump.stateChanged'
     const core = coreWithLatching(alert, 'Bilge pump started')
     const { at, run, sent } = setup([pumpOn], { core, cached: [[PUMP, true]] })
     at(5, PUMP, true)
@@ -571,7 +571,7 @@ describe('rule runner', () => {
       new Map([['engine-hours', { measure: 'time', totals: new Map([['', 99]]) }]])
     )
     run(5, 5)
-    expect(sent.map(([path]) => path)).toEqual(['rules.engine-hours'])
+    expect(sent.map(([path]) => path)).toEqual(['propulsion.main.revolutionsAccumulated'])
   })
 
   it('a rule added while running reports its accumulator total', () => {

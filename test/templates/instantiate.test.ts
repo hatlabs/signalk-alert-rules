@@ -5,6 +5,7 @@ import {
   MAX_PICK_LENGTH,
   MAX_SLUG_LENGTH
 } from '../../src/model/rule.js'
+import { alertPathOf } from '../../src/alerts/paths.js'
 import type { Template } from '../../src/model/template.js'
 import { validateRule } from '../../src/model/validate.js'
 import {
@@ -63,6 +64,7 @@ describe('instantiate', () => {
       open: ['instance'],
       rule: {
         name: 'Charge imbalance',
+        condition: 'chargeImbalance',
         message: 'Charge imbalance',
         priority: 'caution',
         signal: {
@@ -91,6 +93,8 @@ describe('instantiate', () => {
       ]
     })
     expect(rule.gates).toMatchObject([{ signal: { path: 'electrical.batteries.house.current' } }])
+    // The inputs share only their first segment, so the name goes under it.
+    expect(alertPathOf(rule)).toBe('electrical.chargeImbalance')
     expect(validateRule(rule).ok).toBe(true)
   })
 

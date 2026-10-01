@@ -74,9 +74,25 @@ const WATCH = 'navigation.watch.acknowledged'
 const HEADING = 'navigation.headingMagnetic'
 const DEPTH = 'environment.depth.belowTransducer'
 
+// Each example's alert path, the default its input and detector give unless
+// the rule names one.
+const ALERT_PATHS: Record<string, string> = {
+  'bilge-pump-cycling': 'electrical.switches.bilgePump.stateFrequent',
+  'compasses-disagree': 'navigation.compassesDisagree',
+  'coolant-temperature-rising': 'propulsion.*.coolantTemperatureRising',
+  'depth-sensor-silent': 'environment.depth.belowTransducerTimedOut',
+  'engine-rpm-mismatch': 'propulsion.revolutionsMismatch',
+  'engine-service-due': 'propulsion.main.revolutionsAccumulated',
+  'engine-stopped': 'propulsion.*.stateChanged',
+  'fresh-water-running-out': 'tanks.freshWater.0.currentLevelProjectedLow',
+  'gnss-disagree': 'navigation.gnssDisagree',
+  'house-battery-low': 'electrical.batteries.house.voltageLow',
+  'watch-not-acknowledged': 'navigation.watch.acknowledgedMissing'
+}
+
 /** The alert path, under `alerts.`, of a rule's alert. */
 const alert = (slug: string, instance?: string) =>
-  ['rules', slug, ...(instance === undefined ? [] : [instance])].join('.')
+  (ALERT_PATHS[slug] ?? '').replace('*', instance ?? '*')
 
 export const exampleScenarios: Record<string, Scenario> = {
   // Zones: warn below 12 V, alarm below 11.5 V. Each level must hold for 60 s,

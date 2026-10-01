@@ -8,8 +8,9 @@ import {
   type RuleEvent
 } from '../engine/evaluator.js'
 import { priorityOf, type Priority, type Rule } from '../model/rule.js'
-import { alertPathFor } from '../model/validate.js'
 import { statusBadge, type Verdict } from './badge.js'
+import { ruleAlertPath } from '../model/alertPath.js'
+import { instanceAlertPath } from './paths.js'
 import {
   AlertEmitter,
   type AlertHeader,
@@ -152,27 +153,31 @@ export class RuleRunner {
   update(rule: Rule, accumulated?: ReadonlyMap<string, number>): void {
     const id = rule.slug
     const previous = this.entries.get(id)
-    this.entries.set(id, rule)
     this.errors.delete(id)
     const evaluator = this.evaluators.get(id)
-    if (evaluator === undefined || this.failed.has(id)) {
+    const moved = previous !== undefined && ruleAlertPath(previous) !== ruleAlertPath(rule)
+    if (evaluator === undefined || this.failed.has(id) || moved) {
       this.failed.delete(id)
       let carried = evaluator === undefined ? accumulated : undefined
       if (evaluator !== undefined && previous !== undefined && carriesTotals(previous, rule)) {
         carried = evaluator.accumulators()
       }
-      // The new evaluator starts without adoption, so the failed one's adopted
-      // alerts would otherwise be heartbeated with nothing to clear them.
+      // Removed while the previous rule is still the entry, so its alerts are
+      // cleared at the path they were raised at. The new evaluator starts
+      // without adoption, so the old one's adopted alerts would otherwise be
+      // heartbeated with nothing to clear them.
       evaluator?.remove()
+      this.entries.set(id, rule)
       this.startRule(id, rule, undefined, carried)
       return
     }
+    this.entries.set(id, rule)
     evaluator.update(rule)
     // An edit that restarts the rule has cleared and re-raised already; any
     // other edit reaches core with the next heartbeat of each active alert.
     for (const { instance, priority } of evaluator.status().instances) {
       if (priority === undefined) continue
-      const path = alertPathFor(rule.slug, instance?.segment)
+      const path = instanceAlertPath(ruleAlertPath(rule), instance?.segment)
       if (path.ok) this.emitter.revise(path.value, header(rule, instance?.name, priority))
     }
   }
@@ -219,8 +224,8 @@ export class RuleRunner {
     const status = evaluator.status()
     const errors = [...status.errors, ...(this.errors.get(id) ?? [])]
     const instances = status.instances.map((instance) => {
-      const path = alertPathFor(rule.slug, instance.instance?.segment)
-      if (!path.ok) return { ...instance, inactive: instance.inactive ?? path.errors[0]?.message }
+      const path = instanceAlertPath(ruleAlertPath(rule), instance.instance?.segment)
+      if (!path.ok) return { ...instance, inactive: instance.inactive ?? path.message }
       const alert = this.emitter.status(path.value)
       return alert === undefined
         ? instance
@@ -289,7 +294,7 @@ export class RuleRunner {
     const now = this.deps.clock()
     const segment = event.instance?.segment
     // An instance whose alert path is invalid shows as inactive in status.
-    const path = alertPathFor(rule.slug, segment)
+    const path = instanceAlertPath(ruleAlertPath(rule), segment)
     if (!path.ok) return
     switch (event.type) {
       case 'raise':

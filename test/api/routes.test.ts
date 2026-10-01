@@ -17,7 +17,7 @@ import { MockServerAPI } from '../helpers/MockServerAPI.js'
 const BASE = '/plugins/signalk-alert-rules'
 const OIL = 'propulsion.main.oilPressure'
 const RPM = 'propulsion.main.revolutions'
-const OIL_ALERT = 'rules.oil-pressure-low'
+const OIL_ALERT = 'propulsion.main.oilPressureLow'
 
 const oil = {
   name: 'Oil pressure low',
@@ -209,7 +209,7 @@ describe('REST API', () => {
     expect(core(h).getByPath(OIL_ALERT)?.condition).toBe(true)
 
     h.mock.subscriptionmanager.publish('propulsion.port.coolantTemperature', 'src', 380)
-    expect(core(h).getByPath('rules.coolant-high.port')?.condition).toBe(true)
+    expect(core(h).getByPath('propulsion.port.coolantTemperatureHigh')?.condition).toBe(true)
     const list = await h.call('GET', '/rules')
     expect((list.body as { slug: string }[]).map((r) => r.slug)).toEqual([
       'oil-pressure-low',
@@ -294,7 +294,7 @@ describe('REST API', () => {
     const h = await serve()
     h.mock.subscriptionmanager.publish(RPM, 'src', 30)
     at(10)
-    expect(core(h).getByPath('rules.engine-hours')?.condition).toBe(true)
+    expect(core(h).getByPath('propulsion.main.revolutionsAccumulated')?.condition).toBe(true)
 
     h.user = 'skipper'
     const reply = await h.call('POST', '/rules/engine-hours/reset')
@@ -305,7 +305,7 @@ describe('REST API', () => {
         instances: [{ active: false, progress: { kind: 'total', total: 0 } }]
       }
     })
-    expect(core(h).getByPath('rules.engine-hours')?.condition).toBe(false)
+    expect(core(h).getByPath('propulsion.main.revolutionsAccumulated')?.condition).toBe(false)
     expect(new Store(dir).load().accumulators).toEqual({
       'engine-hours': { measure: 'time', totals: { '': 0 } }
     })
@@ -743,7 +743,7 @@ describe('templates API', () => {
       status: { badge: 'neverSeen' }
     })
     h.mock.subscriptionmanager.publish(HOUSE, 'can0.12', 11)
-    expect(core(h).getByPath('rules.voltage-low-house')?.condition).toBe(true)
+    expect(core(h).getByPath('electrical.batteries.house.voltageLow')?.condition).toBe(true)
   })
 
   it('dismissing marks the current templates seen for everyone; an update makes only its additions new', async () => {

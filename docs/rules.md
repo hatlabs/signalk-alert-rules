@@ -27,7 +27,8 @@ The rules in [`examples/rules`](../examples/rules) are complete, valid rules; [W
 | Field | Meaning |
 |---|---|
 | `name` | Human-readable name, 1-200 characters. Written into alert data. |
-| `slug` | Lowercase letters and digits separated by single hyphens, at most 64 characters. Fixed when the rule is created; it names the alert path. |
+| `slug` | Lowercase letters and digits separated by single hyphens, at most 64 characters. Fixed when the rule is created. |
+| `condition` | Optional condition name, the last segment of the alert path; see [Alert paths](#alert-paths). Letters, digits, `_` and `-`. Required for a combined signal and for an input path ending in a wildcard. |
 | `message` | The alert message, 1-500 characters. `{instance}` is replaced with the wildcard instance's name. The message is the same at every zone level. |
 | `priority` | `emergency`, `alarm`, `warning` or `caution`. Required unless the detector has a zone limit, and rejected when it has one, because the zone level sets the priority. |
 | `latching` | Optional; see [Latching](#latching). |
@@ -244,9 +245,16 @@ A non-latching `changesTo` or `decreases` match raises and clears at the same in
 
 ### Alert paths
 
-A rule's alert lives at `alerts.rules.<origin>.<slug>`, and a wildcard rule's at `alerts.rules.<origin>.<slug>.<instance>`, one alert per instance. The `rules` segment is reserved for SKAR by convention; SKAR does not check whether another source writes under it. There is no user-overridable alert path.
+A rule's alert lives in the data model, at a condition name under the parent the rule's input gives: voltage below a limit on `electrical.batteries.house.voltage` alerts at `alerts.electrical.batteries.house.voltageLow`. The parent always follows the input and cannot be edited:
 
-The instance segment is the instance name with every character other than `A-Z`, `a-z`, `0-9`, `_` and `-` replaced by `_`. Two instance names that map to the same segment cannot both be admitted; the later one is reported in the rule's status. A path under `alerts.` longer than 255 characters, or with a segment of `__proto__`, `constructor` or `prototype`, is not emitted and is reported in status.
+- For a single input path, it is the path's parent. When the path ends in a wildcard, it is the whole path, so that each instance has an alert of its own.
+- For a combined signal, it is the longest run of leading segments the parents of all its inputs share: `propulsion.port.revolutions` and `propulsion.starboard.revolutions` give `propulsion`. When they share none, the alert path is the condition name alone.
+
+Only the condition name is the rule's to choose, in its optional `condition` field. Left out, it is the input's leaf, camel-cased, plus a suffix for the detector: `High` or `Low` for a sustained comparison, `ProjectedHigh` or `ProjectedLow` for a projection, `Rising` or `Falling` for a slope, `Match`, `Mismatch`, `Changed`, `Decreased` or `TimedOut` for a match, `Accumulated`, `Frequent` and `Missing` for an accumulator, count and absence. That default follows every edit of the input and detector; a stored name is kept through them. A combined signal and an input ending in a wildcard have no leaf to name the condition by, so they need a stored name.
+
+A wildcard rule's alert path keeps the `*`, and each instance's alert fills it with the instance's segment: `alerts.propulsion.port.coolantTemperatureHigh`. An edit that changes the alert path clears the rule's alerts at the old path and raises at the new one once the condition holds.
+
+Parent segments and the instance segment are the path's or instance name's with every character other than `A-Z`, `a-z`, `0-9`, `_` and `-` replaced by `_`. Two instance names that map to the same segment cannot both be admitted; the later one is reported in the rule's status. A path under `alerts.` longer than 255 characters, or with a segment of `__proto__`, `constructor` or `prototype`, is not emitted and is reported in status.
 
 ### What SKAR sends
 
@@ -296,12 +304,12 @@ The evidence gate stands until core's staleness behaviour is specified (SignalK/
 
 ### Restart reconciliation
 
-At start SKAR reads core's alerts once and sorts those whose `$source` is SKAR, whose condition is active and whose path is under `alerts.rules.`:
+At start SKAR reads core's alerts once and sorts those whose `$source` is SKAR and whose condition is active, matching each to the rule whose [alert path](#alert-paths) is the alert's, a wildcard rule's with an instance segment in place of its `*`:
 
-- An alert whose rule no longer exists or is disabled, whose rule is now latching, or whose path has an instance segment when the rule has no wildcard (or lacks one when it has) is cleared.
+- An alert that matches no rule, because its rule no longer exists, is disabled or now has another alert path, or that matches a rule now latching, is cleared.
 - Every other such alert is adopted. SKAR sends it once at once, with the rule's current message and the rule's own priority (for a zone-limit rule, its named level's) and no data, unless core already marks it stale; an edit made while SKAR was down reaches core this way. The instance's detector starts in the active state.
 
-Alerts whose condition has ended, latching alerts among them, are core's until acknowledged and are left alone, as are other sources' alerts.
+Alerts whose condition has ended, latching alerts among them, are core's until acknowledged and are left alone, as are other sources' alerts. Alert paths are shared with every other source, and core keeps one alert per path, attributed to the source that raised it last: an alert at a rule's path that another source raised last is that source's, so SKAR neither adopts nor clears it. While both run, they share that one alert.
 
 An adopted alert ends by its rule's clear criterion or a gate not holding, like any other. Until then:
 
@@ -436,7 +444,7 @@ A rule that is not evaluated, because it or its ruleset is disabled, has the `di
 
 ## Worked examples
 
-Each rule in [`examples/rules`](../examples/rules) runs in `test/examples.test.ts` against the scenario of the same name in `test/fixtures/example-scenarios.ts`, from a plugin start at 0 s. The table summarises the sequence the test asserts, with heartbeats left out. Alert paths are under `alerts.rules.user.`.
+Each rule in [`examples/rules`](../examples/rules) runs in `test/examples.test.ts` against the scenario of the same name in `test/fixtures/example-scenarios.ts`, from a plugin start at 0 s. The table summarises the sequence the test asserts, with heartbeats left out.
 
 | Example | Rule | Scenario | Alerts |
 |---|---|---|---|

@@ -1,4 +1,5 @@
 import Type, { type Static, type TNumberOptions } from 'typebox'
+import { MAX_ALERT_PATH_LENGTH, SEGMENT_CHARS } from '../alerts/paths.js'
 
 export const MAX_DURATION_S = 24 * 3600
 export const MAX_RULES = 500
@@ -89,6 +90,16 @@ const PathSchema = Type.String({
   pattern: PATH_PATTERN,
   [PATTERN_MESSAGE_KEY]: 'must be a dot-separated path in which * stands alone as a segment'
 })
+
+export const CONDITION_MESSAGE = 'must be one alert path segment: letters, digits, _ and -'
+
+/** A condition name: one segment core accepts in an alert path. */
+export const conditionSchema = () =>
+  Type.String({
+    maxLength: MAX_ALERT_PATH_LENGTH,
+    pattern: `^${SEGMENT_CHARS}$`,
+    [PATTERN_MESSAGE_KEY]: CONDITION_MESSAGE
+  })
 
 const PathInputSchema = Type.Object(
   { path: PathSchema, source: Type.Optional(Type.String({ minLength: 1 })) },
@@ -228,6 +239,18 @@ export const RuleSchema = Type.Object(
   {
     name: Type.String({ minLength: 1, maxLength: 200 }),
     slug: slugSchema(),
+    /**
+     * The condition name, the last segment of the rule's alert path in core.
+     * The alert path, without the `alerts.` prefix, is this name under the
+     * parent the input gives (`alertPathOf`): `voltageLow` under
+     * `electrical.batteries.house`. Only the name is the rule's to choose;
+     * the parent always follows the input, and a wildcard in it is filled by
+     * each instance. Left out, the name is the default of the input's leaf
+     * and the detector (`defaultCondition`), and follows edits to them;
+     * given, it is kept through every edit. A combined signal or an input
+     * ending in a wildcard has no leaf to name it by, so it needs one.
+     */
+    condition: Type.Optional(conditionSchema()),
     message: Type.String({ minLength: 1, maxLength: 500 }),
     /** Required unless the detector has a zone limit, whose levels set the priority. */
     priority: Type.Optional(Type.Enum(PRIORITIES)),

@@ -8,6 +8,7 @@ import {
   MAX_SLUG_LENGTH,
   PRIORITIES,
   ZONE_LEVELS,
+  type Detector,
   type Rule
 } from '../../../src/model/rule'
 import {
@@ -16,10 +17,13 @@ import {
   TWO_INPUTS,
   validateRule
 } from '../../../src/model/validate'
+import { defaultCondition } from '../../../src/alerts/paths'
 import {
   ANGULAR_KINDS,
   COMBINATOR_KINDS,
+  defaultFormCondition,
   emptyForm,
+  formAlertPrefix,
   fromRule,
   MAX_GATES,
   MAX_INPUTS,
@@ -118,6 +122,107 @@ describe('the form model mirrors the rule model', () => {
     expect([...TWO_INPUT_KINDS].sort()).toEqual([...TWO_INPUTS].sort())
     expect([...POSITION_KINDS].sort()).toEqual([...POSITION_COMBINATORS].sort())
     expect([...ANGULAR_KINDS].sort()).toEqual([...ANGULAR_COMBINATORS].sort())
+  })
+})
+
+describe('the condition name of a form', () => {
+  const INPUT = 'electrical.batteries.house.voltage'
+  const fixed = { kind: 'fixed', value: 1 } as const
+  const event = { op: 'changes' } as const
+  const states: [Detector, string][] = [
+    [{ type: 'sustained', direction: 'above', limit: fixed }, 'voltageHigh'],
+    [{ type: 'sustained', direction: 'below', limit: fixed }, 'voltageLow'],
+    [{ type: 'slope', direction: 'rising', window: 60, limit: 1 }, 'voltageRising'],
+    [{ type: 'slope', direction: 'falling', window: 60, limit: 1 }, 'voltageFalling'],
+    [
+      { type: 'projection', direction: 'rising', limit: fixed, window: 60, horizon: 600 },
+      'voltageProjectedHigh'
+    ],
+    [
+      { type: 'projection', direction: 'falling', limit: fixed, window: 60, horizon: 600 },
+      'voltageProjectedLow'
+    ],
+    [{ type: 'match', op: 'equals', value: 1 }, 'voltageMatch'],
+    [{ type: 'match', op: 'notEquals', value: 1 }, 'voltageMismatch'],
+    [{ type: 'match', op: 'changesTo', value: 1 }, 'voltageChanged'],
+    [{ type: 'match', op: 'decreases' }, 'voltageDecreased'],
+    [{ type: 'match', op: 'timedOut', duration: 60 }, 'voltageTimedOut'],
+    [{ type: 'accumulator', measure: 'time', limit: 3600 }, 'voltageAccumulated'],
+    [{ type: 'count', event, window: 60, limit: 3 }, 'voltageFrequent'],
+    [{ type: 'absence', event, within: 60 }, 'voltageMissing']
+  ]
+
+  it.each(states)('is the default of the detector the form saves: %j', (detector, condition) => {
+    const base = { name: 'r', slug: 'r', message: 'm', priority: 'warning' }
+    const result = validateRule({ ...base, signal: { path: INPUT }, detector })
+    if (!result.ok) throw new Error(JSON.stringify(result.errors))
+    const rule = result.value
+    const form = fromRule(rule, NO_UNITS)
+    expect(defaultCondition(rule.signal, saved(form, NO_UNITS).detector)).toBe(condition)
+    expect(defaultFormCondition(form)).toBe(condition)
+  })
+
+  it('is undefined until the direction, trend or match operator is chosen', () => {
+    for (const type of ['sustained', 'slope', 'projection', 'match'] as const) {
+      const form = authored((f) => {
+        f.signal.slots = [{ path: INPUT, source: '' }]
+        f.detector.type = type
+      })
+      expect(defaultFormCondition(form)).toBeUndefined()
+    }
+  })
+
+  it("saves only a typed name, the default staying the input and detector's", () => {
+    const form = authored((f) => {
+      Object.assign(f, { name: 'r', slug: 'r', message: 'm', priority: 'warning' })
+      f.signal.slots = [{ path: INPUT, source: '' }]
+      f.detector.type = 'sustained'
+      f.detector.direction = 'below'
+      f.detector.limit.value = '12'
+    })
+    expect(defaultFormCondition(form)).toBe('voltageLow')
+    expect(saved(form, NO_UNITS)).not.toHaveProperty('condition')
+    const typed = { ...form, condition: 'flat' }
+    expect(defaultFormCondition(typed)).toBe('voltageLow')
+    expect(saved(typed, NO_UNITS)).toMatchObject({ condition: 'flat' })
+  })
+
+  it('loads a stored name, and none for a rule that stores none', () => {
+    const base = { name: 'r', slug: 'r', message: 'm', priority: 'warning' as const }
+    const detector = states[1][0]
+    const rule: Rule = { ...base, signal: { path: INPUT }, detector }
+    expect(fromRule(rule, NO_UNITS).condition).toBe('')
+    expect(fromRule({ ...rule, condition: 'voltageLow' }, NO_UNITS).condition).toBe('voltageLow')
+  })
+})
+
+describe('the alert path prefix of a form', () => {
+  const prefix = (edit: (f: RuleForm) => void) => formAlertPrefix(authored(edit))
+
+  it("is the input's parent under alerts., its wildcard kept", () => {
+    expect(
+      prefix((f) => {
+        f.signal.slots = [{ path: 'electrical.batteries.*.voltage', source: '' }]
+      })
+    ).toBe('alerts.electrical.batteries.*.')
+  })
+
+  it("is the common parent of a combined signal's inputs, or alerts. alone", () => {
+    const combined = (paths: string[]) =>
+      prefix((f) => {
+        f.signal = setCombinator(setMode(f.signal, 'combine'), 'absDifference')
+        f.signal.slots = paths.map((path) => ({ path, source: '' }))
+      })
+    expect(combined(['propulsion.port.revolutions', 'propulsion.starboard.revolutions'])).toBe(
+      'alerts.propulsion.'
+    )
+    expect(combined(['environment.depth.belowKeel', 'navigation.speedThroughWater'])).toBe(
+      'alerts.'
+    )
+  })
+
+  it('is alerts. alone until an input is chosen', () => {
+    expect(prefix(() => undefined)).toBe('alerts.')
   })
 })
 
@@ -310,6 +415,7 @@ describe('authoring the worked scenarios', () => {
     const form = authored((f) => {
       f.name = 'Engine RPM mismatch'
       f.slug = slugify(f.name)
+      f.condition = 'revolutionsMismatch'
       f.message = 'Port and starboard engine speeds differ'
       f.priority = 'caution'
       f.signal = setCombinator(setMode(f.signal, 'combine'), 'absDifference')
@@ -334,7 +440,13 @@ describe('authoring the worked scenarios', () => {
 
   it('authors the three-GNSS spread with source-restricted slots, in the distance unit', () => {
     const form = authored((f) => {
-      Object.assign(f, { name: 'GNSS', slug: 'gnss', message: 'm', priority: 'warning' })
+      Object.assign(f, {
+        name: 'GNSS',
+        slug: 'gnss',
+        condition: 'gnssDisagree',
+        message: 'm',
+        priority: 'warning'
+      })
       f.signal = setCombinator(setMode(f.signal, 'combine'), 'positionSpread')
       f.signal.slots = ['gnss.bow', 'gnss.stern', 'gnss.mast'].map((source) => ({
         path: 'navigation.position',

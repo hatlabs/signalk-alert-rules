@@ -34,7 +34,7 @@ The file is YAML, so it can carry comments, or JSON; a JSON file parses to the s
 | Field | |
 |---|---|
 | `name` | Shown to the operator, at most 200 characters. |
-| `slug` | Lowercase letters, digits and hyphens, at most 64 characters, not `user`. It is the origin of every rule in the ruleset: their alert paths are `alerts.rules.<ruleset slug>.<rule slug>`. |
+| `slug` | Lowercase letters, digits and hyphens, at most 64 characters, not `user`. It is the origin of every rule in the ruleset, so their alerts' `data.rule` is `<ruleset slug>.<rule slug>`; their alert paths follow their inputs, as [Alert paths](rules.md#alert-paths) describes. |
 | `version` | Shown to the operator, and named in upgrade notices. |
 | `description` | Optional. |
 | `parameters` | Optional, at most 32. |

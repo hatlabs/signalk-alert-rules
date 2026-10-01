@@ -72,7 +72,7 @@ SKAR serves its rules, their status and its operator actions under the plugin's 
 ```
 
 - `restarts`: the edit clears and restarts the rule, per the [edit semantics](rules.md#edits). Any edit restarts a rule that failed to start.
-- `changes`: the parts of the rule that make it restart, by field path: `signal`, `gates`, `latching`, `detector.limit.level`, or `detector.<field>`.
+- `changes`: the parts of the rule that make it restart, by field path: `alertPath`, `signal`, `gates`, `latching`, `detector.limit.level`, or `detector.<field>`. `alertPath` means the rule's [alert path](rules.md#alert-paths) moves, through its condition name or through an input or detector edit that changes the default name or the parent; the alert at the old path is cleared.
 - `activeAlerts`: how many of the rule's instances have an active alert now.
 - `clearsActiveAlert`: the edit restarts the rule while it has an active alert, so saving it clears that alert; the webapp asks for confirmation. It counts only clears the restart causes: an edit applied in place, for example a raised limit, can also clear an active alert at the next evaluation, when the current value no longer meets the condition.
 - `discardsTotal`: the rule has an accumulator total above zero, running or kept while it does not run, and saving the edit would discard it: the edit is no longer an accumulator of the same measure. Replacing a stored rule that failed validation keeps its total when both the stored file and the new rule are accumulators of the same measure.
@@ -220,7 +220,7 @@ A link to one instance of a wildcard rule adds the instance:
 ```
 
 - `origin`, `slug` and the instance are each percent-encoded as `encodeURIComponent` does. The origin is `user` or a ruleset's slug, so neither it nor the rule's slug contains a `/`.
-- The instance is its name, the path segment the rule's wildcard matched, or its segment in the alert path `alerts.rules.<origin>.<slug>.<instance>`, so a consumer can build the link from an alert's path. The detail view highlights that instance's row, and moves focus to it when the webapp is already open.
+- The instance is its name, the path segment the rule's wildcard matched, or its segment in the alert path, where the rule's alert path has its `*`. A consumer building the link from an alert takes the origin and slug from the alert's `data.rule`, `<origin>.<slug>`, and the instance from the alert path's segment at the rule's `*`. The detail view highlights that instance's row, and moves focus to it when the webapp is already open.
 - A link to a rule that is not listed, because it was deleted or no longer validates, shows that the rule was not found. A link to an instance the rule does not have now shows the rule with a notice saying so.
 
 ## Errors

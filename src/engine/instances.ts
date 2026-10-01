@@ -1,7 +1,5 @@
+import { sanitiseSegment } from '../alerts/paths.js'
 import { MAX_INSTANCES } from '../model/rule.js'
-
-// Complement of the segment rule `alertPathFor` enforces.
-const INVALID_SEGMENT_CHARS = /[^A-Za-z0-9_-]/g
 
 /**
  * The segment a single-wildcard pattern's `*` stands for in `path`, or
@@ -21,11 +19,6 @@ export function instanceIn(pattern: string, path: string): string | undefined {
   return instance === '' ? undefined : instance
 }
 
-/** An instance name made safe to append to an alert path. */
-export function instanceSegment(name: string): string {
-  return name.replace(INVALID_SEGMENT_CHARS, '_')
-}
-
 export type Admission = { ok: true; segment: string } | { ok: false; reason: string }
 
 /** The instances of one wildcard signal, bounded and with distinct alert path segments. */
@@ -36,7 +29,7 @@ export class InstanceRegistry {
   admit(name: string): Admission {
     const known = this.admitted.get(name)
     if (known !== undefined) return { ok: true, segment: known }
-    const segment = instanceSegment(name)
+    const segment = sanitiseSegment(name)
     const holder = this.bySegment.get(segment)
     if (holder !== undefined) {
       return {

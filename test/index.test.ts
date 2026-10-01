@@ -129,10 +129,10 @@ describe('plugin', () => {
     vi.advanceTimersByTime(179_000)
     expect(app.core.list()).toEqual([])
     vi.advanceTimersByTime(1_000)
-    expect(app.core.getByPath('rules.engine-hours')?.condition).toBe(true)
+    expect(app.core.getByPath('propulsion.main.revolutionsAccumulated')?.condition).toBe(true)
 
     await plugin.stop()
-    expect(app.core.getByPath('rules.engine-hours')?.condition).toBe(true)
+    expect(app.core.getByPath('propulsion.main.revolutionsAccumulated')?.condition).toBe(true)
   })
 
   it('checkpoints accumulator totals every 60 s while running', async () => {
@@ -169,7 +169,7 @@ describe('plugin', () => {
     vi.advanceTimersByTime(59_000)
     expect(core.list()).toEqual([])
     vi.advanceTimersByTime(1_000)
-    expect(core.getByPath('rules.engine-hours')?.condition).toBe(true)
+    expect(core.getByPath('propulsion.main.revolutionsAccumulated')?.condition).toBe(true)
 
     await restarted.stop()
   })
@@ -309,7 +309,7 @@ describe('plugin', () => {
     vi.advanceTimersByTime(60_000)
     expect(app.pluginError).toMatch(/accumulator totals/)
     vi.advanceTimersByTime(120_000)
-    expect(app.core.getByPath('rules.engine-hours')?.condition).toBe(true)
+    expect(app.core.getByPath('propulsion.main.revolutionsAccumulated')?.condition).toBe(true)
 
     await plugin.stop()
   })

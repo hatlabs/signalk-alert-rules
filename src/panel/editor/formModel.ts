@@ -20,6 +20,7 @@ import type {
   TemplateRecord,
   ZoneLevel
 } from '../../model/rule'
+import { alertParent, defaultCondition } from '../../alerts/paths'
 import type { FieldError } from '../api'
 import {
   POSITION_KINDS,
@@ -159,6 +160,12 @@ export interface RuleForm {
   slug: string
   /** The slug is still derived from the name: a new rule whose slug nobody edited. */
   slugFollowsName: boolean
+  /**
+   * The condition name as typed, the last segment of the alert path. Empty,
+   * the rule stores none and its name follows the default its input and
+   * detector give.
+   */
+  condition: string
   message: string
   priority: Priority | ''
   latching: boolean
@@ -197,6 +204,7 @@ export function emptyForm(): RuleForm {
     name: '',
     slug: '',
     slugFollowsName: true,
+    condition: '',
     message: '',
     priority: '',
     latching: false,
@@ -485,6 +493,7 @@ export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
     name: rule.name,
     slug: rule.slug,
     slugFollowsName: false,
+    condition: rule.condition ?? '',
     message: rule.message,
     priority: rule.priority ?? '',
     latching: rule.latching === true,
@@ -709,6 +718,31 @@ function readGate(form: GateForm, at: string, units: UnitLookup, read: Reader): 
   }) as Gate
 }
 
+// The signal document of the input paths chosen so far, for the alert path's parent.
+function chosenSignal(signal: SignalForm): unknown {
+  const paths = signal.slots.map((s) => s.path).filter((p) => p !== '')
+  if (paths.length === 0) return undefined
+  return signal.mode === 'single'
+    ? { path: paths[0] }
+    : { combinator: signal.combinator, inputs: paths.map((path) => ({ path })) }
+}
+
+/**
+ * The default condition name of the input and detector chosen so far:
+ * undefined until the choices that name the condition are made, and for a
+ * combined signal, which has none.
+ */
+export function defaultFormCondition(form: RuleForm): string | undefined {
+  const d = form.detector
+  const direction = d.type === 'sustained' ? d.direction : d.trend
+  return defaultCondition(chosenSignal(form.signal), { type: d.type, direction, op: d.matchOp })
+}
+
+/** The alert path before the condition name, from `alerts.` to the dot before it. */
+export function formAlertPrefix(form: RuleForm): string {
+  return ['alerts', ...(alertParent(chosenSignal(form.signal)) ?? []), ''].join('.')
+}
+
 /**
  * The rule the form describes, in SI units, or the fields that are missing or
  * not numbers. Everything else, such as ranges and combinations, the server
@@ -731,6 +765,8 @@ export function toRule(form: RuleForm, units: UnitLookup): ToRuleResult {
   const rule = defined({
     name,
     slug,
+    // Left out, the name follows the default, or the server says why there is none.
+    condition: form.condition === '' ? undefined : form.condition,
     message,
     priority,
     latching: form.latching && canLatch(form.detector) ? true : undefined,

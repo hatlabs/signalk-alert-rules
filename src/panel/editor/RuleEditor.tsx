@@ -9,8 +9,10 @@ import { editConsequences } from './consequences'
 import { AdvancedFields, DetectFields, LimitSectionFields, TimingFields } from './DetectorFields'
 import { Field, FieldErrors, SelectField, TextField } from './fields'
 import {
+  defaultFormCondition,
   emptyForm,
   emptyGate,
+  formAlertPrefix,
   fromRule,
   hasWildcard,
   isZoneLimited,
@@ -223,10 +225,6 @@ function EditorForm({ api, paths, units, editing, onSaved, onClose }: FormProps)
     })
   }
 
-  const alertPath = `alerts.rules.${form.slug === '' ? '<slug>' : form.slug}${
-    wildcard ? '.<instance>' : ''
-  }`
-
   return (
     <FieldErrors.Provider value={attached.byField}>
       <form
@@ -414,11 +412,31 @@ function EditorForm({ api, paths, units, editing, onSaved, onClose }: FormProps)
               readOnly={editing !== undefined}
               hint={
                 editing === undefined
-                  ? `Alert path ${alertPath}. The slug is fixed once the rule is saved.`
-                  : `Fixed; the alert path is ${alertPath}.`
+                  ? 'Identifies the rule in links. Fixed once the rule is saved.'
+                  : 'Fixed.'
               }
               onChange={(slug) => {
                 update({ slug, slugFollowsName: false })
+              }}
+            />
+            <TextField
+              label="Alert path"
+              pointer="/condition"
+              prefix={formAlertPrefix(form)}
+              value={form.condition}
+              // Shown, never filled in: a keystroke after a cleared name would extend the default.
+              placeholder={defaultFormCondition(form)}
+              hint={`The input gives the path; the last segment names the condition.${
+                wildcard ? ' * stands for each instance.' : ''
+              } ${
+                form.condition !== ''
+                  ? 'Kept as written. Clear it to follow the input and detector again.'
+                  : defaultFormCondition(form) === undefined
+                    ? 'There is no default name here; type one.'
+                    : 'Follows the input and detector until you type a name.'
+              } A new name on a saved rule clears the alert at the old path.`}
+              onChange={(condition) => {
+                update({ condition })
               }}
             />
           </Section>
