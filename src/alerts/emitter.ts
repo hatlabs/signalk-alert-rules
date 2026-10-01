@@ -83,13 +83,6 @@ export class AlertEmitter {
     this.deps.send(path, null)
   }
 
-  /** Clears every alert it holds, and returns their paths. */
-  clearAll(): string[] {
-    const paths = [...this.slots.keys()]
-    for (const path of paths) this.clear(path)
-    return paths
-  }
-
   /**
    * Takes over an active alert core already holds for SKAR, without raising
    * it. Its emissions carry the rule's current header and no data, so core

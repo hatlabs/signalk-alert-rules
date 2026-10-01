@@ -139,9 +139,11 @@ async function serve(options: { withAlerts?: boolean; start?: boolean } = {}): P
           body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body)
       })
       const text = await response.text()
+      // Express answers a route it does not have with an HTML page.
+      const json = response.headers.get('content-type')?.includes('json') === true
       return {
         status: response.status,
-        body: text === '' ? undefined : (JSON.parse(text) as unknown)
+        body: text === '' ? undefined : json ? (JSON.parse(text) as unknown) : text
       }
     },
     restart: async () => {
@@ -242,13 +244,11 @@ describe('REST API', () => {
       h.call('PUT', '/rules/user/oil-pressure-low', 'message=x', form),
       h.call('POST', '/rules/user/oil-pressure-low/preview', 'message=x', form),
       h.call('DELETE', '/rules/user/oil-pressure-low', undefined, {}),
-      h.call('POST', '/rules/user/engine-hours/reset', undefined, {}),
-      h.call('PUT', '/evaluation', 'enabled=false', form)
+      h.call('POST', '/rules/user/engine-hours/reset', undefined, {})
     ])
-    expect(replies.map((r) => r.status)).toEqual([415, 415, 415, 415, 415, 415, 415])
+    expect(replies.map((r) => r.status)).toEqual([415, 415, 415, 415, 415, 415])
     expect(existsSync(join(dir, 'rules', 'coolant-high.json'))).toBe(false)
     expect(existsSync(join(dir, 'rules', 'oil-pressure-low.json'))).toBe(true)
-    expect(new Store(dir).load().evaluation).toEqual({ enabled: true })
   })
 
   it('accepts a bodiless mutating request that declares JSON', async () => {
@@ -327,53 +327,32 @@ describe('REST API', () => {
     ])
   })
 
-  it('clear all turns evaluation off, clears every owned alert and records the actor', async () => {
-    storeRule(oil)
-    storeRule(hours)
+  it('has no evaluation switch', async () => {
     const h = await serve()
-    h.mock.subscriptionmanager.publish(OIL, 'src', 0)
-    h.mock.subscriptionmanager.publish(RPM, 'src', 30)
-    at(10)
-    expect(
-      core(h)
-        .list()
-        .filter((a) => a.condition)
-    ).toHaveLength(2)
-
-    const reply = await h.call('PUT', '/evaluation', { enabled: false })
-    expect(reply.status).toBe(200)
-    expect(reply.body).toMatchObject({ enabled: false, actor: 'admin' })
-    expect(
-      core(h)
-        .list()
-        .filter((a) => a.condition)
-    ).toEqual([])
-    expect((await h.call('GET', '/evaluation')).body).toEqual(reply.body)
-    expect((await h.call('GET', '/log')).body).toMatchObject([
-      { actor: 'admin', action: 'evaluation', enabled: false }
+    const replies = await Promise.all([
+      h.call('GET', '/evaluation'),
+      h.call('PUT', '/evaluation', { enabled: false })
     ])
-    const rules = await h.call('GET', '/rules')
-    expect((rules.body as { status: unknown }[]).map((r) => r.status)).toMatchObject([
-      { badge: 'disabled', reason: 'evaluation is off' },
-      { badge: 'disabled', reason: 'evaluation is off' }
-    ])
-
-    const on = await h.call('PUT', '/evaluation', { enabled: true })
-    expect(on.body).toMatchObject({ enabled: true, actor: 'admin' })
-    at(5)
-    expect(core(h).getByPath(OIL_ALERT)?.condition).toBe(true)
+    expect(replies.map((r) => r.status)).toEqual([404, 404])
   })
 
-  it('evaluation off survives a plugin restart', async () => {
-    storeRule(oil)
+  it('starts on a data directory whose log has evaluation entries, and lists the others', async () => {
+    const reset = {
+      at: '2026-09-30T12:00:00.000Z',
+      actor: 'admin',
+      action: 'reset',
+      rule: 'user.engine-hours'
+    }
+    writeFileSync(
+      join(dir, 'log.json'),
+      JSON.stringify([
+        reset,
+        { at: reset.at, actor: 'admin', action: 'evaluation', enabled: false }
+      ])
+    )
     const h = await serve()
-    await h.call('PUT', '/evaluation', { enabled: false })
-    await h.restart()
-
-    expect((await h.call('GET', '/evaluation')).body).toMatchObject({ enabled: false })
-    h.mock.subscriptionmanager.publish(OIL, 'src', 0)
-    at(60)
-    expect(core(h).list()).toEqual([])
+    expect((await h.call('GET', '/state')).body).toMatchObject({ running: true, issues: [] })
+    expect((await h.call('GET', '/log')).body).toEqual([reset])
   })
 
   it('previews a clearing edit and a non-clearing one', async () => {
@@ -441,14 +420,12 @@ describe('REST API', () => {
       h.call('PUT', '/rules/user/oil-pressure-low', { ...oil, slug: 'other' }),
       h.call('POST', '/rules/user/oil-pressure-low/preview', { ...oil, slug: 'other' }),
       h.call('POST', '/rules/user/oil-pressure-low/reset'),
-      h.call('PUT', '/evaluation', { enabled: 'no' }),
       h.call('PUT', '/rules/user/oil-pressure-low', { ...oil, priority: 'loud' })
     ])
     expect(statuses.map((r) => r.status)).toEqual([
-      404, 404, 404, 404, 404, 404, 409, 400, 400, 400, 400, 400
+      404, 404, 404, 404, 404, 404, 409, 400, 400, 400, 400
     ])
     expect(statuses[7].body).toMatchObject({ errors: [{ path: '/slug' }] })
-    expect(statuses[10].body).toMatchObject({ errors: [{ path: '/enabled' }] })
     expect((await h.call('GET', '/log')).body).toEqual([])
   })
 
@@ -457,7 +434,6 @@ describe('REST API', () => {
     expect((await h.call('GET', '/state')).body).toEqual({
       running: true,
       securityEnabled: null,
-      evaluation: { enabled: true },
       issues: []
     })
     Object.assign(h.mock, { securityStrategy: { isDummy: () => true } })
@@ -476,10 +452,9 @@ describe('REST API', () => {
     const replies = await Promise.all([
       h.call('GET', '/rules'),
       h.call('POST', '/rules', oil),
-      h.call('GET', '/evaluation'),
       h.call('GET', '/log')
     ])
-    expect(replies.map((r) => r.status)).toEqual([503, 503, 503, 503])
+    expect(replies.map((r) => r.status)).toEqual([503, 503, 503])
     await h.plugin.stop()
     expect((await h.call('GET', '/rules')).status).toBe(503)
   })

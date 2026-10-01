@@ -41,11 +41,10 @@ afterEach(() => {
 })
 
 describe('store', () => {
-  it('starts empty with evaluation enabled in a fresh data directory', () => {
+  it('starts empty in a fresh data directory', () => {
     const contents = new Store(dir).load()
     expect(contents).toEqual({
       rules: [],
-      evaluation: { enabled: true },
       accumulators: {},
       controls: { rules: {}, inputs: {} },
       log: [],
@@ -161,12 +160,6 @@ describe('store', () => {
     const log = [
       { at: '2026-09-30T12:00:00.000Z', actor: 'admin', action: 'delete', rule: 'user.oil' },
       { at: '2026-09-30T12:01:00.000Z', actor: 'admin', action: 'reset', rule: 'user.hours' },
-      {
-        at: '2026-09-30T12:02:00.000Z',
-        actor: 'unauthenticated',
-        action: 'evaluation',
-        enabled: false
-      },
       { at: '2026-09-30T12:03:00.000Z', actor: 'admin', action: 'disable', rule: 'user.oil' },
       { at: '2026-09-30T12:04:00.000Z', actor: 'admin', action: 'enable', rule: 'user.oil' },
       { at: '2026-09-30T12:05:00.000Z', actor: 'admin', action: 'note', rule: 'user.oil' },
@@ -189,6 +182,36 @@ describe('store', () => {
     expect(new Store(dir).load().log).toEqual(log)
   })
 
+  it('skips log entries of an action SKAR no longer has and keeps the rest', () => {
+    const store = new Store(dir)
+    store.load()
+    const kept = [
+      { at: '2026-09-30T12:00:00.000Z', actor: 'admin', action: 'delete', rule: 'user.oil' },
+      { at: '2026-09-30T12:02:00.000Z', actor: 'admin', action: 'rescan' }
+    ]
+    writeFileSync(
+      join(dir, 'log.json'),
+      JSON.stringify([
+        kept[0],
+        { at: '2026-09-30T12:01:00.000Z', actor: 'admin', action: 'evaluation', enabled: false },
+        kept[1]
+      ])
+    )
+    const contents = new Store(dir).load()
+    expect(contents.log).toEqual(kept)
+    expect(contents.issues).toEqual([])
+  })
+
+  it('ignores a stored evaluation switch and leaves its file in place', () => {
+    const store = new Store(dir)
+    store.load()
+    writeFileSync(join(dir, 'evaluation.json'), JSON.stringify({ enabled: false }))
+    const contents = new Store(dir).load()
+    expect(contents).not.toHaveProperty('evaluation')
+    expect(contents.issues).toEqual([])
+    expect(readFileSync(join(dir, 'evaluation.json'), 'utf8')).toBe('{"enabled":false}')
+  })
+
   it('moves aside a log with an entry it does not recognise', () => {
     const store = new Store(dir)
     store.load()
@@ -201,22 +224,16 @@ describe('store', () => {
     expect(contents.issues).toEqual([expect.stringMatching(/log\.json/)])
   })
 
-  it('round-trips rules, the evaluation switch and accumulator checkpoints', () => {
+  it('round-trips rules and accumulator checkpoints', () => {
     const store = new Store(dir)
     store.load()
     store.saveRule(oil)
-    store.saveEvaluation({ enabled: false, actor: 'admin', at: '2026-09-30T12:00:00.000Z' })
     store.saveCheckpoints({
       'user.engine-hours': { measure: 'time', totals: { '': 3600, port: 12.5 } }
     })
 
     const contents = new Store(dir).load()
     expect(contents.rules).toEqual([{ slug: 'oil-pressure-low', value: oil }])
-    expect(contents.evaluation).toEqual({
-      enabled: false,
-      actor: 'admin',
-      at: '2026-09-30T12:00:00.000Z'
-    })
     expect(contents.accumulators).toEqual({
       'user.engine-hours': { measure: 'time', totals: { '': 3600, port: 12.5 } }
     })
@@ -355,16 +372,13 @@ describe('store', () => {
     store.load()
     store.saveRule(oil)
     writeFileSync(join(dir, 'accumulators.json'), '{"user.engine-hours": {"": 1')
-    writeFileSync(join(dir, 'evaluation.json'), '{"enabled": "yes"}')
     writeFileSync(join(dir, 'rules', 'broken.json'), 'not json')
 
     const contents = new Store(dir).load()
     expect(contents.rules).toEqual([{ slug: 'oil-pressure-low', value: oil }])
     expect(contents.accumulators).toEqual({})
-    expect(contents.evaluation).toEqual({ enabled: true })
-    expect(contents.issues).toHaveLength(3)
+    expect(contents.issues).toHaveLength(2)
     expect(contents.issues.join('\n')).toMatch(/accumulators\.json.*accumulators\.json\.corrupt-/)
-    expect(contents.issues.join('\n')).toMatch(/evaluation\.json/)
     expect(contents.issues.join('\n')).toMatch(/broken\.json/)
 
     // The bad content is kept for inspection and not read again.
@@ -394,12 +408,11 @@ describe('store', () => {
     expect(contents.issues).toEqual([expect.stringMatching(/unreadable\.json.*EIO/)])
   })
 
-  it.each(['evaluation.json', 'accumulators.json', 'log.json'])(
+  it.each(['accumulators.json', 'log.json'])(
     'fails to load when %s cannot be read, and leaves it in place',
     (name) => {
       const store = new Store(dir)
       store.load()
-      store.saveEvaluation({ enabled: false })
       store.saveCheckpoints({ 'user.engine-hours': { measure: 'time', totals: { '': 100 } } })
       store.saveLog([])
       const before = readFileSync(join(dir, name), 'utf8')

@@ -242,11 +242,9 @@ describe('panel parsers against the Application', () => {
       wire({
         running: true,
         securityEnabled: true,
-        evaluation: application.evaluation,
         issues: application.issues
       })
     )
-    expect(state.evaluation).toEqual({ enabled: true })
     expect(state.issues).toEqual([expect.stringMatching(/stored rule broken is not valid/)])
   })
 })
