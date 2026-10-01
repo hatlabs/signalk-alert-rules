@@ -6,7 +6,7 @@ The plugin raises alerts; the server's alerts API owns their lifecycle (acknowle
 
 Rules, rulesets and suppressions are managed in the Alert Rules webapp, under Webapps in the admin UI. The admin UI lists it only while the plugin is enabled; the plugin's configuration page holds just the Enabled switch.
 
-[`docs/rules.md`](docs/rules.md) describes the rule model: signals, detectors, gates, limits, and the alerts a rule sends. [`examples/rules`](examples/rules) holds worked example rules covering all seven detectors, gates, a zone limit, latching, and the `absDifference` (plain and angular) and `positionSpread` combinators. [`docs/api.md`](docs/api.md) describes the admin-only REST API that manages rules, reports their status, resets accumulators and switches evaluation off and on.
+[`docs/rules.md`](docs/rules.md) describes the rule model: signals, detectors, gates, limits, and the alerts a rule sends. [`examples/rules`](examples/rules) holds worked example rules covering all seven detectors, gates, a zone limit, latching, and the `absDifference` (plain and angular) and `positionSpread` combinators. [`docs/api.md`](docs/api.md) describes the admin-only REST API that manages rules, reports their status and resets accumulators.
 
 ## Requirements
 
@@ -15,7 +15,7 @@ Rules, rulesets and suppressions are managed in the Alert Rules webapp, under We
 
 ## Behaviour to know
 
-- Stopping or restarting the plugin does not clear the alerts it raised. Turning evaluation off through the REST API does: it clears every alert the plugin owns and stops evaluating until it is turned on again, across restarts.
+- Stopping or restarting the plugin does not clear the alerts it raised. They go stale while it is stopped, and the next start adopts them, so each rule keeps or clears its alert.
 - With server security disabled, anyone who can reach the server can change the rules.
 - A latching rule raises its alert once each time its condition becomes active, and the alert waits for acknowledgment; nothing is sent while the condition lasts or when it ends. Only detectors whose condition is an event can latch: a count, or a match with `changesTo` or `decreases`. A lasting condition does not need latching to be acknowledged: at a priority that requires acknowledgment, its alert already waits for it after the condition returns to normal.
 

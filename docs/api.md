@@ -7,7 +7,7 @@ SKAR serves its rules, their status and its operator actions under the plugin's 
 - Every route is admin-only while server security is enabled: the server checks admin access for every plugin route a plugin does not open up to other access levels, and SKAR opens none.
 - With security disabled, anyone who can reach the server can use every route. `GET /state` reports `securityEnabled: false` so the webapp can show a persistent warning.
 - Every `POST`, `PUT` and `DELETE` must carry `Content-Type: application/json`, including those without a body; anything else is refused with 415. A browser does not send that content type to another site without asking the site first, so a page elsewhere cannot act through an admin's session.
-- Deletes, accumulator resets, evaluation switches, enables, disables, notes, suppressions and ruleset changes record the actor: the authenticated user's id, or `unauthenticated` when there is none.
+- Deletes, accumulator resets, enables, disables, notes, suppressions and ruleset changes record the actor: the authenticated user's id, or `unauthenticated` when there is none.
 
 ## Routes
 
@@ -21,8 +21,6 @@ SKAR serves its rules, their status and its operator actions under the plugin's 
 | `POST /rules/user/:slug/preview` | what replacing the rule with the body would do, without doing it |
 | `DELETE /rules/user/:slug` | deletes a user rule and clears its alerts; 204 |
 | `POST /rules/:origin/:slug/reset` | resets an accumulator rule; answers its entry |
-| `GET /evaluation` | the evaluation switch |
-| `PUT /evaluation` | sets the evaluation switch from `{ "enabled": true \| false }`; answers the switch |
 | `GET /log` | the operator action log, newest first |
 | `PUT /rules/:origin/:slug/enabled` | enables or disables a rule from `{ "enabled": true \| false }`; answers its entry |
 | `PUT /rules/:origin/:slug/note` | sets a rule's note from `{ "note": "..." }`; an empty note removes it; answers its entry |
@@ -59,7 +57,7 @@ SKAR serves its rules, their status and its operator actions under the plugin's 
 - `ruleset`: for a ruleset rule only, the ruleset's name and version and, for one from a package, the package's name and version.
 - `rule`: for a ruleset rule, the rule as the ruleset's parameter values resolve it.
 - `enabled`, `note` and `suppression`: the rule's [controls](#rule-controls); `note` and `suppression` are absent when the rule has none. `suppression` is the rule's own; an input suppression shows in `status` only.
-- `status`: the rule's status with its badge, sub-labels and per-instance rows, as described in [Status](rules.md#status). A rule that is not evaluated has the `disabled` badge with the reason `disabled`, `ruleset is disabled` or, for every rule while evaluation is off, `evaluation is off`. A ruleset rule whose paths the server has not had has the `inactive` badge with the reason `ruleset path missing` and one issue per missing path; once they have all appeared, until the next evaluation tick starts it, the reason is `starts at the next tick` with no issues. Either way its accumulator totals are instance rows with `progress`.
+- `status`: the rule's status with its badge, sub-labels and per-instance rows, as described in [Status](rules.md#status). A rule that is not evaluated has the `disabled` badge with the reason `disabled` or `ruleset is disabled`. A ruleset rule whose paths the server has not had has the `inactive` badge with the reason `ruleset path missing` and one issue per missing path; once they have all appeared, until the next evaluation tick starts it, the reason is `starts at the next tick` with no issues. Either way its accumulator totals are instance rows with `progress`.
 
 ### Edit preview
 
@@ -177,31 +175,18 @@ Rulesets are described in [Rulesets](rulesets.md). `GET /rulesets` answers:
 
 A reset clears the rule's active alerts and sets its total to zero: the running total, one restored at start, and the checkpoint in the data directory. The rule goes on accumulating from zero. A rule that is not an accumulator answers 400.
 
-### Evaluation switch
-
-```json
-{ "enabled": false, "actor": "admin", "at": "2026-09-30T12:00:00.000Z" }
-```
-
-- Turning evaluation off clears every alert SKAR owns: every active alert under `alerts.rules.` whose `$source` is SKAR, and every alert SKAR is heartbeating. Rules stop being evaluated. This is how all of SKAR's alerts are cleared at once; clearing them while rules keep evaluating would only raise them again.
-- Turning it on starts every rule from nothing. An active alert SKAR still has in core is cleared rather than adopted, and each rule raises again once its condition holds.
-- The switch persists. A plugin started with evaluation off evaluates nothing and clears nothing.
-- Accumulator totals are kept while evaluation is off, and rules can still be created, edited, deleted and reset.
-- Setting the switch to its current value changes nothing and is not logged.
-
 ### Action log
 
 The last 200 actions, newest first, kept in the data directory:
 
 ```json
 [
-  { "at": "2026-09-30T12:02:00.000Z", "actor": "admin", "action": "evaluation", "enabled": false },
   { "at": "2026-09-30T12:01:00.000Z", "actor": "admin", "action": "reset", "rule": "user.engine-hours" },
   { "at": "2026-09-30T12:00:00.000Z", "actor": "admin", "action": "delete", "rule": "user.oil-pressure-low" }
 ]
 ```
 
-- `action` is `delete`, `reset`, `enable`, `disable` or `note` with `rule`; `suppress` or `unsuppress` with `rule` or `path`; `evaluation` with `enabled`; `enable`, `disable`, `parameters` or `dismiss` with `ruleset`, the ruleset's slug; or `rescan`.
+- `action` is `delete`, `reset`, `enable`, `disable` or `note` with `rule`; `suppress` or `unsuppress` with `rule` or `path`; `enable`, `disable`, `parameters` or `dismiss` with `ruleset`, the ruleset's slug; or `rescan`.
 - `rule` is `<origin>.<slug>`.
 - A suppression that ends by itself is logged as `unsuppress` with the actor `auto-end`.
 
@@ -211,15 +196,14 @@ The last 200 actions, newest first, kept in the data directory:
 {
   "running": true,
   "securityEnabled": true,
-  "evaluation": { "enabled": true },
   "issues": []
 }
 ```
 
 - `running`: whether the plugin is running. While it is not, every other route answers 503.
-- `error`: why the plugin did not start, such as a server without the alerts API, or an evaluation switch, accumulator totals or action log that could not be read from the data directory.
+- `error`: why the plugin did not start, such as a server without the alerts API, or accumulator totals or an action log that could not be read from the data directory.
 - `securityEnabled`: whether the server enforces security; `null` when SKAR cannot tell.
-- `evaluation` and `issues`, while running: the evaluation switch, and the problems found while loading the data directory, such as a stored rule that no longer validates or cannot be read. Such a rule is not listed in `GET /rules`; it can be replaced with `PUT` or deleted.
+- `issues`, while running: the problems found while loading the data directory, such as a stored rule that no longer validates or cannot be read. Such a rule is not listed in `GET /rules`; it can be replaced with `PUT` or deleted.
 
 ### Rule links
 
@@ -249,5 +233,5 @@ Errors answer `{ "error": "<message>" }`. A body that fails validation answers 4
 | 404 | no such rule or ruleset |
 | 409 | `POST /rules` with a slug a stored rule already has |
 | 415 | a mutating request without `Content-Type: application/json` |
-| 500 | the data directory could not be written, or evaluation could not be turned on or off because the server's alerts could not be read. A rule, deletion or evaluation switch that could not be saved is not applied. Evaluation that could not be turned on stays off; evaluation that was turned off is off and in the action log, but SKAR's alerts may not have been cleared. A reset, or a save or deletion that discards an accumulator total, whose totals could not be saved has been applied, but the old total returns after a restart unless a later checkpoint succeeds; a reset or deletion is in the action log all the same. An action whose log entry could not be written has been applied. A deletion whose controls could not be removed has deleted the rule, and a rule later created with its slug takes those controls. |
+| 500 | the data directory could not be written. A rule or deletion that could not be saved is not applied. A reset, or a save or deletion that discards an accumulator total, whose totals could not be saved has been applied, but the old total returns after a restart unless a later checkpoint succeeds; a reset or deletion is in the action log all the same. An action whose log entry could not be written has been applied. A deletion whose controls could not be removed has deleted the rule, and a rule later created with its slug takes those controls. |
 | 503 | the plugin is not running |
