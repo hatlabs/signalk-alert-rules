@@ -6,7 +6,6 @@ import {
   type RuleEntry
 } from '../../src/panel/api'
 import {
-  DISABLED_POLL_INTERVAL_MS,
   POLL_INTERVAL_MS,
   pollDelay,
   probe,
@@ -17,7 +16,6 @@ import { noAuthoring, noControls, ruleEntry } from './fixtures'
 
 interface FakeServer {
   state?: PluginState | Error
-  enabled?: boolean | Error
   rules?: RuleEntry[] | Error
 }
 
@@ -28,7 +26,6 @@ function fakeApi(server: FakeServer): PanelApi {
   }
   return {
     state: () => answer(server.state),
-    pluginEnabled: () => answer(server.enabled),
     rules: () => answer(server.rules),
     resetAccumulator: () => Promise.reject(new Error('not expected to be asked')),
     setEvaluation: () => Promise.reject(new Error('not expected to be asked')),
@@ -64,33 +61,19 @@ describe('probe', () => {
     })
   })
 
-  it('is disabled when the server has the plugin switched off', async () => {
-    const snapshot = await probe(
-      fakeApi({ state: { running: false, securityEnabled: false }, enabled: false })
-    )
-    expect(snapshot).toEqual({ view: { kind: 'disabled' }, securityEnabled: false })
-  })
-
-  it('is disabled rather than failed when a disabled plugin still reports a start error', async () => {
-    const snapshot = await probe(
-      fakeApi({ state: { running: false, error: 'old', securityEnabled: true }, enabled: false })
-    )
-    expect(snapshot.view).toEqual({ kind: 'disabled' })
-  })
-
-  it('is failed with the start error when an enabled plugin did not start', async () => {
+  it('is failed with the start error when the plugin did not start', async () => {
     const error = 'the server has no alerts API'
     const snapshot = await probe(
-      fakeApi({ state: { running: false, error, securityEnabled: true }, enabled: true })
+      fakeApi({ state: { running: false, error, securityEnabled: true } })
     )
     expect(snapshot.view).toEqual({ kind: 'failed', error })
   })
 
-  it('is restarting when an enabled plugin is not running and reports no error', async () => {
-    const snapshot = await probe(
-      fakeApi({ state: { running: false, securityEnabled: true }, enabled: true })
-    )
-    expect(snapshot.view).toEqual({ kind: 'restarting' })
+  // A disabled plugin and one between the stop and start of a restart look
+  // alike, and the panel no longer tells them apart.
+  it('is not running when the plugin is not running and reports no error', async () => {
+    const snapshot = await probe(fakeApi({ state: { running: false, securityEnabled: false } }))
+    expect(snapshot).toEqual({ view: { kind: 'notRunning' }, securityEnabled: false })
   })
 
   it('is session expired when the server refuses the session', async () => {
@@ -100,10 +83,7 @@ describe('probe', () => {
 
   it('is session expired when a later request is refused', async () => {
     const snapshot = await probe(
-      fakeApi({
-        state: { running: false, securityEnabled: true },
-        enabled: new SessionExpiredError()
-      })
+      fakeApi({ state: { running: true, securityEnabled: true }, rules: new SessionExpiredError() })
     )
     expect(snapshot.view).toEqual({ kind: 'sessionExpired' })
   })
@@ -120,10 +100,9 @@ describe('probe', () => {
 })
 
 describe('pollDelay', () => {
-  it('polls a disabled plugin slowly and every other view at the normal interval', () => {
-    expect(pollDelay({ kind: 'disabled' })).toBe(DISABLED_POLL_INTERVAL_MS)
+  it('polls every view but an expired session at the normal interval', () => {
     expect(pollDelay({ kind: 'loading' })).toBe(POLL_INTERVAL_MS)
-    expect(pollDelay({ kind: 'restarting' })).toBe(POLL_INTERVAL_MS)
+    expect(pollDelay({ kind: 'notRunning' })).toBe(POLL_INTERVAL_MS)
     expect(pollDelay({ kind: 'unreachable', reason: 'x' })).toBe(POLL_INTERVAL_MS)
     expect(pollDelay({ kind: 'failed', error: 'x' })).toBe(POLL_INTERVAL_MS)
     expect(pollDelay({ kind: 'ready', rules: [], evaluationEnabled: true, issues: [] })).toBe(
@@ -144,14 +123,13 @@ describe('shownReady', () => {
     expect(shownReady(now, last)).toBe(now)
   })
 
-  it('keeps the last ready view while the plugin is unreachable or restarting, or the session expired', () => {
+  it('keeps the last ready view while the plugin is unreachable or not running, or the session expired', () => {
     expect(shownReady({ kind: 'unreachable', reason: 'x' }, last)).toBe(last)
-    expect(shownReady({ kind: 'restarting' }, last)).toBe(last)
+    expect(shownReady({ kind: 'notRunning' }, last)).toBe(last)
     expect(shownReady({ kind: 'sessionExpired' }, last)).toBe(last)
   })
 
-  it('drops it once the plugin is disabled or failed', () => {
-    expect(shownReady({ kind: 'disabled' }, last)).toBeUndefined()
+  it('drops it once the plugin failed', () => {
     expect(shownReady({ kind: 'failed', error: 'x' }, last)).toBeUndefined()
   })
 })

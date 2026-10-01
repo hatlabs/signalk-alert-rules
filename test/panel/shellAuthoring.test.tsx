@@ -38,7 +38,6 @@ function mockApi(rules: RuleEntry[]) {
   const server = { rules }
   const api = {
     state: vi.fn(() => Promise.resolve(running)),
-    pluginEnabled: vi.fn(() => Promise.resolve(true)),
     rules: vi.fn(() => Promise.resolve(server.rules)),
     resetAccumulator: vi.fn(() => Promise.reject(new Error('not expected'))),
     setEvaluation: vi.fn((enabled: boolean) => Promise.resolve({ enabled })),

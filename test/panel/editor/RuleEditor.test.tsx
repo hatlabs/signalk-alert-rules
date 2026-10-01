@@ -60,7 +60,6 @@ const noChange: EditPreview = {
 function fakeApi() {
   return {
     state: vi.fn(),
-    pluginEnabled: vi.fn(),
     rules: vi.fn(),
     resetAccumulator: vi.fn(),
     setEvaluation: vi.fn(),
