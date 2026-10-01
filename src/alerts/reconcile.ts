@@ -72,7 +72,8 @@ export function reconcile(
     }
     const { slug, segment } = owner
     result.kept.push(segment === undefined ? { alert, slug } : { alert, slug, segment })
-    const adopted: Adopted = segment === undefined ? {} : { segment }
+    const adopted: Adopted =
+      segment === undefined ? { priority: alert.priority } : { segment, priority: alert.priority }
     result.activeByRule.set(slug, [...(result.activeByRule.get(slug) ?? []), adopted])
   }
   return result

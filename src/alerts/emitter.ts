@@ -46,6 +46,8 @@ export interface EmitterDeps {
 
 interface Slot {
   value: AlertValue
+  /** The data core holds for the alert, which a revised limit is merged into. */
+  coreData?: Record<string, unknown>
   evidence: () => boolean
   lastBeat: number
 }
@@ -76,7 +78,9 @@ export class AlertEmitter {
    * not held: a heartbeat or repeat of it would be another occurrence.
    */
   raise(path: string, value: AlertValue, evidence: () => boolean, now: number): void {
-    if (!value.latching) this.slots.set(path, { value, evidence, lastBeat: now })
+    if (!value.latching) {
+      this.slots.set(path, { value, coreData: value.data, evidence, lastBeat: now })
+    }
     this.deps.send(path, value)
   }
 
@@ -95,14 +99,23 @@ export class AlertEmitter {
    */
   adopt(alert: CoreAlert, header: AlertHeader, evidence: () => boolean, now: number): void {
     const value = { ...header }
-    this.slots.set(alert.path, { value, evidence, lastBeat: now })
+    this.slots.set(alert.path, { value, coreData: alert.data, evidence, lastBeat: now })
     if (!alert.stale) this.deps.send(alert.path, value)
   }
 
-  /** Replaces what an active alert's next emissions say; its data stays as raised. */
-  revise(path: string, header: AlertHeader): void {
+  /**
+   * Replaces what an active alert's next emissions say. Its data stays as
+   * raised but for `limit`, the limit of the step it has reached. Core
+   * replaces an alert's data whole, so a changed limit is sent with the rest
+   * of the data core holds.
+   */
+  revise(path: string, header: AlertHeader, limit?: number): void {
     const slot = this.slots.get(path)
-    if (slot !== undefined) slot.value = { ...slot.value, ...header }
+    if (slot === undefined) return
+    slot.value = { ...slot.value, ...header }
+    if (limit === undefined || slot.coreData?.limit === limit) return
+    slot.coreData = { ...slot.coreData, limit }
+    slot.value = { ...slot.value, data: slot.coreData }
   }
 
   /**

@@ -54,8 +54,10 @@ describe('reconcile', () => {
       [OIL, 'oil-pressure-low', undefined],
       [PORT, 'coolant-high', 'port']
     ])
-    expect(result.activeByRule.get('oil-pressure-low')).toEqual([{}])
-    expect(result.activeByRule.get('coolant-high')).toEqual([{ segment: 'port' }])
+    expect(result.activeByRule.get('oil-pressure-low')).toEqual([{ priority: 'alarm' }])
+    expect(result.activeByRule.get('coolant-high')).toEqual([
+      { segment: 'port', priority: 'alarm' }
+    ])
   })
 
   it("matches by the alert path of the rule's condition name", () => {

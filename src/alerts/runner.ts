@@ -7,7 +7,7 @@ import {
   type InstanceStatus,
   type RuleEvent
 } from '../engine/evaluator.js'
-import { firstPriority, type Priority, type Rule } from '../model/rule.js'
+import { firstPriority, severityOf, type Priority, type Rule } from '../model/rule.js'
 import { statusBadge, type Verdict } from './badge.js'
 import { ruleAlertPath } from '../model/alertPath.js'
 import { instanceAlertPath } from './paths.js'
@@ -97,15 +97,13 @@ export class RuleRunner {
       if (rule === undefined) continue
       // The segment is the sanitised name; the raise wrote the name itself into data.
       const name = typeof alert.data?.instance === 'string' ? alert.data.instance : segment
-      // Until its evaluator sees a more severe level entered, an adopted
-      // zone-limit alert reports its rule's own level; core keeps any higher
-      // priority it holds.
-      this.emitter.adopt(
-        alert,
-        header(rule, name, firstPriority(rule)),
-        this.evidence(id, segment ?? ''),
-        now
-      )
+      // Core's priority is the alert's reached priority, as the evaluator
+      // reports it; the first step's is above it for a rule edited while
+      // SKAR was down. Neither needs the steps, which a zone-limit rule may
+      // not be able to read yet.
+      const first = firstPriority(rule)
+      const priority = severityOf(alert.priority) > severityOf(first) ? alert.priority : first
+      this.emitter.adopt(alert, header(rule, name, priority), this.evidence(id, segment ?? ''), now)
     }
     for (const [id, rule] of this.entries) {
       this.startRule(id, rule, activeByRule.get(id), this.accumulated.get(id))
@@ -176,10 +174,9 @@ export class RuleRunner {
     evaluator.update(rule)
     // An edit that restarts the rule has cleared and re-raised already; any
     // other edit reaches core with the next heartbeat of each active alert.
-    for (const { instance, priority } of evaluator.status().instances) {
-      if (priority === undefined) continue
+    for (const { instance, priority, limit } of evaluator.revisions()) {
       const path = instanceAlertPath(ruleAlertPath(rule), instance?.segment)
-      if (path.ok) this.emitter.revise(path.value, header(rule, instance?.name, priority))
+      if (path.ok) this.emitter.revise(path.value, header(rule, instance?.name, priority), limit)
     }
   }
 
@@ -307,7 +304,11 @@ export class RuleRunner {
         )
         break
       case 'priority':
-        this.emitter.revise(path.value, header(rule, event.instance?.name, event.priority))
+        this.emitter.revise(
+          path.value,
+          header(rule, event.instance?.name, event.priority),
+          event.limit
+        )
         this.emitter.repeat(path.value, now)
         break
       case 'clear':
