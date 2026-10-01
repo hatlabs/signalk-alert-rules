@@ -20,6 +20,7 @@ import {
   type EmitterDeps
 } from './emitter.js'
 import { reconcile } from './reconcile.js'
+import { referencesOf } from './references.js'
 import { errorMessage } from '../util.js'
 
 export interface RunnerDeps extends EvaluatorContext, EmitterDeps {
@@ -315,9 +316,9 @@ export class RuleRunner {
   }
 
   /**
-   * The alert's message and data, fixed at the raise. Data carries only what
-   * changes rarely, so heartbeats never rewrite it; live values belong in
-   * the rule's status, not in the alert.
+   * The alert's message, references and data, fixed at the raise. Data
+   * carries only what changes rarely, so heartbeats never rewrite it; live
+   * values belong in the rule's status, not in the alert.
    */
   private describe(id: string, event: Extract<RuleEvent, { type: 'raise' }>): AlertValue {
     const { rule, instance, limit, value } = event
@@ -326,7 +327,12 @@ export class RuleRunner {
     if (limit !== undefined) data.limit = limit
     if (value !== undefined) data.valueAtRaise = value
     data.raisedAt = this.deps.wallClock().toISOString()
-    return { ...header(rule, instance?.name, event.priority), data }
+    const references = referencesOf(rule, instance?.name)
+    return {
+      ...header(rule, instance?.name, event.priority),
+      ...(references.length === 0 ? {} : { references }),
+      data
+    }
   }
 
   private evidence(id: string, segment: string): () => boolean {

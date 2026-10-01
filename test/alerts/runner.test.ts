@@ -190,6 +190,7 @@ describe('rule runner', () => {
           priority: 'alarm',
           message: 'Engine oil pressure is low',
           latching: false,
+          references: [OIL],
           data: {
             rule: 'oil-pressure-low',
             name: 'Oil pressure low',
@@ -209,6 +210,30 @@ describe('rule runner', () => {
     expect(core.getByPath(OIL_ALERT)?.condition).toBe(false)
   })
 
+  it("refers a wildcard instance's raise to the paths it reads, its gate's included", () => {
+    const gatedCoolant = valid({
+      ...coolant,
+      gates: [
+        {
+          signal: { path: 'propulsion.*.revolutions' },
+          direction: 'above',
+          limit: { kind: 'fixed', value: 8 }
+        },
+        { signal: { path: RPM }, direction: 'above', limit: { kind: 'fixed', value: 8 } }
+      ]
+    })
+    const { at, run, sent } = setup([gatedCoolant])
+    at(0, 'propulsion.port.revolutions', 20)
+    at(0, RPM, 20)
+    at(0, 'propulsion.port.coolantTemperature', 380)
+    run(1, 2)
+    expect(sentTo(sent, PORT_ALERT)[0]?.[1]?.references).toEqual([
+      'propulsion.port.coolantTemperature',
+      'propulsion.port.revolutions',
+      RPM
+    ])
+  })
+
   it('a message or priority edit on an active rule is sent with the next heartbeat', () => {
     const { at, run, runner, sent, core } = setup([oil])
     at(0, OIL, 0)
@@ -219,7 +244,13 @@ describe('rule runner', () => {
     run(6, 5 + HEARTBEAT_S)
     expect(sent.at(-1)).toEqual([
       OIL_ALERT,
-      { priority: 'emergency', message: 'Check the oil', latching: false, data: raised?.data }
+      {
+        priority: 'emergency',
+        message: 'Check the oil',
+        latching: false,
+        references: [OIL],
+        data: raised?.data
+      }
     ])
     expect(core.getByPath(OIL_ALERT)).toMatchObject({
       priority: 'emergency',
@@ -246,6 +277,7 @@ describe('rule runner', () => {
           priority: 'alarm',
           message: 'House battery voltage is low',
           latching: false,
+          references: [VOLTAGE],
           data: raised?.data
         }
       ]

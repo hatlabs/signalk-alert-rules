@@ -265,6 +265,7 @@ SKAR raises through delta ingress: a delta from the plugin, whose id core takes 
   "priority": "warning",
   "message": "Coolant temperature is rising fast on port",
   "latching": false,
+  "references": ["propulsion.port.coolantTemperature"],
   "data": {
     "rule": "user.coolant-temperature-rising",
     "name": "Coolant temperature rising",
@@ -276,6 +277,8 @@ SKAR raises through delta ingress: a delta from the plugin, whose id core takes 
 ```
 
 A clear is the value `null`: it reports that the condition ended, and is the last thing SKAR sends about the alert.
+
+`references`, written at each raise, lists the data paths the rule reads for the alert's instance: its input paths first, then its zone limit's path, then each gate's input paths and zone limit's path, with the instance's name in place of the wildcard. Duplicates and paths core would refuse are left out, since core drops every reference when it refuses one, and the list keeps the first 50, the most core accepts. A rule that reads no path core accepts sends no `references`.
 
 The keys of `data`, written at each raise:
 
@@ -292,7 +295,7 @@ Data holds only what changes rarely, so repeats of the alert cause no store writ
 
 ### Heartbeat and input evidence
 
-Core marks an alert stale when its source has not repeated it for 60 s. SKAR repeats every active non-latching alert every 10 s with the same value, data included; an adopted alert's repeats omit `data`, so core keeps what it stored. A priority change is sent at once, and a message or priority edit goes out with the next repeat. Core treats a repeat at or below the alert's priority as a refresh, updating a changed message without re-alerting, and escalates on a higher priority.
+Core marks an alert stale when its source has not repeated it for 60 s. SKAR repeats every active non-latching alert every 10 s with the same value, `references` and data included; an adopted alert's repeats omit both, so core keeps what it stored. A priority change is sent at once, and a message or priority edit goes out with the next repeat. Core treats a repeat at or below the alert's priority as a refresh, updating a changed message without re-alerting, and escalates on a higher priority.
 
 SKAR repeats an alert only while it has input evidence for it, and otherwise lets core mark it stale rather than clearing it; the rule's status shows the alert as awaiting input. An instance has evidence:
 
