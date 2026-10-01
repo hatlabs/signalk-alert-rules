@@ -1,4 +1,20 @@
 /* Layout only: colours and components come from the admin UI's Bootstrap theme. */
+
+/*
+ * The admin UI drops its page padding on embedded webapp routes, so the
+ * webapp pads itself: as much as the admin UI's own pages on wide screens,
+ * a little on phones, where the admin UI's 2 px would leave it flush.
+ */
+.skar-panel {
+  padding: 30px;
+}
+
+@media (max-width: 767px) {
+  .skar-panel {
+    padding: 0.75rem;
+  }
+}
+
 .skar-view {
   padding-top: 1rem;
 }
