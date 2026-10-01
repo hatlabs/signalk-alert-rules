@@ -1,11 +1,11 @@
 # REST API
 
-SKAR serves its rules, their status and its operator actions under the plugin's route on the Signal K server, `/plugins/signalk-alert-rules`. The configuration panel is its client. Bodies are JSON; values are in SI units, as in [the rule model](rules.md).
+SKAR serves its rules, their status and its operator actions under the plugin's route on the Signal K server, `/plugins/signalk-alert-rules`. The Alert Rules webapp is its client. Bodies are JSON; values are in SI units, as in [the rule model](rules.md).
 
 ## Security
 
 - Every route is admin-only while server security is enabled: the server checks admin access for every plugin route a plugin does not open up to other access levels, and SKAR opens none.
-- With security disabled, anyone who can reach the server can use every route. `GET /state` reports `securityEnabled: false` so the panel can show a persistent warning.
+- With security disabled, anyone who can reach the server can use every route. `GET /state` reports `securityEnabled: false` so the webapp can show a persistent warning.
 - Every `POST`, `PUT` and `DELETE` must carry `Content-Type: application/json`, including those without a body; anything else is refused with 415. A browser does not send that content type to another site without asking the site first, so a page elsewhere cannot act through an admin's session.
 - Deletes, accumulator resets, evaluation switches, enables, disables, notes, suppressions and ruleset changes record the actor: the authenticated user's id, or `unauthenticated` when there is none.
 
@@ -76,7 +76,7 @@ SKAR serves its rules, their status and its operator actions under the plugin's 
 - `restarts`: the edit clears and restarts the rule, per the [edit semantics](rules.md#edits). Any edit restarts a rule that failed to start.
 - `changes`: the parts of the rule that make it restart, by field path: `signal`, `gates`, `latching`, `detector.limit.level`, or `detector.<field>`.
 - `activeAlerts`: how many of the rule's instances have an active alert now.
-- `clearsActiveAlert`: the edit restarts the rule while it has an active alert, so saving it clears that alert; the panel asks for confirmation. It counts only clears the restart causes: an edit applied in place, for example a raised limit, can also clear an active alert at the next evaluation, when the current value no longer meets the condition.
+- `clearsActiveAlert`: the edit restarts the rule while it has an active alert, so saving it clears that alert; the webapp asks for confirmation. It counts only clears the restart causes: an edit applied in place, for example a raised limit, can also clear an active alert at the next evaluation, when the current value no longer meets the condition.
 - `discardsTotal`: the rule has an accumulator total above zero, running or kept while it does not run, and saving the edit would discard it: the edit is no longer an accumulator of the same measure. Replacing a stored rule that failed validation keeps its total when both the stored file and the new rule are accumulators of the same measure.
 
 The preview uses the same comparison the engine applies when the edit is saved.
