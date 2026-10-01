@@ -250,7 +250,7 @@ describe('Shell', () => {
 })
 
 describe('Shell rules', () => {
-  const ADMIN = '#/e/signalk-alert-rules'
+  const ADMIN = '#/e/signalk_alert_rules'
   const hours = ruleEntry({
     slug: 'engine-hours',
     rule: { name: 'Engine hours', detector: { type: 'accumulator', measure: 'time' } },

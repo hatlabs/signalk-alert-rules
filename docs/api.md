@@ -223,16 +223,16 @@ The last 200 actions, newest first, kept in the data directory:
 
 ### Rule links
 
-The Alert Rules webapp opens a rule's detail view from a link, such as one an alert carries. The admin UI routes with its own hash, so the rule rides as a second fragment after the webapp's route:
+The Alert Rules webapp opens a rule's detail view from a link, such as one an alert carries. The admin UI routes with its own hash, so the rule rides as a second fragment after the webapp's route, `#/e/signalk_alert_rules`, which is the route the admin UI's Webapps page opens:
 
 ```
-/admin/#/e/signalk-alert-rules#rule=<origin>/<slug>
+/admin/#/e/signalk_alert_rules#rule=<origin>/<slug>
 ```
 
 A link to one instance of a wildcard rule adds the instance:
 
 ```
-/admin/#/e/signalk-alert-rules#rule=<origin>/<slug>&instance=<name>
+/admin/#/e/signalk_alert_rules#rule=<origin>/<slug>&instance=<name>
 ```
 
 - `origin`, `slug` and the instance are each percent-encoded as `encodeURIComponent` does. The origin is `user` or a ruleset's slug, so neither it nor the rule's slug contains a `/`.
