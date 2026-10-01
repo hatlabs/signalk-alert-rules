@@ -70,9 +70,22 @@ describe('store', () => {
     expect(new Store(dir).load().controls).toEqual(controls)
   })
 
+  it('round-trips the dismissed template notices', () => {
+    const store = new Store(dir)
+    store.load()
+    const controls = {
+      rules: {},
+      dismissedTemplates: { builtin: ['battery-voltage-low'], batteries: [] }
+    }
+    store.saveControls(controls)
+    expect(new Store(dir).load().controls).toEqual(controls)
+  })
+
   const since = { since: '2026-09-30T12:00:00.000Z', actor: 'admin' }
   it.each([
     ['no rules', {}],
+    ['dismissed templates as a list', { rules: {}, dismissedTemplates: ['a'] }],
+    ['a dismissed template id that is not text', { rules: {}, dismissedTemplates: { a: [1] } }],
     ['a disabled record without its actor', { rules: { oil: { disabled: { since: 'x' } } } }],
     ['a disabled note that is not text', { rules: { oil: { disabled: { ...since, note: 1 } } } }]
   ])('moves aside controls with %s it does not recognise and starts them empty', (_, bad) => {

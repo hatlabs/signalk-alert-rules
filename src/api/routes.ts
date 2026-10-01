@@ -207,6 +207,21 @@ export function registerRoutes(router: IRouter, ctx: ApiContext): void {
       controlled(res, skar, skar.enableRule(slug, actorOf(req)), slug)
     })
   )
+
+  router.get(
+    '/templates',
+    running((skar, _req, res) => {
+      res.json(skar.templates())
+    })
+  )
+
+  router.post(
+    '/templates/dismiss',
+    requireJson,
+    running((skar, _req, res) => {
+      res.json(skar.dismissTemplates())
+    })
+  )
 }
 
 const MAX_NOTE_LENGTH = 500

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import type { Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -6,8 +6,11 @@ import { join } from 'node:path'
 import express from 'express'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Plugin } from '@signalk/server-api'
+import type { TemplateSetEntry, TemplateListing } from '../../src/application.js'
 import createPlugin from '../../src/index.js'
+import { MAX_PICK_LENGTH } from '../../src/model/rule.js'
 import { Store } from '../../src/store/store.js'
+import { instantiate } from '../../src/templates/instantiate.js'
 import { FakeAlertsCore } from '../helpers/FakeAlertsCore.js'
 import { MockServerAPI } from '../helpers/MockServerAPI.js'
 
@@ -575,5 +578,228 @@ describe('rule controls API', () => {
       h.call('POST', `${RULE}/enable`)
     ])
     expect(replies.map((r) => r.status)).toEqual([503, 503])
+  })
+})
+
+describe('templates API', () => {
+  const PACKAGE = 'signalk-battery-templates'
+  const HOUSE = 'electrical.batteries.house.voltage'
+
+  /** Records an installed package in the config package.json, as the server's npm install does. */
+  function list(dependencies: Record<string, string>): void {
+    writeFileSync(join(configDir, 'package.json'), JSON.stringify({ dependencies }))
+  }
+
+  /** A template package whose set has a voltage-low template and the extra templates named. */
+  function installSet(version: string, extra: string[] = []): void {
+    const pkg = join(configDir, 'node_modules', PACKAGE)
+    mkdirSync(pkg, { recursive: true })
+    list({ [PACKAGE]: version })
+    writeFileSync(
+      join(pkg, 'package.json'),
+      JSON.stringify({
+        name: PACKAGE,
+        version,
+        keywords: ['signalk-alert-templates'],
+        'signalk-alert-templates': 'templates.yaml'
+      })
+    )
+    const template = (id: string) => [
+      `  - id: ${id}`,
+      '    open: [instance, source]',
+      '    rule:',
+      `      name: ${id} \${instance}`,
+      '      message: Battery voltage low',
+      '      priority: warning',
+      '      signal:',
+      '        path: electrical.batteries.${instance}.voltage',
+      '      detector: { type: sustained, direction: below, limit: { kind: fixed, value: 12 } }'
+    ]
+    writeFileSync(
+      join(pkg, 'templates.yaml'),
+      [
+        'name: Batteries',
+        'id: batteries',
+        `version: "${version}"`,
+        'templates:',
+        ...['voltage-low', ...extra].flatMap(template)
+      ].join('\n')
+    )
+  }
+
+  function uninstallSet(): void {
+    rmSync(join(configDir, 'node_modules', PACKAGE), { recursive: true })
+    list({})
+  }
+
+  async function listing(h: Harness): Promise<TemplateListing> {
+    const reply = await h.call('GET', '/templates')
+    expect(reply.status).toBe(200)
+    return reply.body as TemplateListing
+  }
+
+  async function batteries(h: Harness): Promise<TemplateSetEntry> {
+    const found = (await listing(h)).sets.find((s) => s.id === 'batteries')
+    if (found === undefined) throw new Error('no batteries set')
+    return found
+  }
+
+  /** Makes a rule from the voltage-low template as the webapp will, and saves it through the create route. */
+  async function create(h: Harness, pick: { instance?: string; source?: string }): Promise<Reply> {
+    const set = await batteries(h)
+    const rules = (await h.call('GET', '/rules')).body as { slug: string }[]
+    const template = set.templates.find((t) => t.id === 'voltage-low')
+    if (template === undefined) throw new Error('no template')
+    const made = instantiate(set, template, pick, new Set(rules.map((r) => r.slug)))
+    if (!made.ok) throw new Error(JSON.stringify(made.errors))
+    return h.call('POST', '/rules', made.value)
+  }
+
+  it('lists the built-in set and a package set with their templates and open parts, all new', async () => {
+    installSet('1.0.0')
+    const h = await serve()
+    const { sets, problems } = await listing(h)
+    expect(problems).toEqual([])
+    expect(sets.map((s) => [s.id, s.source])).toEqual([
+      ['builtin', 'built-in'],
+      ['batteries', `package ${PACKAGE}`]
+    ])
+    expect(sets[1]).toMatchObject({
+      name: 'Batteries',
+      version: '1.0.0',
+      package: { name: PACKAGE, version: '1.0.0' },
+      templates: [{ id: 'voltage-low', open: ['instance', 'source'] }],
+      new: ['voltage-low']
+    })
+  })
+
+  it('saves an instantiated template as a rule on the picked path, recording the template', async () => {
+    installSet('1.0.0')
+    const h = await serve()
+    const reply = await create(h, { instance: 'house', source: 'can0.12' })
+    expect(reply.status).toBe(201)
+    const stored = JSON.parse(
+      readFileSync(join(dir, 'rules', 'voltage-low-house.json'), 'utf8')
+    ) as unknown
+    expect(stored).toMatchObject({
+      name: 'voltage-low house',
+      slug: 'voltage-low-house',
+      signal: { path: HOUSE, source: 'can0.12' },
+      template: {
+        set: 'batteries',
+        id: 'voltage-low',
+        version: '1.0.0',
+        pick: { instance: 'house', source: 'can0.12' }
+      }
+    })
+  })
+
+  it('gives a second rule from the same template and pick its own slug', async () => {
+    installSet('1.0.0')
+    const h = await serve()
+    const pick = { instance: 'house', source: 'can0.12' }
+    expect((await create(h, pick)).status).toBe(201)
+    expect((await create(h, pick)).status).toBe(201)
+    const rules = (await h.call('GET', '/rules')).body as { slug: string }[]
+    expect(rules.map((r) => r.slug)).toEqual(['voltage-low-house', 'voltage-low-house-2'])
+  })
+
+  it('refuses a rule whose pick makes an invalid path, or with a malformed template record', async () => {
+    installSet('1.0.0')
+    const h = await serve()
+    const invalidPath = await create(h, {
+      instance: 'h'.repeat(MAX_PICK_LENGTH),
+      source: 'can0.12'
+    })
+    expect(invalidPath.status).toBe(400)
+    expect((invalidPath.body as { errors: { path: string }[] }).errors).toContainEqual(
+      expect.objectContaining({ path: '/signal/path' })
+    )
+    const malformed = await h.call('POST', '/rules', {
+      ...oil,
+      template: { set: 'batteries', id: 'voltage-low', pick: {} }
+    })
+    expect(malformed.status).toBe(400)
+    expect(malformed.body).toMatchObject({ errors: [{ path: '/template/version' }] })
+    const deeper = await h.call('POST', '/rules', {
+      ...oil,
+      template: { set: 'batteries', id: 'voltage-low', version: '1.0.0', pick: { instance: 'a.b' } }
+    })
+    expect(deeper.status).toBe(400)
+    expect(deeper.body).toMatchObject({ errors: [{ path: '/template/pick/instance' }] })
+    expect((await h.call('GET', '/rules')).body).toEqual([])
+  })
+
+  it('uninstalling the set leaves the rules made from it running unchanged', async () => {
+    installSet('1.0.0')
+    const h = await serve()
+    await create(h, { instance: 'house', source: 'can0.12' })
+    uninstallSet()
+    await h.restart()
+    expect((await listing(h)).sets.map((s) => s.id)).toEqual(['builtin'])
+    const entry = (await h.call('GET', '/rules/voltage-low-house')).body
+    expect(entry).toMatchObject({
+      rule: { signal: { path: HOUSE }, template: { set: 'batteries' } },
+      status: { badge: 'neverSeen' }
+    })
+    h.mock.subscriptionmanager.publish(HOUSE, 'can0.12', 11)
+    expect(core(h).getByPath('rules.voltage-low-house')?.condition).toBe(true)
+  })
+
+  it('dismissing marks the current templates seen for everyone; an update makes only its additions new', async () => {
+    installSet('1.0.0')
+    const h = await serve()
+    const dismissed = await h.call('POST', '/templates/dismiss')
+    expect(dismissed.status).toBe(200)
+    expect((dismissed.body as TemplateListing).sets.map((s) => s.new)).toEqual([[], []])
+
+    installSet('1.1.0', ['current-high'])
+    h.user = 'skipper'
+    await h.restart()
+    expect((await batteries(h)).new).toEqual(['current-high'])
+    expect((await listing(h)).sets[0]?.new).toEqual([])
+  })
+
+  it('reports a set that failed to load with its reason and each validation error', async () => {
+    installSet('1.0.0')
+    writeFileSync(
+      join(configDir, 'node_modules', PACKAGE, 'templates.yaml'),
+      'name: Batteries\nid: batteries\nversion: "1"\ntemplates:\n  - id: x\n    rule: {}\n'
+    )
+    const h = await serve()
+    const { sets, problems } = await listing(h)
+    expect(sets.map((s) => s.id)).toEqual(['builtin'])
+    expect(problems).toEqual([
+      {
+        source: `package ${PACKAGE}`,
+        message: expect.stringContaining('/templates/0/rule/name') as string,
+        errors: expect.arrayContaining([
+          { path: '/templates/0/rule/name', message: expect.any(String) as string }
+        ]) as unknown
+      }
+    ])
+  })
+
+  it('takes dismissing only as a JSON request, and answers 503 while not running', async () => {
+    const h = await serve()
+    const form = { 'content-type': 'application/x-www-form-urlencoded' }
+    expect((await h.call('POST', '/templates/dismiss', 'x=1', form)).status).toBe(415)
+    expect(existsSync(join(dir, 'controls.json'))).toBe(false)
+    const stopped = await serve({ withAlerts: false })
+    const replies = await Promise.all([
+      stopped.call('GET', '/templates'),
+      stopped.call('POST', '/templates/dismiss')
+    ])
+    expect(replies.map((r) => r.status)).toEqual([503, 503])
+  })
+
+  it('has no ruleset routes', async () => {
+    const h = await serve()
+    const replies = await Promise.all([
+      h.call('GET', '/rulesets'),
+      h.call('POST', '/rulesets/rescan'),
+      h.call('POST', '/templates/batteries/voltage-low', {})
+    ])
+    expect(replies.map((r) => r.status)).toEqual([404, 404, 404])
   })
 })

@@ -9,6 +9,7 @@ import type { Progress } from './engine/detectors/index.js'
 import { carriesTotals, measureOf, structuralChanges } from './engine/evaluator.js'
 import { asGiven, canonicalSources } from './engine/sourceRefs.js'
 import { MAX_RULES, type Rule } from './model/rule.js'
+import type { Template } from './model/template.js'
 import { validateRule, type ValidationError } from './model/validate.js'
 import type {
   Checkpoints,
@@ -18,6 +19,7 @@ import type {
   RuleControl,
   Store
 } from './store/store.js'
+import type { DiscoveryProblem, DiscoveryResult } from './templates/discovery.js'
 import { errorMessage, isRecord, own } from './util.js'
 
 /** How often rules are evaluated: detector durations resolve to this. */
@@ -90,6 +92,28 @@ export type PreviewOutcome = { ok: true; value: EditPreview } | Exclude<SaveOutc
 
 export type ResetOutcome = 'reset' | 'notFound' | 'notAccumulator'
 
+/** A template set as `GET /templates` lists it. */
+export interface TemplateSetEntry {
+  id: string
+  name: string
+  version: string
+  description?: string
+  /** Where it was found: `built-in`, `package some-name` or `file foo.yaml`. */
+  source: string
+  package?: { name: string; version: string }
+  templates: Template[]
+  /** Ids of its templates whose notice nobody has dismissed. */
+  new: string[]
+}
+
+export interface TemplateListing {
+  sets: TemplateSetEntry[]
+  /** Template sets that could not be loaded, with the reason. */
+  problems: DiscoveryProblem[]
+}
+
+const NO_TEMPLATES: DiscoveryResult = { sets: [], problems: [] }
+
 function toMaps(checkpoints: Checkpoints): Map<string, Accumulated> {
   return new Map(
     Object.entries(checkpoints).map(([id, { measure, totals }]) => [
@@ -158,9 +182,14 @@ export class Application {
   private starting = false
   private readonly isDisabled = (slug: string): boolean => this.control(slug).disabled !== undefined
 
+  /**
+   * @param discover finds the template sets installed now. Templates never
+   *   affect a rule, so they are discovered when listed rather than kept.
+   */
   constructor(
     private readonly deps: RunnerDeps,
-    private readonly store: Store
+    private readonly store: Store,
+    private readonly discover: () => DiscoveryResult = () => NO_TEMPLATES
   ) {
     const contents = store.load()
     this.issues = [...contents.issues]
@@ -256,6 +285,51 @@ export class Application {
   /** The operator action log, newest first. */
   log(): LogEntry[] {
     return [...this.actions].reverse()
+  }
+
+  /** The template sets installed now, in discovery order, and those that failed to load. */
+  templates(): TemplateListing {
+    return this.templateListing(this.discover())
+  }
+
+  /**
+   * Dismisses the notice of every template installed now, for everyone. A
+   * template stays dismissed when its set is gone or fails to load, so an
+   * update that breaks a set and the next that fixes it raise no notice.
+   * Throws when the store cannot write.
+   */
+  dismissTemplates(): TemplateListing {
+    const found = this.discover()
+    const before = this.controls.dismissedTemplates ?? {}
+    const after = { ...before }
+    for (const { set } of found.sets) {
+      const seen = new Set(own(before, set.id) ?? [])
+      if (set.templates.every((t) => seen.has(t.id))) continue
+      after[set.id] = [...seen, ...set.templates.map((t) => t.id).filter((id) => !seen.has(id))]
+    }
+    if (JSON.stringify(after) !== JSON.stringify(before))
+      this.saveControls({ ...this.controls, dismissedTemplates: after })
+    return this.templateListing(found)
+  }
+
+  private templateListing({ sets, problems }: DiscoveryResult): TemplateListing {
+    const dismissed = this.controls.dismissedTemplates ?? {}
+    return {
+      sets: sets.map(({ source, package: pkg, set }) => {
+        const seen = new Set(own(dismissed, set.id) ?? [])
+        return {
+          id: set.id,
+          name: set.name,
+          version: set.version,
+          ...(set.description === undefined ? {} : { description: set.description }),
+          source,
+          ...(pkg === undefined ? {} : { package: pkg }),
+          templates: set.templates,
+          new: set.templates.map((t) => t.id).filter((id) => !seen.has(id))
+        }
+      }),
+      problems
+    }
   }
 
   /**

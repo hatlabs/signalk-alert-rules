@@ -53,6 +53,11 @@ export interface RuleControl {
 export interface Controls {
   /** By rule slug. */
   rules: Record<string, RuleControl>
+  /**
+   * The ids of the templates whose notice someone dismissed, by template set
+   * id; absent until a notice is first dismissed.
+   */
+  dismissedTemplates?: Record<string, string[]>
 }
 
 const RULE_ACTIONS = ['delete', 'reset', 'enable'] as const
@@ -115,8 +120,15 @@ function isRuleControl(value: unknown): value is RuleControl {
   return isRecord(value) && (value.disabled === undefined || isDisabled(value.disabled))
 }
 
+const isStrings = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((v) => typeof v === 'string')
+
 function isControls(value: unknown): value is Controls {
-  return isRecord(value) && recordOf(isRuleControl)(value.rules)
+  return (
+    isRecord(value) &&
+    recordOf(isRuleControl)(value.rules) &&
+    (value.dismissedTemplates === undefined || recordOf(isStrings)(value.dismissedTemplates))
+  )
 }
 
 const isOneOf = <T extends string>(values: readonly T[], value: unknown): value is T =>
@@ -154,8 +166,8 @@ function checkSlug(slug: string): void {
  *   rewrites another;
  * - `accumulators.json`: accumulator totals, each with the measure it was
  *   built under, rewritten whole at each checkpoint;
- * - `controls.json`: which rules are disabled, by whom, when and why,
- *   rewritten whole at each change;
+ * - `controls.json`: which rules are disabled, by whom, when and why, and
+ *   which templates' notices were dismissed, rewritten whole at each change;
  * - `log.json`: the recent operator actions, rewritten whole at each action.
  *
  * Every write goes to a temporary file in the same directory, is flushed to

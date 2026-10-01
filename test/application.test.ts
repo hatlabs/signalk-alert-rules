@@ -7,7 +7,9 @@ import type { Value } from '@signalk/server-api'
 import { Application, LOG_LIMIT } from '../src/application.js'
 import type { RunnerDeps } from '../src/alerts/runner.js'
 import { serverDeps } from '../src/alerts/server.js'
+import type { Template, TemplateSet } from '../src/model/template.js'
 import { Store, type Checkpoints } from '../src/store/store.js'
+import type { DiscoveryResult } from '../src/templates/discovery.js'
 import { instantiate } from '../src/templates/instantiate.js'
 import { FakeAlertsCore } from './helpers/FakeAlertsCore.js'
 import { MockServerAPI } from './helpers/MockServerAPI.js'
@@ -994,5 +996,138 @@ describe('pinned sources', () => {
     s.server.subscriptionmanager.publish(RPM, 'can0.10', 70)
     s.at(1, COOLANT, 390)
     expect(s.alerts()).toEqual([['rules.coolant-high', true]])
+  })
+})
+
+describe('templates', () => {
+  function template(id: string): Template {
+    return {
+      id,
+      open: ['instance'],
+      rule: {
+        name: `${id} \${instance}`,
+        message: id,
+        priority: 'warning',
+        signal: { path: `electrical.batteries.\${instance}.${id}` },
+        detector: { type: 'sustained', direction: 'below', limit: { kind: 'fixed', value: 1 } }
+      }
+    }
+  }
+
+  function set(id: string, version: string, templates: string[]): TemplateSet {
+    return { name: id, id, version, templates: templates.map(template) }
+  }
+
+  function withSets(found: { current: DiscoveryResult }, store = new Store(dir)) {
+    const server = new MockServerAPI(true, dir, new FakeAlertsCore())
+    const deps = {
+      ...serverDeps(server.asServerAPI(), PLUGIN),
+      clock: () => 0,
+      wallClock: () => new Date(WALL)
+    }
+    const application = new Application(deps, store, () => found.current)
+    application.start()
+    return application
+  }
+
+  const problem = { source: 'file broken.yaml', message: '/id: is required' }
+
+  it('lists each set with its templates, all new, and the sets that failed to load', () => {
+    const found: { current: DiscoveryResult } = {
+      current: {
+        sets: [
+          { source: 'built-in', set: set('builtin', '1.0.0', ['voltage-low']) },
+          {
+            source: 'package some-templates',
+            package: { name: 'some-templates', version: '2.0.0' },
+            set: { ...set('extra', '2.0.0', ['current-high']), description: 'More' }
+          }
+        ],
+        problems: [problem]
+      }
+    }
+    expect(withSets(found).templates()).toEqual({
+      sets: [
+        {
+          id: 'builtin',
+          name: 'builtin',
+          version: '1.0.0',
+          source: 'built-in',
+          templates: [template('voltage-low')],
+          new: ['voltage-low']
+        },
+        {
+          id: 'extra',
+          name: 'extra',
+          version: '2.0.0',
+          description: 'More',
+          source: 'package some-templates',
+          package: { name: 'some-templates', version: '2.0.0' },
+          templates: [template('current-high')],
+          new: ['current-high']
+        }
+      ],
+      problems: [problem]
+    })
+  })
+
+  it('dismissing marks the current templates seen, for good; an update makes only its additions new', () => {
+    const found: { current: DiscoveryResult } = {
+      current: {
+        sets: [{ source: 'built-in', set: set('builtin', '1', ['a', 'b']) }],
+        problems: []
+      }
+    }
+    const application = withSets(found)
+    expect(application.dismissTemplates().sets.map((s) => s.new)).toEqual([[]])
+    found.current = {
+      sets: [{ source: 'built-in', set: set('builtin', '2', ['a', 'b', 'c']) }],
+      problems: []
+    }
+    expect(
+      withSets(found)
+        .templates()
+        .sets.map((s) => s.new)
+    ).toEqual([['c']])
+  })
+
+  it('a set that does not load while dismissing keeps its templates seen', () => {
+    const found: { current: DiscoveryResult } = {
+      current: { sets: [{ source: 'built-in', set: set('builtin', '1', ['a']) }], problems: [] }
+    }
+    const application = withSets(found)
+    application.dismissTemplates()
+    found.current = { sets: [], problems: [problem] }
+    application.dismissTemplates()
+    found.current = {
+      sets: [{ source: 'built-in', set: set('builtin', '1', ['a']) }],
+      problems: []
+    }
+    expect(application.templates().sets.map((s) => s.new)).toEqual([[]])
+  })
+
+  it('dismissing with nothing new writes nothing', () => {
+    const found: { current: DiscoveryResult } = { current: { sets: [], problems: [] } }
+    const application = withSets(found)
+    application.dismissTemplates()
+    expect(existsSync(join(dir, 'controls.json'))).toBe(false)
+  })
+
+  it('templates never affect the rules: a rule made from one runs whatever the sets do', () => {
+    const found: { current: DiscoveryResult } = {
+      current: {
+        sets: [{ source: 'built-in', set: set('builtin', '1', ['voltage']) }],
+        problems: []
+      }
+    }
+    const application = withSets(found)
+    const rule = {
+      ...oil,
+      template: { set: 'builtin', id: 'voltage', version: '1', pick: { instance: 'house' } }
+    }
+    expect(application.createRule(rule).ok).toBe(true)
+    found.current = { sets: [], problems: [] }
+    expect(application.templates().sets).toEqual([])
+    expect(application.rule(oil.slug)?.rule).toEqual(rule)
   })
 })
