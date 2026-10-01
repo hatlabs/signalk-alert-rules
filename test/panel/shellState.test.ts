@@ -70,7 +70,7 @@ describe('probe', () => {
   })
 
   // A disabled plugin and one between the stop and start of a restart look
-  // alike, and the panel no longer tells them apart.
+  // alike, so both read as not running.
   it('is not running when the plugin is not running and reports no error', async () => {
     const snapshot = await probe(fakeApi({ state: { running: false, securityEnabled: false } }))
     expect(snapshot).toEqual({ view: { kind: 'notRunning' }, securityEnabled: false })

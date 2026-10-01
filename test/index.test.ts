@@ -106,6 +106,18 @@ describe('plugin', () => {
     await plugin.stop()
   })
 
+  it('reports no start error once a plugin whose start failed is stopped', async () => {
+    const app = new MockServerAPI(false, dir)
+    const plugin = createPlugin(app.asServerAPI())
+    const state = stateOf(plugin)
+
+    plugin.start({}, () => undefined)
+    expect((state() as { error?: string }).error).toMatch(/no alerts API/)
+    await plugin.stop()
+
+    expect(state()).toEqual({ running: false, securityEnabled: null })
+  })
+
   it('evaluates stored rules every second and leaves their alerts when stopped', async () => {
     storeRule(hours)
     const app = new MockServerAPI(true, dir)

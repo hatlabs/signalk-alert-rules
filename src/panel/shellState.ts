@@ -29,10 +29,11 @@ function reasonOf(err: unknown): string {
 
 /**
  * Reads the plugin's condition from the server. A plugin that is not running
- * either failed to start or is disabled or between the stop and start of a
- * configuration save. The panel does not tell the last two apart: the admin
- * UI lists the webapp only while the plugin is enabled, so the panel is
- * reached while it is disabled only through a bookmarked link.
+ * either failed to start, or is disabled or between the stop and start of a
+ * configuration save; stopping clears a start error, so only the first
+ * reports one. The panel does not tell the last two apart: the admin UI
+ * lists the webapp only while the plugin is enabled, so the panel is reached
+ * while it is disabled only through a bookmarked link.
  */
 export async function probe(api: PanelApi): Promise<ShellSnapshot> {
   let securityEnabled: boolean | null = null
