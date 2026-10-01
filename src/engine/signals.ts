@@ -8,6 +8,7 @@ import type {
 import { MAX_INSTANCES, type PathInput, type Signal } from '../model/rule.js'
 import { combine } from './combinators.js'
 import { InstanceRegistry, instanceIn } from './instances.js'
+import type { Canonicalise } from './sourceRefs.js'
 
 export interface Position {
   latitude: number
@@ -94,16 +95,30 @@ function toReading(pv: PathValue): Reading {
 
 type OnValue = (path: string, reading: Reading, replayed: boolean) => void
 
+const asGiven: Canonicalise = (ref) => ref
+
+interface Subscriptions {
+  manager: SubscriptionManager
+  canonical: Canonicalise
+}
+
 function subscribeInput(
   input: PathInput,
-  subscriptions: SubscriptionManager,
+  { manager, canonical }: Subscriptions,
   onError: (err: unknown) => void,
   onValue: OnValue
 ): Unsubscribes {
+  const { source } = input
+  // Deltas carry the provider's form of a ref, which for an NMEA 2000 device
+  // may be its bus address rather than its CAN name.
+  const accepts = (ref: string | undefined) =>
+    source === undefined ||
+    ref === source ||
+    (ref !== undefined && canonical(ref) === canonical(source))
   const unsubscribes: Unsubscribes = []
   // The server replays its cached values synchronously inside subscribe().
   let replaying = true
-  subscriptions.subscribe(
+  manager.subscribe(
     {
       context: SELF,
       subscribe: [{ path: input.path as Path }],
@@ -115,7 +130,7 @@ function subscribeInput(
     (delta) => {
       for (const update of delta.updates) {
         if (!('values' in update)) continue
-        if (input.source !== undefined && update.$source !== input.source) continue
+        if (!accepts(update.$source)) continue
         for (const pv of update.values) onValue(pv.path, toReading(pv), replaying)
       }
     }
@@ -126,7 +141,7 @@ function subscribeInput(
 
 function openPath(
   input: PathInput,
-  subscriptions: SubscriptionManager,
+  subscriptions: Subscriptions,
   handlers: SignalHandlers
 ): Unsubscribes {
   if (!input.path.split('.').includes('*')) {
@@ -152,7 +167,7 @@ function openPath(
 
 function openCombinator(
   signal: Extract<Signal, { combinator: unknown }>,
-  subscriptions: SubscriptionManager,
+  subscriptions: Subscriptions,
   handlers: SignalHandlers
 ): Unsubscribes {
   const latest: (Reading | undefined)[] = signal.inputs.map(() => undefined)
@@ -182,13 +197,16 @@ function openCombinator(
 
 /**
  * Subscribes to a rule signal on the self vessel and reports each change as a
- * sample. Returns a function that ends every subscription it opened.
+ * sample. A pinned source matches a delta whose `$source` has the same
+ * canonical form. Returns a function that ends every subscription it opened.
  */
 export function openSignal(
   signal: Signal,
-  subscriptions: SubscriptionManager,
-  handlers: SignalHandlers
+  manager: SubscriptionManager,
+  handlers: SignalHandlers,
+  canonical: Canonicalise = asGiven
 ): () => void {
+  const subscriptions = { manager, canonical }
   const unsubscribes =
     'combinator' in signal
       ? openCombinator(signal, subscriptions, handlers)

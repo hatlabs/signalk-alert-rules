@@ -1433,3 +1433,56 @@ describe('rule controls', () => {
     })
   })
 })
+
+describe('pinned sources', () => {
+  const CAN_NAME = 'c0ffee0123456789'
+  const CANONICAL = `can0.${CAN_NAME}`
+  const pinned = (source: string) => ({ ...coolant, signal: { path: COOLANT, source } })
+  const storedSignal = (): unknown =>
+    (JSON.parse(readFileSync(join(dir, 'rules', 'coolant-high.json'), 'utf8')) as typeof coolant)
+      .signal
+
+  function withDevice(server: MockServerAPI): void {
+    server.sources.can0 = {
+      label: 'can0',
+      type: 'NMEA2000',
+      '10': { n2k: { src: '10', canName: CAN_NAME, pgns: {} } }
+    }
+  }
+
+  it('an address form pick of a device with a CAN name is stored in CAN name form and raises', () => {
+    const s = setup()
+    withDevice(s.server)
+    expect(s.application.createRule(pinned('can0.10')).ok).toBe(true)
+    expect(storedSignal()).toEqual({ path: COOLANT, source: CANONICAL })
+
+    s.at(0)
+    s.server.subscriptionmanager.publish(COOLANT, 'can0.10', 390)
+    s.at(3)
+    expect(s.alerts()).toEqual([['rules.user.coolant-high', true]])
+  })
+
+  it('an edit is stored in CAN name form too', () => {
+    stored(coolant)
+    const s = setup()
+    withDevice(s.server)
+    expect(s.application.replaceRule(coolant.slug, pinned('can0.10')).ok).toBe(true)
+    expect(storedSignal()).toEqual({ path: COOLANT, source: CANONICAL })
+  })
+
+  it('a source without a CAN name is stored as it is', () => {
+    const s = setup()
+    withDevice(s.server)
+    expect(s.application.createRule(pinned('nmea0183.GP')).ok).toBe(true)
+    expect(storedSignal()).toEqual({ path: COOLANT, source: 'nmea0183.GP' })
+  })
+
+  it('a pinned source that never appears leaves the input never seen', () => {
+    const s = setup()
+    expect(s.application.createRule(pinned(CANONICAL)).ok).toBe(true)
+    s.at(0, COOLANT, 390)
+    s.at(3)
+    expect(s.alerts()).toEqual([])
+    expect(s.application.rule('user', coolant.slug)?.status.badge).toBe('neverSeen')
+  })
+})

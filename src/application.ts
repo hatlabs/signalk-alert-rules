@@ -11,6 +11,7 @@ import {
 import { ownedActiveAlert } from './alerts/reconcile.js'
 import type { Progress } from './engine/detectors/index.js'
 import { carriesTotals, changesGates, measureOf, structuralChanges } from './engine/evaluator.js'
+import { canonicalSources } from './engine/sourceRefs.js'
 import {
   readsPath,
   signalPaths,
@@ -778,7 +779,7 @@ export class Application {
     const result = validateRule(input)
     if (!result.ok) return { ok: false, reason: 'invalid', errors: result.errors }
     if (this.stored.has(result.value.slug)) return { ok: false, reason: 'exists' }
-    return this.saveRule(result.value)
+    return this.saveRule(this.withCanonicalSources(result.value))
   }
 
   /** Replaces the stored user rule `slug` with an input of the same slug. */
@@ -1091,7 +1092,14 @@ export class Application {
     const result = validateRule(input)
     if (!result.ok) return { ok: false, reason: 'invalid', errors: result.errors }
     if (result.value.slug !== slug) return { ok: false, reason: 'slugMismatch' }
-    return result
+    return { ok: true, value: this.withCanonicalSources(result.value) }
+  }
+
+  // A pick stored in the address form of an NMEA 2000 device would stop
+  // matching once the device claims another address.
+  private withCanonicalSources(rule: Rule): Rule {
+    const canonical = this.deps.canonicalSource
+    return canonical === undefined ? rule : canonicalSources(rule, canonical)
   }
 
   private record(entry: LogEntry): void {

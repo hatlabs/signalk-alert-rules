@@ -37,6 +37,7 @@ import {
   type Sample,
   type SignalValue
 } from './signals.js'
+import type { Canonicalise } from './sourceRefs.js'
 import { errorMessage, own } from '../util.js'
 
 export type { InputState }
@@ -61,6 +62,8 @@ export interface EvaluatorContext {
   /** Undefined when the settings cannot be read; the check then assumes paths can time out. */
   timeoutSettings: () => TimeoutSettings | undefined
   clock: Clock
+  /** How a pinned source is matched; absent, refs are compared as given. */
+  canonicalSource?: Canonicalise
 }
 
 /** An alert core already holds for this rule, adopted at start. */
@@ -291,7 +294,8 @@ export class RuleEvaluator {
           this.ctx.subscriptions,
           handlers((s) => {
             this.onGate(i, s)
-          })
+          }),
+          this.ctx.canonicalSource
         )
       )
     })
@@ -301,7 +305,8 @@ export class RuleEvaluator {
         this.ctx.subscriptions,
         handlers((s) => {
           this.onSignal(s)
-        })
+        }),
+        this.ctx.canonicalSource
       )
     )
     for (const unit of this.units.values()) this.step(unit, now)

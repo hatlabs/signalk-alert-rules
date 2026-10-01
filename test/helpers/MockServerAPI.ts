@@ -53,6 +53,13 @@ export class MockServerAPI {
     return undefined
   }
 
+  /** The server's `sources` tree, which tests mutate in place as the server does. */
+  readonly sources: Record<string, unknown> = {}
+
+  getPath(path: string): unknown {
+    return path === 'sources' ? this.sources : undefined
+  }
+
   handleMessage(id: string, delta: PluginDelta): void {
     for (const update of delta.updates) {
       for (const { path, value } of update.values) {
