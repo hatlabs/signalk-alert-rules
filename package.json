@@ -76,6 +76,7 @@
   "files": [
     "dist/",
     "public/",
+    "templates/",
     "README.md",
     "LICENSE"
   ],

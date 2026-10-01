@@ -1,0 +1,22 @@
+# The template set built into Alert Rules. A template is a rule whose
+# instance, written ${instance} in its paths, and the source of its input
+# can be left open; using it makes an ordinary rule with the picks filled in.
+name: Alert Rules
+id: builtin
+version: 1.0.0
+description: Templates that ship with Alert Rules.
+templates:
+  - id: battery-voltage-low
+    description: A battery bank's voltage stays below 12 V for a minute.
+    open: [instance]
+    rule:
+      name: Battery ${instance} voltage low
+      message: Battery ${instance} voltage is low
+      priority: warning
+      signal:
+        path: electrical.batteries.${instance}.voltage
+      detector:
+        type: sustained
+        direction: below
+        limit: { kind: fixed, value: 12 }
+        duration: 60
