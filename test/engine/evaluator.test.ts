@@ -690,17 +690,18 @@ describe('wildcard rules', () => {
   })
 })
 
+const engineStopped = valid({
+  name: 'Engine stopped',
+  slug: 'engine-stopped',
+  message: 'Engine {instance} stopped',
+  priority: 'warning',
+  signal: { path: 'propulsion.*.state' },
+  detector: { type: 'match', op: 'changesTo', value: 'stopped' }
+})
+
 describe('pulses', () => {
   it('a transition match raises and clears at once', () => {
-    const rule = valid({
-      name: 'Engine stopped',
-      slug: 'engine-stopped',
-      message: 'Engine {instance} stopped',
-      priority: 'warning',
-      signal: { path: 'propulsion.*.state' },
-      detector: { type: 'match', op: 'changesTo', value: 'stopped' }
-    })
-    const { at, log } = setup(rule)
+    const { at, log } = setup(engineStopped)
     at(0, 'propulsion.port.state', 'started')
     at(5, 'propulsion.port.state', 'stopped')
     expect(log).toEqual([
@@ -1363,6 +1364,20 @@ describe('disabled rules', () => {
     expect(evaluator.accumulators()).toEqual(new Map([['', 110]]))
     setDisabled(120, false)
     expect(log).toEqual([[120, 'raise', '', 'alarm']])
+  })
+
+  it('a transition match raises nothing, and its clear time is the last transition', () => {
+    const { at, log, evaluator } = setup(engineStopped, { disabled: true })
+    at(0, 'propulsion.port.state', 'started')
+    at(5, 'propulsion.port.state', 'stopped')
+    at(10, 'propulsion.port.state', 'started')
+    at(15, 'propulsion.port.state', 'stopped')
+    at(40)
+    expect(log).toEqual([])
+    expect(evaluator.status().instances[0]).toMatchObject({
+      conditionPresent: false,
+      clearedFor: 25
+    })
   })
 
   it('clears an alert adopted at start rather than keep it', () => {
