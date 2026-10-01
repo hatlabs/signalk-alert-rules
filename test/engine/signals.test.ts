@@ -108,6 +108,10 @@ describe('$source-restricted input', () => {
     }
 
     function open(source: string) {
+      return openOf({ path, source })
+    }
+
+    function openOf(signal: Signal) {
       const sources: Record<string, Record<string, unknown>> = {
         can0: { label: 'can0', type: 'NMEA2000', '10': device('10', CAN_NAME), '11': device('11') },
         nmea0183: { label: 'nmea0183', type: 'NMEA0183', GP: { talker: 'GP' } }
@@ -115,7 +119,7 @@ describe('$source-restricted input', () => {
       const sm = new FakeSubscriptionManager()
       const samples: Sample[] = []
       openSignal(
-        { path, source },
+        signal,
         sm,
         {
           onSample: (s) => samples.push(s),
@@ -149,6 +153,18 @@ describe('$source-restricted input', () => {
       const { sm, samples } = open('can0.10')
       sm.publish(path, `can0.${CAN_NAME}`, 1)
       expect(readings(samples)).toEqual([value(1)])
+    })
+
+    it('a combinator input pinned to a CAN name receives the address form of that device', () => {
+      const other = 'navigation.headingTrue'
+      const { sm, samples } = openOf({
+        combinator: 'difference',
+        inputs: [{ path, source: `can0.${CAN_NAME}` }, { path: other }]
+      })
+      sm.publish(path, 'can0.10', 30)
+      sm.publish(path, 'can0.11', 99)
+      sm.publish(other, 'can0.11', 28)
+      expect(readings(samples)).toEqual([value(2)])
     })
 
     it('a source without a CAN name is matched as it is', () => {
