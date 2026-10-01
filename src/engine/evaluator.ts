@@ -37,6 +37,7 @@ import {
   type Sample,
   type SignalValue
 } from './signals.js'
+import { asGiven, canonicalSources, type Canonicalise } from './sourceRefs.js'
 import { errorMessage, own } from '../util.js'
 
 export type { InputState }
@@ -61,6 +62,8 @@ export interface EvaluatorContext {
   /** Undefined when the settings cannot be read; the check then assumes paths can time out. */
   timeoutSettings: () => TimeoutSettings | undefined
   clock: Clock
+  /** How a pinned source is matched; absent, refs are compared as given. */
+  canonicalSource?: Canonicalise
 }
 
 /** An alert core already holds for this rule, adopted at start. */
@@ -291,7 +294,8 @@ export class RuleEvaluator {
           this.ctx.subscriptions,
           handlers((s) => {
             this.onGate(i, s)
-          })
+          }),
+          this.ctx.canonicalSource
         )
       )
     })
@@ -301,7 +305,8 @@ export class RuleEvaluator {
         this.ctx.subscriptions,
         handlers((s) => {
           this.onSignal(s)
-        })
+        }),
+        this.ctx.canonicalSource
       )
     )
     for (const unit of this.units.values()) this.step(unit, now)
@@ -347,7 +352,11 @@ export class RuleEvaluator {
       return
     }
     const now = this.ctx.clock()
-    if (structuralChanges(this.rule, rule).length > 0) {
+    // A pin running in address form that only changes form is no change:
+    // the open subscription matches by canonical form either way.
+    const canonical = this.ctx.canonicalSource ?? asGiven
+    const current = canonicalSources(this.rule, canonical)
+    if (structuralChanges(current, canonicalSources(rule, canonical)).length > 0) {
       this.carried = this.totals(rule)
       this.remove()
       this.rule = rule

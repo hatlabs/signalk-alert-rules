@@ -1433,3 +1433,136 @@ describe('rule controls', () => {
     })
   })
 })
+
+describe('pinned sources', () => {
+  const CAN_NAME = 'c0ffee0123456789'
+  const CANONICAL = `can0.${CAN_NAME}`
+  const pinned = (source: string) => ({ ...coolant, signal: { path: COOLANT, source } })
+  const storedSignal = (): unknown =>
+    (JSON.parse(readFileSync(join(dir, 'rules', 'coolant-high.json'), 'utf8')) as typeof coolant)
+      .signal
+
+  function withDevice(server: MockServerAPI): void {
+    server.sources.can0 = {
+      label: 'can0',
+      type: 'NMEA2000',
+      '10': { n2k: { src: '10', canName: CAN_NAME, pgns: {} } }
+    }
+  }
+
+  it('an address form pick of a device with a CAN name is stored in CAN name form and raises', () => {
+    const s = setup()
+    withDevice(s.server)
+    expect(s.application.createRule(pinned('can0.10')).ok).toBe(true)
+    expect(storedSignal()).toEqual({ path: COOLANT, source: CANONICAL })
+
+    s.at(0)
+    s.server.subscriptionmanager.publish(COOLANT, 'can0.10', 390)
+    s.at(3)
+    expect(s.alerts()).toEqual([['rules.user.coolant-high', true]])
+  })
+
+  it('an edit is stored in CAN name form too', () => {
+    stored(coolant)
+    const s = setup()
+    withDevice(s.server)
+    expect(s.application.replaceRule(coolant.slug, pinned('can0.10')).ok).toBe(true)
+    expect(storedSignal()).toEqual({ path: COOLANT, source: CANONICAL })
+  })
+
+  it('a source without a CAN name is stored as it is', () => {
+    const s = setup()
+    withDevice(s.server)
+    expect(s.application.createRule(pinned('nmea0183.GP')).ok).toBe(true)
+    expect(storedSignal()).toEqual({ path: COOLANT, source: 'nmea0183.GP' })
+  })
+
+  it('a pinned device that never appears leaves the input never seen', () => {
+    const s = setup()
+    withDevice(s.server)
+    s.server.sources.can0 = {
+      ...(s.server.sources.can0 as object),
+      '11': { n2k: { src: '11', canName: 'beef000000000001', pgns: {} } }
+    }
+    expect(s.application.createRule(pinned(CANONICAL)).ok).toBe(true)
+    s.at(0)
+    s.server.subscriptionmanager.publish(COOLANT, 'can0.11', 390)
+    s.at(3)
+    expect(s.alerts()).toEqual([])
+    expect(s.application.rule('user', coolant.slug)?.status.badge).toBe('neverSeen')
+  })
+
+  it('an edit of a rule stored in address form is not structural for the change of form alone', () => {
+    stored(pinned('can0.10'))
+    const s = setup()
+    withDevice(s.server)
+    s.at(0)
+    s.server.subscriptionmanager.publish(COOLANT, 'can0.10', 390)
+    s.at(3)
+    expect(s.alerts()).toEqual([['rules.user.coolant-high', true]])
+
+    const edited = { ...pinned('can0.10'), message: 'Coolant is hot' }
+    expect(s.application.previewRule(coolant.slug, edited)).toEqual({
+      ok: true,
+      value: {
+        restarts: false,
+        changes: [],
+        activeAlerts: 1,
+        clearsActiveAlert: false,
+        discardsTotal: false
+      }
+    })
+    expect(s.application.replaceRule(coolant.slug, edited).ok).toBe(true)
+    expect(storedSignal()).toEqual({ path: COOLANT, source: CANONICAL })
+    expect(s.alerts()).toEqual([['rules.user.coolant-high', true]])
+  })
+
+  it('an edit of a gate stored in address form keeps its frozen state for the change of form alone', () => {
+    const gated = {
+      ...coolant,
+      detector: { ...coolant.detector, duration: 0 },
+      gates: [
+        {
+          signal: { path: RPM, source: 'can0.10' },
+          direction: 'above',
+          limit: { kind: 'fixed', value: 8 }
+        }
+      ]
+    }
+    stored(gated)
+    const s = setup()
+    withDevice(s.server)
+    s.server.subscriptionmanager.publish(RPM, 'can0.10', 70)
+    s.at(0, COOLANT, 380)
+    expect(s.alerts()).toEqual([['rules.user.coolant-high', true]])
+    s.application.suppressInput(RPM, {}, 'admin')
+    const frozen = { frozen: { 'user.coolant-high': { '0': { '': true } } } }
+    expect(new Store(dir).load().controls.inputs[RPM]).toMatchObject(frozen)
+
+    expect(
+      s.application.replaceRule(coolant.slug, { ...gated, message: 'Coolant is hot' }).ok
+    ).toBe(true)
+    expect(new Store(dir).load().controls.inputs[RPM]).toMatchObject(frozen)
+  })
+
+  it('a gate pinned to a CAN name reads the address form of that device', () => {
+    const s = setup()
+    withDevice(s.server)
+    const gated = {
+      ...coolant,
+      detector: { ...coolant.detector, duration: 0 },
+      gates: [
+        {
+          signal: { path: RPM, source: CANONICAL },
+          direction: 'above',
+          limit: { kind: 'fixed', value: 8 }
+        }
+      ]
+    }
+    expect(s.application.createRule(gated).ok).toBe(true)
+    s.at(0)
+    s.server.subscriptionmanager.publish(RPM, 'can0.10', 70)
+    s.at(1, COOLANT, 390)
+    expect(s.alerts()).toEqual([['rules.user.coolant-high', true]])
+  })
+})

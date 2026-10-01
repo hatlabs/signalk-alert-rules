@@ -11,6 +11,7 @@ import {
 import { ownedActiveAlert } from './alerts/reconcile.js'
 import type { Progress } from './engine/detectors/index.js'
 import { carriesTotals, changesGates, measureOf, structuralChanges } from './engine/evaluator.js'
+import { asGiven, canonicalSources } from './engine/sourceRefs.js'
 import {
   readsPath,
   signalPaths,
@@ -723,7 +724,8 @@ export class Application {
     const previous = this.rulesBySlug.get(rule.slug)
     // Stored gate states are by gate index: a gate reordered or changed
     // must not inherit another's, so the new gates take one reading instead.
-    if (previous !== undefined && changesGates(previous, rule)) {
+    // A pin stored in address form that only changes form is no change.
+    if (previous !== undefined && changesGates(this.withCanonicalSources(previous), rule)) {
       this.dropFrozenGates(id)
     }
     this.store.saveRule(rule)
@@ -778,7 +780,7 @@ export class Application {
     const result = validateRule(input)
     if (!result.ok) return { ok: false, reason: 'invalid', errors: result.errors }
     if (this.stored.has(result.value.slug)) return { ok: false, reason: 'exists' }
-    return this.saveRule(result.value)
+    return this.saveRule(this.withCanonicalSources(result.value))
   }
 
   /** Replaces the stored user rule `slug` with an input of the same slug. */
@@ -793,7 +795,10 @@ export class Application {
     if (!checked.ok) return checked
     const current = this.rulesBySlug.get(slug)
     // A stored rule that did not validate is not running: saving starts it.
-    const changes = current === undefined ? [] : structuralChanges(current, checked.value)
+    const changes =
+      current === undefined
+        ? []
+        : structuralChanges(this.withCanonicalSources(current), checked.value)
     const status = this.runner?.status(this.idOf(slug))
     const activeAlerts = status?.instances.filter((i) => i.active).length ?? 0
     const restarts = changes.length > 0 || this.runner?.failedToStart(this.idOf(slug)) === true
@@ -1091,7 +1096,13 @@ export class Application {
     const result = validateRule(input)
     if (!result.ok) return { ok: false, reason: 'invalid', errors: result.errors }
     if (result.value.slug !== slug) return { ok: false, reason: 'slugMismatch' }
-    return result
+    return { ok: true, value: this.withCanonicalSources(result.value) }
+  }
+
+  // A pick stored in the address form of an NMEA 2000 device would stop
+  // matching once the device claims another address.
+  private withCanonicalSources(rule: Rule): Rule {
+    return canonicalSources(rule, this.deps.canonicalSource ?? asGiven)
   }
 
   private record(entry: LogEntry): void {

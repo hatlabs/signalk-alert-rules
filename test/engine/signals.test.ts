@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { openSignal, type Reading, type Sample } from '../../src/engine/signals.js'
+import { canonicalSourceRef } from '../../src/engine/sourceRefs.js'
 import { MAX_INSTANCES, type Signal } from '../../src/model/rule.js'
 import { FakeSubscriptionManager } from '../helpers/FakeSubscriptionManager.js'
 
@@ -97,6 +98,82 @@ describe('$source-restricted input', () => {
     sm.timeOut(path, 'compass.b')
     sm.publish(path, 'compass.a', 1)
     expect(readings(samples)).toEqual([value(2), { available: false, timedOut: true }])
+  })
+
+  describe('of an NMEA 2000 device whose provider reports addresses', () => {
+    const CAN_NAME = 'c0ffee0123456789'
+
+    function device(src: string, canName?: string) {
+      return { n2k: { src, ...(canName === undefined ? {} : { canName }), pgns: {} } }
+    }
+
+    function open(source: string) {
+      return openOf({ path, source })
+    }
+
+    function openOf(signal: Signal) {
+      const sources: Record<string, Record<string, unknown>> = {
+        can0: { label: 'can0', type: 'NMEA2000', '10': device('10', CAN_NAME), '11': device('11') },
+        nmea0183: { label: 'nmea0183', type: 'NMEA0183', GP: { talker: 'GP' } }
+      }
+      const sm = new FakeSubscriptionManager()
+      const samples: Sample[] = []
+      openSignal(
+        signal,
+        sm,
+        {
+          onSample: (s) => samples.push(s),
+          onIssue: () => undefined,
+          onError: (e) => {
+            throw e
+          }
+        },
+        (ref) => canonicalSourceRef(sources, ref)
+      )
+      return { sm, samples, sources }
+    }
+
+    it('a CAN name pin receives the address form of that device only', () => {
+      const { sm, samples } = open(`can0.${CAN_NAME}`)
+      sm.publish(path, 'can0.10', 1)
+      sm.publish(path, 'can0.11', 2)
+      expect(readings(samples)).toEqual([value(1)])
+    })
+
+    it('keeps receiving the device after it claims another address', () => {
+      const { sm, samples, sources } = open(`can0.${CAN_NAME}`)
+      sm.publish(path, 'can0.10', 1)
+      sources.can0 = { ...sources.can0, '10': device('10'), '12': device('12', CAN_NAME) }
+      sm.publish(path, 'can0.12', 2)
+      sm.publish(path, 'can0.10', 3)
+      expect(readings(samples)).toEqual([value(1), value(2)])
+    })
+
+    it('an address form pin receives the CAN name form of the same device', () => {
+      const { sm, samples } = open('can0.10')
+      sm.publish(path, `can0.${CAN_NAME}`, 1)
+      expect(readings(samples)).toEqual([value(1)])
+    })
+
+    it('a combinator input pinned to a CAN name receives the address form of that device', () => {
+      const other = 'navigation.headingTrue'
+      const { sm, samples } = openOf({
+        combinator: 'difference',
+        inputs: [{ path, source: `can0.${CAN_NAME}` }, { path: other }]
+      })
+      sm.publish(path, 'can0.10', 30)
+      sm.publish(path, 'can0.11', 99)
+      sm.publish(other, 'can0.11', 28)
+      expect(readings(samples)).toEqual([value(2)])
+    })
+
+    it('a source without a CAN name is matched as it is', () => {
+      const { sm, samples } = open('nmea0183.GP')
+      sm.publish(path, 'nmea0183.GP', 1)
+      sm.publish(path, 'can0.10', 2)
+      sm.publish(path, 'can0.11', 3)
+      expect(readings(samples)).toEqual([value(1)])
+    })
   })
 })
 

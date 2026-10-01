@@ -2,6 +2,7 @@ import type { Delta, Path, ServerAPI } from '@signalk/server-api'
 import { monotonic } from '../engine/clock.js'
 import type { PathMeta, TimeoutSettings } from '../engine/evaluator.js'
 import type { Zone } from '../engine/limits.js'
+import { canonicalSourceRef } from '../engine/sourceRefs.js'
 import type { AlertsReader, CoreAlert } from './emitter.js'
 import { deltaPath } from './paths.js'
 import type { RunnerDeps } from './runner.js'
@@ -64,6 +65,8 @@ export function serverDeps(app: ServerAPI, pluginId: string): RunnerDeps {
     subscriptions: app.subscriptionmanager,
     meta: (path) => pathMeta(app.getSelfPath(`${path}.meta`)),
     timeoutSettings: () => timeoutSettings(app),
+    // `getPath('sources')` is the server's live tree; '/sources' would rebuild a copy per call.
+    canonicalSource: (ref) => canonicalSourceRef(app.getPath('sources'), ref),
     clock: monotonic,
     wallClock: () => new Date(),
     alerts: {
