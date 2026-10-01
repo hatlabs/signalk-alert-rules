@@ -5,76 +5,64 @@ const ADMIN = '#/e/signalk_alert_rules'
 
 describe('parseRuleFragment', () => {
   it('reads the rule after the admin UI route', () => {
-    expect(parseRuleFragment(`${ADMIN}#rule=user/oil-pressure-low`)).toEqual({
-      origin: 'user',
+    expect(parseRuleFragment(`${ADMIN}#rule=oil-pressure-low`)).toEqual({
       slug: 'oil-pressure-low'
     })
   })
 
   it('reads the rule when it is the whole fragment', () => {
-    expect(parseRuleFragment('#rule=user/a')).toEqual({ origin: 'user', slug: 'a' })
-  })
-
-  it('reads a scoped package origin, whose name has a slash of its own', () => {
-    expect(parseRuleFragment(`${ADMIN}#rule=%40acme%2Frules/engine-hours`)).toEqual({
-      origin: '@acme/rules',
-      slug: 'engine-hours'
-    })
+    expect(parseRuleFragment('#rule=a')).toEqual({ slug: 'a' })
   })
 
   it('reads the instance after the rule', () => {
-    expect(parseRuleFragment(`${ADMIN}#rule=user/battery-low&instance=house`)).toEqual({
-      origin: 'user',
+    expect(parseRuleFragment(`${ADMIN}#rule=battery-low&instance=house`)).toEqual({
       slug: 'battery-low',
       instance: 'house'
     })
-    expect(parseRuleFragment('#rule=%40acme%2Frules/x&instance=a%26b%2Fc')).toEqual({
-      origin: '@acme/rules',
+    expect(parseRuleFragment('#rule=x&instance=a%26b%2Fc')).toEqual({
       slug: 'x',
       instance: 'a&b/c'
     })
   })
 
   it('ignores an empty instance or other parameters', () => {
-    expect(parseRuleFragment(`${ADMIN}#rule=user/a&instance=`)).toEqual({
-      origin: 'user',
-      slug: 'a'
-    })
-    expect(parseRuleFragment(`${ADMIN}#rule=user/a&later=1`)).toEqual({ origin: 'user', slug: 'a' })
+    expect(parseRuleFragment(`${ADMIN}#rule=a&instance=`)).toEqual({ slug: 'a' })
+    expect(parseRuleFragment(`${ADMIN}#rule=a&later=1`)).toEqual({ slug: 'a' })
+  })
+
+  it('reads a slug no rule can have as it is, which then finds no rule', () => {
+    expect(parseRuleFragment(`${ADMIN}#rule=user%2Fa`)).toEqual({ slug: 'user/a' })
   })
 
   it('finds no rule without the marker or with an incomplete one', () => {
     expect(parseRuleFragment(ADMIN)).toBeUndefined()
     expect(parseRuleFragment('')).toBeUndefined()
-    expect(parseRuleFragment(`${ADMIN}#rule=user`)).toBeUndefined()
-    expect(parseRuleFragment(`${ADMIN}#rule=user/`)).toBeUndefined()
-    expect(parseRuleFragment(`${ADMIN}#rule=%E0%A4%A/x`)).toBeUndefined()
+    expect(parseRuleFragment(`${ADMIN}#rule=`)).toBeUndefined()
+    expect(parseRuleFragment(`${ADMIN}#rule=%E0%A4%A`)).toBeUndefined()
   })
 })
 
 describe('hashWithRule', () => {
   it('appends the rule to the admin UI route', () => {
-    expect(hashWithRule(ADMIN, { origin: 'user', slug: 'a' })).toBe(`${ADMIN}#rule=user/a`)
+    expect(hashWithRule(ADMIN, { slug: 'a' })).toBe(`${ADMIN}#rule=a`)
   })
 
   it('replaces a rule already there', () => {
-    expect(hashWithRule(`${ADMIN}#rule=user/a`, { origin: '@acme/rules', slug: 'b' })).toBe(
-      `${ADMIN}#rule=%40acme%2Frules/b`
-    )
+    expect(hashWithRule(`${ADMIN}#rule=a`, { slug: 'b' })).toBe(`${ADMIN}#rule=b`)
   })
 
-  it('adds the instance, escaped', () => {
-    expect(hashWithRule(ADMIN, { origin: 'user', slug: 'a', instance: 'a&b' })).toBe(
-      `${ADMIN}#rule=user/a&instance=a%26b`
+  it('escapes the slug and the instance', () => {
+    expect(hashWithRule(ADMIN, { slug: 'a/b', instance: 'a&b' })).toBe(
+      `${ADMIN}#rule=a%2Fb&instance=a%26b`
     )
   })
 
   it('drops the rule, keeping the admin UI route', () => {
-    expect(hashWithRule(`${ADMIN}#rule=user/a`)).toBe(ADMIN)
+    expect(hashWithRule(`${ADMIN}#rule=a`)).toBe(ADMIN)
   })
 
   it('keeps a link to this page when there is no route to keep', () => {
-    expect(hashWithRule('#rule=user/a')).toBe('#')
-    expect(hashWithRule('', { origin: 'user', slug: 'a' })).toBe('#rule=user/a')
+    expect(hashWithRule('#rule=a')).toBe('#')
+    expect(hashWithRule('', { slug: 'a' })).toBe('#rule=a')
   })
 })

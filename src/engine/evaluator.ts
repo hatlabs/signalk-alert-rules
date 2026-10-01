@@ -199,7 +199,7 @@ function structure(rule: Rule): Record<string, unknown> {
   const fields: readonly string[] = ['type', ...STRUCTURAL[rule.detector.type]]
   return {
     signal: rule.signal,
-    gates: editBasis(rule).gates,
+    gates: rule.gates ?? [],
     latching: rule.latching ?? false,
     'detector.limit.level': zoneLimitOf(rule)?.level,
     ...Object.fromEntries(
@@ -722,19 +722,6 @@ export class RuleEvaluator {
   private totals(next: Rule): Map<string, number> {
     return carriesTotals(this.rule, next) ? this.accumulators() : new Map<string, number>()
   }
-}
-
-/**
- * What the ruleset settings record of each rule loaded last, small enough
- * to store: their slugs tell an upgrade installed while the plugin was
- * stopped which rules it removed.
- */
-export interface EditBasis {
-  gates: unknown[]
-}
-
-export function editBasis(rule: Rule | EditBasis): EditBasis {
-  return { gates: 'detector' in rule ? (rule.gates ?? []) : rule.gates }
 }
 
 /** The measure of an accumulator rule; undefined for any other detector. */

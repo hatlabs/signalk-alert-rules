@@ -363,7 +363,7 @@ describe('RuleEditor, editing', () => {
       expect(section(name)).not.toBeNull()
     }
     expect(textbox('Slug')).toHaveProperty('readOnly', true)
-    expect(description(textbox('Slug'))).toContain('alerts.rules.user.house-battery-low')
+    expect(description(textbox('Slug'))).toContain('alerts.rules.house-battery-low')
     expect(textbox('Hysteresis')).toHaveProperty('value', '0.2')
     expect(textbox('For at least')).toHaveProperty('value', '1')
   })
@@ -473,11 +473,11 @@ describe('RuleEditor, editing', () => {
 
     it('keeps the confirmation open with a failure that names no field', async () => {
       const { api, onSaved } = renderEditor({ entry: active, rule: battery })
-      api.updateRule.mockRejectedValueOnce(new Error('/rules/user/x answered 503'))
+      api.updateRule.mockRejectedValueOnce(new Error('/rules/x answered 503'))
       await confirmPathChange(api)
       const dialog = screen.getByRole('alertdialog')
       await waitFor(() => {
-        expect(within(dialog).getByRole('alert').textContent).toBe('/rules/user/x answered 503')
+        expect(within(dialog).getByRole('alert').textContent).toBe('/rules/x answered 503')
       })
       expect(onSaved).not.toHaveBeenCalled()
     })

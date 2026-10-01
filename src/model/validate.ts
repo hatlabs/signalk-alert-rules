@@ -2,7 +2,6 @@ import type { TSchema } from 'typebox'
 import Value from 'typebox/value'
 import {
   DISCRIMINATOR_KEY,
-  MAX_RULES,
   PATTERN_MESSAGE_KEY,
   RuleSchema,
   type CombinatorKind,
@@ -12,9 +11,8 @@ import {
   type Signal,
   zoneLimitOf
 } from './rule.js'
-import { RulesetSchema, USER_ORIGIN, type ParameterValues, type Ruleset } from './ruleset.js'
 import { RULES_PREFIX } from '../alerts/paths.js'
-import { isRecord, own } from '../util.js'
+import { isRecord, pointer } from '../util.js'
 
 /** A validation failure; `path` is a JSON pointer into the validated document. */
 export interface ValidationError {
@@ -73,11 +71,7 @@ function fail<T>(errors: ValidationError[]): Result<T> {
   return { ok: false, errors }
 }
 
-function pointer(at: string, key: string | number): string {
-  return `${at}/${String(key).replace(/~/g, '~0').replace(/\//g, '~1')}`
-}
-
-function prefixed(errors: ValidationError[], at: string): ValidationError[] {
+export function prefixed(errors: ValidationError[], at: string): ValidationError[] {
   return errors.map((e) => ({ path: at + e.path, message: e.message }))
 }
 
@@ -229,6 +223,11 @@ function nestedCombinatorErrors(rule: unknown, at: string): ValidationError[] {
         : []
     )
   })
+}
+
+/** Schema errors with one entry per offending field, for documents other than a rule. */
+export function checkSchema(schema: TSchema, input: unknown): ValidationError[] {
+  return schemaCheck(schema, input, [])
 }
 
 function schemaCheck(
@@ -479,30 +478,9 @@ export function validateRule(input: unknown, ctx: ValidationContext = {}): Resul
   return semantic.length > 0 ? fail(semantic) : { ok: true, value: rule }
 }
 
-/** Checks the rule limit and slug uniqueness within each origin across every loaded rule. */
-export function validateRuleSet(
-  entries: readonly { origin: string; rule: Rule }[]
-): ValidationError[] {
-  if (entries.length > MAX_RULES) {
-    return [{ path: '', message: `at most ${String(MAX_RULES)} rules can be loaded` }]
-  }
-  const seen = new Set<string>()
-  const errors: ValidationError[] = []
-  entries.forEach(({ origin, rule }, i) => {
-    const key = `${origin}.${rule.slug}`
-    if (seen.has(key))
-      errors.push({
-        path: pointer(pointer('', i), 'slug'),
-        message: `${rule.slug} is already used in ${origin}`
-      })
-    seen.add(key)
-  })
-  return errors
-}
-
 /** The path, under `alerts.`, of the alert a rule (instance) raises. */
-export function alertPathFor(origin: string, slug: string, instance?: string): Result<string> {
-  const segments = [RULES_PREFIX, origin, slug, ...(instance === undefined ? [] : [instance])]
+export function alertPathFor(slug: string, instance?: string): Result<string> {
+  const segments = [RULES_PREFIX, slug, ...(instance === undefined ? [] : [instance])]
   const path = segments.join('.')
   if (path.length > MAX_ALERT_PATH_LENGTH) {
     return fail([
@@ -513,167 +491,4 @@ export function alertPathFor(origin: string, slug: string, instance?: string): R
   if (bad !== undefined)
     return fail([{ path: '', message: `"${bad}" is not a valid alert path segment` }])
   return { ok: true, value: path }
-}
-
-const PATH_PARAMETER = /\$\{([^}]*)\}/g
-
-interface ParamUse {
-  name: string
-  at: string
-  type: 'number' | 'string'
-}
-
-/** Walks a ruleset rule and returns a copy in which each parameter use is replaced by `visit`'s result. */
-function walkParams(value: unknown, at: string, visit: (use: ParamUse) => unknown): unknown {
-  if (Array.isArray(value))
-    return value.map((item: unknown, i) => walkParams(item, pointer(at, i), visit))
-  if (!isRecord(value)) return value
-  const keys = Object.keys(value)
-  if (keys.length === 1 && typeof value.param === 'string')
-    return visit({ name: value.param, at, type: 'number' })
-  return Object.fromEntries(
-    keys.map((key) => {
-      const child = value[key]
-      const childAt = pointer(at, key)
-      if (key === 'path' && typeof child === 'string') {
-        return [
-          key,
-          child.replace(PATH_PARAMETER, (_, name: string) =>
-            String(visit({ name, at: childAt, type: 'string' }))
-          )
-        ]
-      }
-      return [key, walkParams(child, childAt, visit)]
-    })
-  )
-}
-
-function parameterErrors(ruleset: Ruleset): ValidationError[] {
-  const errors: ValidationError[] = []
-  const seen = new Set<string>()
-  ruleset.parameters?.forEach((p, i) => {
-    const at = pointer('/parameters', i)
-    if (seen.has(p.name))
-      errors.push({ path: pointer(at, 'name'), message: `${p.name} is declared twice` })
-    seen.add(p.name)
-    if (typeof p.default !== p.type) {
-      errors.push({ path: pointer(at, 'default'), message: `must be a ${p.type}` })
-      return
-    }
-    if (p.type === 'string') {
-      if (p.minimum !== undefined || p.maximum !== undefined) {
-        errors.push({ path: at, message: 'a string parameter takes no bounds' })
-      }
-      return
-    }
-    if (p.minimum !== undefined && p.maximum !== undefined && p.minimum > p.maximum) {
-      errors.push({ path: pointer(at, 'maximum'), message: 'must not be below minimum' })
-    } else {
-      errors.push(
-        ...prefixed(boundErrors(p.default as number, p.minimum, p.maximum), pointer(at, 'default'))
-      )
-    }
-  })
-  return errors
-}
-
-function boundErrors(
-  value: number,
-  minimum: number | undefined,
-  maximum: number | undefined
-): ValidationError[] {
-  if (minimum !== undefined && value < minimum)
-    return [{ path: '', message: `must be at least ${String(minimum)}` }]
-  if (maximum !== undefined && value > maximum)
-    return [{ path: '', message: `must be at most ${String(maximum)}` }]
-  return []
-}
-
-/**
- * Validates a ruleset document: schema, parameters, parameter references and
- * slugs, and then every rule with the parameters at their defaults.
- */
-export function validateRuleset(input: unknown, ctx: ValidationContext = {}): Result<Ruleset> {
-  const nested =
-    isRecord(input) && Array.isArray(input.rules)
-      ? input.rules.flatMap((r: unknown, i) => nestedCombinatorErrors(r, pointer('/rules', i)))
-      : []
-  const schema = schemaCheck(RulesetSchema, input, nested)
-  if (schema.length > 0) return fail(schema)
-  const ruleset = input as Ruleset
-
-  const errors = parameterErrors(ruleset)
-  if (ruleset.slug === USER_ORIGIN)
-    errors.push({ path: '/slug', message: `${USER_ORIGIN} is reserved for user rules` })
-
-  const declared = new Map(ruleset.parameters?.map((p) => [p.name, p.type]))
-  const slugs = new Set<string>()
-  ruleset.rules.forEach((rule, i) => {
-    const at = pointer('/rules', i)
-    if (slugs.has(rule.slug))
-      errors.push({ path: pointer(at, 'slug'), message: `${rule.slug} is used twice` })
-    slugs.add(rule.slug)
-    walkParams(rule, at, (use) => {
-      const type = declared.get(use.name)
-      if (type === undefined)
-        errors.push({ path: use.at, message: `parameter ${use.name} is not declared` })
-      else if (type !== use.type)
-        errors.push({ path: use.at, message: `parameter ${use.name} is a ${type}` })
-      return ''
-    })
-  })
-  if (errors.length > 0) return fail(errors)
-
-  const resolved = resolveRuleset(ruleset, {}, ctx)
-  return resolved.ok ? { ok: true, value: ruleset } : resolved
-}
-
-/**
- * Checks each value against its parameter's declaration, not the rules it
- * makes. Errors point at `/<name>` in the object of values.
- */
-export function parameterValueErrors(ruleset: Ruleset, values: ParameterValues): ValidationError[] {
-  const parameters = new Map(ruleset.parameters?.map((p) => [p.name, p]))
-  const errors: ValidationError[] = []
-  for (const [name, value] of Object.entries(values)) {
-    const at = pointer('', name)
-    const p = parameters.get(name)
-    if (p === undefined)
-      errors.push({ path: at, message: `${name} is not a parameter of this ruleset` })
-    else if (typeof value !== p.type) errors.push({ path: at, message: `must be a ${p.type}` })
-    // JSON has no infinity: stored, it would read back as null.
-    else if (typeof value === 'number' && !Number.isFinite(value))
-      errors.push({ path: at, message: 'must be a finite number' })
-    else if (typeof value === 'number')
-      errors.push(...prefixed(boundErrors(value, p.minimum, p.maximum), at))
-  }
-  return errors
-}
-
-/**
- * The ruleset's rules with parameter values (defaults where unset) substituted
- * and validated. Each rule is a fresh copy, so objects a YAML alias shares in
- * the ruleset are never shared between rules.
- */
-export function resolveRuleset(
-  ruleset: Ruleset,
-  values: ParameterValues,
-  ctx: ValidationContext = {}
-): Result<Rule[]> {
-  const parameters = new Map(ruleset.parameters?.map((p) => [p.name, p]))
-  const errors = parameterValueErrors(ruleset, values)
-  if (errors.length > 0) return fail(errors)
-
-  const effective = new Map(
-    [...parameters].map(([name, p]) => [name, own(values, name) ?? p.default])
-  )
-  const rules: Rule[] = []
-  ruleset.rules.forEach((rule, i) => {
-    const at = pointer('/rules', i)
-    const substituted = walkParams(rule, at, (use) => effective.get(use.name))
-    const result = validateRule(substituted, ctx)
-    if (result.ok) rules.push(result.value)
-    else errors.push(...prefixed(result.errors, at))
-  })
-  return errors.length > 0 ? fail(errors) : { ok: true, value: rules }
 }

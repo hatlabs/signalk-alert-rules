@@ -10,14 +10,12 @@ import {
   ZONE_LEVELS,
   type Rule
 } from '../../../src/model/rule'
-import { USER_ORIGIN as MODEL_USER_ORIGIN } from '../../../src/model/ruleset'
 import {
   ANGULAR_COMBINATORS,
   POSITION_COMBINATORS,
   TWO_INPUTS,
   validateRule
 } from '../../../src/model/validate'
-import { USER_ORIGIN } from '../../../src/panel/api'
 import {
   ANGULAR_KINDS,
   COMBINATOR_KINDS,
@@ -110,11 +108,10 @@ describe('the form model mirrors the rule model', () => {
     expect([...ZONE_LEVEL_NAMES]).toEqual([...ZONE_LEVELS])
   })
 
-  it('bounds inputs, slugs and gates as the model does, under its user origin', () => {
+  it('bounds inputs, slugs and gates as the model does', () => {
     expect(MAX_INPUTS).toBe(MAX_COMBINATOR_INPUTS)
     expect(MAX_SLUG).toBe(MAX_SLUG_LENGTH)
     expect(MAX_GATES).toBe(MODEL_MAX_GATES)
-    expect(USER_ORIGIN).toBe(MODEL_USER_ORIGIN)
   })
 
   it('groups the combinators as the model does', () => {
@@ -131,6 +128,25 @@ describe('worked examples round-trip through the form', () => {
 
   it.each(examples())('%s, in display units', (_, rule) => {
     expect(saved(fromRule(rule, displayed))).toEqual(rule)
+  })
+})
+
+describe('a rule made from a template', () => {
+  it('keeps the template it records through an edit', () => {
+    const template = {
+      set: 'builtin',
+      id: 'battery-voltage-low',
+      version: '1.0.0',
+      pick: { instance: 'house' }
+    }
+    const rule = { ...example('house-battery-low'), template }
+    const form = fromRule(rule, NO_UNITS)
+    form.name = 'House bank low'
+    expect(saved(form, NO_UNITS)).toEqual({ ...rule, name: 'House bank low' })
+  })
+
+  it('records no template on a new rule', () => {
+    expect(emptyForm().template).toBeUndefined()
   })
 })
 
@@ -419,14 +435,5 @@ describe('local checks', () => {
     const form = fromRule(example('engine-stopped'), NO_UNITS)
     form.detector.matchOp = 'equals'
     expect(saved(form, NO_UNITS).latching).toBeUndefined()
-  })
-})
-
-describe('slugify', () => {
-  it('derives a valid slug from a name', () => {
-    expect(slugify('Engine RPM mismatch')).toBe('engine-rpm-mismatch')
-    expect(slugify('  Häälytys: öljy  ')).toBe('haalytys-oljy')
-    expect(slugify('x'.repeat(80))).toHaveLength(64)
-    expect(slugify('!!!')).toBe('')
   })
 })

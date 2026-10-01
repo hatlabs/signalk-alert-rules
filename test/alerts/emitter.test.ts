@@ -3,13 +3,13 @@ import { AlertEmitter, HEARTBEAT_S, type AlertValue } from '../../src/alerts/emi
 import { FakeAlertsCore } from '../helpers/FakeAlertsCore.js'
 
 const PLUGIN = 'signalk-alert-rules'
-const PATH = 'rules.user.oil-pressure-low'
+const PATH = 'rules.oil-pressure-low'
 
 const alarm: AlertValue = {
   priority: 'alarm',
   message: 'Engine oil pressure is low',
   latching: false,
-  data: { rule: 'user.oil-pressure-low' }
+  data: { rule: 'oil-pressure-low' }
 }
 
 function setup(options: { drop?: number } = {}) {

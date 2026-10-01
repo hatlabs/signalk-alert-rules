@@ -338,8 +338,8 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
       detector: { type: 'sustained', direction: 'below', limit: { kind: 'fixed', value: 100000 } }
     })
     if (!validated.ok) throw new Error(JSON.stringify(validated.errors))
-    const rules = [{ origin: 'contract', rule: validated.value }]
-    const path = 'rules.contract.oil-pressure-low'
+    const rules = [validated.value]
+    const path = 'rules.oil-pressure-low'
     running().app.handleMessage('contract-sensor', {
       updates: [{ values: [{ path: OIL as never, value: 0 }] }]
     })

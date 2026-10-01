@@ -17,6 +17,7 @@ import type {
   Priority,
   Rule,
   Signal,
+  TemplateRecord,
   ZoneLevel
 } from '../../model/rule'
 import type { FieldError } from '../api'
@@ -28,6 +29,8 @@ import {
   type UnitLookup
 } from '../signalUnits'
 import { fromSI, toSI, type DisplayUnit, type QuantityKind } from '../units'
+
+export { MAX_SLUG, slugify } from '../../templates/instantiate'
 
 // The model's own values live in modules that build the rule schema, which
 // the panel does not bundle; a test keeps these equal to them.
@@ -54,7 +57,6 @@ export const ZONE_LEVEL_NAMES = [
   'emergency'
 ] as const satisfies readonly ZoneLevel[]
 export const MAX_INPUTS = 16
-export const MAX_SLUG = 64
 export const MAX_GATES = 8
 
 export const TWO_INPUT_KINDS: ReadonlySet<CombinatorKind> = new Set([
@@ -164,6 +166,8 @@ export interface RuleForm {
   detector: DetectorForm
   gates: GateForm[]
   shown: ShownValues
+  /** The template the rule was made from, which the form does not show and an edit keeps. */
+  template?: TemplateRecord
 }
 
 const UNIT_ONE: DisplayUnit = { symbol: '', scale: 1, offset: 0, si: true }
@@ -225,18 +229,6 @@ export function emptyForm(): RuleForm {
     gates: [],
     shown: {}
   }
-}
-
-/** A slug from a name: lowercase ASCII letters and digits joined by single hyphens. */
-export function slugify(name: string): string {
-  return name
-    .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, MAX_SLUG)
-    .replace(/-+$/, '')
 }
 
 // ---- signal slots ----
@@ -498,6 +490,7 @@ export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
     latching: rule.latching === true,
     signal,
     detector: d,
+    ...(rule.template === undefined ? {} : { template: rule.template }),
     gates: (rule.gates ?? []).map((g) => gateFrom(g, units, shown)),
     shown
   }
@@ -743,7 +736,8 @@ export function toRule(form: RuleForm, units: UnitLookup): ToRuleResult {
     latching: form.latching && canLatch(form.detector) ? true : undefined,
     signal,
     detector,
-    gates: gates.length > 0 ? gates : undefined
+    gates: gates.length > 0 ? gates : undefined,
+    template: form.template
   }) as Rule
   return { ok: true, rule }
 }

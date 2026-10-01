@@ -14,7 +14,7 @@ function app(extra: Record<string, unknown> = {}) {
   }
   const alert = {
     id: 'a1',
-    path: 'rules.user.x',
+    path: 'rules.x',
     $source: 'signalk-alert-rules',
     priority: 'alarm',
     message: 'm',
@@ -40,8 +40,8 @@ describe('server adapter', () => {
   it('emits alert deltas under the alerts prefix as the plugin', () => {
     const { app: a, handled } = app()
     const deps = serverDeps(a, 'signalk-alert-rules')
-    deps.send('rules.user.x', { priority: 'alarm', message: 'm', latching: false })
-    deps.send('rules.user.x', null)
+    deps.send('rules.x', { priority: 'alarm', message: 'm', latching: false })
+    deps.send('rules.x', null)
     expect(handled).toEqual([
       {
         id: 'signalk-alert-rules',
@@ -50,7 +50,7 @@ describe('server adapter', () => {
             {
               values: [
                 {
-                  path: 'alerts.rules.user.x',
+                  path: 'alerts.rules.x',
                   value: { priority: 'alarm', message: 'm', latching: false }
                 }
               ]
@@ -60,7 +60,7 @@ describe('server adapter', () => {
       },
       {
         id: 'signalk-alert-rules',
-        delta: { updates: [{ values: [{ path: 'alerts.rules.user.x', value: null }] }] }
+        delta: { updates: [{ values: [{ path: 'alerts.rules.x', value: null }] }] }
       }
     ])
   })

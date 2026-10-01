@@ -7,7 +7,10 @@ import type { Value } from '@signalk/server-api'
 import { Application, LOG_LIMIT } from '../src/application.js'
 import type { RunnerDeps } from '../src/alerts/runner.js'
 import { serverDeps } from '../src/alerts/server.js'
+import type { Template, TemplateSet } from '../src/model/template.js'
 import { Store, type Checkpoints } from '../src/store/store.js'
+import type { DiscoveryResult } from '../src/templates/discovery.js'
+import { instantiate } from '../src/templates/instantiate.js'
 import { FakeAlertsCore } from './helpers/FakeAlertsCore.js'
 import { MockServerAPI } from './helpers/MockServerAPI.js'
 
@@ -108,18 +111,18 @@ describe('application', () => {
     expect(JSON.parse(readFileSync(join(dir, 'rules', 'coolant-high.json'), 'utf8'))).toEqual(
       coolant
     )
-    expect(application.userRules().map((r) => r.slug)).toEqual(['oil-pressure-low', 'coolant-high'])
+    expect(application.allRules().map((r) => r.slug)).toEqual(['oil-pressure-low', 'coolant-high'])
 
     // The oil rule's timer kept running across the save: it raises 5 s after
     // its value, not 5 s after the save.
     at(4)
     expect(alerts()).toEqual([])
     at(5)
-    expect(alerts()).toEqual([['rules.user.oil-pressure-low', true]])
+    expect(alerts()).toEqual([['rules.oil-pressure-low', true]])
 
     at(5, COOLANT, 380)
     at(7)
-    expect(alerts()).toContainEqual(['rules.user.coolant-high', true])
+    expect(alerts()).toContainEqual(['rules.coolant-high', true])
   })
 
   it('an edit persists and applies to the running rule', () => {
@@ -129,7 +132,7 @@ describe('application', () => {
     at(5)
     expect(application.replaceRule(oil.slug, { ...oil, message: 'Check the oil' }).ok).toBe(true)
     at(25)
-    expect(server.core.getByPath('rules.user.oil-pressure-low')?.message).toBe('Check the oil')
+    expect(server.core.getByPath('rules.oil-pressure-low')?.message).toBe('Check the oil')
     expect(new Store(dir).load().rules[0]?.value).toMatchObject({ message: 'Check the oil' })
   })
 
@@ -141,7 +144,7 @@ describe('application', () => {
       expect(result.errors.map((e) => e.path)).toContain('/priority')
     }
     expect(existsSync(join(dir, 'rules', 'oil-pressure-low.json'))).toBe(false)
-    expect(application.userRules()).toEqual([])
+    expect(application.allRules()).toEqual([])
   })
 
   it('does not apply a rule the store failed to persist', () => {
@@ -153,7 +156,7 @@ describe('application', () => {
     })
     const { application, at, alerts } = setup(failing)
     expect(() => application.createRule(oil)).toThrow(/EROFS/)
-    expect(application.userRules()).toEqual([])
+    expect(application.allRules()).toEqual([])
     at(0, OIL, 0)
     at(10)
     expect(alerts()).toEqual([])
@@ -172,8 +175,8 @@ describe('application', () => {
     expect(existsSync(join(dir, 'rules', 'oil-pressure-low.json'))).toBe(false)
     expect(new Map(alerts())).toEqual(
       new Map([
-        ['rules.user.oil-pressure-low', false],
-        ['rules.user.coolant-high', true]
+        ['rules.oil-pressure-low', false],
+        ['rules.coolant-high', true]
       ])
     )
     expect(application.deleteRule('oil-pressure-low', 'admin')).toBe(false)
@@ -189,7 +192,7 @@ describe('application', () => {
     expect(application.issues.join('\n')).toMatch(/renamed.*coolant-high/)
     at(0, OIL, 0)
     at(5)
-    expect(alerts()).toEqual([['rules.user.oil-pressure-low', true]])
+    expect(alerts()).toEqual([['rules.oil-pressure-low', true]])
 
     expect(application.deleteRule('coolant-high', 'admin')).toBe(true)
     expect(existsSync(join(dir, 'rules', 'coolant-high.json'))).toBe(false)
@@ -209,7 +212,7 @@ describe('application', () => {
     })
     const { application } = setup(failing)
     expect(application.issues).toEqual([expect.stringMatching(/coolant-high\.json.*EIO/)])
-    expect(application.userRules().map((r) => r.slug)).toEqual(['oil-pressure-low'])
+    expect(application.allRules().map((r) => r.slug)).toEqual(['oil-pressure-low'])
     expect(application.createRule(coolant)).toEqual({ ok: false, reason: 'exists' })
     expect(JSON.parse(readFileSync(join(dir, 'rules', 'coolant-high.json'), 'utf8'))).toEqual(
       coolant
@@ -221,23 +224,23 @@ describe('application', () => {
     writeFileSync(join(dir, 'accumulators.json'), '{')
     const { application } = setup()
     expect(application.issues).toEqual([expect.stringMatching(/accumulators\.json/)])
-    expect(application.userRules().map((r) => r.slug)).toEqual(['oil-pressure-low'])
+    expect(application.allRules().map((r) => r.slug)).toEqual(['oil-pressure-low'])
   })
 
   it("checkpoints running totals and keeps a skipped rule's until it is deleted", () => {
     stored(hours)
     stored({ ...hours, slug: 'genset-hours', priority: 'loud' })
     new Store(dir).saveCheckpoints({
-      'user.engine-hours': { measure: 'time', totals: { '': 100 } },
-      'user.genset-hours': { measure: 'time', totals: { '': 50 } }
+      'engine-hours': { measure: 'time', totals: { '': 100 } },
+      'genset-hours': { measure: 'time', totals: { '': 50 } }
     })
     const { application, at } = setup()
     at(0, RPM, 30)
     at(20)
     application.checkpoint()
     expect(new Store(dir).load().accumulators).toEqual({
-      'user.engine-hours': { measure: 'time', totals: { '': 120 } },
-      'user.genset-hours': { measure: 'time', totals: { '': 50 } }
+      'engine-hours': { measure: 'time', totals: { '': 120 } },
+      'genset-hours': { measure: 'time', totals: { '': 50 } }
     })
 
     application.deleteRule('genset-hours', 'admin')
@@ -268,7 +271,7 @@ describe('application', () => {
     application.checkpoint()
     expect(save).toHaveBeenCalledTimes(3)
     expect(new Store(dir).load().accumulators).toEqual({
-      'user.engine-hours': { measure: 'time', totals: { '': 20 } }
+      'engine-hours': { measure: 'time', totals: { '': 20 } }
     })
   })
 
@@ -281,16 +284,16 @@ describe('application', () => {
     at(5)
     const sent = server.core.writes
     application.stop()
-    expect(alerts()).toEqual([['rules.user.oil-pressure-low', true]])
+    expect(alerts()).toEqual([['rules.oil-pressure-low', true]])
     expect(server.core.writes).toBe(sent)
     expect(new Store(dir).load().accumulators).toEqual({
-      'user.engine-hours': { measure: 'time', totals: { '': 5 } }
+      'engine-hours': { measure: 'time', totals: { '': 5 } }
     })
   })
 })
 
 describe('application operator actions', () => {
-  const OIL_ALERT = 'rules.user.oil-pressure-low'
+  const OIL_ALERT = 'rules.oil-pressure-low'
   // Not caution: core drops a cleared caution alert, which the tests read back.
   const shortHours = { ...hours, priority: 'warning', detector: { ...hours.detector, limit: 10 } }
 
@@ -321,7 +324,7 @@ describe('application operator actions', () => {
     stored(oil)
     const server = new MockServerAPI(true, dir, new FakeAlertsCore())
     const application = new Application(serverDeps(server.asServerAPI(), PLUGIN), new Store(dir))
-    expect(application.rule('user', oil.slug)?.status).toMatchObject({
+    expect(application.rule(oil.slug)?.status).toMatchObject({
       badge: 'inactive',
       reason: 'not started'
     })
@@ -332,56 +335,53 @@ describe('application operator actions', () => {
     const { application, at } = setup()
     at(0, RPM, 30)
     at(20)
-    application.disableRule('user', hours.slug, undefined, 'admin')
+    application.disableRule(hours.slug, undefined, 'admin')
     at(50)
     expect(
       application.replaceRule(hours.slug, { ...hours, message: 'Service the engine' }).ok
     ).toBe(true)
     application.checkpoint()
     expect(new Store(dir).load().accumulators).toEqual({
-      'user.engine-hours': { measure: 'time', totals: { '': 50 } }
+      'engine-hours': { measure: 'time', totals: { '': 50 } }
     })
 
-    application.enableRule('user', hours.slug, 'admin')
+    application.enableRule(hours.slug, 'admin')
     at(70)
     application.checkpoint()
     expect(new Store(dir).load().accumulators).toEqual({
-      'user.engine-hours': { measure: 'time', totals: { '': 70 } }
+      'engine-hours': { measure: 'time', totals: { '': 70 } }
     })
   })
 
   it("an accumulator reset clears the rule's alert, zeroes its stored total and records the actor", () => {
     stored(shortHours)
-    new Store(dir).saveCheckpoints({ 'user.engine-hours': { measure: 'time', totals: { '': 8 } } })
+    new Store(dir).saveCheckpoints({ 'engine-hours': { measure: 'time', totals: { '': 8 } } })
     const { application, at, alerts } = setup()
     at(0, RPM, 30)
     at(2)
-    expect(alerts()).toEqual([['rules.user.engine-hours', true]])
+    expect(alerts()).toEqual([['rules.engine-hours', true]])
 
-    expect(application.resetAccumulator('user', 'engine-hours', 'skipper')).toBe('reset')
-    expect(alerts()).toEqual([['rules.user.engine-hours', false]])
+    expect(application.resetAccumulator('engine-hours', 'skipper')).toBe('reset')
+    expect(alerts()).toEqual([['rules.engine-hours', false]])
     expect(new Store(dir).load().accumulators).toEqual({
-      'user.engine-hours': { measure: 'time', totals: { '': 0 } }
+      'engine-hours': { measure: 'time', totals: { '': 0 } }
     })
     expect(application.log()).toEqual([
-      { at: WALL, actor: 'skipper', action: 'reset', rule: 'user.engine-hours' }
+      { at: WALL, actor: 'skipper', action: 'reset', rule: 'engine-hours' }
     ])
 
     // It keeps accumulating from zero and raises again at the limit.
     at(11)
-    expect(alerts()).toEqual([['rules.user.engine-hours', false]])
+    expect(alerts()).toEqual([['rules.engine-hours', false]])
     at(12)
-    expect(alerts()).toEqual([['rules.user.engine-hours', true]])
+    expect(alerts()).toEqual([['rules.engine-hours', true]])
   })
 
   it('refuses to reset a rule that is not an accumulator or does not exist', () => {
     stored(oil)
     const { application } = setup()
-    expect(application.resetAccumulator('user', 'oil-pressure-low', 'admin')).toBe('notAccumulator')
-    expect(application.resetAccumulator('user', 'missing', 'admin')).toBe('notFound')
-    expect(application.resetAccumulator('some-ruleset', 'oil-pressure-low', 'admin')).toBe(
-      'notFound'
-    )
+    expect(application.resetAccumulator('oil-pressure-low', 'admin')).toBe('notAccumulator')
+    expect(application.resetAccumulator('missing', 'admin')).toBe('notFound')
     expect(application.log()).toEqual([])
   })
 
@@ -390,7 +390,7 @@ describe('application operator actions', () => {
     const { application } = setup()
     application.deleteRule('oil-pressure-low', 'admin')
     expect(application.log()).toEqual([
-      { at: WALL, actor: 'admin', action: 'delete', rule: 'user.oil-pressure-low' }
+      { at: WALL, actor: 'admin', action: 'delete', rule: 'oil-pressure-low' }
     ])
     expect(new Store(dir).load().log).toEqual([...application.log()].reverse())
   })
@@ -405,7 +405,7 @@ describe('application operator actions', () => {
       throw new Error('ENOSPC: no space left on device')
     })
     expect(() => application.deleteRule(hours.slug, 'admin')).toThrow(/ENOSPC/)
-    const entry = { at: WALL, actor: 'admin', action: 'delete', rule: 'user.engine-hours' }
+    const entry = { at: WALL, actor: 'admin', action: 'delete', rule: 'engine-hours' }
     expect(application.log()).toEqual([entry])
     expect(new Store(dir).load().log).toEqual([entry])
   })
@@ -419,8 +419,8 @@ describe('application operator actions', () => {
     vi.spyOn(store, 'saveCheckpoints').mockImplementation(() => {
       throw new Error('ENOSPC: no space left on device')
     })
-    expect(() => application.resetAccumulator('user', hours.slug, 'admin')).toThrow(/ENOSPC/)
-    const entry = { at: WALL, actor: 'admin', action: 'reset', rule: 'user.engine-hours' }
+    expect(() => application.resetAccumulator(hours.slug, 'admin')).toThrow(/ENOSPC/)
+    const entry = { at: WALL, actor: 'admin', action: 'reset', rule: 'engine-hours' }
     expect(application.log()).toEqual([entry])
     expect(new Store(dir).load().log).toEqual([entry])
   })
@@ -430,8 +430,8 @@ describe('application operator actions', () => {
     stored(oil)
     const { application } = setup(new Store(dir, { ...fs, fsyncSync: () => undefined }))
     for (let i = 0; i < LOG_LIMIT + 5; i++) {
-      if (i % 2 === 0) application.disableRule('user', oil.slug, undefined, 'admin')
-      else application.enableRule('user', oil.slug, 'admin')
+      if (i % 2 === 0) application.disableRule(oil.slug, undefined, 'admin')
+      else application.enableRule(oil.slug, 'admin')
     }
     const log = application.log()
     expect(log).toHaveLength(LOG_LIMIT)
@@ -466,7 +466,7 @@ describe('application operator actions', () => {
       }
     })
     // A preview changes nothing.
-    expect(application.userRules()[0]).toMatchObject({ detector: { type: 'sustained' } })
+    expect(application.allRules()[0]).toMatchObject({ detector: { type: 'sustained' } })
   })
 
   it('a structural edit of a rule without an active alert restarts it and clears nothing', () => {
@@ -495,12 +495,12 @@ describe('application operator actions', () => {
     }
     stored(battery)
     const core = new FakeAlertsCore()
-    const alert = 'rules.user.house-battery-low'
+    const alert = 'rules.house-battery-low'
     core.ingest(PLUGIN, alert, { priority: 'warning', message: 'x', latching: false })
     const { application } = setup(undefined, core, () => {
       throw new Error('meta unreadable')
     })
-    expect(application.rule('user', battery.slug)?.status.badge).toBe('errored')
+    expect(application.rule(battery.slug)?.status.badge).toBe('errored')
 
     const reworded = { ...battery, message: 'Check the battery' }
     expect(application.previewRule(battery.slug, reworded)).toEqual({
@@ -543,22 +543,21 @@ describe('application operator actions', () => {
     })
   })
 
-  it('lists every rule with its origin, slug and status', () => {
+  it('lists every rule with its slug and status', () => {
     stored(oil)
     const { application, at } = setup()
     at(0, OIL, 0)
     at(5)
     const [entry] = application.rules()
-    expect(entry).toMatchObject({ origin: 'user', slug: 'oil-pressure-low', rule: oil })
+    expect(entry).toMatchObject({ slug: 'oil-pressure-low', rule: oil })
     expect(entry.status.badge).toBe('alertActive')
-    expect(application.rule('user', 'oil-pressure-low')?.status.badge).toBe('alertActive')
-    expect(application.rule('user', 'missing')).toBeUndefined()
-    expect(application.rule('ruleset', 'oil-pressure-low')).toBeUndefined()
+    expect(application.rule('oil-pressure-low')?.status.badge).toBe('alertActive')
+    expect(application.rule('missing')).toBeUndefined()
   })
 })
 
 describe('application accumulator totals across edits', () => {
-  const ID = 'user.engine-hours'
+  const ID = 'engine-hours'
   const total = () => {
     const totals: Partial<Checkpoints> = new Store(dir).load().accumulators
     return totals[ID]?.totals['']
@@ -628,7 +627,7 @@ describe('application accumulator totals across edits', () => {
 
     const { application } = setup()
 
-    expect(application.rule('user', hours.slug)?.status.instances).toMatchObject([
+    expect(application.rule(hours.slug)?.status.instances).toMatchObject([
       { progress: { total: 0 } }
     ])
     application.checkpoint()
@@ -691,12 +690,12 @@ describe('application accumulator totals across edits', () => {
     const { application, at } = setup()
     at(0, RPM, 30)
     at(10)
-    application.resetAccumulator('user', hours.slug, 'admin')
+    application.resetAccumulator(hours.slug, 'admin')
     at(10, RPM, 30)
     expect(application.previewRule(hours.slug, integral)).toMatchObject({
       value: { discardsTotal: false }
     })
-    application.disableRule('user', hours.slug, undefined, 'admin')
+    application.disableRule(hours.slug, undefined, 'admin')
     expect(application.previewRule(hours.slug, integral)).toMatchObject({
       value: { discardsTotal: false }
     })
@@ -719,7 +718,7 @@ describe('application accumulator totals across edits', () => {
       value: { discardsTotal: false }
     })
 
-    application.disableRule('user', hours.slug, undefined, 'admin')
+    application.disableRule(hours.slug, undefined, 'admin')
     expect(application.previewRule(hours.slug, integral)).toMatchObject({
       value: { discardsTotal: true }
     })
@@ -730,8 +729,8 @@ describe('application accumulator totals across edits', () => {
 })
 
 describe('disable and enable', () => {
-  const OIL_ALERT = 'rules.user.oil-pressure-low'
-  const ID = 'user.oil-pressure-low'
+  const OIL_ALERT = 'rules.oil-pressure-low'
+  const ID = 'oil-pressure-low'
   const disabledAt = (note?: string) => ({
     since: WALL,
     actor: 'skipper',
@@ -745,9 +744,9 @@ describe('disable and enable', () => {
     at(5)
     expect(alerts()).toEqual([[OIL_ALERT, true]])
 
-    expect(application.disableRule('user', oil.slug, 'paddlewheel fouled', 'skipper')).toBe('ok')
+    expect(application.disableRule(oil.slug, 'paddlewheel fouled', 'skipper')).toBe('ok')
     expect(alerts()).toEqual([[OIL_ALERT, false]])
-    expect(application.rule('user', oil.slug)).toMatchObject({
+    expect(application.rule(oil.slug)).toMatchObject({
       disabled: disabledAt('paddlewheel fouled'),
       status: { badge: 'disabled' }
     })
@@ -762,17 +761,17 @@ describe('disable and enable', () => {
   it('a disabled rule keeps evaluating, raises nothing and reports its condition present', () => {
     stored(oil)
     const { application, at, alerts } = setup()
-    application.disableRule('user', oil.slug, undefined, 'skipper')
+    application.disableRule(oil.slug, undefined, 'skipper')
     at(0, OIL, 0)
     at(100)
     expect(alerts()).toEqual([])
-    expect(application.rule('user', oil.slug)?.status.instances[0]).toMatchObject({
+    expect(application.rule(oil.slug)?.status.instances[0]).toMatchObject({
       badge: 'disabled',
       conditionPresent: true
     })
     at(110, OIL, 200000)
     at(170)
-    expect(application.rule('user', oil.slug)?.status.instances[0]).toMatchObject({
+    expect(application.rule(oil.slug)?.status.instances[0]).toMatchObject({
       conditionPresent: false,
       clearedFor: 60
     })
@@ -783,12 +782,12 @@ describe('disable and enable', () => {
     const { application, at, alerts, server } = setup()
     at(0, OIL, 0)
     at(5)
-    application.disableRule('user', oil.slug, undefined, 'skipper')
+    application.disableRule(oil.slug, undefined, 'skipper')
     at(10)
-    expect(application.enableRule('user', oil.slug, 'skipper')).toBe('ok')
+    expect(application.enableRule(oil.slug, 'skipper')).toBe('ok')
     expect(alerts()).toEqual([[OIL_ALERT, true]])
     expect(server.core.alertings).toBe(2)
-    expect(application.rule('user', oil.slug)?.disabled).toBeUndefined()
+    expect(application.rule(oil.slug)?.disabled).toBeUndefined()
     expect(new Store(dir).load().controls.rules).toEqual({})
     expect(application.log().map((e) => e.action)).toEqual(['enable', 'disable'])
   })
@@ -796,10 +795,10 @@ describe('disable and enable', () => {
   it('enabling while the condition is clear raises nothing', () => {
     stored(oil)
     const { application, at, alerts } = setup()
-    application.disableRule('user', oil.slug, undefined, 'skipper')
+    application.disableRule(oil.slug, undefined, 'skipper')
     at(0, OIL, 200000)
     at(10)
-    application.enableRule('user', oil.slug, 'skipper')
+    application.enableRule(oil.slug, 'skipper')
     at(20)
     expect(alerts()).toEqual([])
   })
@@ -807,29 +806,28 @@ describe('disable and enable', () => {
   it('disabling a disabled rule replaces its record; enabling an enabled one does nothing', () => {
     stored(oil)
     const { application } = setup()
-    expect(application.enableRule('user', oil.slug, 'skipper')).toBe('ok')
+    expect(application.enableRule(oil.slug, 'skipper')).toBe('ok')
     expect(application.log()).toEqual([])
     expect(existsSync(join(dir, 'controls.json'))).toBe(false)
-    application.disableRule('user', oil.slug, 'fouled', 'skipper')
-    application.disableRule('user', oil.slug, undefined, 'skipper')
-    expect(application.rule('user', oil.slug)?.disabled).toEqual(disabledAt())
+    application.disableRule(oil.slug, 'fouled', 'skipper')
+    application.disableRule(oil.slug, undefined, 'skipper')
+    expect(application.rule(oil.slug)?.disabled).toEqual(disabledAt())
     expect(application.log()).toHaveLength(2)
   })
 
   it('an empty note is no note', () => {
     stored(oil)
     const { application } = setup()
-    application.disableRule('user', oil.slug, '', 'skipper')
-    expect(application.rule('user', oil.slug)?.disabled).toEqual(disabledAt())
+    application.disableRule(oil.slug, '', 'skipper')
+    expect(application.rule(oil.slug)?.disabled).toEqual(disabledAt())
     expect(application.log()[0]).not.toHaveProperty('note')
   })
 
   it('an unknown rule is not found and nothing is recorded', () => {
     stored(oil)
     const { application } = setup()
-    expect(application.disableRule('user', 'missing', undefined, 'skipper')).toBe('notFound')
-    expect(application.disableRule('some-ruleset', oil.slug, undefined, 'skipper')).toBe('notFound')
-    expect(application.enableRule('user', 'missing', 'skipper')).toBe('notFound')
+    expect(application.disableRule('missing', undefined, 'skipper')).toBe('notFound')
+    expect(application.enableRule('missing', 'skipper')).toBe('notFound')
     expect(application.log()).toEqual([])
     expect(existsSync(join(dir, 'controls.json'))).toBe(false)
   })
@@ -839,7 +837,7 @@ describe('disable and enable', () => {
     const first = setup()
     first.at(0, OIL, 0)
     first.at(5)
-    first.application.disableRule('user', oil.slug, 'paddlewheel fouled', 'skipper')
+    first.application.disableRule(oil.slug, 'paddlewheel fouled', 'skipper')
     first.application.stop()
 
     const second = setup(new Store(dir), first.server.core)
@@ -847,7 +845,7 @@ describe('disable and enable', () => {
     second.at(100)
     expect(second.alerts()).toEqual([[OIL_ALERT, false]])
     expect(first.server.core.alertings).toBe(1)
-    expect(second.application.rule('user', oil.slug)).toMatchObject({
+    expect(second.application.rule(oil.slug)).toMatchObject({
       disabled: disabledAt('paddlewheel fouled'),
       status: { badge: 'disabled', instances: [{ conditionPresent: true }] }
     })
@@ -856,13 +854,13 @@ describe('disable and enable', () => {
   it('editing a disabled rule keeps it disabled, with its note', () => {
     stored(oil)
     const { application, at, alerts } = setup()
-    application.disableRule('user', oil.slug, 'paddlewheel fouled', 'skipper')
+    application.disableRule(oil.slug, 'paddlewheel fouled', 'skipper')
     const structural = { ...oil, detector: { ...oil.detector, direction: 'above' } }
     expect(application.replaceRule(oil.slug, structural).ok).toBe(true)
     at(0, OIL, 200000)
     at(10)
     expect(alerts()).toEqual([])
-    expect(application.rule('user', oil.slug)).toMatchObject({
+    expect(application.rule(oil.slug)).toMatchObject({
       disabled: disabledAt('paddlewheel fouled'),
       status: { badge: 'disabled', instances: [{ conditionPresent: true }] }
     })
@@ -871,7 +869,7 @@ describe('disable and enable', () => {
   it('deleting a rule deletes its disabled record, so a new rule with its slug starts enabled', () => {
     stored(oil)
     const { application, at, alerts } = setup()
-    application.disableRule('user', oil.slug, undefined, 'skipper')
+    application.disableRule(oil.slug, undefined, 'skipper')
     application.deleteRule(oil.slug, 'skipper')
     expect(new Store(dir).load().controls).toEqual({ rules: {} })
     expect(application.createRule(oil).ok).toBe(true)
@@ -906,7 +904,7 @@ describe('pinned sources', () => {
     s.at(0)
     s.server.subscriptionmanager.publish(COOLANT, 'can0.10', 390)
     s.at(3)
-    expect(s.alerts()).toEqual([['rules.user.coolant-high', true]])
+    expect(s.alerts()).toEqual([['rules.coolant-high', true]])
   })
 
   it('an edit is stored in CAN name form too', () => {
@@ -915,6 +913,21 @@ describe('pinned sources', () => {
     withDevice(s.server)
     expect(s.application.replaceRule(coolant.slug, pinned('can0.10')).ok).toBe(true)
     expect(storedSignal()).toEqual({ path: COOLANT, source: CANONICAL })
+  })
+
+  it('a rule made from a template with an address form source pick is stored in CAN name form', () => {
+    const s = setup()
+    withDevice(s.server)
+    const { slug: _slug, ...rule } = coolant
+    const made = instantiate(
+      { id: 'builtin', version: '1' },
+      { id: coolant.slug, open: ['source'], rule },
+      { source: 'can0.10' }
+    )
+    if (!made.ok) throw new Error('instantiation failed')
+    expect(s.application.createRule(made.value).ok).toBe(true)
+    expect(storedSignal()).toEqual({ path: COOLANT, source: CANONICAL })
+    expect(s.application.rule(coolant.slug)?.rule.template?.pick).toEqual({ source: CANONICAL })
   })
 
   it('a source without a CAN name is stored as it is', () => {
@@ -936,7 +949,7 @@ describe('pinned sources', () => {
     s.server.subscriptionmanager.publish(COOLANT, 'can0.11', 390)
     s.at(3)
     expect(s.alerts()).toEqual([])
-    expect(s.application.rule('user', coolant.slug)?.status.badge).toBe('neverSeen')
+    expect(s.application.rule(coolant.slug)?.status.badge).toBe('neverSeen')
   })
 
   it('an edit of a rule stored in address form is not structural for the change of form alone', () => {
@@ -946,7 +959,7 @@ describe('pinned sources', () => {
     s.at(0)
     s.server.subscriptionmanager.publish(COOLANT, 'can0.10', 390)
     s.at(3)
-    expect(s.alerts()).toEqual([['rules.user.coolant-high', true]])
+    expect(s.alerts()).toEqual([['rules.coolant-high', true]])
 
     const edited = { ...pinned('can0.10'), message: 'Coolant is hot' }
     expect(s.application.previewRule(coolant.slug, edited)).toEqual({
@@ -961,7 +974,7 @@ describe('pinned sources', () => {
     })
     expect(s.application.replaceRule(coolant.slug, edited).ok).toBe(true)
     expect(storedSignal()).toEqual({ path: COOLANT, source: CANONICAL })
-    expect(s.alerts()).toEqual([['rules.user.coolant-high', true]])
+    expect(s.alerts()).toEqual([['rules.coolant-high', true]])
   })
 
   it('a gate pinned to a CAN name reads the address form of that device', () => {
@@ -982,6 +995,139 @@ describe('pinned sources', () => {
     s.at(0)
     s.server.subscriptionmanager.publish(RPM, 'can0.10', 70)
     s.at(1, COOLANT, 390)
-    expect(s.alerts()).toEqual([['rules.user.coolant-high', true]])
+    expect(s.alerts()).toEqual([['rules.coolant-high', true]])
+  })
+})
+
+describe('templates', () => {
+  function template(id: string): Template {
+    return {
+      id,
+      open: ['instance'],
+      rule: {
+        name: `${id} \${instance}`,
+        message: id,
+        priority: 'warning',
+        signal: { path: `electrical.batteries.\${instance}.${id}` },
+        detector: { type: 'sustained', direction: 'below', limit: { kind: 'fixed', value: 1 } }
+      }
+    }
+  }
+
+  function set(id: string, version: string, templates: string[]): TemplateSet {
+    return { name: id, id, version, templates: templates.map(template) }
+  }
+
+  function withSets(found: { current: DiscoveryResult }, store = new Store(dir)) {
+    const server = new MockServerAPI(true, dir, new FakeAlertsCore())
+    const deps = {
+      ...serverDeps(server.asServerAPI(), PLUGIN),
+      clock: () => 0,
+      wallClock: () => new Date(WALL)
+    }
+    const application = new Application(deps, store, () => found.current)
+    application.start()
+    return application
+  }
+
+  const problem = { source: 'file broken.yaml', message: '/id: is required' }
+
+  it('lists each set with its templates, all new, and the sets that failed to load', () => {
+    const found: { current: DiscoveryResult } = {
+      current: {
+        sets: [
+          { source: 'built-in', set: set('builtin', '1.0.0', ['voltage-low']) },
+          {
+            source: 'package some-templates',
+            package: { name: 'some-templates', version: '2.0.0' },
+            set: { ...set('extra', '2.0.0', ['current-high']), description: 'More' }
+          }
+        ],
+        problems: [problem]
+      }
+    }
+    expect(withSets(found).templates()).toEqual({
+      sets: [
+        {
+          id: 'builtin',
+          name: 'builtin',
+          version: '1.0.0',
+          source: 'built-in',
+          templates: [template('voltage-low')],
+          new: ['voltage-low']
+        },
+        {
+          id: 'extra',
+          name: 'extra',
+          version: '2.0.0',
+          description: 'More',
+          source: 'package some-templates',
+          package: { name: 'some-templates', version: '2.0.0' },
+          templates: [template('current-high')],
+          new: ['current-high']
+        }
+      ],
+      problems: [problem]
+    })
+  })
+
+  it('dismissing marks the current templates seen, for good; an update makes only its additions new', () => {
+    const found: { current: DiscoveryResult } = {
+      current: {
+        sets: [{ source: 'built-in', set: set('builtin', '1', ['a', 'b']) }],
+        problems: []
+      }
+    }
+    const application = withSets(found)
+    expect(application.dismissTemplates().sets.map((s) => s.new)).toEqual([[]])
+    found.current = {
+      sets: [{ source: 'built-in', set: set('builtin', '2', ['a', 'b', 'c']) }],
+      problems: []
+    }
+    expect(
+      withSets(found)
+        .templates()
+        .sets.map((s) => s.new)
+    ).toEqual([['c']])
+  })
+
+  it('a set that does not load while dismissing keeps its templates seen', () => {
+    const found: { current: DiscoveryResult } = {
+      current: { sets: [{ source: 'built-in', set: set('builtin', '1', ['a']) }], problems: [] }
+    }
+    const application = withSets(found)
+    application.dismissTemplates()
+    found.current = { sets: [], problems: [problem] }
+    application.dismissTemplates()
+    found.current = {
+      sets: [{ source: 'built-in', set: set('builtin', '1', ['a']) }],
+      problems: []
+    }
+    expect(application.templates().sets.map((s) => s.new)).toEqual([[]])
+  })
+
+  it('dismissing with nothing new writes nothing', () => {
+    const found: { current: DiscoveryResult } = { current: { sets: [], problems: [] } }
+    const application = withSets(found)
+    application.dismissTemplates()
+    expect(existsSync(join(dir, 'controls.json'))).toBe(false)
+  })
+
+  it('templates never affect the rules: a rule made from one runs whatever the sets do', () => {
+    const found: { current: DiscoveryResult } = {
+      current: {
+        sets: [{ source: 'built-in', set: set('builtin', '1', ['voltage']) }],
+        problems: []
+      }
+    }
+    const application = withSets(found)
+    const rule = {
+      ...oil,
+      template: { set: 'builtin', id: 'voltage', version: '1', pick: { instance: 'house' } }
+    }
+    expect(application.createRule(rule).ok).toBe(true)
+    found.current = { sets: [], problems: [] }
+    expect(application.templates().sets).toEqual([])
+    expect(application.rule(oil.slug)?.rule).toEqual(rule)
   })
 })

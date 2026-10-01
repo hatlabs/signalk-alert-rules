@@ -9,8 +9,6 @@ import { signalMeasure, type Measure, type UnitLookup } from '../signalUnits'
 import { fromSI } from '../units'
 import { BADGE_LOOK } from './StatusBadge'
 
-export { USER_ORIGIN } from '../api'
-
 /** The longest note the server accepts with a disable. */
 export const MAX_NOTE_LENGTH = 500
 
@@ -21,11 +19,6 @@ export function plural(count: number, noun: string): string {
 /** The alerts a rule holds now, as its status reports them. */
 export function activeCount(entry: RuleEntry): number {
   return entry.status.instances.filter((i) => i.active === true).length
-}
-
-/** A rule's name, or its origin and slug where the rules as last read do not have it. */
-export function ruleName(rules: RuleEntry[], origin: string, slug: string): string {
-  return rules.find((r) => r.origin === origin && r.slug === slug)?.rule.name ?? `${origin}/${slug}`
 }
 
 export function instanceName(i: InstanceStatus): string {

@@ -5,7 +5,7 @@ import { parseAlertPath, type ParsedAlertPath } from './paths.js'
 
 export interface KeptAlert {
   alert: CoreAlert
-  ruleId: string
+  slug: string
   segment?: string
 }
 
@@ -50,7 +50,7 @@ export function reconcile(
   for (const alert of alerts) {
     const parsed = ownedActiveAlert(alert, pluginId)
     if (parsed === undefined) continue
-    const rule = rules.get(parsed.ruleId)
+    const rule = rules.get(parsed.slug)
     if (
       rule === undefined ||
       rule.latching === true ||
@@ -61,10 +61,7 @@ export function reconcile(
     }
     result.kept.push({ alert, ...parsed })
     const adopted: Adopted = parsed.segment === undefined ? {} : { segment: parsed.segment }
-    result.activeByRule.set(parsed.ruleId, [
-      ...(result.activeByRule.get(parsed.ruleId) ?? []),
-      adopted
-    ])
+    result.activeByRule.set(parsed.slug, [...(result.activeByRule.get(parsed.slug) ?? []), adopted])
   }
   return result
 }

@@ -1,14 +1,11 @@
 import { useEffect, useId, useRef, useState, type Ref } from 'react'
-import { USER_ORIGIN, type PanelApi, type RuleEntry } from './api'
+import type { PanelApi, RuleEntry } from './api'
 import { EditRule } from './editor/EditRule'
 import { RuleEditor } from './editor/RuleEditor'
 import type { PathSource } from './paths/selfPaths'
-import { Confirm } from './rules/Confirm'
 import { RuleDetail } from './rules/RuleDetail'
 import { hashWithRule, parseRuleFragment, type RuleRef } from './rules/ruleLink'
 import { RulesView } from './rules/RulesView'
-import type { RulesetsApi } from './rulesets/api'
-import { RulesetsView } from './rulesets/RulesetsView'
 import {
   pollDelay,
   probe,
@@ -19,16 +16,8 @@ import {
 } from './shellState'
 import { useUnits } from './signalUnits'
 
-const TABS = [
-  { id: 'rules', label: 'Rules' },
-  { id: 'rulesets', label: 'Rulesets' }
-] as const
-
-type Tab = (typeof TABS)[number]['id']
-
 export interface ShellProps {
   api: PanelApi
-  rulesets: RulesetsApi
   /** The server's paths and their units, for display units and the path picker. */
   paths: PathSource
 }
@@ -153,8 +142,8 @@ function Condition({ view, stale, checkAgain }: ConditionProps) {
 }
 
 /**
- * A link to a rule that is not listed: deleted, renamed, from a ruleset no
- * longer installed, or a stored rule that no longer validates.
+ * A link to a rule that is not listed: deleted, renamed, or a stored rule
+ * that no longer validates.
  */
 function RuleNotFound({
   ruleRef,
@@ -170,10 +159,7 @@ function RuleNotFound({
       <h3 ref={headingRef} tabIndex={-1} className="h5">
         Rule not found
       </h3>
-      <p>
-        There is no rule {ruleRef.origin}/{ruleRef.slug}. It may have been deleted, or it no longer
-        validates.
-      </p>
+      <p>There is no rule {ruleRef.slug}. It may have been deleted, or it no longer validates.</p>
       <a href={backHref}>
         <span aria-hidden="true">←</span> All rules
       </a>
@@ -203,11 +189,9 @@ function LoadIssues({ issues }: { issues: string[] }) {
 }
 
 function NoRules({
-  browseRulesets,
   onNew,
   someNotLoaded
 }: {
-  browseRulesets: () => void
   onNew: () => void
   /** Stored rules may exist that did not load, so "none yet" would be untrue. */
   someNotLoaded: boolean
@@ -215,24 +199,18 @@ function NoRules({
   return (
     <div className="skar-empty">
       <p>{someNotLoaded ? 'No alert rule is listed.' : 'There are no alert rules yet.'}</p>
-      <p>Create a rule, or enable a ruleset shipped by an installed package.</p>
-      <button type="button" className="btn btn-primary me-2" onClick={onNew}>
+      <button type="button" className="btn btn-primary" onClick={onNew}>
         New rule
-      </button>
-      <button type="button" className="btn btn-outline-secondary" onClick={browseRulesets}>
-        Browse rulesets
       </button>
     </div>
   )
 }
 
 /**
- * The location hash, kept current, and a way to change it. The admin UI's
- * router owns the hash, and the panel reads its own fragment after it (see
- * rules/ruleLink.ts). A change the panel makes shows in the same render as
- * the state changed with it, not a hashchange later.
+ * The location hash, kept current. The admin UI's router owns the hash, and
+ * the panel reads its own fragment after it (see rules/ruleLink.ts).
  */
-function useLocationHash(): [string, (next: string) => void] {
+function useLocationHash(): string {
   const [hash, setHash] = useState(() => window.location.hash)
   useEffect(() => {
     const update = () => {
@@ -245,18 +223,11 @@ function useLocationHash(): [string, (next: string) => void] {
       window.removeEventListener('popstate', update)
     }
   }, [])
-  return [
-    hash,
-    (next) => {
-      window.location.hash = next
-      setHash(window.location.hash)
-    }
-  ]
+  return hash
 }
 
 interface ViewsProps {
   api: PanelApi
-  rulesets: RulesetsApi
   view: ReadyView
   paths: PathSource
   /** Probes again at once, so the views show the outcome of an action. */
@@ -264,33 +235,21 @@ interface ViewsProps {
 }
 
 /** What the authoring form is open on. */
-type EditorTarget = { kind: 'new' } | { kind: 'edit'; origin: string; slug: string }
+type EditorTarget = { kind: 'new' } | { kind: 'edit'; slug: string }
 
-function Views({ api, rulesets, view, paths, refresh }: ViewsProps) {
+function Views({ api, view, paths, refresh }: ViewsProps) {
   const { rules, issues } = view
-  const { units, paths: pathList } = useUnits(paths)
-  // The ruleset a rule's detail view opened the Rulesets view on.
-  const [shownRuleset, setShownRuleset] = useState<string | undefined>(undefined)
+  const { units } = useUnits(paths)
   const [editor, setEditor] = useState<EditorTarget | undefined>(undefined)
-  const [dirty, setDirty] = useState(false)
-  const [pendingTab, setPendingTab] = useState<Tab | undefined>(undefined)
   // Shown until the list, refreshed after the save, has the rule.
   const [justSaved, setJustSaved] = useState<RuleEntry | undefined>(undefined)
-  const [tab, setTab] = useState<Tab>('rules')
-  const current = TABS.find((t) => t.id === tab) ?? TABS[0]
-  const [hash, setLocationHash] = useLocationHash()
+  const hash = useLocationHash()
   const ref = parseRuleFragment(hash)
-
-  // A rule link opens the rule wherever the operator was.
-  useEffect(() => {
-    if (ref !== undefined) setTab('rules')
-  }, [ref?.origin, ref?.slug, ref?.instance])
 
   // Switching between the list and a rule replaces the view that held focus,
   // which would otherwise drop to the page body; focus moves to the new
   // view's heading instead. Not on first load, which must not steal focus
-  // from the admin UI, and only once the rules tab shows, which a link from
-  // another tab opens a render later.
+  // from the admin UI.
   const heading = useRef<HTMLHeadingElement | null>(null)
   // An instance link focuses the instance's row instead, when the rule has it.
   const instanceRow = useRef<HTMLTableRowElement | null>(null)
@@ -300,10 +259,10 @@ function Views({ api, rulesets, view, paths, refresh }: ViewsProps) {
     editor !== undefined
       ? editor.kind === 'new'
         ? 'new'
-        : `edit ${editor.origin}/${editor.slug}`
+        : `edit ${editor.slug}`
       : ref === undefined
         ? ''
-        : `${ref.origin}/${ref.slug}#${ref.instance ?? ''}`
+        : `${ref.slug}#${ref.instance ?? ''}`
   const focusedKey = useRef(viewKey)
   const focusPending = useRef(false)
   useEffect(() => {
@@ -311,7 +270,7 @@ function Views({ api, rulesets, view, paths, refresh }: ViewsProps) {
       focusedKey.current = viewKey
       focusPending.current = true
     }
-    if (focusPending.current && tab === 'rules') {
+    if (focusPending.current) {
       focusPending.current = false
       ;(instanceRow.current ?? heading.current)?.focus()
     }
@@ -319,70 +278,32 @@ function Views({ api, rulesets, view, paths, refresh }: ViewsProps) {
 
   const closeEditor = () => {
     setEditor(undefined)
-    setDirty(false)
-  }
-
-  const showTab = (next: Tab) => {
-    closeEditor()
-    setShownRuleset(undefined)
-    setTab(next)
-    // A rule link that the hash already names would otherwise change nothing when followed.
-    // The operator chose the tab, so the list this leaves behind must not take focus later.
-    if (next !== 'rules' && ref !== undefined) {
-      focusedKey.current = ''
-      setLocationHash(hashWithRule(hash))
-    }
-  }
-
-  const selectTab = (next: Tab) => {
-    if (editor !== undefined && dirty) {
-      setPendingTab(next)
-      return
-    }
-    showTab(next)
   }
 
   const saved = (entry: RuleEntry) => {
     closeEditor()
     setJustSaved(entry)
     refresh()
-    window.location.hash = hashWithRule(hash, { origin: entry.origin, slug: entry.slug })
+    window.location.hash = hashWithRule(hash, { slug: entry.slug })
   }
 
   const editorView = (target: EditorTarget) => {
     if (target.kind === 'new') {
-      return (
-        <RuleEditor
-          api={api}
-          paths={paths}
-          onSaved={saved}
-          onClose={closeEditor}
-          onDirtyChange={setDirty}
-        />
-      )
+      return <RuleEditor api={api} paths={paths} onSaved={saved} onClose={closeEditor} />
     }
-    const entry = rules.find((r) => r.origin === target.origin && r.slug === target.slug)
+    const entry = rules.find((r) => r.slug === target.slug)
     if (entry === undefined) {
       return <RuleNotFound ruleRef={target} backHref={hashWithRule(hash)} headingRef={heading} />
     }
-    return (
-      <EditRule
-        api={api}
-        paths={paths}
-        entry={entry}
-        onSaved={saved}
-        onClose={closeEditor}
-        onDirtyChange={setDirty}
-      />
-    )
+    return <EditRule api={api} paths={paths} entry={entry} onSaved={saved} onClose={closeEditor} />
   }
 
-  const rulesTab = () => {
+  const content = () => {
     if (editor !== undefined) return editorView(editor)
     if (ref !== undefined) {
       const entry =
-        rules.find((r) => r.origin === ref.origin && r.slug === ref.slug) ??
-        (justSaved?.origin === ref.origin && justSaved.slug === ref.slug ? justSaved : undefined)
+        rules.find((r) => r.slug === ref.slug) ??
+        (justSaved?.slug === ref.slug ? justSaved : undefined)
       const backHref = hashWithRule(hash)
       if (entry === undefined) {
         return <RuleNotFound ruleRef={ref} backHref={backHref} headingRef={heading} />
@@ -395,37 +316,25 @@ function Views({ api, rulesets, view, paths, refresh }: ViewsProps) {
           units={units}
           instance={ref.instance}
           instanceRef={instanceRow}
-          edit={
-            entry.origin === USER_ORIGIN
-              ? () => {
-                  setEditor({ kind: 'edit', origin: entry.origin, slug: entry.slug })
-                }
-              : undefined
-          }
+          edit={() => {
+            setEditor({ kind: 'edit', slug: entry.slug })
+          }}
           reset={async () => {
-            await api.resetAccumulator(entry.origin, entry.slug)
+            await api.resetAccumulator(entry.slug)
             refresh()
           }}
           disable={async (note) => {
-            await api.disableRule(entry.origin, entry.slug, note)
+            await api.disableRule(entry.slug, note)
             refresh()
           }}
           enable={async () => {
-            await api.enableRule(entry.origin, entry.slug)
+            await api.enableRule(entry.slug)
             refresh()
           }}
-          openRuleset={
-            entry.ruleset === undefined
-              ? undefined
-              : () => {
-                  showTab('rulesets')
-                  setShownRuleset(entry.origin)
-                }
-          }
         />
       )
     }
-    // The tab already names the list for sighted users; this heading is where focus lands.
+    // The admin UI's page title names the list for sighted users; this heading is where focus lands.
     const listHeading = (
       <h3 ref={heading} tabIndex={-1} className="visually-hidden">
         All rules
@@ -441,9 +350,6 @@ function Views({ api, rulesets, view, paths, refresh }: ViewsProps) {
             onNew={() => {
               setEditor({ kind: 'new' })
             }}
-            browseRulesets={() => {
-              setTab('rulesets')
-            }}
           />
         </>
       )
@@ -454,7 +360,7 @@ function Views({ api, rulesets, view, paths, refresh }: ViewsProps) {
         <LoadIssues issues={issues} />
         <RulesView
           rules={rules}
-          ruleHref={(origin, slug) => hashWithRule(hash, { origin, slug })}
+          ruleHref={(slug) => hashWithRule(hash, { slug })}
           onNew={() => {
             setEditor({ kind: 'new' })
           }}
@@ -463,59 +369,10 @@ function Views({ api, rulesets, view, paths, refresh }: ViewsProps) {
     )
   }
 
-  return (
-    <>
-      <ul className="nav nav-tabs" role="tablist">
-        {TABS.map((t) => (
-          <li className="nav-item" key={t.id} role="presentation">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={t.id === tab}
-              className={t.id === tab ? 'nav-link active' : 'nav-link'}
-              onClick={() => {
-                selectTab(t.id)
-              }}
-            >
-              {t.label}
-            </button>
-          </li>
-        ))}
-      </ul>
-      {pendingTab !== undefined && (
-        <Confirm
-          title="Leave the rule form?"
-          confirmLabel="Discard changes"
-          onConfirm={() => {
-            showTab(pendingTab)
-            setPendingTab(undefined)
-            return Promise.resolve()
-          }}
-          onCancel={() => {
-            setPendingTab(undefined)
-          }}
-        >
-          <p className="mb-0">The changes to the rule have not been saved.</p>
-        </Confirm>
-      )}
-      <div role="tabpanel" aria-label={current.label} className="skar-view">
-        {tab === 'rules' && rulesTab()}
-        {tab === 'rulesets' && (
-          <RulesetsView
-            api={rulesets}
-            rules={rules}
-            paths={pathList}
-            ruleHref={(origin, slug) => hashWithRule(hash, { origin, slug })}
-            refresh={refresh}
-            focusSlug={shownRuleset}
-          />
-        )}
-      </div>
-    </>
-  )
+  return <div className="skar-view">{content()}</div>
 }
 
-export function Shell({ api, rulesets, paths }: ShellProps) {
+export function Shell({ api, paths }: ShellProps) {
   const [snapshot, ready, checkAgain] = useSnapshot(api)
   const { view, securityEnabled } = snapshot
 
@@ -527,9 +384,7 @@ export function Shell({ api, rulesets, paths }: ShellProps) {
         stale={ready !== undefined && view.kind !== 'ready'}
         checkAgain={checkAgain}
       />
-      {ready !== undefined && (
-        <Views api={api} rulesets={rulesets} view={ready} paths={paths} refresh={checkAgain} />
-      )}
+      {ready !== undefined && <Views api={api} view={ready} paths={paths} refresh={checkAgain} />}
     </div>
   )
 }

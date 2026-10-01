@@ -129,10 +129,10 @@ describe('plugin', () => {
     vi.advanceTimersByTime(179_000)
     expect(app.core.list()).toEqual([])
     vi.advanceTimersByTime(1_000)
-    expect(app.core.getByPath('rules.user.engine-hours')?.condition).toBe(true)
+    expect(app.core.getByPath('rules.engine-hours')?.condition).toBe(true)
 
     await plugin.stop()
-    expect(app.core.getByPath('rules.user.engine-hours')?.condition).toBe(true)
+    expect(app.core.getByPath('rules.engine-hours')?.condition).toBe(true)
   })
 
   it('checkpoints accumulator totals every 60 s while running', async () => {
@@ -146,7 +146,7 @@ describe('plugin', () => {
     expect(new Store(dir).load().accumulators).toEqual({})
     vi.advanceTimersByTime(1_000)
     expect(new Store(dir).load().accumulators).toEqual({
-      'user.engine-hours': { measure: 'time', totals: { '': 60 } }
+      'engine-hours': { measure: 'time', totals: { '': 60 } }
     })
 
     await plugin.stop()
@@ -169,7 +169,7 @@ describe('plugin', () => {
     vi.advanceTimersByTime(59_000)
     expect(core.list()).toEqual([])
     vi.advanceTimersByTime(1_000)
-    expect(core.getByPath('rules.user.engine-hours')?.condition).toBe(true)
+    expect(core.getByPath('rules.engine-hours')?.condition).toBe(true)
 
     await restarted.stop()
   })
@@ -183,13 +183,13 @@ describe('plugin', () => {
     vi.advanceTimersByTime(10_000)
     await plugin.stop()
     expect(new Store(dir).load().accumulators).toEqual({
-      'user.engine-hours': { measure: 'time', totals: { '': 10 } }
+      'engine-hours': { measure: 'time', totals: { '': 10 } }
     })
 
     vi.advanceTimersByTime(300_000)
     expect(app.core.list()).toEqual([])
     expect(new Store(dir).load().accumulators).toEqual({
-      'user.engine-hours': { measure: 'time', totals: { '': 10 } }
+      'engine-hours': { measure: 'time', totals: { '': 10 } }
     })
   })
 
@@ -273,7 +273,7 @@ describe('plugin', () => {
     vi.advanceTimersByTime(60_000)
     // One tick a second: a second set of timers would count twice as fast.
     expect(new Store(dir).load().accumulators).toEqual({
-      'user.engine-hours': { measure: 'time', totals: { '': 60 } }
+      'engine-hours': { measure: 'time', totals: { '': 60 } }
     })
 
     await plugin.stop()
@@ -309,7 +309,7 @@ describe('plugin', () => {
     vi.advanceTimersByTime(60_000)
     expect(app.pluginError).toMatch(/accumulator totals/)
     vi.advanceTimersByTime(120_000)
-    expect(app.core.getByPath('rules.user.engine-hours')?.condition).toBe(true)
+    expect(app.core.getByPath('rules.engine-hours')?.condition).toBe(true)
 
     await plugin.stop()
   })
@@ -345,7 +345,7 @@ describe('plugin', () => {
   it('drops a start issue from the status once the write it names succeeds', async () => {
     storeRule(hours)
     const stale = { measure: 'integral', totals: { '': 50 } }
-    new Store(dir).saveCheckpoints({ 'user.engine-hours': stale })
+    new Store(dir).saveCheckpoints({ 'engine-hours': stale })
     const save = vi.spyOn(Store.prototype, 'saveCheckpoints').mockImplementationOnce(() => {
       throw new Error('ENOSPC: no space left on device')
     })
@@ -388,7 +388,7 @@ describe('plugin', () => {
     expect(app.pluginStatus).toBe(running)
     expect(app.pluginStatus).toMatch(/^Running; .*genset-hours/)
     expect(new Store(dir).load().accumulators).toEqual({
-      'user.engine-hours': { measure: 'time', totals: { '': 240 } }
+      'engine-hours': { measure: 'time', totals: { '': 240 } }
     })
 
     await plugin.stop()

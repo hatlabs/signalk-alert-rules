@@ -12,7 +12,7 @@ import {
 import type { PathSource } from '../../src/panel/paths/selfPaths'
 import { Shell } from '../../src/panel/Shell'
 import { POLL_INTERVAL_MS } from '../../src/panel/shellState'
-import { instance, noAuthoring, noControls, noRulesets, ruleEntry } from './fixtures'
+import { instance, noAuthoring, noControls, ruleEntry } from './fixtures'
 
 interface Server {
   state: PluginState | Error
@@ -25,7 +25,7 @@ function mockApi(server: Server) {
       server.state instanceof Error ? Promise.reject(server.state) : Promise.resolve(server.state)
     ),
     rules: vi.fn(() => Promise.resolve(server.rules)),
-    resetAccumulator: vi.fn((_origin: string, _slug: string): Promise<RuleEntry> =>
+    resetAccumulator: vi.fn((_slug: string): Promise<RuleEntry> =>
       Promise.reject(new Error('not expected'))
     ),
     ...noAuthoring,
@@ -70,7 +70,7 @@ describe('Shell', () => {
   function renderShell(server: Server) {
     vi.useFakeTimers()
     const api = mockApi(server)
-    render(<Shell api={api} rulesets={noRulesets} paths={noPaths} />)
+    render(<Shell api={api} paths={noPaths} />)
     return api
   }
 
@@ -79,23 +79,17 @@ describe('Shell', () => {
     expect(screen.getByRole('status').textContent).toMatch(/loading/i)
   })
 
-  it('shows the views and navigation when the plugin runs', async () => {
+  it('shows the rules when the plugin runs', async () => {
     renderShell({ state: running, rules: [rule] })
     await settle()
-    const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent)
-    expect(tabs).toEqual(['Rules', 'Rulesets'])
-    expect(screen.getByRole('tab', { name: 'Rules' }).getAttribute('aria-selected')).toBe('true')
-    fireEvent.click(screen.getByRole('tab', { name: 'Rulesets' }))
-    expect(screen.getByRole('tabpanel').getAttribute('aria-label')).toBe('Rulesets')
+    expect(screen.getByRole('link', { name: 'Oil pressure low' })).toBeTruthy()
   })
 
-  it('points to rule creation and rulesets when there are no rules', async () => {
+  it('points to rule creation when there are no rules', async () => {
     renderShell({ state: running, rules: [] })
     await settle()
     expect(screen.getByText(/no alert rules yet/i)).toBeTruthy()
     expect(screen.getByRole('button', { name: /new rule/i })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: /browse rulesets/i }))
-    expect(screen.getByRole('tab', { name: 'Rulesets' }).getAttribute('aria-selected')).toBe('true')
   })
 
   it('retries automatically while the API is unreachable', async () => {
@@ -108,7 +102,7 @@ describe('Shell', () => {
     server.state = running
     await tick(POLL_INTERVAL_MS)
     expect(screen.queryByText(/cannot reach/i)).toBeNull()
-    expect(screen.getAllByRole('tab')).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: /new rule/i })).toHaveLength(1)
     expect(api.state).toHaveBeenCalledTimes(2)
   })
 
@@ -128,7 +122,7 @@ describe('Shell', () => {
     server.state = running
     await tick(1)
     expect(api.state).toHaveBeenCalledTimes(2)
-    expect(screen.getAllByRole('tab')).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: /new rule/i })).toHaveLength(1)
   })
 
   it('asks to log in again when the session has expired, and stops polling', async () => {
@@ -144,7 +138,7 @@ describe('Shell', () => {
     fireEvent.click(screen.getByRole('button', { name: /check again/i }))
     await settle()
     expect(api.state).toHaveBeenCalledTimes(2)
-    expect(screen.getAllByRole('tab')).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: /new rule/i })).toHaveLength(1)
   })
 
   it('shows the start error and that editing is unavailable', async () => {
@@ -157,7 +151,7 @@ describe('Shell', () => {
     const alert = screen.getByRole('alert').textContent
     expect(alert).toContain(error)
     expect(alert).toMatch(/cannot be edited/i)
-    expect(screen.queryAllByRole('tab')).toHaveLength(0)
+    expect(screen.queryAllByRole('button', { name: /new rule/i })).toHaveLength(0)
   })
 
   it('warns persistently while server security is disabled', async () => {
@@ -191,7 +185,7 @@ describe('Shell', () => {
           })
         : Promise.resolve(Response.json({ running: true, securityEnabled: true }))
     )
-    render(<Shell api={httpApi(fetchFn)} rulesets={noRulesets} paths={noPaths} />)
+    render(<Shell api={httpApi(fetchFn)} paths={noPaths} />)
     await tick(REQUEST_TIMEOUT_MS)
     expect(screen.getByRole('alert').textContent).toMatch(/cannot reach.*retrying/i)
     hang = false
@@ -233,7 +227,7 @@ describe('Shell', () => {
           answerFirst = resolve
         })
     )
-    render(<Shell api={api} rulesets={noRulesets} paths={noPaths} />)
+    render(<Shell api={api} paths={noPaths} />)
     setVisibility('hidden')
     setVisibility('visible')
     await settle()
@@ -280,7 +274,7 @@ describe('Shell rules', () => {
   async function renderShell(server: Server) {
     vi.useFakeTimers()
     const api = mockApi(server)
-    render(<Shell api={api} rulesets={noRulesets} paths={noPaths} />)
+    render(<Shell api={api} paths={noPaths} />)
     await settle()
     return api
   }
@@ -289,12 +283,12 @@ describe('Shell rules', () => {
     window.history.replaceState(null, '', `/admin/${ADMIN}`)
     await renderShell({ state: running, rules: [rule, hours] })
     expect(screen.getByRole('link', { name: 'Oil pressure low' }).getAttribute('href')).toBe(
-      `${ADMIN}#rule=user/oil-pressure-low`
+      `${ADMIN}#rule=oil-pressure-low`
     )
   })
 
   it('opens the rule the fragment names and goes back to the list', async () => {
-    window.history.replaceState(null, '', `/admin/${ADMIN}#rule=user/engine-hours`)
+    window.history.replaceState(null, '', `/admin/${ADMIN}#rule=engine-hours`)
     await renderShell({ state: running, rules: [rule, hours] })
     expect(screen.getByRole('heading', { name: 'Engine hours' })).toBeTruthy()
     const back = screen.getByRole('link', { name: /all rules/i })
@@ -304,7 +298,7 @@ describe('Shell rules', () => {
     })
     expect(screen.queryByRole('heading', { name: 'Engine hours' })).toBeNull()
     act(() => {
-      goTo(`${ADMIN}#rule=user/oil-pressure-low`)
+      goTo(`${ADMIN}#rule=oil-pressure-low`)
     })
     expect(screen.getByRole('heading', { name: 'Oil pressure low' })).toBeTruthy()
   })
@@ -314,7 +308,7 @@ describe('Shell rules', () => {
       await renderShell({ state: running, rules: [rule, hours] })
       expect(document.activeElement).toBe(document.body)
       act(() => {
-        goTo('#rule=user/engine-hours')
+        goTo('#rule=engine-hours')
       })
       expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Engine hours' }))
       act(() => {
@@ -326,24 +320,15 @@ describe('Shell rules', () => {
     it('moves to the heading of a rule that is not found', async () => {
       await renderShell({ state: running, rules: [rule] })
       act(() => {
-        goTo('#rule=user/gone')
+        goTo('#rule=gone')
       })
       expect(document.activeElement).toBe(screen.getByRole('heading', { name: /not found/i }))
-    })
-
-    it('moves to the rule once the rules tab opens for it', async () => {
-      await renderShell({ state: running, rules: [rule] })
-      fireEvent.click(screen.getByRole('tab', { name: 'Rulesets' }))
-      act(() => {
-        goTo('#rule=user/oil-pressure-low')
-      })
-      expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Oil pressure low' }))
     })
 
     it('leaves focus alone when a poll re-renders the view', async () => {
       await renderShell({ state: running, rules: [rule] })
       act(() => {
-        goTo('#rule=user/oil-pressure-low')
+        goTo('#rule=oil-pressure-low')
       })
       const back = screen.getByRole('link', { name: /all rules/i })
       back.focus()
@@ -367,7 +352,7 @@ describe('Shell rules', () => {
     it('highlights the instance a link names and focuses its row', async () => {
       await renderShell({ state: running, rules: [rule, batteries] })
       act(() => {
-        goTo(`${ADMIN}#rule=user/battery-low&instance=Start%201`)
+        goTo(`${ADMIN}#rule=battery-low&instance=Start%201`)
       })
       const row = screen.getByRole('row', { name: /start 1/i })
       expect(row.getAttribute('aria-current')).toBe('true')
@@ -376,7 +361,7 @@ describe('Shell rules', () => {
     })
 
     it('finds the instance by its alert path segment too', async () => {
-      window.history.replaceState(null, '', '/#rule=user/battery-low&instance=Start_1')
+      window.history.replaceState(null, '', '/#rule=battery-low&instance=Start_1')
       await renderShell({ state: running, rules: [batteries] })
       expect(screen.getByRole('row', { name: /start 1/i }).getAttribute('aria-current')).toBe(
         'true'
@@ -388,7 +373,7 @@ describe('Shell rules', () => {
     it('shows the rule with a notice for an instance it does not have', async () => {
       await renderShell({ state: running, rules: [batteries] })
       act(() => {
-        goTo('#rule=user/battery-low&instance=aft')
+        goTo('#rule=battery-low&instance=aft')
       })
       expect(screen.getByRole('heading', { name: 'Battery low' })).toBe(document.activeElement)
       expect(screen.getByText(/no instance aft/i)).toBeTruthy()
@@ -398,75 +383,15 @@ describe('Shell rules', () => {
     })
   })
 
-  it('shows the rules tab when a fragment names a rule', async () => {
-    await renderShell({ state: running, rules: [rule] })
-    fireEvent.click(screen.getByRole('tab', { name: 'Rulesets' }))
-    act(() => {
-      goTo('#rule=user/oil-pressure-low')
-    })
-    expect(screen.getByRole('tab', { name: 'Rules' }).getAttribute('aria-selected')).toBe('true')
-    expect(screen.getByRole('heading', { name: 'Oil pressure low' })).toBeTruthy()
-  })
-
-  it('follows a link to the rule last opened from another tab', async () => {
-    window.history.replaceState(null, '', `/admin/${ADMIN}`)
-    await renderShell({ state: running, rules: [rule] })
-    act(() => {
-      goTo(`${ADMIN}#rule=user/oil-pressure-low`)
-    })
-    fireEvent.click(screen.getByRole('tab', { name: 'Rulesets' }))
-    await settle()
-    expect(window.location.hash).toBe(ADMIN)
-    act(() => {
-      goTo(`${ADMIN}#rule=user/oil-pressure-low`)
-    })
-    expect(screen.getByRole('tab', { name: 'Rules' }).getAttribute('aria-selected')).toBe('true')
-    expect(screen.getByRole('heading', { name: 'Oil pressure low' })).toBeTruthy()
-  })
-
-  it('leaves focus on the tab when returning to the rules from a rule', async () => {
-    await renderShell({ state: running, rules: [rule] })
-    act(() => {
-      goTo('#rule=user/oil-pressure-low')
-    })
-    fireEvent.click(screen.getByRole('tab', { name: 'Rulesets' }))
-    await settle()
-    const rulesTab = screen.getByRole('tab', { name: 'Rules' })
-    rulesTab.focus()
-    fireEvent.click(rulesTab)
-    await settle()
-    expect(document.activeElement).toBe(rulesTab)
-  })
-
-  it('shows the rules tab for a link that names only another instance', async () => {
-    const batteries = ruleEntry({
-      slug: 'battery-low',
-      rule: { name: 'Battery low', signal: { paths: ['electrical.batteries.*.voltage'] } },
-      status: {
-        instances: [
-          instance({ instance: { name: 'house', segment: 'house' } }),
-          instance({ instance: { name: 'start', segment: 'start' } })
-        ]
-      }
-    })
-    window.history.replaceState(null, '', '/#rule=user/battery-low&instance=house')
-    await renderShell({ state: running, rules: [batteries] })
-    fireEvent.click(screen.getByRole('tab', { name: 'Rulesets' }))
-    act(() => {
-      goTo('#rule=user/battery-low&instance=start')
-    })
-    expect(screen.getByRole('tab', { name: 'Rules' }).getAttribute('aria-selected')).toBe('true')
-  })
-
   it('says when the rule the fragment names does not exist', async () => {
-    window.history.replaceState(null, '', '/#rule=user/gone')
+    window.history.replaceState(null, '', '/#rule=gone')
     await renderShell({ state: running, rules: [rule] })
-    expect(screen.getByText(/no rule user\/gone/i)).toBeTruthy()
+    expect(screen.getByText(/no rule gone/i)).toBeTruthy()
     expect(screen.getByRole('link', { name: /all rules/i })).toBeTruthy()
   })
 
   it('resets an accumulator and shows the rule as it is after', async () => {
-    window.history.replaceState(null, '', '/#rule=user/engine-hours')
+    window.history.replaceState(null, '', '/#rule=engine-hours')
     const server: Server = { state: running, rules: [hours] }
     const api = await renderShell(server)
     const after = { ...hours, status: { ...hours.status, badge: 'idle' as const, instances: [] } }
@@ -477,14 +402,14 @@ describe('Shell rules', () => {
     fireEvent.click(screen.getByRole('button', { name: /reset accumulator/i }))
     fireEvent.click(screen.getByRole('button', { name: /reset total/i }))
     await settle()
-    expect(api.resetAccumulator).toHaveBeenCalledWith('user', 'engine-hours')
+    expect(api.resetAccumulator).toHaveBeenCalledWith('engine-hours')
     expect(api.rules).toHaveBeenCalledTimes(2)
     expect(screen.queryByRole('alertdialog')).toBeNull()
     expect(screen.getByText('Idle')).toBeTruthy()
   })
 
   it('disables a rule and shows it as the server answers after', async () => {
-    window.history.replaceState(null, '', '/#rule=user/oil-pressure-low')
+    window.history.replaceState(null, '', '/#rule=oil-pressure-low')
     const server: Server = { state: running, rules: [rule] }
     const api = await renderShell(server)
     const disabled = ruleEntry({
@@ -502,7 +427,7 @@ describe('Shell rules', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'Disable' }))
     await settle()
-    expect(disableRule).toHaveBeenCalledWith('user', 'oil-pressure-low', 'fouled')
+    expect(disableRule).toHaveBeenCalledWith('oil-pressure-low', 'fouled')
     expect(screen.getByRole('button', { name: 'Enable' })).toBeTruthy()
   })
 
@@ -555,28 +480,22 @@ describe('Shell rules', () => {
       expect(filter().value).toBe('engine')
     })
 
-    it('keeps the selected tab and the last rules read while the plugin is not running', async () => {
+    it('keeps the last rules read while the plugin is not running', async () => {
       const server: Server = { state: running, rules: [rule] }
       const api = await renderShell(server)
-      fireEvent.click(screen.getByRole('tab', { name: 'Rulesets' }))
       server.state = { running: false, securityEnabled: true }
       await tick(POLL_INTERVAL_MS)
       expect(screen.getByRole('alert').textContent).toMatch(/not running.*last read/i)
       expect(screen.queryByRole('button', { name: /check again/i })).toBeNull()
-      expect(screen.getByRole('tab', { name: 'Rulesets' }).getAttribute('aria-selected')).toBe(
-        'true'
-      )
+      expect(screen.getByRole('link', { name: 'Oil pressure low' })).toBeTruthy()
       server.state = running
       await tick(POLL_INTERVAL_MS)
       expect(api.state).toHaveBeenCalledTimes(3)
       expect(screen.queryByRole('alert')).toBeNull()
-      expect(screen.getByRole('tab', { name: 'Rulesets' }).getAttribute('aria-selected')).toBe(
-        'true'
-      )
     })
 
     it('keeps an open reset confirmation through a failed poll, and it still resets', async () => {
-      window.history.replaceState(null, '', '/#rule=user/engine-hours')
+      window.history.replaceState(null, '', '/#rule=engine-hours')
       const server: Server = { state: running, rules: [hours] }
       const api = await renderShell(server)
       api.resetAccumulator.mockImplementation(() => Promise.resolve(hours))
@@ -588,7 +507,7 @@ describe('Shell rules', () => {
       server.state = running
       fireEvent.click(within(dialog).getByRole('button', { name: /reset total/i }))
       await settle()
-      expect(api.resetAccumulator).toHaveBeenCalledWith('user', 'engine-hours')
+      expect(api.resetAccumulator).toHaveBeenCalledWith('engine-hours')
       expect(screen.queryByRole('alertdialog')).toBeNull()
     })
 
@@ -602,7 +521,7 @@ describe('Shell rules', () => {
       }
       await tick(POLL_INTERVAL_MS)
       expect(screen.getByRole('alert').textContent).toMatch(/could not start/i)
-      expect(screen.queryAllByRole('tab')).toHaveLength(0)
+      expect(screen.queryAllByRole('button', { name: /new rule/i })).toHaveLength(0)
     })
   })
 

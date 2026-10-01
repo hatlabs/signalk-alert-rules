@@ -3,14 +3,18 @@ import type { Plugin, PluginRouter, ServerAPI } from '@signalk/server-api'
 import { Application, CHECKPOINT_MS, TICK_MS } from './application.js'
 import { registerRoutes } from './api/routes.js'
 import { serverDeps } from './alerts/server.js'
-import { discoverRulesets, type DiscoveryDirs } from './rulesets/discovery.js'
 import { Store } from './store/store.js'
+import {
+  BUILTIN_TEMPLATES,
+  discoverTemplateSets,
+  type DiscoveryDirs
+} from './templates/discovery.js'
 import { errorMessage } from './util.js'
 
 const PLUGIN_ID = 'signalk-alert-rules'
 
-/** The drop-in directory for ruleset files, in the plugin's data directory. */
-const RULESETS_DIR = 'rulesets'
+/** The drop-in directory for template set files, in the plugin's data directory. */
+const TEMPLATES_DIR = 'templates'
 
 // The published server-api types predate the core alerts API, so its presence is
 // detected at runtime rather than through the ServerAPI type.
@@ -64,14 +68,15 @@ export default function createPlugin(app: ServerAPI): Plugin {
         const dataDir = app.getDataDirPath()
         // ServerAPI does not expose the server's config path. The data
         // directory is <configPath>/plugin-config-data/<pluginId>, and the
-        // server installs plugins, ruleset providers among them, with npm
-        // in <configPath> (signalk-server src/modules.ts).
+        // server installs plugins, template set packages among them, with
+        // npm in <configPath> (signalk-server src/modules.ts).
         const dirs: DiscoveryDirs = {
+          builtin: BUILTIN_TEMPLATES,
           configDir: dirname(dirname(dataDir)),
-          dropIn: join(dataDir, RULESETS_DIR)
+          dropIn: join(dataDir, TEMPLATES_DIR)
         }
         running = new Application(serverDeps(app, PLUGIN_ID), new Store(dataDir), () =>
-          discoverRulesets(dirs)
+          discoverTemplateSets(dirs)
         )
       } catch (err) {
         fail(`Cannot read the data directory: ${errorMessage(err)}`)

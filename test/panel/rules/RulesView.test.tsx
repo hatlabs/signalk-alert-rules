@@ -32,7 +32,6 @@ const batteries = ruleEntry({
 })
 
 const engineHours = ruleEntry({
-  origin: 'engine-pack',
   slug: 'engine-hours',
   rule: {
     name: 'Engine service due',
@@ -43,11 +42,11 @@ const engineHours = ruleEntry({
       paths: ['propulsion.port.revolutions', 'propulsion.stbd.revolutions']
     }
   },
-  status: { badge: 'disabled', reason: 'ruleset is disabled', instances: [] }
+  status: { badge: 'inactive', reason: 'not started', instances: [] }
 })
 
 function renderView(rules: RuleEntry[]) {
-  return render(<RulesView rules={rules} ruleHref={(origin, slug) => `#rule=${origin}/${slug}`} />)
+  return render(<RulesView rules={rules} ruleHref={(slug) => `#rule=${slug}`} />)
 }
 
 function rowOf(name: string): HTMLElement {
@@ -61,24 +60,15 @@ const names = () => screen.queryAllByRole('link').map((link) => link.textContent
 describe('RulesView', () => {
   afterEach(cleanup)
 
-  it('groups rules by origin, user rules first and rulesets collapsible', () => {
+  it('lists the rules in the order given', () => {
     renderView([engineHours, oil])
-    const groups = screen.getAllByRole('group')
-    expect(groups.map((g) => g.getAttribute('aria-label'))).toEqual([
-      'Your rules',
-      'Ruleset engine-pack'
-    ])
-    const ruleset = groups[1]
-    expect(ruleset.tagName).toBe('DETAILS')
-    expect(ruleset.hasAttribute('open')).toBe(true)
-    expect(within(groups[0]).getByRole('link', { name: 'Oil pressure low' })).toBeTruthy()
-    expect(within(ruleset).getByRole('link', { name: 'Engine service due' })).toBeTruthy()
+    expect(names()).toEqual(['Engine service due', 'Oil pressure low'])
   })
 
   it('shows name, detector, input, badge and priority in a row', () => {
     renderView([oil])
     const row = rowOf('Oil pressure low')
-    expect(within(row).getByRole('link').getAttribute('href')).toBe('#rule=user/oil-pressure-low')
+    expect(within(row).getByRole('link').getAttribute('href')).toBe('#rule=oil-pressure-low')
     const cells = within(row)
       .getAllByRole('cell')
       .map((c) => c.textContent)
@@ -144,7 +134,7 @@ describe('RulesView', () => {
       target: { value: 'nothing' }
     })
     expect(screen.getByText(/no rules match/i)).toBeTruthy()
-    expect(screen.queryAllByRole('group')).toHaveLength(0)
+    expect(screen.queryAllByRole('table')).toHaveLength(0)
   })
 
   it('offers rule creation only where it is wired', () => {
