@@ -77,6 +77,11 @@ export interface RuleStatus {
 /** The parts of a rule the rule list and detail view show. */
 export interface RuleInfo {
   name: string
+  /**
+   * Under `alerts.`, as the server derives it; a wildcard rule's has a `*`
+   * where each instance goes.
+   */
+  alertPath: string
   /** Absent for a zone limit, whose levels set the priority. */
   priority?: string
   detector: { type: string; direction?: string; measure?: string; zoneLevel?: string }
@@ -307,12 +312,14 @@ export function parseRuleEntry(body: unknown, what: string): RuleEntry {
     if (typeof v.combinator !== 'string' || !Array.isArray(v.inputs)) throw malformed(what)
     return { paths: v.inputs.map((i) => string(record(i).path)), combinator: v.combinator }
   }
-  const rule = (r: unknown): RuleInfo => {
+  // The alert path comes with the entry, derived from the rule, not in it.
+  const rule = (r: unknown, alertPath: string): RuleInfo => {
     const v = record(r)
     const d = record(v.detector)
     const zoneLevel = isRecord(d.limit) && d.limit.kind === 'zone' ? text(d.limit.level) : undefined
     return {
       name: string(v.name),
+      alertPath,
       ...optional('priority', text(v.priority)),
       detector: {
         type: string(d.type),
@@ -330,7 +337,7 @@ export function parseRuleEntry(body: unknown, what: string): RuleEntry {
   const entry = record(body)
   return {
     slug: string(entry.slug),
-    rule: rule(entry.rule),
+    rule: rule(entry.rule, string(entry.alertPath)),
     ...optional('disabled', ruleDisabled(entry.disabled)),
     status: status(entry.status)
   }

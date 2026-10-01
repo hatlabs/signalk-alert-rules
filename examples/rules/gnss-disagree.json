@@ -1,6 +1,7 @@
 {
   "name": "GNSS receivers disagree",
   "slug": "gnss-disagree",
+  "condition": "gnssDisagree",
   "message": "GNSS positions disagree",
   "priority": "warning",
   "signal": {

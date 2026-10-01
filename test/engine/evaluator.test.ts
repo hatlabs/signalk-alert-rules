@@ -530,6 +530,7 @@ describe('checks when a path reports', () => {
   const compasses = valid({
     name: 'Compasses disagree',
     slug: 'compasses-disagree',
+    condition: 'compassesDisagree',
     message: 'Compasses disagree',
     priority: 'caution',
     signal: {
@@ -957,7 +958,10 @@ describe('restarts and status', () => {
   })
 
   it("reports each instance's total, keeping restored ones not yet seen", () => {
-    const hours = valid({ ...genset, signal: { path: 'propulsion.*.revolutions' } })
+    const hours = valid({
+      ...genset,
+      signal: { path: 'propulsion.*.revolutions' }
+    })
     const { at, evaluator } = setup(hours, {
       accumulated: new Map([
         ['port', 40],
@@ -977,7 +981,10 @@ describe('restarts and status', () => {
   })
 
   it('a structural edit keeps a restored total of an instance not yet seen', () => {
-    const hours = valid({ ...genset, signal: { path: 'propulsion.*.revolutions' } })
+    const hours = valid({
+      ...genset,
+      signal: { path: 'propulsion.*.revolutions' }
+    })
     const { evaluator } = setup(hours, { accumulated: new Map([['port', 40]]) })
     evaluator.update({
       ...hours,
@@ -1295,7 +1302,10 @@ describe('disabled rules', () => {
   })
 
   it('reports the condition per instance of a wildcard rule', () => {
-    const each = valid({ ...portOil, signal: { path: 'propulsion.*.oilPressure' } })
+    const each = valid({
+      ...portOil,
+      signal: { path: 'propulsion.*.oilPressure' }
+    })
     const { at, evaluator } = setup(each, { disabled: true })
     at(0, 'propulsion.port.oilPressure', 0)
     at(0, 'propulsion.starboard.oilPressure', 0)

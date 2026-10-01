@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { alertPathOf } from '../src/alerts/paths.js'
 import type { Value } from '@signalk/server-api'
 import { Application, LOG_LIMIT } from '../src/application.js'
 import type { RunnerDeps } from '../src/alerts/runner.js'
@@ -108,6 +109,7 @@ describe('application', () => {
 
     const result = application.createRule(coolant)
     expect(result.ok).toBe(true)
+    // Stored as given: without a condition name, its default follows the rule.
     expect(JSON.parse(readFileSync(join(dir, 'rules', 'coolant-high.json'), 'utf8'))).toEqual(
       coolant
     )
@@ -118,11 +120,11 @@ describe('application', () => {
     at(4)
     expect(alerts()).toEqual([])
     at(5)
-    expect(alerts()).toEqual([['rules.oil-pressure-low', true]])
+    expect(alerts()).toEqual([['propulsion.main.oilPressureLow', true]])
 
     at(5, COOLANT, 380)
     at(7)
-    expect(alerts()).toContainEqual(['rules.coolant-high', true])
+    expect(alerts()).toContainEqual(['propulsion.main.coolantTemperatureHigh', true])
   })
 
   it('an edit persists and applies to the running rule', () => {
@@ -132,7 +134,7 @@ describe('application', () => {
     at(5)
     expect(application.replaceRule(oil.slug, { ...oil, message: 'Check the oil' }).ok).toBe(true)
     at(25)
-    expect(server.core.getByPath('rules.oil-pressure-low')?.message).toBe('Check the oil')
+    expect(server.core.getByPath('propulsion.main.oilPressureLow')?.message).toBe('Check the oil')
     expect(new Store(dir).load().rules[0]?.value).toMatchObject({ message: 'Check the oil' })
   })
 
@@ -145,6 +147,94 @@ describe('application', () => {
     }
     expect(existsSync(join(dir, 'rules', 'oil-pressure-low.json'))).toBe(false)
     expect(application.allRules()).toEqual([])
+  })
+
+  it('refuses a rule whose alert path another rule has, or could have for an instance', () => {
+    stored(oil)
+    const { application } = setup()
+    const same = { ...coolant, condition: 'oilPressureLow' }
+    expect(application.createRule(same)).toEqual({
+      ok: false,
+      reason: 'alertPathTaken',
+      holder: 'oil-pressure-low'
+    })
+    const everyEngine = {
+      ...oil,
+      slug: 'any-oil-low',
+      signal: { path: 'propulsion.*.oilPressure' }
+    }
+    expect(application.createRule(everyEngine)).toMatchObject({ reason: 'alertPathTaken' })
+    expect(existsSync(join(dir, 'rules', 'coolant-high.json'))).toBe(false)
+    expect(application.createRule({ ...same, condition: 'oilPressureLost' }).ok).toBe(true)
+  })
+
+  it('takes the condition name an edit gives, and the default when it gives none', () => {
+    stored({ ...oil, condition: 'lubricationFailed' })
+    const { application } = setup()
+    const reversed = { ...oil, detector: { ...oil.detector, direction: 'above' } }
+    const pathAfter = (edit: unknown) => {
+      const result = application.replaceRule(oil.slug, edit)
+      return result.ok ? alertPathOf(result.value) : result
+    }
+    expect(pathAfter({ ...reversed, condition: 'lubricationFailed' })).toBe(
+      'propulsion.main.lubricationFailed'
+    )
+    expect(pathAfter(reversed)).toBe('propulsion.main.oilPressureHigh')
+  })
+
+  it('refuses an edit whose new default alert path another rule has', () => {
+    stored(oil)
+    stored({ ...oil, slug: 'oil-high', detector: { ...oil.detector, direction: 'above' } })
+    const { application } = setup()
+    const reversed = { ...oil, detector: { ...oil.detector, direction: 'above' } }
+    expect(application.replaceRule(oil.slug, reversed)).toEqual({
+      ok: false,
+      reason: 'alertPathTaken',
+      holder: 'oil-high'
+    })
+  })
+
+  it("puts the condition name under the edited input's parent, with its wildcard or without", () => {
+    const everyCoolant = {
+      ...coolant,
+      slug: 'any-coolant-high',
+      condition: 'coolantOverheat',
+      signal: { path: 'propulsion.*.coolantTemperature' }
+    }
+    stored(oil)
+    stored(everyCoolant)
+    const { application } = setup()
+    const pathAfter = (slug: string, edit: unknown) => {
+      const result = application.replaceRule(slug, edit)
+      return result.ok ? alertPathOf(result.value) : result
+    }
+    expect(pathAfter(oil.slug, { ...oil, signal: { path: 'propulsion.*.oilPressure' } })).toBe(
+      'propulsion.*.oilPressureLow'
+    )
+    expect(pathAfter(everyCoolant.slug, { ...everyCoolant, signal: { path: COOLANT } })).toBe(
+      'propulsion.main.coolantOverheat'
+    )
+  })
+
+  it('runs only the first of two stored rules with overlapping alert paths, reporting the other', () => {
+    const portOil = { ...oil, slug: 'port-oil', signal: { path: 'propulsion.*.oilPressure' } }
+    stored(oil)
+    stored(portOil)
+    const { application } = setup()
+    expect(application.allRules().map((r) => r.slug)).toEqual(['oil-pressure-low'])
+    expect(application.issues).toEqual([
+      'stored rule port-oil has an alert path overlapping that of oil-pressure-low and does not run'
+    ])
+
+    // An edit is the repair: it needs an alert path of its own.
+    expect(application.replaceRule(portOil.slug, portOil)).toEqual({
+      ok: false,
+      reason: 'alertPathTaken',
+      holder: 'oil-pressure-low'
+    })
+    const own = { ...portOil, condition: 'oilPressureLost' }
+    expect(application.replaceRule(portOil.slug, own)).toMatchObject({ ok: true, value: own })
+    expect(application.allRules().map((r) => r.slug)).toEqual(['oil-pressure-low', 'port-oil'])
   })
 
   it('does not apply a rule the store failed to persist', () => {
@@ -175,8 +265,8 @@ describe('application', () => {
     expect(existsSync(join(dir, 'rules', 'oil-pressure-low.json'))).toBe(false)
     expect(new Map(alerts())).toEqual(
       new Map([
-        ['rules.oil-pressure-low', false],
-        ['rules.coolant-high', true]
+        ['propulsion.main.oilPressureLow', false],
+        ['propulsion.main.coolantTemperatureHigh', true]
       ])
     )
     expect(application.deleteRule('oil-pressure-low', 'admin')).toBe(false)
@@ -192,7 +282,7 @@ describe('application', () => {
     expect(application.issues.join('\n')).toMatch(/renamed.*coolant-high/)
     at(0, OIL, 0)
     at(5)
-    expect(alerts()).toEqual([['rules.oil-pressure-low', true]])
+    expect(alerts()).toEqual([['propulsion.main.oilPressureLow', true]])
 
     expect(application.deleteRule('coolant-high', 'admin')).toBe(true)
     expect(existsSync(join(dir, 'rules', 'coolant-high.json'))).toBe(false)
@@ -284,7 +374,7 @@ describe('application', () => {
     at(5)
     const sent = server.core.writes
     application.stop()
-    expect(alerts()).toEqual([['rules.oil-pressure-low', true]])
+    expect(alerts()).toEqual([['propulsion.main.oilPressureLow', true]])
     expect(server.core.writes).toBe(sent)
     expect(new Store(dir).load().accumulators).toEqual({
       'engine-hours': { measure: 'time', totals: { '': 5 } }
@@ -293,7 +383,7 @@ describe('application', () => {
 })
 
 describe('application operator actions', () => {
-  const OIL_ALERT = 'rules.oil-pressure-low'
+  const OIL_ALERT = 'propulsion.main.oilPressureLow'
   // Not caution: core drops a cleared caution alert, which the tests read back.
   const shortHours = { ...hours, priority: 'warning', detector: { ...hours.detector, limit: 10 } }
 
@@ -359,10 +449,10 @@ describe('application operator actions', () => {
     const { application, at, alerts } = setup()
     at(0, RPM, 30)
     at(2)
-    expect(alerts()).toEqual([['rules.engine-hours', true]])
+    expect(alerts()).toEqual([['propulsion.main.revolutionsAccumulated', true]])
 
     expect(application.resetAccumulator('engine-hours', 'skipper')).toBe('reset')
-    expect(alerts()).toEqual([['rules.engine-hours', false]])
+    expect(alerts()).toEqual([['propulsion.main.revolutionsAccumulated', false]])
     expect(new Store(dir).load().accumulators).toEqual({
       'engine-hours': { measure: 'time', totals: { '': 0 } }
     })
@@ -372,9 +462,9 @@ describe('application operator actions', () => {
 
     // It keeps accumulating from zero and raises again at the limit.
     at(11)
-    expect(alerts()).toEqual([['rules.engine-hours', false]])
+    expect(alerts()).toEqual([['propulsion.main.revolutionsAccumulated', false]])
     at(12)
-    expect(alerts()).toEqual([['rules.engine-hours', true]])
+    expect(alerts()).toEqual([['propulsion.main.revolutionsAccumulated', true]])
   })
 
   it('refuses to reset a rule that is not an accumulator or does not exist', () => {
@@ -469,6 +559,97 @@ describe('application operator actions', () => {
     expect(application.allRules()[0]).toMatchObject({ detector: { type: 'sustained' } })
   })
 
+  it('moves the alert of a rule without a condition name to the default of an edit', () => {
+    stored(oil)
+    const { application, at, alerts } = setup()
+    at(0, OIL, 0)
+    at(5)
+    expect(alerts()).toEqual([['propulsion.main.oilPressureLow', true]])
+    const reversed = {
+      ...oil,
+      detector: { ...oil.detector, direction: 'above', limit: { kind: 'fixed', value: -1 } }
+    }
+    expect(application.previewRule(oil.slug, reversed)).toMatchObject({
+      ok: true,
+      value: {
+        restarts: true,
+        changes: ['alertPath', 'detector.direction'],
+        clearsActiveAlert: true
+      }
+    })
+    expect(application.replaceRule(oil.slug, reversed).ok).toBe(true)
+    expect(alerts()).toEqual([['propulsion.main.oilPressureLow', false]])
+    at(6, OIL, 0)
+    at(11)
+    expect(new Map(alerts())).toEqual(
+      new Map([
+        ['propulsion.main.oilPressureLow', false],
+        ['propulsion.main.oilPressureHigh', true]
+      ])
+    )
+  })
+
+  it('keeps a stored condition name through an edit, even one equal to the default', () => {
+    const named = { ...oil, condition: 'oilPressureLow' }
+    stored(named)
+    const { application, at, alerts } = setup()
+    at(0, OIL, 0)
+    at(5)
+    expect(alerts()).toEqual([['propulsion.main.oilPressureLow', true]])
+    const reversed = {
+      ...named,
+      detector: { ...oil.detector, direction: 'above', limit: { kind: 'fixed', value: -1 } }
+    }
+    expect(application.previewRule(oil.slug, reversed)).toMatchObject({
+      ok: true,
+      value: { restarts: true, changes: ['detector.direction'] }
+    })
+    expect(application.replaceRule(oil.slug, reversed).ok).toBe(true)
+    expect(alerts()).toEqual([['propulsion.main.oilPressureLow', false]])
+    at(6, OIL, 0)
+    at(11)
+    expect(alerts()).toEqual([['propulsion.main.oilPressureLow', true]])
+  })
+
+  it('moves an alert adopted at start when an edit changes its alert path', () => {
+    stored(oil)
+    const core = new FakeAlertsCore()
+    core.ingest(PLUGIN, OIL_ALERT, { priority: 'alarm', message: oil.message, latching: false })
+    const { application, at, alerts } = setup(undefined, core)
+    expect(alerts()).toEqual([[OIL_ALERT, true]])
+    const renamed = { ...oil, condition: 'lubricationFailed' }
+    expect(application.replaceRule(oil.slug, renamed).ok).toBe(true)
+    expect(alerts()).toEqual([[OIL_ALERT, false]])
+    at(0, OIL, 0)
+    at(5)
+    expect(new Map(alerts())).toEqual(
+      new Map([
+        [OIL_ALERT, false],
+        ['propulsion.main.lubricationFailed', true]
+      ])
+    )
+  })
+
+  it("moves each instance's alert of a wildcard rule to a new alert path", () => {
+    const everyCoolant = {
+      ...coolant,
+      slug: 'any-coolant-high',
+      signal: { path: 'propulsion.*.coolantTemperature' }
+    }
+    const port = 'propulsion.port.coolantTemperature'
+    stored(everyCoolant)
+    const { application, at, alerts } = setup()
+    at(0, port, 380)
+    at(2)
+    expect(alerts()).toEqual([['propulsion.port.coolantTemperatureHigh', true]])
+    const moved = { ...everyCoolant, condition: 'coolantOverheat' }
+    expect(application.replaceRule(everyCoolant.slug, moved).ok).toBe(true)
+    expect(alerts()).toEqual([['propulsion.port.coolantTemperatureHigh', false]])
+    at(3, port, 380)
+    at(5)
+    expect(alerts()).toContainEqual(['propulsion.port.coolantOverheat', true])
+  })
+
   it('a structural edit of a rule without an active alert restarts it and clears nothing', () => {
     stored(oil)
     const { application } = setup()
@@ -477,7 +658,7 @@ describe('application operator actions', () => {
       ok: true,
       value: {
         restarts: true,
-        changes: ['detector.direction'],
+        changes: ['alertPath', 'detector.direction'],
         activeAlerts: 0,
         clearsActiveAlert: false,
         discardsTotal: false
@@ -495,7 +676,7 @@ describe('application operator actions', () => {
     }
     stored(battery)
     const core = new FakeAlertsCore()
-    const alert = 'rules.house-battery-low'
+    const alert = 'electrical.batteries.house.voltageLow'
     core.ingest(PLUGIN, alert, { priority: 'warning', message: 'x', latching: false })
     const { application } = setup(undefined, core, () => {
       throw new Error('meta unreadable')
@@ -595,6 +776,45 @@ describe('application accumulator totals across edits', () => {
     at(20)
     application.checkpoint()
     expect(total()).toBe(120)
+  })
+
+  it('a stored rule refused at load for an overlapping alert path keeps its total', () => {
+    const generator = { ...hours, slug: 'generator-hours' }
+    stored(hours)
+    stored(generator)
+    new Store(dir).saveCheckpoints({
+      [generator.slug]: { measure: 'time', totals: { '': 100 } }
+    })
+    const { application } = setup()
+    expect(application.issues).toEqual([
+      'stored rule generator-hours has an alert path overlapping that of engine-hours and does not run'
+    ])
+    application.checkpoint()
+    const totals: Partial<Checkpoints> = new Store(dir).load().accumulators
+    expect(totals[generator.slug]?.totals['']).toBe(100)
+  })
+
+  it('renaming the condition of an accumulator rule keeps its total, through a restart', () => {
+    stored(hours)
+    const first = setup()
+    first.at(0, RPM, 30)
+    first.at(20)
+    const renamed = { ...hours, condition: 'serviceDue' }
+    expect(first.application.previewRule(hours.slug, renamed)).toMatchObject({
+      ok: true,
+      value: { changes: ['alertPath'], discardsTotal: false }
+    })
+    expect(first.application.replaceRule(hours.slug, renamed).ok).toBe(true)
+    first.at(30)
+    first.application.stop()
+    expect(total()).toBe(30)
+
+    const second = setup()
+    expect(second.application.rule(hours.slug)?.rule.condition).toBe('serviceDue')
+    second.at(40, RPM, 30)
+    second.at(50)
+    second.application.checkpoint()
+    expect(total()).toBe(40)
   })
 
   it('replacing a stored rule that failed validation with another measure drops its total at once', () => {
@@ -729,7 +949,7 @@ describe('application accumulator totals across edits', () => {
 })
 
 describe('disable and enable', () => {
-  const OIL_ALERT = 'rules.oil-pressure-low'
+  const OIL_ALERT = 'propulsion.main.oilPressureLow'
   const ID = 'oil-pressure-low'
   const disabledAt = (note?: string) => ({
     since: WALL,
@@ -904,7 +1124,7 @@ describe('pinned sources', () => {
     s.at(0)
     s.server.subscriptionmanager.publish(COOLANT, 'can0.10', 390)
     s.at(3)
-    expect(s.alerts()).toEqual([['rules.coolant-high', true]])
+    expect(s.alerts()).toEqual([['propulsion.main.coolantTemperatureHigh', true]])
   })
 
   it('an edit is stored in CAN name form too', () => {
@@ -959,7 +1179,7 @@ describe('pinned sources', () => {
     s.at(0)
     s.server.subscriptionmanager.publish(COOLANT, 'can0.10', 390)
     s.at(3)
-    expect(s.alerts()).toEqual([['rules.coolant-high', true]])
+    expect(s.alerts()).toEqual([['propulsion.main.coolantTemperatureHigh', true]])
 
     const edited = { ...pinned('can0.10'), message: 'Coolant is hot' }
     expect(s.application.previewRule(coolant.slug, edited)).toEqual({
@@ -974,7 +1194,7 @@ describe('pinned sources', () => {
     })
     expect(s.application.replaceRule(coolant.slug, edited).ok).toBe(true)
     expect(storedSignal()).toEqual({ path: COOLANT, source: CANONICAL })
-    expect(s.alerts()).toEqual([['rules.coolant-high', true]])
+    expect(s.alerts()).toEqual([['propulsion.main.coolantTemperatureHigh', true]])
   })
 
   it('a gate pinned to a CAN name reads the address form of that device', () => {
@@ -995,7 +1215,7 @@ describe('pinned sources', () => {
     s.at(0)
     s.server.subscriptionmanager.publish(RPM, 'can0.10', 70)
     s.at(1, COOLANT, 390)
-    expect(s.alerts()).toEqual([['rules.coolant-high', true]])
+    expect(s.alerts()).toEqual([['propulsion.main.coolantTemperatureHigh', true]])
   })
 })
 

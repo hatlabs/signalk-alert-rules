@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { InstanceRegistry, instanceIn, instanceSegment } from '../../src/engine/instances.js'
+import { InstanceRegistry, instanceIn } from '../../src/engine/instances.js'
 import { MAX_INSTANCES } from '../../src/model/rule.js'
 
 describe('instanceIn', () => {
@@ -19,16 +19,6 @@ describe('instanceIn', () => {
   it('does not match a path whose fixed segments differ', () => {
     expect(instanceIn('propulsion.*.revolutions', 'propulsion.port.temperature')).toBeUndefined()
     expect(instanceIn('propulsion.*.revolutions', 'propulsion.port.revolutions.x')).toBeUndefined()
-  })
-})
-
-describe('instanceSegment', () => {
-  it('keeps a name that is already a valid alert path segment', () => {
-    expect(instanceSegment('port_1-a')).toBe('port_1-a')
-  })
-
-  it('replaces characters an alert path segment cannot hold', () => {
-    expect(instanceSegment('house bank #2')).toBe('house_bank__2')
   })
 })
 

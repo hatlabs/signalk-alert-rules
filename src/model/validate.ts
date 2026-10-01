@@ -11,7 +11,8 @@ import {
   type Signal,
   zoneLimitOf
 } from './rule.js'
-import { RULES_PREFIX } from '../alerts/paths.js'
+import { wildcards } from '../alerts/paths.js'
+import { alertPathErrors, conditionMissing } from './alertPath.js'
 import { isRecord, pointer } from '../util.js'
 
 /** A validation failure; `path` is a JSON pointer into the validated document. */
@@ -45,10 +46,6 @@ export function angularUnitsMessage(units: string): string {
 export function timeoutValueTypeMessage(valueType: 'boolean' | 'string'): string {
   return `core never times out ${valueType} paths`
 }
-
-const MAX_ALERT_PATH_LENGTH = 255
-const ALERT_PATH_SEGMENT = /^[A-Za-z0-9_-]+$/
-const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype'])
 
 export const TWO_INPUTS: ReadonlySet<CombinatorKind> = new Set([
   'difference',
@@ -247,16 +244,12 @@ function isPositionPath(path: string): boolean {
   return path.split('.').at(-1) === 'position'
 }
 
-function hasWildcard(path: string): boolean {
-  return path.split('.').includes('*')
-}
-
 function pathErrors(path: string, at: string, wildcard: string | undefined): ValidationError[] {
   if (path.startsWith('vessels.'))
     return [{ path: at, message: 'must be relative to vessels.self' }]
-  const wildcards = path.split('.').filter((s) => s === '*').length
-  if (wildcards > 1) return [{ path: at, message: 'may contain at most one wildcard segment' }]
-  if (wildcards === 1 && wildcard !== undefined) return [{ path: at, message: wildcard }]
+  const count = wildcards(path)
+  if (count > 1) return [{ path: at, message: 'may contain at most one wildcard segment' }]
+  if (count === 1 && wildcard !== undefined) return [{ path: at, message: wildcard }]
   return []
 }
 
@@ -450,7 +443,7 @@ function latchingErrors(rule: Rule): ValidationError[] {
 }
 
 function semanticErrors(rule: Rule, ctx: ValidationContext): ValidationError[] {
-  const signalWildcard = !('combinator' in rule.signal) && hasWildcard(rule.signal.path)
+  const signalWildcard = !('combinator' in rule.signal) && wildcards(rule.signal.path) > 0
   // A wildcard elsewhere in the rule binds to the signal's instance, so it needs one to bind to.
   const bound = signalWildcard ? undefined : 'a wildcard here needs a wildcard in the rule signal'
 
@@ -471,24 +464,13 @@ function semanticErrors(rule: Rule, ctx: ValidationContext): ValidationError[] {
 
 /** Validates one rule definition and returns it typed. */
 export function validateRule(input: unknown, ctx: ValidationContext = {}): Result<Rule> {
+  const missing = conditionMissing(input)
   const errors = schemaCheck(RuleSchema, input, nestedCombinatorErrors(input, ''))
-  if (errors.length > 0) return fail(errors)
+  if (errors.length > 0) return fail(missing === undefined ? errors : [missing, ...errors])
   const rule = input as Rule
-  const semantic = semanticErrors(rule, ctx)
+  const semantic = [
+    ...(missing === undefined ? alertPathErrors(rule) : [missing]),
+    ...semanticErrors(rule, ctx)
+  ]
   return semantic.length > 0 ? fail(semantic) : { ok: true, value: rule }
-}
-
-/** The path, under `alerts.`, of the alert a rule (instance) raises. */
-export function alertPathFor(slug: string, instance?: string): Result<string> {
-  const segments = [RULES_PREFIX, slug, ...(instance === undefined ? [] : [instance])]
-  const path = segments.join('.')
-  if (path.length > MAX_ALERT_PATH_LENGTH) {
-    return fail([
-      { path: '', message: `alert path is longer than ${String(MAX_ALERT_PATH_LENGTH)} characters` }
-    ])
-  }
-  const bad = segments.find((s) => !ALERT_PATH_SEGMENT.test(s) || FORBIDDEN_SEGMENTS.has(s))
-  if (bad !== undefined)
-    return fail([{ path: '', message: `"${bad}" is not a valid alert path segment` }])
-  return { ok: true, value: path }
 }

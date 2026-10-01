@@ -113,6 +113,7 @@ export function RuleDetail({
         <Fact term="Detector">{describeDetector(rule.detector)}</Fact>
         <Fact term="Input">{describeInput(rule.signal)}</Fact>
         <Fact term="Priority">{describePriority(rule)}</Fact>
+        <Fact term="Alert path">{`alerts.${rule.alertPath}`}</Fact>
         {rule.gates.length > 0 && (
           <Fact term="Gates">
             {rule.gates.map((g, n) => (

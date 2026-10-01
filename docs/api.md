@@ -46,6 +46,7 @@ SKAR serves its rules, their status and its operator actions under the plugin's 
   "slug": "low",
   "ruleset": { "name": "Battery monitoring", "version": "1.0.0", "package": { "name": "signalk-alert-ruleset-example", "version": "1.0.0" } },
   "rule": { ... },
+  "alertPath": "electrical.batteries.*.voltageLow",
   "enabled": true,
   "note": "Monitor replaced in spring",
   "suppression": { "since": "2026-09-30T12:00:00.000Z", "actor": "admin", "autoEndAfter": 600 },
@@ -56,6 +57,7 @@ SKAR serves its rules, their status and its operator actions under the plugin's 
 - `origin` and `slug`: here a rule of the ruleset `batteries`; a user rule has the origin `user` and no `ruleset`.
 - `ruleset`: for a ruleset rule only, the ruleset's name and version and, for one from a package, the package's name and version.
 - `rule`: for a ruleset rule, the rule as the ruleset's parameter values resolve it.
+- `alertPath`: the rule's alert path without the `alerts.` prefix, its condition name under the parent its input gives, as [Alert paths](rules.md#alert-paths) describes. It is derived, not part of the rule; a wildcard rule's has a `*` where each instance's segment goes.
 - `enabled`, `note` and `suppression`: the rule's [controls](#rule-controls); `note` and `suppression` are absent when the rule has none. `suppression` is the rule's own; an input suppression shows in `status` only.
 - `status`: the rule's status with its badge, sub-labels and per-instance rows, as described in [Status](rules.md#status). A rule that is not evaluated has the `disabled` badge with the reason `disabled` or `ruleset is disabled`. A ruleset rule whose paths the server has not had has the `inactive` badge with the reason `ruleset path missing` and one issue per missing path; once they have all appeared, until the next evaluation tick starts it, the reason is `starts at the next tick` with no issues. Either way its accumulator totals are instance rows with `progress`.
 
@@ -72,7 +74,7 @@ SKAR serves its rules, their status and its operator actions under the plugin's 
 ```
 
 - `restarts`: the edit clears and restarts the rule, per the [edit semantics](rules.md#edits). Any edit restarts a rule that failed to start.
-- `changes`: the parts of the rule that make it restart, by field path: `signal`, `gates`, `latching`, `detector.limit.level`, or `detector.<field>`.
+- `changes`: the parts of the rule that make it restart, by field path: `alertPath`, `signal`, `gates`, `latching`, `detector.limit.level`, or `detector.<field>`. `alertPath` means the rule's [alert path](rules.md#alert-paths) moves, through its condition name or through an input or detector edit that changes the default name or the parent; the alert at the old path is cleared.
 - `activeAlerts`: how many of the rule's instances have an active alert now.
 - `clearsActiveAlert`: the edit restarts the rule while it has an active alert, so saving it clears that alert; the webapp asks for confirmation. It counts only clears the restart causes: an edit applied in place, for example a raised limit, can also clear an active alert at the next evaluation, when the current value no longer meets the condition.
 - `discardsTotal`: the rule has an accumulator total above zero, running or kept while it does not run, and saving the edit would discard it: the edit is no longer an accumulator of the same measure. Replacing a stored rule that failed validation keeps its total when both the stored file and the new rule are accumulators of the same measure.
@@ -220,7 +222,7 @@ A link to one instance of a wildcard rule adds the instance:
 ```
 
 - `origin`, `slug` and the instance are each percent-encoded as `encodeURIComponent` does. The origin is `user` or a ruleset's slug, so neither it nor the rule's slug contains a `/`.
-- The instance is its name, the path segment the rule's wildcard matched, or its segment in the alert path `alerts.rules.<origin>.<slug>.<instance>`, so a consumer can build the link from an alert's path. The detail view highlights that instance's row, and moves focus to it when the webapp is already open.
+- The instance is its name, the path segment the rule's wildcard matched, or its segment in the alert path, where the rule's alert path has its `*`. A consumer building the link from an alert takes the origin and slug from the alert's `data.rule`, `<origin>.<slug>`, and the instance from the alert path's segment at the rule's `*`. The detail view highlights that instance's row, and moves focus to it when the webapp is already open.
 - A link to a rule that is not listed, because it was deleted or no longer validates, shows that the rule was not found. A link to an instance the rule does not have now shows the rule with a notice saying so.
 
 ## Errors
@@ -231,7 +233,7 @@ Errors answer `{ "error": "<message>" }`. A body that fails validation answers 4
 |---|---|
 | 400 | invalid body; an input path that is not exact; a `PUT` or preview whose `slug` differs from the path's; a reset of a rule that is not an accumulator |
 | 404 | no such rule or ruleset |
-| 409 | `POST /rules` with a slug a stored rule already has |
+| 409 | `POST /rules` with a slug a stored rule already has; a create, replace or preview whose rule's [alert path](rules.md#alert-paths) overlaps another rule's, with an error at `/condition` |
 | 415 | a mutating request without `Content-Type: application/json` |
 | 500 | the data directory could not be written. A rule or deletion that could not be saved is not applied. A reset, or a save or deletion that discards an accumulator total, whose totals could not be saved has been applied, but the old total returns after a restart unless a later checkpoint succeeds; a reset or deletion is in the action log all the same. An action whose log entry could not be written has been applied. A deletion whose controls could not be removed has deleted the rule, and a rule later created with its slug takes those controls. |
 | 503 | the plugin is not running |

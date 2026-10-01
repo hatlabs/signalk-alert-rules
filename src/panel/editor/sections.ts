@@ -251,7 +251,8 @@ export function fieldPointers(form: RuleForm): string[] {
       ]
     }),
     '/name',
-    '/slug'
+    '/slug',
+    '/condition'
   ]
 }
 

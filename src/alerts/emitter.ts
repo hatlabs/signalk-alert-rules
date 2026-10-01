@@ -11,11 +11,13 @@ export interface AlertHeader {
 }
 
 /**
- * The value of an `alerts.*` delta that raises an alert. `data` is fixed at
- * the raise; heartbeats repeat it unchanged, and omit it for an adopted alert
- * so that core keeps the data it stored.
+ * The value of an `alerts.*` delta that raises an alert. `references` and
+ * `data` are fixed at the raise; heartbeats repeat them unchanged, and omit
+ * them for an adopted alert so that core keeps what it stored.
  */
 export interface AlertValue extends AlertHeader {
+  /** The data paths the rule reads for the alert's instance. */
+  references?: string[]
   data?: Record<string, unknown>
 }
 

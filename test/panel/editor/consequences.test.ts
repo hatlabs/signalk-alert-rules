@@ -31,6 +31,19 @@ describe('editConsequences', () => {
     ])
   })
 
+  it('names a moved alert path in words', () => {
+    const [line] = editConsequences(
+      preview({
+        restarts: true,
+        changes: ['alertPath', 'detector.direction'],
+        activeAlerts: 1,
+        clearsActiveAlert: true
+      }),
+      []
+    )
+    expect(line).toContain('because its alert path and direction changed.')
+  })
+
   it('counts several cleared alerts', () => {
     const [line] = editConsequences(
       preview({ restarts: true, changes: ['gates'], activeAlerts: 3, clearsActiveAlert: true }),

@@ -149,7 +149,8 @@ describe('fieldPointers', () => {
       '/message',
       '/priority',
       '/name',
-      '/slug'
+      '/slug',
+      '/condition'
     ])
   })
 

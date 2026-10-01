@@ -46,6 +46,49 @@ describe('validateTemplateSet', () => {
     expect(result).toEqual({ ok: true, value: { ...set, templates: [voltageLow, bound] } })
   })
 
+  it("accepts a condition name, which names the alert under the input's parent", () => {
+    expect(errorsOf(withTemplate({ ...voltageLow, condition: 'bankFlat' }))).toEqual([])
+  })
+
+  it('reports a condition name that is not one alert path segment', () => {
+    for (const condition of ['bank flat', 'bank.flat', '*', 'constructor', '']) {
+      expect(errorsOf(withTemplate({ ...voltageLow, condition })).map((e) => e.path)).toEqual([
+        '/templates/0/condition'
+      ])
+    }
+  })
+
+  it("reports a name core forbids at the template's condition, as rule validation words it", () => {
+    expect(errorsOf(withTemplate({ ...voltageLow, condition: 'constructor' }))).toEqual([
+      { path: '/templates/0/condition', message: '"constructor" is not allowed in an alert path' }
+    ])
+  })
+
+  it('needs a condition name for a combined signal, which has no default one', () => {
+    const combined = {
+      combinator: 'difference',
+      inputs: [
+        { path: 'electrical.batteries.${instance}.voltage' },
+        { path: 'electrical.chargers.${instance}.voltage' }
+      ]
+    }
+    const rule = { ...voltageLow.rule, signal: combined }
+    expect(errorsOf(withTemplate({ ...voltageLow, condition: 'imbalance', rule }))).toEqual([])
+    expect(errorsOf(withTemplate({ ...voltageLow, rule }))).toEqual([
+      {
+        path: '/templates/0/condition',
+        message: 'is required: a rule over several paths has no default name'
+      }
+    ])
+  })
+
+  it("reports a condition name in the template's rule, as the template gives it", () => {
+    const rule = { ...voltageLow.rule, condition: 'bankFlat' }
+    expect(errorsOf(withTemplate({ ...voltageLow, rule }))).toEqual([
+      { path: '/templates/0/rule/condition', message: "is given as the template's condition" }
+    ])
+  })
+
   it('reports a set that does not match the schema', () => {
     const { version: _version, ...unversioned } = set
     expect(errorsOf(unversioned)).toEqual([{ path: '/version', message: 'is required' }])

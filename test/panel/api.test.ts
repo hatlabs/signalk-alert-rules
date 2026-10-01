@@ -34,6 +34,7 @@ const runningState = {
 /** A rule entry as `GET /rules` answers it, as src/application.ts builds it. */
 const ruleEntry = {
   slug: 'house-battery-low',
+  alertPath: 'electrical.batteries.*.voltageLow',
   rule: {
     name: 'House battery low',
     slug: 'house-battery-low',
@@ -87,6 +88,7 @@ const ruleEntry = {
 /** An accumulator rule before the runner starts, which is not evaluated and keeps its total. */
 const notStartedAccumulator = {
   slug: 'engine-hours',
+  alertPath: 'propulsion.revolutionsAccumulated',
   rule: {
     name: 'Engine service due',
     slug: 'engine-hours',
@@ -206,6 +208,7 @@ describe('httpApi', () => {
         slug: 'house-battery-low',
         rule: {
           name: 'House battery low',
+          alertPath: 'electrical.batteries.*.voltageLow',
           detector: { type: 'sustained', direction: 'below', zoneLevel: 'warn' },
           signal: { paths: ['electrical.batteries.*.voltage'] },
           gates: [{ paths: ['electrical.chargers.shore.state'] }]
@@ -239,6 +242,7 @@ describe('httpApi', () => {
         slug: 'engine-hours',
         rule: {
           name: 'Engine service due',
+          alertPath: 'propulsion.revolutionsAccumulated',
           priority: 'caution',
           detector: { type: 'accumulator', measure: 'time' },
           signal: {

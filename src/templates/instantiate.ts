@@ -120,7 +120,9 @@ function pickErrors(template: Template, pick: TemplatePick): ValidationError[] {
 /**
  * The rule a template makes with the picks for its open parts, unvalidated:
  * a pick can make a path that rule validation then refuses. The rule records
- * the set and template it came from, and takes a slug no rule in `taken` has.
+ * the set and template it came from, and takes a slug no rule in `taken`
+ * has. It stores the template's condition name, if the template has one.
+ * Another rule holding its alert path refuses the rule when it is created.
  */
 export function instantiate(
   set: { id: string; version: string },
@@ -146,6 +148,7 @@ export function instantiate(
     value: {
       name,
       slug: proposeSlug(template.id, instance, taken),
+      ...(template.condition === undefined ? {} : { condition: template.condition }),
       ...rest,
       template: { set: set.id, id: template.id, version: set.version, pick: { ...pick } }
     }

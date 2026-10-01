@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { ServerAPI } from '@signalk/server-api'
 import type { AlertValue, CoreAlert } from '../../src/alerts/emitter.js'
+import { alertPathOf } from '../../src/alerts/paths.js'
 import { serverDeps } from '../../src/alerts/server.js'
 import { RuleRunner, type RunnerDeps } from '../../src/alerts/runner.js'
 import { validateRule } from '../../src/model/validate.js'
@@ -26,6 +27,7 @@ const STAMP_GAP_MS = 10
 // Core's own alerts API, which also backs the plugin surface; readable while the plugin is disabled.
 type ServerAlert = CoreAlert & {
   id: string
+  references?: string[]
   state: string
   silenced: boolean
   stateChangedAt: string
@@ -168,19 +170,49 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
   })
 
   it("reports the plugin's id as the alert's source, with condition, priority, message and data", async () => {
-    deps.send('rules.contract.source', { ...raise('source'), data: { rule: 'contract.source' } })
-    const alert = await until(() => alerts().getByPath('rules.contract.source'), 'the raise')
+    deps.send('contract.source', { ...raise('source'), data: { rule: 'contract-source' } })
+    const alert = await until(() => alerts().getByPath('contract.source'), 'the raise')
     expect(alert).toMatchObject({
       $source: PLUGIN_ID,
       condition: true,
       priority: 'alarm',
       message: 'source',
-      data: { rule: 'contract.source' }
+      data: { rule: 'contract-source' }
     })
   })
 
+  it('stores references with the raise and keeps them through a repeat that omits them', async () => {
+    const path = 'contract.references.voltageLow'
+    const references = ['electrical.batteries.house.voltage', 'electrical.chargers.shore.state']
+    deps.send(path, { ...raise('references'), references })
+    await until(() => alerts().getByPath(path), 'the raise')
+    deps.send(path, raise('references'))
+    await alerts().ingressSettled()
+    expect(alerts().getByPath(path)).toMatchObject({ references })
+  })
+
+  it('drops every reference when one is not a usable path, which is why SKAR leaves such paths out', async () => {
+    const path = 'contract.references.dropped'
+    deps.send(path, {
+      ...raise('dropped'),
+      references: ['electrical.batteries.house.voltage', 'electrical.batteries.house bank.voltage']
+    })
+    const alert = await until(() => alerts().getByPath(path), 'the raise')
+    expect(alert.references).toBeUndefined()
+  })
+
+  it('refuses a raise with more than 50 references', async () => {
+    const path = 'contract.references.tooMany'
+    const references = Array.from({ length: 51 }, (_, i) => `a.p${String(i)}`)
+    deps.send(path, { ...raise('too many'), references })
+    await alerts().ingressSettled()
+    expect(alerts().getByPath(path)).toBeNull()
+    deps.send(path, { ...raise('enough'), references: references.slice(0, 50) })
+    await until(() => alerts().getByPath(path), 'the raise')
+  })
+
   it("reports the last emitter's id as the source, which the restart reconciliation reads", async () => {
-    const path = 'rules.contract.taken-over'
+    const path = 'contract.taken-over'
     deps.send(path, raise('taken'))
     await until(() => alerts().getByPath(path), 'the raise')
     running().app.handleMessage('another-plugin', {
@@ -197,7 +229,7 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
   })
 
   it('keeps an acknowledged alert acknowledged across unchanged heartbeats', async () => {
-    const path = 'rules.contract.ack'
+    const path = 'contract.ack'
     deps.send(path, raise('ack'))
     const alert = await until(() => alerts().getByPath(path), 'the raise')
     await alerts().acknowledge(alert.id, 'contract-test')
@@ -208,7 +240,7 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
   })
 
   it('updates the message of an acknowledged alert without re-alerting it', async () => {
-    const path = 'rules.contract.edited'
+    const path = 'contract.edited'
     deps.send(path, raise('before'))
     const alert = await until(() => alerts().getByPath(path), 'the raise')
     await alerts().acknowledge(alert.id, 'contract-test')
@@ -218,7 +250,7 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
   })
 
   it('escalates an acknowledged alert on a repeat at a higher priority, and keeps its priority on a lower one', async () => {
-    const path = 'rules.contract.escalated'
+    const path = 'contract.escalated'
     deps.send(path, { ...raise('escalated'), priority: 'warning' })
     const alert = await until(() => alerts().getByPath(path), 'the raise')
     await alerts().acknowledge(alert.id, 'contract-test')
@@ -236,7 +268,7 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
   })
 
   it('keeps stored data when a heartbeat omits it', async () => {
-    const path = 'rules.contract.no-data'
+    const path = 'contract.no-data'
     deps.send(path, { ...raise('data'), data: { rule: 'contract.no-data' } })
     await until(() => alerts().getByPath(path), 'the raise')
     deps.send(path, raise('data'))
@@ -245,7 +277,7 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
   })
 
   it('holds a cleared unacknowledged alarm, and reactivates it on a new raise', async () => {
-    const path = 'rules.contract.held'
+    const path = 'contract.held'
     deps.send(path, raise('held'))
     await until(() => alerts().getByPath(path), 'the raise')
     deps.send(path, null)
@@ -263,7 +295,7 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
   })
 
   it('holds a latching raise as ended, and re-announces the held alert on the next latching raise', async () => {
-    const path = 'rules.contract.latching'
+    const path = 'contract.latching'
     const event: AlertValue = { ...raise('latching'), latching: true }
     deps.send(path, event)
     const first = await until(() => alerts().getByPath(path), 'the raise')
@@ -283,8 +315,8 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
   it(
     'marks an active alert stale 60 s after its last emission, never one whose condition ended, and a raise revives it',
     async () => {
-      const silent = 'rules.contract.silent'
-      const cleared = 'rules.contract.cleared'
+      const silent = 'contract.silent'
+      const cleared = 'contract.cleared'
       for (const path of [silent, cleared]) deps.send(path, raise(path))
       deps.send(cleared, null)
       await until(
@@ -309,7 +341,7 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
   it(
     'restores active alerts on restart and times them from load, so they go stale while SKAR is disabled',
     async () => {
-      const restoredPath = 'rules.contract.restart-restored'
+      const restoredPath = 'contract.restart-restored'
       deps.send(restoredPath, raise('restored'))
       await alerts().ingressSettled()
       await running().stop()
@@ -339,7 +371,7 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
     })
     if (!validated.ok) throw new Error(JSON.stringify(validated.errors))
     const rules = [validated.value]
-    const path = 'rules.oil-pressure-low'
+    const path = 'propulsion.main.oilPressureLow'
     running().app.handleMessage('contract-sensor', {
       updates: [{ values: [{ path: OIL as never, value: 0 }] }]
     })
@@ -357,8 +389,46 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
     expect(alerts().getByPath(path)).toMatchObject({
       state: 'acknowledged',
       condition: true,
-      data: raised.data
+      data: raised.data,
+      references: [OIL]
     })
     second.stop()
+  })
+
+  it("a starting runner clears its own orphan and leaves another source's alert at a rule's path", async () => {
+    const validated = validateRule({
+      name: 'Fresh water low',
+      slug: 'fresh-water-low',
+      message: 'Fresh water is low',
+      priority: 'warning',
+      signal: { path: 'tanks.freshWater.contract.currentLevel' },
+      detector: { type: 'sustained', direction: 'below', limit: { kind: 'fixed', value: 0.1 } }
+    })
+    if (!validated.ok) throw new Error(JSON.stringify(validated.errors))
+    const foreign = 'tanks.freshWater.contract.currentLevelLow'
+    expect(alertPathOf(validated.value)).toBe(foreign)
+    const orphan = 'tanks.freshWater.removed.currentLevelLow'
+    running().app.handleMessage('tank-monitor', {
+      updates: [
+        {
+          values: [
+            {
+              path: `alerts.${foreign}` as never,
+              value: { priority: 'warning', message: 'theirs' }
+            }
+          ]
+        }
+      ]
+    })
+    deps.send(orphan, raise('orphan'))
+    await alerts().ingressSettled()
+    expect(alerts().getByPath(orphan)?.$source).toBe(PLUGIN_ID)
+
+    const runner = new RuleRunner(deps, [validated.value])
+    runner.start()
+    await alerts().ingressSettled()
+    expect(alerts().getByPath(foreign)).toMatchObject({ $source: 'tank-monitor', condition: true })
+    expect(alerts().getByPath(orphan)?.condition).toBe(false)
+    runner.stop()
   })
 })

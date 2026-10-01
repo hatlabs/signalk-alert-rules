@@ -267,6 +267,17 @@ function editRefused(res: Response, outcome: Exclude<SaveOutcome, { ok: true }>)
     case 'notFound':
       notFound(res, 'such rule')
       break
+    case 'alertPathTaken':
+      res.status(409).json({
+        error: 'another rule has this alert path',
+        errors: [
+          {
+            path: '/condition',
+            message: `makes an alert path overlapping that of rule ${outcome.holder}; each rule needs its own`
+          }
+        ]
+      })
+      break
     case 'slugMismatch':
       res.status(400).json({
         error: "the rule's slug must equal the one in the path",

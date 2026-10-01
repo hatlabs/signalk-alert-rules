@@ -17,7 +17,7 @@ import { MockServerAPI } from '../helpers/MockServerAPI.js'
 const BASE = '/plugins/signalk-alert-rules'
 const OIL = 'propulsion.main.oilPressure'
 const RPM = 'propulsion.main.revolutions'
-const OIL_ALERT = 'rules.oil-pressure-low'
+const OIL_ALERT = 'propulsion.main.oilPressureLow'
 
 const oil = {
   name: 'Oil pressure low',
@@ -209,7 +209,7 @@ describe('REST API', () => {
     expect(core(h).getByPath(OIL_ALERT)?.condition).toBe(true)
 
     h.mock.subscriptionmanager.publish('propulsion.port.coolantTemperature', 'src', 380)
-    expect(core(h).getByPath('rules.coolant-high.port')?.condition).toBe(true)
+    expect(core(h).getByPath('propulsion.port.coolantTemperatureHigh')?.condition).toBe(true)
     const list = await h.call('GET', '/rules')
     expect((list.body as { slug: string }[]).map((r) => r.slug)).toEqual([
       'oil-pressure-low',
@@ -294,7 +294,7 @@ describe('REST API', () => {
     const h = await serve()
     h.mock.subscriptionmanager.publish(RPM, 'src', 30)
     at(10)
-    expect(core(h).getByPath('rules.engine-hours')?.condition).toBe(true)
+    expect(core(h).getByPath('propulsion.main.revolutionsAccumulated')?.condition).toBe(true)
 
     h.user = 'skipper'
     const reply = await h.call('POST', '/rules/engine-hours/reset')
@@ -305,7 +305,7 @@ describe('REST API', () => {
         instances: [{ active: false, progress: { kind: 'total', total: 0 } }]
       }
     })
-    expect(core(h).getByPath('rules.engine-hours')?.condition).toBe(false)
+    expect(core(h).getByPath('propulsion.main.revolutionsAccumulated')?.condition).toBe(false)
     expect(new Store(dir).load().accumulators).toEqual({
       'engine-hours': { measure: 'time', totals: { '': 0 } }
     })
@@ -397,6 +397,103 @@ describe('REST API', () => {
     expect((await h.call('GET', '/log')).body).toMatchObject([
       { actor: 'unauthenticated', action: 'delete', rule: 'oil-pressure-low' }
     ])
+  })
+
+  it('refuses an edit of a stored rule that did not load for its overlap, until it has its own alert path', async () => {
+    const portOil = { ...oil, slug: 'port-oil', signal: { path: 'propulsion.*.oilPressure' } }
+    storeRule(oil)
+    storeRule(portOil)
+    const h = await serve()
+    expect(await h.call('PUT', '/rules/port-oil', portOil)).toMatchObject({
+      status: 409,
+      body: {
+        error: 'another rule has this alert path',
+        errors: [
+          {
+            path: '/condition',
+            message:
+              'makes an alert path overlapping that of rule oil-pressure-low; each rule needs its own'
+          }
+        ]
+      }
+    })
+    const own = { ...portOil, condition: 'oilPressureLost' }
+    expect((await h.call('PUT', '/rules/port-oil', own)).status).toBe(200)
+  })
+
+  it("refuses a rule taking another rule's alert path, on create and on edit", async () => {
+    storeRule(oil)
+    const h = await serve()
+    const taken = await h.call('POST', '/rules', {
+      ...oil,
+      slug: 'oil-low-again',
+      condition: 'oilPressureLow'
+    })
+    expect(taken).toMatchObject({
+      status: 409,
+      body: {
+        errors: [
+          {
+            path: '/condition',
+            message:
+              'makes an alert path overlapping that of rule oil-pressure-low; each rule needs its own'
+          }
+        ]
+      }
+    })
+    const high = { ...oil, slug: 'oil-high', detector: { ...oil.detector, direction: 'above' } }
+    expect((await h.call('POST', '/rules', high)).status).toBe(201)
+    const previewed = await h.call('POST', '/rules/oil-high/preview', {
+      ...high,
+      detector: oil.detector
+    })
+    expect(previewed).toMatchObject({
+      status: 409,
+      body: {
+        error: 'another rule has this alert path',
+        errors: [
+          {
+            path: '/condition',
+            message:
+              'makes an alert path overlapping that of rule oil-pressure-low; each rule needs its own'
+          }
+        ]
+      }
+    })
+    const lowered = await h.call('PUT', '/rules/oil-high', { ...high, detector: oil.detector })
+    expect(lowered).toMatchObject({
+      status: 409,
+      body: {
+        errors: [
+          {
+            path: '/condition',
+            message:
+              'makes an alert path overlapping that of rule oil-pressure-low; each rule needs its own'
+          }
+        ]
+      }
+    })
+    const moved = await h.call('PUT', '/rules/oil-pressure-low', {
+      ...oil,
+      condition: 'lubricationFailed'
+    })
+    expect(moved.status).toBe(200)
+    const combined = await h.call('POST', '/rules', {
+      ...oil,
+      slug: 'oil-spread',
+      signal: { combinator: 'spread', inputs: [{ path: OIL }, { path: RPM }] }
+    })
+    expect(combined).toMatchObject({
+      status: 400,
+      body: {
+        errors: [
+          {
+            path: '/condition',
+            message: 'is required: a rule over several paths has no default name'
+          }
+        ]
+      }
+    })
   })
 
   it('answers the error paths', async () => {
@@ -655,6 +752,36 @@ describe('templates API', () => {
     return h.call('POST', '/rules', made.value)
   }
 
+  it('raises a rule made from the built-in battery template at the data-model alert path', async () => {
+    const h = await serve()
+    const builtin = (await listing(h)).sets.find((s) => s.id === 'builtin')
+    const template = builtin?.templates.find((t) => t.id === 'battery-voltage-low')
+    if (builtin === undefined || template === undefined) throw new Error('no built-in template')
+    expect(template.condition).toBe('voltageLow')
+    const made = instantiate(builtin, template, { instance: 'house' })
+    if (!made.ok) throw new Error(JSON.stringify(made.errors))
+    expect((await h.call('POST', '/rules', made.value)).status).toBe(201)
+    h.mock.subscriptionmanager.publish('electrical.batteries.house.voltage', 'src', 11)
+    at(61)
+    expect(core(h).getByPath('electrical.batteries.house.voltageLow')).toMatchObject({
+      condition: true,
+      $source: 'signalk-alert-rules'
+    })
+
+    // The rule stores the template's name, though it equals the default, so
+    // an edit of the detector keeps it.
+    expect(made.value.condition).toBe('voltageLow')
+    const above = { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 0 } }
+    const flipped = { ...made.value, detector: { ...above, duration: 60 } }
+    expect((await h.call('PUT', `/rules/${String(made.value.slug)}`, flipped)).status).toBe(200)
+    h.mock.subscriptionmanager.publish('electrical.batteries.house.voltage', 'src', 11)
+    at(122)
+    expect(core(h).getByPath('electrical.batteries.house.voltageLow')).toMatchObject({
+      condition: true
+    })
+    expect(core(h).getByPath('electrical.batteries.house.voltageHigh')).toBeNull()
+  })
+
   it('lists the built-in set and a package set with their templates and open parts, all new', async () => {
     installSet('1.0.0')
     const h = await serve()
@@ -694,14 +821,23 @@ describe('templates API', () => {
     })
   })
 
-  it('gives a second rule from the same template and pick its own slug', async () => {
+  it('refuses a second rule from the same template and pick at the alert path, not the slug', async () => {
     installSet('1.0.0')
     const h = await serve()
     const pick = { instance: 'house', source: 'can0.12' }
     expect((await create(h, pick)).status).toBe(201)
-    expect((await create(h, pick)).status).toBe(201)
-    const rules = (await h.call('GET', '/rules')).body as { slug: string }[]
-    expect(rules.map((r) => r.slug)).toEqual(['voltage-low-house', 'voltage-low-house-2'])
+    expect(await create(h, pick)).toMatchObject({
+      status: 409,
+      body: {
+        errors: [
+          {
+            path: '/condition',
+            message:
+              'makes an alert path overlapping that of rule voltage-low-house; each rule needs its own'
+          }
+        ]
+      }
+    })
   })
 
   it('refuses a rule whose pick makes an invalid path, or with a malformed template record', async () => {
@@ -743,7 +879,7 @@ describe('templates API', () => {
       status: { badge: 'neverSeen' }
     })
     h.mock.subscriptionmanager.publish(HOUSE, 'can0.12', 11)
-    expect(core(h).getByPath('rules.voltage-low-house')?.condition).toBe(true)
+    expect(core(h).getByPath('electrical.batteries.house.voltageLow')?.condition).toBe(true)
   })
 
   it('dismissing marks the current templates seen for everyone; an update makes only its additions new', async () => {

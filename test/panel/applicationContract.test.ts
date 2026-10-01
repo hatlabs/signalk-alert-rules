@@ -52,6 +52,7 @@ const batteries = {
 const mismatch = {
   name: 'RPM mismatch',
   slug: 'rpm-mismatch',
+  condition: 'revolutionsMismatch',
   message: 'Engine revolutions differ',
   priority: 'warning',
   signal: { combinator: 'absDifference', inputs: [{ path: RPM }, { path: AUX_RPM }] },
@@ -159,12 +160,15 @@ describe('panel parsers against the Application', () => {
       ['house', 'idle'],
       ['start', 'alertActive']
     ])
+    expect(entry?.rule.alertPath).toBe('electrical.batteries.*.voltageLow')
   })
 
   it('read a disabled combinator with its note and gates', () => {
     const entry = parsedRules(running()).get(mismatch.slug)
     expect(entry).toMatchObject({
       rule: {
+        // The condition name under the parent its inputs share.
+        alertPath: 'propulsion.revolutionsMismatch',
         signal: { combinator: 'absDifference', paths: [RPM, AUX_RPM] },
         gates: [{ paths: [COOLANT] }]
       },

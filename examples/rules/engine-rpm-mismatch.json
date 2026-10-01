@@ -1,6 +1,7 @@
 {
   "name": "Engine RPM mismatch",
   "slug": "engine-rpm-mismatch",
+  "condition": "revolutionsMismatch",
   "message": "Port and starboard engine speeds differ",
   "priority": "caution",
   "signal": {

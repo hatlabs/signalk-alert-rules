@@ -53,6 +53,7 @@ describe('canonicalSources', () => {
   const rule: Rule = {
     name: 'Headings disagree',
     slug: 'headings-disagree',
+    condition: 'headingsDisagree',
     message: 'Compasses disagree',
     priority: 'warning',
     signal: {

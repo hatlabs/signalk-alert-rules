@@ -5,6 +5,7 @@ import {
   MAX_PICK_LENGTH,
   MAX_SLUG_LENGTH
 } from '../../src/model/rule.js'
+import { alertPathOf } from '../../src/alerts/paths.js'
 import type { Template } from '../../src/model/template.js'
 import { validateRule } from '../../src/model/validate.js'
 import {
@@ -61,6 +62,7 @@ describe('instantiate', () => {
     const template: Template = {
       id: 'charge-imbalance',
       open: ['instance'],
+      condition: 'chargeImbalance',
       rule: {
         name: 'Charge imbalance',
         message: 'Charge imbalance',
@@ -91,7 +93,20 @@ describe('instantiate', () => {
       ]
     })
     expect(rule.gates).toMatchObject([{ signal: { path: 'electrical.batteries.house.current' } }])
+    // The inputs share only their first segment, so the name goes under it.
+    expect(alertPathOf(rule)).toBe('electrical.chargeImbalance')
     expect(validateRule(rule).ok).toBe(true)
+  })
+
+  it("stores the template's condition name, which names the alert under the input's parent", () => {
+    const rule = created({ ...voltageLow, condition: 'bankFlat' }, { instance: 'house' })
+    expect(rule.condition).toBe('bankFlat')
+    expect(alertPathOf(rule)).toBe('electrical.batteries.house.bankFlat')
+    expect(validateRule(rule).ok).toBe(true)
+  })
+
+  it('stores no condition name for a template without one', () => {
+    expect(created(voltageLow, { instance: 'house' })).not.toHaveProperty('condition')
   })
 
   it('stores a picked source on the input', () => {
@@ -115,11 +130,12 @@ describe('instantiate', () => {
     })
   })
 
-  it('gives each instantiation for the same pick its own slug', () => {
+  it('gives each instantiation for the same pick its own slug, but the same alert path', () => {
     const first = created(voltageLow, { instance: 'house' })
     const second = created(voltageLow, { instance: 'house' }, new Set([first.slug as string]))
     expect(first.slug).toBe('voltage-low-house')
     expect(second.slug).toBe('voltage-low-house-2')
+    expect(alertPathOf(second)).toBe(alertPathOf(first))
   })
 
   it('requires a pick for every open part and refuses one for a bound part', () => {

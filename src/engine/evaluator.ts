@@ -8,6 +8,7 @@ import {
   type Signal,
   type ZoneLevel
 } from '../model/rule.js'
+import { ruleAlertPath } from '../model/alertPath.js'
 import { angularUnitsMessage, timeoutValueTypeMessage } from '../model/validate.js'
 import type { Clock } from './clock.js'
 import {
@@ -194,10 +195,13 @@ function canonical(value: unknown): string {
 
 // A zone limit's named level is structural too: re-evaluated in place, an
 // active alert would at once report the new level, which the value may never
-// have entered, while its detector waits out the clear duration.
+// have entered, while its detector waits out the clear duration. The alert
+// path is listed so that the edit preview names it: `RuleRunner.update` moves
+// an alert whose path changes before an evaluator sees the edit.
 function structure(rule: Rule): Record<string, unknown> {
   const fields: readonly string[] = ['type', ...STRUCTURAL[rule.detector.type]]
   return {
+    alertPath: ruleAlertPath(rule),
     signal: rule.signal,
     gates: rule.gates ?? [],
     latching: rule.latching ?? false,

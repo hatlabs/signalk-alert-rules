@@ -39,70 +39,75 @@ function alert(path: string, condition = true, source = PLUGIN): CoreAlert {
   }
 }
 
+const OIL = 'propulsion.main.oilPressureLow'
+const PORT = 'propulsion.port.coolantTemperatureHigh'
+
 describe('reconcile', () => {
   const rules = new Map([
     ['oil-pressure-low', single],
     ['coolant-high', wildcard]
   ])
 
-  it('keeps the alerts of existing rules and instances, and starts active ones condition-active', () => {
-    const result = reconcile(
-      [alert('rules.oil-pressure-low'), alert('rules.coolant-high.port')],
-      PLUGIN,
-      rules
-    )
+  it("adopts SKAR's active alerts by source and alert path, with a wildcard rule's instance", () => {
+    const result = reconcile([alert(OIL), alert(PORT)], PLUGIN, rules)
     expect(result.toClear).toEqual([])
     expect(result.kept.map((k) => [k.alert.path, k.slug, k.segment])).toEqual([
-      ['rules.oil-pressure-low', 'oil-pressure-low', undefined],
-      ['rules.coolant-high.port', 'coolant-high', 'port']
+      [OIL, 'oil-pressure-low', undefined],
+      [PORT, 'coolant-high', 'port']
     ])
     expect(result.activeByRule.get('oil-pressure-low')).toEqual([{}])
     expect(result.activeByRule.get('coolant-high')).toEqual([{ segment: 'port' }])
   })
 
+  it("matches by the alert path of the rule's condition name", () => {
+    const named = { ...single, condition: 'lubricationFailed' }
+    const result = reconcile(
+      [alert('propulsion.main.lubricationFailed')],
+      PLUGIN,
+      new Map([['oil-pressure-low', named]])
+    )
+    expect(result.kept.map((k) => k.slug)).toEqual(['oil-pressure-low'])
+  })
+
   it('ignores alerts whose condition has ended, even when their rule is gone', () => {
     const result = reconcile(
-      [alert('rules.oil-pressure-low', false), alert('rules.deleted-rule', false)],
+      [alert(OIL, false), alert('electrical.batteries.house.voltageLow', false)],
       PLUGIN,
       rules
     )
     expect(result).toEqual({ kept: [], activeByRule: new Map(), toClear: [] })
   })
 
-  it('clears alerts whose rule is gone or whose instance cannot belong to the rule', () => {
+  it("clears SKAR's alerts at paths no rule has, as orphans", () => {
+    const orphans = [
+      'electrical.batteries.house.voltageLow',
+      `${OIL}.port`,
+      'propulsion.coolantTemperatureHigh',
+      'rules.oil-pressure-low'
+    ]
     const result = reconcile(
-      [
-        alert('rules.deleted-rule'),
-        alert('rules.oil-pressure-low.port'),
-        alert('rules.coolant-high'),
-        alert('rules.user.oil-pressure-low')
-      ],
+      orphans.map((path) => alert(path)),
       PLUGIN,
       rules
     )
-    expect(result.toClear.map((a) => a.path)).toEqual([
-      'rules.deleted-rule',
-      'rules.oil-pressure-low.port',
-      'rules.coolant-high',
-      'rules.user.oil-pressure-low'
-    ])
+    expect(result.toClear.map((a) => a.path)).toEqual(orphans)
     expect(result.kept).toEqual([])
   })
 
   it('clears an active alert of a latching rule, which holds none, and starts the rule afresh', () => {
     const result = reconcile(
-      [alert('rules.oil-pressure-low')],
+      [alert(OIL)],
       PLUGIN,
       new Map([['oil-pressure-low', { ...single, latching: true }]])
     )
-    expect(result.toClear.map((a) => a.path)).toEqual(['rules.oil-pressure-low'])
+    expect(result.toClear.map((a) => a.path)).toEqual([OIL])
     expect(result.kept).toEqual([])
     expect(result.activeByRule.size).toBe(0)
   })
 
-  it("ignores other sources' alerts and paths outside SKAR's prefix", () => {
+  it("leaves another source's alert at a rule's path, and any other source's alert, untouched", () => {
     const result = reconcile(
-      [alert('rules.oil-pressure-low', true, 'other-plugin'), alert('notifications.x.y')],
+      [alert(OIL, true, 'other-plugin'), alert(PORT, true, 'n2k-1'), alert('a.b', true, 'x')],
       PLUGIN,
       rules
     )

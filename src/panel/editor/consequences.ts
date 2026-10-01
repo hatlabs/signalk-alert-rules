@@ -5,6 +5,7 @@
 import type { EditPreview } from '../api'
 
 const CHANGE_WORDS: Readonly<Partial<Record<string, string>>> = {
+  alertPath: 'alert path',
   signal: 'input',
   gates: 'gates',
   latching: 'latching',

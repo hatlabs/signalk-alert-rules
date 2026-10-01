@@ -9,6 +9,7 @@ templates:
   - id: battery-voltage-low
     description: A battery bank's voltage stays below 12 V for a minute.
     open: [instance]
+    condition: voltageLow
     rule:
       name: Battery ${instance} voltage low
       message: Battery ${instance} voltage is low

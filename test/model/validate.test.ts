@@ -1,10 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import {
-  alertPathFor,
-  validateRule,
-  type PathInfo,
-  type ValidationError
-} from '../../src/model/validate.js'
+import { alertPathOf } from '../../src/alerts/paths.js'
+import { validateRule, type PathInfo, type ValidationError } from '../../src/model/validate.js'
 import { workedExamples } from '../fixtures/worked-examples.js'
 
 const base = {
@@ -15,8 +11,10 @@ const base = {
   signal: { path: 'electrical.batteries.house.voltage' }
 }
 
+// A combined signal has no default condition name; the tests of other fields give it one.
 function rule(overrides: Record<string, unknown>): Record<string, unknown> {
-  return { ...base, ...overrides }
+  const combined = typeof overrides.signal === 'object' && 'combinator' in (overrides.signal ?? {})
+  return { ...base, ...(combined ? { condition: 'combined' } : {}), ...overrides }
 }
 
 function unprioritised(overrides: Record<string, unknown>): Record<string, unknown> {
@@ -466,18 +464,113 @@ describe('validateRule', () => {
   })
 })
 
-describe('alertPathFor', () => {
-  it('builds the reserved path', () => {
-    expect(alertPathFor('low-battery')).toEqual({ ok: true, value: 'rules.low-battery' })
-    expect(alertPathFor('hot', 'port')).toEqual({ ok: true, value: 'rules.hot.port' })
+describe('the alert path', () => {
+  const sustained = minimalDetectors.sustained
+  const combined = {
+    combinator: 'difference',
+    inputs: [
+      { path: 'electrical.batteries.house.voltage' },
+      { path: 'electrical.batteries.start.voltage' }
+    ]
+  }
+
+  function pathOf(input: unknown): string | undefined {
+    const result = validateRule(input)
+    if (!result.ok) throw new Error(JSON.stringify(result.errors))
+    return alertPathOf(result.value)
+  }
+
+  it("defaults to the input's parent and the default condition name, storing none", () => {
+    const result = validateRule(rule({ detector: sustained }))
+    expect(result.ok && result.value.condition).toBeUndefined()
+    expect(pathOf(rule({ detector: sustained }))).toBe('electrical.batteries.house.voltageLow')
   })
 
-  it('rejects an instance that is not a valid segment', () => {
-    expect(alertPathFor('hot', 'port side').ok).toBe(false)
+  it('keeps the wildcard of a wildcard input in the parent', () => {
+    const wild = rule({ signal: { path: 'electrical.batteries.*.voltage' }, detector: sustained })
+    expect(pathOf(wild)).toBe('electrical.batteries.*.voltageLow')
+    expect(pathOf({ ...wild, condition: 'flat' })).toBe('electrical.batteries.*.flat')
   })
 
-  it('rejects a path over 255 characters', () => {
-    expect(alertPathFor('hot', 'x'.repeat(250)).ok).toBe(false)
+  it("puts a stored condition name under the input's parent", () => {
+    expect(pathOf(rule({ detector: sustained, condition: 'flat' }))).toBe(
+      'electrical.batteries.house.flat'
+    )
+  })
+
+  it("puts a combined signal's condition name under its inputs' common parent", () => {
+    expect(pathOf(rule({ signal: combined, detector: sustained, condition: 'diverge' }))).toBe(
+      'electrical.batteries.diverge'
+    )
+    const apart = {
+      combinator: 'difference',
+      inputs: [{ path: 'environment.depth.belowKeel' }, { path: 'navigation.speedThroughWater' }]
+    }
+    expect(pathOf(rule({ signal: apart, detector: sustained, condition: 'shoaling' }))).toBe(
+      'shoaling'
+    )
+  })
+
+  it('refuses a combined signal without a condition name, saying why', () => {
+    const missing = {
+      path: '/condition',
+      message: 'is required: a rule over several paths has no default name'
+    }
+    expect(errorsOf({ ...base, signal: combined, detector: sustained })).toEqual([missing])
+    // Reported with the rule's other errors, not before them.
+    expect(errorsOf({ ...base, signal: combined, detector: sustained, latching: true })).toEqual([
+      missing,
+      expect.objectContaining({ path: '/latching' })
+    ])
+    expect(errorsOf({ ...base, signal: combined, detector: { type: 'magic' } })).toEqual([
+      missing,
+      expect.objectContaining({ path: '/detector/type' })
+    ])
+  })
+
+  it('refuses an input ending in a wildcard without a condition name', () => {
+    const wildLeaf = rule({
+      signal: { path: 'electrical.batteries.*' },
+      detector: minimalDetectors.match
+    })
+    expect(paths(errorsOf(wildLeaf))).toEqual(['/condition'])
+    // The instance is part of the parent, so each has an alert of its own.
+    expect(pathOf({ ...wildLeaf, condition: 'fault' })).toBe('electrical.batteries.*.fault')
+  })
+
+  it('refuses a condition name that is not one segment core accepts', () => {
+    for (const condition of ['', 'house.low', '*', 'low voltage', ' low', '__proto__']) {
+      expect(paths(errorsOf(rule({ detector: sustained, condition })))).toEqual(['/condition'])
+    }
+  })
+
+  it('refuses an alert path field: only the condition name is stored', () => {
+    const given = rule({ detector: sustained, alertPath: 'electrical.batteries.house.low' })
+    expect(paths(errorsOf(given))).toEqual(['/alertPath'])
+  })
+
+  it('refuses an overlong alert path at the condition name, or at the input without one', () => {
+    const long = 'x'.repeat(250)
+    expect(paths(errorsOf(rule({ detector: sustained, condition: long })))).toEqual(['/condition'])
+    const deep = rule({ signal: { path: `a.${long}.voltage` }, detector: sustained })
+    expect(paths(errorsOf(deep))).toEqual(['/signal/path'])
+  })
+
+  it('refuses a parent segment core forbids at the input', () => {
+    const proto = rule({ signal: { path: 'a.__proto__.voltage' }, detector: sustained })
+    expect(paths(errorsOf(proto))).toEqual(['/signal/path'])
+    // A combined signal's parent is common to its inputs, so the first stands for them.
+    const protoCombined = rule({
+      signal: {
+        combinator: 'difference',
+        inputs: [{ path: 'a.__proto__.b.voltage' }, { path: 'a.__proto__.c.voltage' }]
+      },
+      detector: sustained,
+      condition: 'diverge'
+    })
+    expect(errorsOf(protoCombined)).toEqual([
+      { path: '/signal/inputs/0/path', message: '"__proto__" is not allowed in an alert path' }
+    ])
   })
 })
 

@@ -1,4 +1,6 @@
 import type { Verdict } from './alerts/badge.js'
+import { alertPathsOverlap } from './alerts/paths.js'
+import { ruleAlertPath } from './model/alertPath.js'
 import {
   RuleRunner,
   type Accumulated,
@@ -59,6 +61,12 @@ export type RuleStatus = RunnerRuleStatus | NotEvaluatedStatus
 export interface RuleEntry {
   slug: string
   rule: Rule
+  /**
+   * The rule's alert path, without the `alerts.` prefix, as its input and
+   * condition name give it; a wildcard rule's has a `*` where each
+   * instance's segment goes.
+   */
+  alertPath: string
   /** Present while the rule is disabled. */
   disabled?: Disabled
   status: RuleStatus
@@ -70,6 +78,8 @@ export type SaveOutcome =
   | { ok: true; value: Rule }
   | { ok: false; reason: 'invalid'; errors: ValidationError[] }
   | { ok: false; reason: 'exists' | 'notFound' | 'slugMismatch' }
+  /** Another rule, `holder`, has the alert path, or could have it for one of its instances. */
+  | { ok: false; reason: 'alertPathTaken'; holder: string }
 
 /** What saving an edit would do to the running rule, per the edit semantics. */
 export interface EditPreview {
@@ -165,7 +175,7 @@ export class Application {
   private readonly unreadable: Set<string>
   /**
    * Checkpointed totals of rules the runner does not hold: a stored rule that
-   * no longer validates, kept until the rule is deleted or saved again.
+   * did not load, kept until the rule is deleted or saved again.
    */
   private readonly retained: Map<string, Accumulated>
   /**
@@ -198,26 +208,34 @@ export class Application {
     // A rule file that could not be read is still on disk: a create must not overwrite it.
     this.stored = new Set([...contents.rules.map((r) => r.slug), ...contents.unreadableRules])
     for (const { slug, value } of contents.rules) {
-      const result = validateRule(value)
-      const detector = isRecord(value) && isRecord(value.detector) ? value.detector : undefined
-      if (
-        (!result.ok || result.value.slug !== slug) &&
-        detector?.type === 'accumulator' &&
-        typeof detector.measure === 'string'
-      ) {
-        this.unloadedMeasures.set(slug, detector.measure)
+      const loaded = this.loadStored(slug, value)
+      if (typeof loaded !== 'string') {
+        this.rulesBySlug.set(slug, loaded)
+        continue
       }
-      if (!result.ok) {
-        const errors = result.errors.map((e) => `${e.path || '/'} ${e.message}`).join('; ')
-        this.issues.push(`stored rule ${slug} is not valid and does not run: ${errors}`)
-      } else if (result.value.slug !== slug) {
-        this.issues.push(`stored rule ${slug} has the slug ${result.value.slug} and does not run`)
-      } else {
-        this.rulesBySlug.set(slug, result.value)
+      this.issues.push(loaded)
+      const detector = isRecord(value) && isRecord(value.detector) ? value.detector : undefined
+      if (detector?.type === 'accumulator' && typeof detector.measure === 'string') {
+        this.unloadedMeasures.set(slug, detector.measure)
       }
     }
     this.retained = toMaps(contents.accumulators)
     this.unreadable = new Set(contents.unreadableRules)
+  }
+
+  /** A stored rule file as the rule it loads as, or the issue saying why it does not run. */
+  private loadStored(slug: string, value: unknown): Rule | string {
+    const result = validateRule(value)
+    if (!result.ok) {
+      const errors = result.errors.map((e) => `${e.path || '/'} ${e.message}`).join('; ')
+      return `stored rule ${slug} is not valid and does not run: ${errors}`
+    }
+    if (result.value.slug !== slug)
+      return `stored rule ${slug} has the slug ${result.value.slug} and does not run`
+    const holder = this.alertPathHolder(result.value)
+    if (holder !== undefined)
+      return `stored rule ${slug} has an alert path overlapping that of ${holder} and does not run`
+    return result.value
   }
 
   /** Starts evaluating, adopting the alerts SKAR already has in core. */
@@ -435,6 +453,8 @@ export class Application {
     const result = validateRule(input)
     if (!result.ok) return { ok: false, reason: 'invalid', errors: result.errors }
     if (this.stored.has(result.value.slug)) return { ok: false, reason: 'exists' }
+    const holder = this.alertPathHolder(result.value)
+    if (holder !== undefined) return { ok: false, reason: 'alertPathTaken', holder }
     return this.saveRule(this.withCanonicalSources(result.value))
   }
 
@@ -577,7 +597,21 @@ export class Application {
     const result = validateRule(input)
     if (!result.ok) return { ok: false, reason: 'invalid', errors: result.errors }
     if (result.value.slug !== slug) return { ok: false, reason: 'slugMismatch' }
+    const holder = this.alertPathHolder(result.value)
+    if (holder !== undefined) return { ok: false, reason: 'alertPathTaken', holder }
     return { ok: true, value: this.withCanonicalSources(result.value) }
+  }
+
+  /**
+   * The other rule whose alert path the rule's overlaps, if any: two rules
+   * raising at one path would each clear and re-raise the other's alert.
+   */
+  private alertPathHolder(rule: Rule): string | undefined {
+    const path = ruleAlertPath(rule)
+    for (const [slug, other] of this.rulesBySlug) {
+      if (slug !== rule.slug && alertPathsOverlap(ruleAlertPath(other), path)) return slug
+    }
+    return undefined
   }
 
   // A pick stored in the address form of an NMEA 2000 device would stop
@@ -601,6 +635,7 @@ export class Application {
     return {
       slug: rule.slug,
       rule,
+      alertPath: ruleAlertPath(rule),
       ...(disabled === undefined ? {} : { disabled }),
       status:
         this.runner?.status(rule.slug) ?? notStarted(rule, this.retained.get(rule.slug)?.totals)

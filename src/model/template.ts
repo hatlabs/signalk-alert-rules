@@ -1,5 +1,12 @@
 import Type, { type Static } from 'typebox'
-import { MAX_RULES, MAX_VERSION_LENGTH, slugSchema, type TemplatePick } from './rule.js'
+import {
+  MAX_RULES,
+  MAX_VERSION_LENGTH,
+  conditionSchema,
+  slugSchema,
+  type TemplatePick
+} from './rule.js'
+import { CONDITION_POINTER } from './alertPath.js'
 import {
   checkSchema,
   prefixed,
@@ -21,12 +28,21 @@ import { isRecord, pointer } from '../util.js'
  * A rule whose instance segment, written `${instance}` in its paths, its
  * user picks, or whose input's source they pick, or both. With nothing open
  * it is fully bound. `${instance}` may also appear in the name and message.
- * The slug and the template record are set when the template is used.
+ * The slug, the template record and the condition name are set when the
+ * template is used.
  */
 export const TemplateSchema = Type.Object(
   {
     id: slugSchema(),
     description: Type.Optional(Type.String({ maxLength: 1000 })),
+    /**
+     * The condition name of the rule each use makes, which the rule stores:
+     * the last segment of its alert path, under the parent its input gives.
+     * `voltageLow` names `electrical.batteries.<pick>.voltageLow`. Absent,
+     * the rule stores none and its name is the default of its input and
+     * detector; a combined signal has none, so its template needs one.
+     */
+    condition: Type.Optional(conditionSchema()),
     open: Type.Optional(Type.Array(Type.Enum(OPEN_PARTS), { maxItems: OPEN_PARTS.length })),
     rule: Type.Record(Type.String(), Type.Unknown())
   },
@@ -67,7 +83,10 @@ function placeholderUses(rule: Template['rule']): PlaceholderUse[] {
   return uses
 }
 
-/** The slug and the template record belong to the rule each use of the template makes. */
+/**
+ * The slug and the template record belong to the rule each use of the
+ * template makes, and its condition name is the template's own.
+ */
 function presetFieldErrors(template: Template, ruleAt: string): ValidationError[] {
   const errors: ValidationError[] = []
   if (template.rule.slug !== undefined)
@@ -75,6 +94,10 @@ function presetFieldErrors(template: Template, ruleAt: string): ValidationError[
   if (template.rule.template !== undefined) {
     const message = 'is recorded when the template is used'
     errors.push({ path: pointer(ruleAt, 'template'), message })
+  }
+  if (template.rule.condition !== undefined) {
+    const message = "is given as the template's condition"
+    errors.push({ path: pointer(ruleAt, 'condition'), message })
   }
   return errors
 }
@@ -126,7 +149,9 @@ function templateErrors(set: TemplateSet, template: Template, at: string): Valid
   // the signal an open source needs: instantiate has nothing left to refuse.
   if (!made.ok) throw new Error(`template ${template.id} refused its sample pick`)
   const result = validateRule(made.value)
-  return result.ok ? [] : prefixed(result.errors, ruleAt)
+  if (result.ok) return []
+  // The rule's condition name is the template's, so its errors are reported there.
+  return result.errors.flatMap((e) => prefixed([e], e.path === CONDITION_POINTER ? at : ruleAt))
 }
 
 /** Validates a template set document: its schema, its template ids, and each template. */
