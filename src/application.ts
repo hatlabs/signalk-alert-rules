@@ -511,7 +511,7 @@ export class Application {
     for (const [slug, { rules: gone }] of this.rulesetsBySlug) {
       if (found.has(slug)) continue
       this.rulesetsBySlug.delete(slug)
-      // Its totals are kept, like a disabled rule's, for the ruleset coming back.
+      // Its totals are kept, as a disabled ruleset's are, for the ruleset coming back.
       for (const rule of gone.values()) this.stopRule(ruleId(slug, rule.slug))
     }
     let drops = removed.some((id) => this.hasTotal(id))
