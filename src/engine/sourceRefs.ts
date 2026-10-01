@@ -4,6 +4,9 @@ import { isRecord, own } from '../util.js'
 /** Maps a `$source` ref to the form rules store and match. */
 export type Canonicalise = (ref: string) => string
 
+/** Takes every ref as its own canonical form, as matching does without a sources tree. */
+export const asGiven: Canonicalise = (ref) => ref
+
 // Fields of a connection in the sources tree that are not devices.
 const CONNECTION_FIELDS = new Set(['label', 'type'])
 

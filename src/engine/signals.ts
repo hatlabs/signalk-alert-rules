@@ -8,7 +8,7 @@ import type {
 import { MAX_INSTANCES, type PathInput, type Signal } from '../model/rule.js'
 import { combine } from './combinators.js'
 import { InstanceRegistry, instanceIn } from './instances.js'
-import type { Canonicalise } from './sourceRefs.js'
+import { asGiven, type Canonicalise } from './sourceRefs.js'
 
 export interface Position {
   latitude: number
@@ -94,8 +94,6 @@ function toReading(pv: PathValue): Reading {
 }
 
 type OnValue = (path: string, reading: Reading, replayed: boolean) => void
-
-const asGiven: Canonicalise = (ref) => ref
 
 interface Subscriptions {
   manager: SubscriptionManager

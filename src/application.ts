@@ -11,7 +11,7 @@ import {
 import { ownedActiveAlert } from './alerts/reconcile.js'
 import type { Progress } from './engine/detectors/index.js'
 import { carriesTotals, changesGates, measureOf, structuralChanges } from './engine/evaluator.js'
-import { canonicalSources } from './engine/sourceRefs.js'
+import { asGiven, canonicalSources } from './engine/sourceRefs.js'
 import {
   readsPath,
   signalPaths,
@@ -1098,8 +1098,7 @@ export class Application {
   // A pick stored in the address form of an NMEA 2000 device would stop
   // matching once the device claims another address.
   private withCanonicalSources(rule: Rule): Rule {
-    const canonical = this.deps.canonicalSource
-    return canonical === undefined ? rule : canonicalSources(rule, canonical)
+    return canonicalSources(rule, this.deps.canonicalSource ?? asGiven)
   }
 
   private record(entry: LogEntry): void {
