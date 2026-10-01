@@ -107,26 +107,12 @@ function subscribeInput(
   onValue: OnValue
 ): Unsubscribes {
   const { source } = input
-  // A pin stored in address form names whichever device holds that address,
-  // so its CAN name is kept once known and the pin follows the device when it
-  // claims another address.
-  let device: string | undefined
-  const pinned = (pin: string) => {
-    if (device === undefined) {
-      const resolved = canonical(pin)
-      if (resolved !== pin) device = resolved
-    }
-    return device ?? pin
-  }
   // Deltas carry the provider's form of a ref, which for an NMEA 2000 device
-  // may be its bus address rather than its CAN name. Once the pin has
-  // resolved, an exact match on its address no longer counts: another device
-  // may hold that address now.
-  const accepts = (ref: string | undefined) => {
-    if (source === undefined) return true
-    const pin = pinned(source)
-    return ref === pin || (ref !== undefined && canonical(ref) === pin)
-  }
+  // may be its bus address rather than its CAN name.
+  const accepts = (ref: string | undefined) =>
+    source === undefined ||
+    ref === source ||
+    (ref !== undefined && canonical(ref) === canonical(source))
   const unsubscribes: Unsubscribes = []
   // The server replays its cached values synchronously inside subscribe().
   let replaying = true

@@ -155,15 +155,6 @@ describe('$source-restricted input', () => {
       expect(readings(samples)).toEqual([value(1)])
     })
 
-    it('an address form pin keeps the device it resolved to after the device moves', () => {
-      const { sm, samples, sources } = open('can0.10')
-      sm.publish(path, 'can0.10', 1)
-      sources.can0 = { ...sources.can0, '10': device('10'), '12': device('12', CAN_NAME) }
-      sm.publish(path, 'can0.12', 2)
-      sm.publish(path, 'can0.10', 3)
-      expect(readings(samples)).toEqual([value(1), value(2)])
-    })
-
     it('a combinator input pinned to a CAN name receives the address form of that device', () => {
       const other = 'navigation.headingTrue'
       const { sm, samples } = openOf({
