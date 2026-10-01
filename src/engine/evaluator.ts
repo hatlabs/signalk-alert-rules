@@ -599,15 +599,15 @@ export class RuleEvaluator {
     if (detector === undefined) return
     if (transition === 'pulse') {
       // An event holds for a moment only: it has cleared again by now.
-      unit.present = false
-      unit.clearedAt = now
+      this.recordCondition(unit, true, now)
+      this.recordCondition(unit, false, now)
       if (!disabled && !unit.alerting) {
         this.raise(unit, this.held(unit))
         this.clear(unit)
       }
       return
     }
-    this.condition(unit, detector.active, now)
+    this.recordCondition(unit, detector.active, now)
     if (disabled) return
     const level = this.held(unit)
     if (detector.active && !unit.alerting) this.raise(unit, level)
@@ -682,7 +682,7 @@ export class RuleEvaluator {
       : detector.sample(feed.reading, feed.replayed, now)
   }
 
-  private condition(unit: Unit, present: boolean, now: number): void {
+  private recordCondition(unit: Unit, present: boolean, now: number): void {
     if (unit.present && !present) unit.clearedAt = now
     unit.present = present
   }
