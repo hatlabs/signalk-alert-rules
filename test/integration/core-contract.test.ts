@@ -207,14 +207,14 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
     expect(alerts().getByPath(path)?.state).toBe('acknowledged')
   })
 
-  it('re-alerts an acknowledged alert when a heartbeat carries a changed message', async () => {
+  it('updates the message of an acknowledged alert without re-alerting it', async () => {
     const path = 'rules.contract.edited'
     deps.send(path, raise('before'))
     const alert = await until(() => alerts().getByPath(path), 'the raise')
     await alerts().acknowledge(alert.id, 'contract-test')
     deps.send(path, raise('after'))
     await alerts().ingressSettled()
-    expect(alerts().getByPath(path)).toMatchObject({ state: 'unacknowledged', message: 'after' })
+    expect(alerts().getByPath(path)).toMatchObject({ state: 'acknowledged', message: 'after' })
   })
 
   it('escalates an acknowledged alert on a repeat at a higher priority, and keeps its priority on a lower one', async () => {

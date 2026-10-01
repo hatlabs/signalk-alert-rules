@@ -284,7 +284,7 @@ Data holds only what changes rarely, so repeats of the alert cause no store writ
 
 ### Heartbeat and input evidence
 
-Core marks an alert stale when its source has not repeated it for 60 s. SKAR repeats every active non-latching alert every 10 s with the same value, data included; an adopted alert's repeats omit `data`, so core keeps what it stored. A priority change is sent at once, and a message or priority edit goes out with the next repeat. Core treats an unchanged repeat as a refresh; it re-alerts on a changed message and escalates on a higher priority.
+Core marks an alert stale when its source has not repeated it for 60 s. SKAR repeats every active non-latching alert every 10 s with the same value, data included; an adopted alert's repeats omit `data`, so core keeps what it stored. A priority change is sent at once, and a message or priority edit goes out with the next repeat. Core treats a repeat at or below the alert's priority as a refresh, updating a changed message without re-alerting, and escalates on a higher priority.
 
 SKAR repeats an alert only while it has input evidence for it, and otherwise lets core mark it stale rather than clearing it; the rule's status shows the alert as awaiting input. An instance has evidence:
 
