@@ -103,9 +103,10 @@ function setup(
     /** Accumulator totals restored from the store, by rule id and instance segment. */
     accumulated?: Map<string, Map<string, number>>
     disabled?: (id: string) => boolean
+    subscriptions?: FakeSubscriptionManager
   } = {}
 ) {
-  const sm = new FakeSubscriptionManager()
+  const sm = options.subscriptions ?? new FakeSubscriptionManager()
   const core = options.core ?? new FakeAlertsCore()
   const sent: [string, AlertValue | null][] = []
   let now = 0
@@ -960,6 +961,50 @@ describe('disabled rules', () => {
     expect(runner.status('user.house-battery-low')?.errors).toEqual([
       'evaluation failed: meta unreadable'
     ])
+  })
+
+  describe('a rule that failed to start with an adopted alert', () => {
+    const BATTERY_ID = 'user.house-battery-low'
+    const failing = (disabled: Set<string>) => {
+      const core = new FakeAlertsCore()
+      core.ingest(PLUGIN, BATTERY_ALERT, {
+        priority: 'warning',
+        message: 'House battery voltage is low',
+        latching: false
+      })
+      // Failing before the first evaluation, so no step gets to clear the alert.
+      const subscriptions = new FakeSubscriptionManager()
+      subscriptions.subscribe = () => {
+        throw new Error('subscriptions unavailable')
+      }
+      const env = setup([batteryLow], {
+        core,
+        subscriptions,
+        disabled: (id) => disabled.has(id)
+      })
+      expect(env.runner.failedToStart(BATTERY_ID)).toBe(true)
+      return env
+    }
+
+    it('clears the alert at start when the rule is disabled', () => {
+      const { core, run, sent } = failing(new Set([BATTERY_ID]))
+      expect(core.getByPath(BATTERY_ALERT)?.condition).toBe(false)
+      const cleared = sent.length
+      run(1, 120)
+      expect(sent.slice(cleared)).toEqual([])
+    })
+
+    it('clears the alert when the rule is disabled later', () => {
+      const disabled = new Set<string>()
+      const { core, run, runner, sent } = failing(disabled)
+      expect(core.getByPath(BATTERY_ALERT)?.condition).toBe(true)
+      disabled.add(BATTERY_ID)
+      runner.refresh(BATTERY_ID)
+      expect(core.getByPath(BATTERY_ALERT)?.condition).toBe(false)
+      const cleared = sent.length
+      run(1, 120)
+      expect(sent.slice(cleared)).toEqual([])
+    })
   })
 
   it('enabling a rule raises an alert whose condition holds as a new alert', () => {

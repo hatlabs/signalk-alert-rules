@@ -137,6 +137,10 @@ export class RuleRunner {
    * once rather than at the next sample or tick.
    */
   refresh(id: string): void {
+    if (this.failed.has(id)) {
+      this.clearIfDisabled(id)
+      return
+    }
     try {
       this.evaluators.get(id)?.refresh()
     } catch (err) {
@@ -267,14 +271,24 @@ export class RuleRunner {
     // One rule failing to start, such as on a meta read that throws, must not
     // keep the others from starting. The stopped evaluator stays for its
     // status and its restored accumulator totals; like any stop, it clears
-    // nothing.
+    // nothing, unless the rule is disabled.
     try {
       evaluator.start()
     } catch (err) {
       evaluator.stop()
       this.failed.add(id)
       this.error(id, `failed to start: ${errorMessage(err)}`)
+      this.clearIfDisabled(id)
     }
+  }
+
+  /**
+   * Clears the adopted alerts of a rule that failed to start once it is
+   * disabled. Its stopped evaluator never steps, and stepping is what clears
+   * a disabled rule's alerts.
+   */
+  private clearIfDisabled(id: string): void {
+    if (this.disabled(id)) this.evaluators.get(id)?.remove()
   }
 
   private error(id: string, message: string): void {
