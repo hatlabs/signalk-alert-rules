@@ -1309,6 +1309,37 @@ describe('disabled rules', () => {
     ])
   })
 
+  it('keeps the last judged condition while out of use, and judges again back in use', () => {
+    const gated = valid({
+      ...oilPressure,
+      gates: [{ ...oilPressure.gates?.[0], duration: 0 }]
+    })
+    const { at, evaluator } = setup(gated, { disabled: true })
+    at(0, RPM, 30)
+    at(0, OIL, 0)
+    at(5)
+    expect(evaluator.status().instances[0]).toMatchObject({ conditionPresent: true })
+    at(10, RPM, 0)
+    at(100)
+    expect(evaluator.status().instances[0]).toMatchObject({ inUse: false, conditionPresent: true })
+    expect(evaluator.status().instances[0]?.clearedFor).toBeUndefined()
+
+    at(110, RPM, 30)
+    at(110, OIL, 300000)
+    at(120)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      conditionPresent: false,
+      clearedFor: 10
+    })
+    at(130, RPM, 0)
+    at(200)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      inUse: false,
+      conditionPresent: false,
+      clearedFor: 90
+    })
+  })
+
   it('a condition never present since start has no clear time', () => {
     const { at, evaluator } = setup(portOil, { disabled: true })
     at(0, OIL, 300000)

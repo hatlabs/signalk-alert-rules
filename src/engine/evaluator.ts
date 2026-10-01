@@ -111,12 +111,14 @@ export interface InstanceStatus {
   inactive?: string
   /**
    * Whether the condition holds: the alert would be active were the rule
-   * enabled. A rule out of use or unable to evaluate has no condition.
+   * enabled. While the rule is out of use or unable to evaluate, the last
+   * judged value is kept.
    */
   conditionPresent: boolean
   /**
    * Seconds since the condition last stopped holding; absent while it holds
-   * or when it has not held since start.
+   * or when it has not held since start. Being out of use neither starts nor
+   * stops it.
    */
   clearedFor?: number
 }
@@ -588,7 +590,6 @@ export class RuleEvaluator {
       }
       unit.levels.clear()
       if (unit.alerting) this.clear(unit)
-      this.condition(unit, false, now)
       return
     }
     unit.inUse = true
