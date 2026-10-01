@@ -399,6 +399,103 @@ describe('REST API', () => {
     ])
   })
 
+  it('refuses an edit of a stored rule that did not load for its overlap, until it has its own alert path', async () => {
+    const portOil = { ...oil, slug: 'port-oil', signal: { path: 'propulsion.*.oilPressure' } }
+    storeRule(oil)
+    storeRule(portOil)
+    const h = await serve()
+    expect(await h.call('PUT', '/rules/port-oil', portOil)).toMatchObject({
+      status: 409,
+      body: {
+        error: 'another rule has this alert path',
+        errors: [
+          {
+            path: '/condition',
+            message:
+              'makes an alert path overlapping that of rule oil-pressure-low; each rule needs its own'
+          }
+        ]
+      }
+    })
+    const own = { ...portOil, condition: 'oilPressureLost' }
+    expect((await h.call('PUT', '/rules/port-oil', own)).status).toBe(200)
+  })
+
+  it("refuses a rule taking another rule's alert path, on create and on edit", async () => {
+    storeRule(oil)
+    const h = await serve()
+    const taken = await h.call('POST', '/rules', {
+      ...oil,
+      slug: 'oil-low-again',
+      condition: 'oilPressureLow'
+    })
+    expect(taken).toMatchObject({
+      status: 409,
+      body: {
+        errors: [
+          {
+            path: '/condition',
+            message:
+              'makes an alert path overlapping that of rule oil-pressure-low; each rule needs its own'
+          }
+        ]
+      }
+    })
+    const high = { ...oil, slug: 'oil-high', detector: { ...oil.detector, direction: 'above' } }
+    expect((await h.call('POST', '/rules', high)).status).toBe(201)
+    const previewed = await h.call('POST', '/rules/oil-high/preview', {
+      ...high,
+      detector: oil.detector
+    })
+    expect(previewed).toMatchObject({
+      status: 409,
+      body: {
+        error: 'another rule has this alert path',
+        errors: [
+          {
+            path: '/condition',
+            message:
+              'makes an alert path overlapping that of rule oil-pressure-low; each rule needs its own'
+          }
+        ]
+      }
+    })
+    const lowered = await h.call('PUT', '/rules/oil-high', { ...high, detector: oil.detector })
+    expect(lowered).toMatchObject({
+      status: 409,
+      body: {
+        errors: [
+          {
+            path: '/condition',
+            message:
+              'makes an alert path overlapping that of rule oil-pressure-low; each rule needs its own'
+          }
+        ]
+      }
+    })
+    const moved = await h.call('PUT', '/rules/oil-pressure-low', {
+      ...oil,
+      condition: 'lubricationFailed'
+    })
+    expect(moved.status).toBe(200)
+    const combined = await h.call('POST', '/rules', {
+      ...oil,
+      slug: 'oil-spread',
+      signal: { combinator: 'spread', inputs: [{ path: OIL }, { path: RPM }] }
+    })
+    expect(combined).toMatchObject({
+      status: 400,
+      body: {
+        errors: [
+          {
+            path: '/condition',
+            message: 'is required: a rule over several paths has no default name'
+          }
+        ]
+      }
+    })
+  })
+
   it('answers the error paths', async () => {
     storeRule(oil)
     const h = await serve()
@@ -694,14 +791,23 @@ describe('templates API', () => {
     })
   })
 
-  it('gives a second rule from the same template and pick its own slug', async () => {
+  it('refuses a second rule from the same template and pick at the alert path, not the slug', async () => {
     installSet('1.0.0')
     const h = await serve()
     const pick = { instance: 'house', source: 'can0.12' }
     expect((await create(h, pick)).status).toBe(201)
-    expect((await create(h, pick)).status).toBe(201)
-    const rules = (await h.call('GET', '/rules')).body as { slug: string }[]
-    expect(rules.map((r) => r.slug)).toEqual(['voltage-low-house', 'voltage-low-house-2'])
+    expect(await create(h, pick)).toMatchObject({
+      status: 409,
+      body: {
+        errors: [
+          {
+            path: '/condition',
+            message:
+              'makes an alert path overlapping that of rule voltage-low-house; each rule needs its own'
+          }
+        ]
+      }
+    })
   })
 
   it('refuses a rule whose pick makes an invalid path, or with a malformed template record', async () => {

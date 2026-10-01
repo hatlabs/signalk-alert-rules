@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { alertPathOf } from '../src/alerts/paths.js'
 import type { Value } from '@signalk/server-api'
 import { Application, LOG_LIMIT } from '../src/application.js'
 import type { RunnerDeps } from '../src/alerts/runner.js'
@@ -146,6 +147,94 @@ describe('application', () => {
     }
     expect(existsSync(join(dir, 'rules', 'oil-pressure-low.json'))).toBe(false)
     expect(application.allRules()).toEqual([])
+  })
+
+  it('refuses a rule whose alert path another rule has, or could have for an instance', () => {
+    stored(oil)
+    const { application } = setup()
+    const same = { ...coolant, condition: 'oilPressureLow' }
+    expect(application.createRule(same)).toEqual({
+      ok: false,
+      reason: 'alertPathTaken',
+      holder: 'oil-pressure-low'
+    })
+    const everyEngine = {
+      ...oil,
+      slug: 'any-oil-low',
+      signal: { path: 'propulsion.*.oilPressure' }
+    }
+    expect(application.createRule(everyEngine)).toMatchObject({ reason: 'alertPathTaken' })
+    expect(existsSync(join(dir, 'rules', 'coolant-high.json'))).toBe(false)
+    expect(application.createRule({ ...same, condition: 'oilPressureLost' }).ok).toBe(true)
+  })
+
+  it('takes the condition name an edit gives, and the default when it gives none', () => {
+    stored({ ...oil, condition: 'lubricationFailed' })
+    const { application } = setup()
+    const reversed = { ...oil, detector: { ...oil.detector, direction: 'above' } }
+    const pathAfter = (edit: unknown) => {
+      const result = application.replaceRule(oil.slug, edit)
+      return result.ok ? alertPathOf(result.value) : result
+    }
+    expect(pathAfter({ ...reversed, condition: 'lubricationFailed' })).toBe(
+      'propulsion.main.lubricationFailed'
+    )
+    expect(pathAfter(reversed)).toBe('propulsion.main.oilPressureHigh')
+  })
+
+  it('refuses an edit whose new default alert path another rule has', () => {
+    stored(oil)
+    stored({ ...oil, slug: 'oil-high', detector: { ...oil.detector, direction: 'above' } })
+    const { application } = setup()
+    const reversed = { ...oil, detector: { ...oil.detector, direction: 'above' } }
+    expect(application.replaceRule(oil.slug, reversed)).toEqual({
+      ok: false,
+      reason: 'alertPathTaken',
+      holder: 'oil-high'
+    })
+  })
+
+  it("puts the condition name under the edited input's parent, with its wildcard or without", () => {
+    const everyCoolant = {
+      ...coolant,
+      slug: 'any-coolant-high',
+      condition: 'coolantOverheat',
+      signal: { path: 'propulsion.*.coolantTemperature' }
+    }
+    stored(oil)
+    stored(everyCoolant)
+    const { application } = setup()
+    const pathAfter = (slug: string, edit: unknown) => {
+      const result = application.replaceRule(slug, edit)
+      return result.ok ? alertPathOf(result.value) : result
+    }
+    expect(pathAfter(oil.slug, { ...oil, signal: { path: 'propulsion.*.oilPressure' } })).toBe(
+      'propulsion.*.oilPressureLow'
+    )
+    expect(pathAfter(everyCoolant.slug, { ...everyCoolant, signal: { path: COOLANT } })).toBe(
+      'propulsion.main.coolantOverheat'
+    )
+  })
+
+  it('runs only the first of two stored rules with overlapping alert paths, reporting the other', () => {
+    const portOil = { ...oil, slug: 'port-oil', signal: { path: 'propulsion.*.oilPressure' } }
+    stored(oil)
+    stored(portOil)
+    const { application } = setup()
+    expect(application.allRules().map((r) => r.slug)).toEqual(['oil-pressure-low'])
+    expect(application.issues).toEqual([
+      'stored rule port-oil has an alert path overlapping that of oil-pressure-low and does not run'
+    ])
+
+    // An edit is the repair: it needs an alert path of its own.
+    expect(application.replaceRule(portOil.slug, portOil)).toEqual({
+      ok: false,
+      reason: 'alertPathTaken',
+      holder: 'oil-pressure-low'
+    })
+    const own = { ...portOil, condition: 'oilPressureLost' }
+    expect(application.replaceRule(portOil.slug, own)).toMatchObject({ ok: true, value: own })
+    expect(application.allRules().map((r) => r.slug)).toEqual(['oil-pressure-low', 'port-oil'])
   })
 
   it('does not apply a rule the store failed to persist', () => {
@@ -687,6 +776,22 @@ describe('application accumulator totals across edits', () => {
     at(20)
     application.checkpoint()
     expect(total()).toBe(120)
+  })
+
+  it('a stored rule refused at load for an overlapping alert path keeps its total', () => {
+    const generator = { ...hours, slug: 'generator-hours' }
+    stored(hours)
+    stored(generator)
+    new Store(dir).saveCheckpoints({
+      [generator.slug]: { measure: 'time', totals: { '': 100 } }
+    })
+    const { application } = setup()
+    expect(application.issues).toEqual([
+      'stored rule generator-hours has an alert path overlapping that of engine-hours and does not run'
+    ])
+    application.checkpoint()
+    const totals: Partial<Checkpoints> = new Store(dir).load().accumulators
+    expect(totals[generator.slug]?.totals['']).toBe(100)
   })
 
   it('renaming the condition of an accumulator rule keeps its total, through a restart', () => {

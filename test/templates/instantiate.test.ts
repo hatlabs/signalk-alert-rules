@@ -119,11 +119,12 @@ describe('instantiate', () => {
     })
   })
 
-  it('gives each instantiation for the same pick its own slug', () => {
+  it('gives each instantiation for the same pick its own slug, but the same alert path', () => {
     const first = created(voltageLow, { instance: 'house' })
     const second = created(voltageLow, { instance: 'house' }, new Set([first.slug as string]))
     expect(first.slug).toBe('voltage-low-house')
     expect(second.slug).toBe('voltage-low-house-2')
+    expect(alertPathOf(second)).toBe(alertPathOf(first))
   })
 
   it('requires a pick for every open part and refuses one for a bound part', () => {

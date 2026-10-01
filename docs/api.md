@@ -231,7 +231,7 @@ Errors answer `{ "error": "<message>" }`. A body that fails validation answers 4
 |---|---|
 | 400 | invalid body; an input path that is not exact; a `PUT` or preview whose `slug` differs from the path's; a reset of a rule that is not an accumulator |
 | 404 | no such rule or ruleset |
-| 409 | `POST /rules` with a slug a stored rule already has |
+| 409 | `POST /rules` with a slug a stored rule already has; a create, replace or preview whose rule's [alert path](rules.md#alert-paths) overlaps another rule's, with an error at `/condition` |
 | 415 | a mutating request without `Content-Type: application/json` |
 | 500 | the data directory could not be written. A rule or deletion that could not be saved is not applied. A reset, or a save or deletion that discards an accumulator total, whose totals could not be saved has been applied, but the old total returns after a restart unless a later checkpoint succeeds; a reset or deletion is in the action log all the same. An action whose log entry could not be written has been applied. A deletion whose controls could not be removed has deleted the rule, and a rule later created with its slug takes those controls. |
 | 503 | the plugin is not running |
