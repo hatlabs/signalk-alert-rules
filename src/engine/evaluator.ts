@@ -37,7 +37,7 @@ import {
   type Sample,
   type SignalValue
 } from './signals.js'
-import type { Canonicalise } from './sourceRefs.js'
+import { asGiven, canonicalSources, type Canonicalise } from './sourceRefs.js'
 import { errorMessage, own } from '../util.js'
 
 export type { InputState }
@@ -352,7 +352,11 @@ export class RuleEvaluator {
       return
     }
     const now = this.ctx.clock()
-    if (structuralChanges(this.rule, rule).length > 0) {
+    // A pin running in address form that only changes form is no change:
+    // the open subscription matches by canonical form either way.
+    const canonical = this.ctx.canonicalSource ?? asGiven
+    const current = canonicalSources(this.rule, canonical)
+    if (structuralChanges(current, canonicalSources(rule, canonical)).length > 0) {
       this.carried = this.totals(rule)
       this.remove()
       this.rule = rule

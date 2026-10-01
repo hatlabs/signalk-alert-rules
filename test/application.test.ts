@@ -1492,6 +1492,59 @@ describe('pinned sources', () => {
     expect(s.application.rule('user', coolant.slug)?.status.badge).toBe('neverSeen')
   })
 
+  it('an edit of a rule stored in address form is not structural for the change of form alone', () => {
+    stored(pinned('can0.10'))
+    const s = setup()
+    withDevice(s.server)
+    s.at(0)
+    s.server.subscriptionmanager.publish(COOLANT, 'can0.10', 390)
+    s.at(3)
+    expect(s.alerts()).toEqual([['rules.user.coolant-high', true]])
+
+    const edited = { ...pinned('can0.10'), message: 'Coolant is hot' }
+    expect(s.application.previewRule(coolant.slug, edited)).toEqual({
+      ok: true,
+      value: {
+        restarts: false,
+        changes: [],
+        activeAlerts: 1,
+        clearsActiveAlert: false,
+        discardsTotal: false
+      }
+    })
+    expect(s.application.replaceRule(coolant.slug, edited).ok).toBe(true)
+    expect(storedSignal()).toEqual({ path: COOLANT, source: CANONICAL })
+    expect(s.alerts()).toEqual([['rules.user.coolant-high', true]])
+  })
+
+  it('an edit of a gate stored in address form keeps its frozen state for the change of form alone', () => {
+    const gated = {
+      ...coolant,
+      detector: { ...coolant.detector, duration: 0 },
+      gates: [
+        {
+          signal: { path: RPM, source: 'can0.10' },
+          direction: 'above',
+          limit: { kind: 'fixed', value: 8 }
+        }
+      ]
+    }
+    stored(gated)
+    const s = setup()
+    withDevice(s.server)
+    s.server.subscriptionmanager.publish(RPM, 'can0.10', 70)
+    s.at(0, COOLANT, 380)
+    expect(s.alerts()).toEqual([['rules.user.coolant-high', true]])
+    s.application.suppressInput(RPM, {}, 'admin')
+    const frozen = { frozen: { 'user.coolant-high': { '0': { '': true } } } }
+    expect(new Store(dir).load().controls.inputs[RPM]).toMatchObject(frozen)
+
+    expect(
+      s.application.replaceRule(coolant.slug, { ...gated, message: 'Coolant is hot' }).ok
+    ).toBe(true)
+    expect(new Store(dir).load().controls.inputs[RPM]).toMatchObject(frozen)
+  })
+
   it('a gate pinned to a CAN name reads the address form of that device', () => {
     const s = setup()
     withDevice(s.server)

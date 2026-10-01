@@ -724,7 +724,8 @@ export class Application {
     const previous = this.rulesBySlug.get(rule.slug)
     // Stored gate states are by gate index: a gate reordered or changed
     // must not inherit another's, so the new gates take one reading instead.
-    if (previous !== undefined && changesGates(previous, rule)) {
+    // A pin stored in address form that only changes form is no change.
+    if (previous !== undefined && changesGates(this.withCanonicalSources(previous), rule)) {
       this.dropFrozenGates(id)
     }
     this.store.saveRule(rule)
@@ -794,7 +795,10 @@ export class Application {
     if (!checked.ok) return checked
     const current = this.rulesBySlug.get(slug)
     // A stored rule that did not validate is not running: saving starts it.
-    const changes = current === undefined ? [] : structuralChanges(current, checked.value)
+    const changes =
+      current === undefined
+        ? []
+        : structuralChanges(this.withCanonicalSources(current), checked.value)
     const status = this.runner?.status(this.idOf(slug))
     const activeAlerts = status?.instances.filter((i) => i.active).length ?? 0
     const restarts = changes.length > 0 || this.runner?.failedToStart(this.idOf(slug)) === true
