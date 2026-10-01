@@ -6,7 +6,6 @@ export type Canonicalise = (ref: string) => string
 
 // Fields of a connection in the sources tree that are not devices.
 const CONNECTION_FIELDS = new Set(['label', 'type'])
-const DOT = '.'.charCodeAt(0)
 
 /**
  * The canonical form of a `$source` ref, read from the Signal K `sources`
@@ -21,7 +20,7 @@ const DOT = '.'.charCodeAt(0)
 export function canonicalSourceRef(sources: unknown, ref: string): string {
   if (!isRecord(sources)) return ref
   for (const label in sources) {
-    if (ref.charCodeAt(label.length) !== DOT || !ref.startsWith(label)) continue
+    if (!ref.startsWith(`${label}.`)) continue
     const src = ref.slice(label.length + 1)
     if (CONNECTION_FIELDS.has(src)) continue
     const connection = own(sources, label)
