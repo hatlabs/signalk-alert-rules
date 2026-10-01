@@ -5,15 +5,14 @@ import {
   describeInput,
   describePriority,
   instanceSummary,
-  isWildcard,
-  USER_ORIGIN
+  isWildcard
 } from './describe'
 import { BADGE_LOOK, StatusBadge } from './StatusBadge'
 
 export interface RulesViewProps {
   rules: RuleEntry[]
   /** The link that opens a rule's detail view. */
-  ruleHref: (origin: string, slug: string) => string
+  ruleHref: (slug: string) => string
   /** Opens the authoring form on a new rule. */
   onNew?: () => void
 }
@@ -24,17 +23,6 @@ function matches(entry: RuleEntry, text: string, badge: Badge | ''): boolean {
   if (needle === '') return true
   return [entry.rule.name, entry.slug, ...entry.rule.signal.paths].some((field) =>
     field.toLowerCase().includes(needle)
-  )
-}
-
-/** User rules first, then each ruleset's, by package name. */
-function byOrigin(rules: RuleEntry[]): [string, RuleEntry[]][] {
-  const groups = new Map<string, RuleEntry[]>()
-  for (const entry of rules) {
-    groups.set(entry.origin, [...(groups.get(entry.origin) ?? []), entry])
-  }
-  return [...groups].sort(([a], [b]) =>
-    a === USER_ORIGIN ? -1 : b === USER_ORIGIN ? 1 : a.localeCompare(b)
   )
 }
 
@@ -88,7 +76,7 @@ function RuleTable({ rules, ruleHref }: Omit<RulesViewProps, 'onNew'>) {
         </thead>
         <tbody>
           {rules.map((entry) => (
-            <RuleRow key={entry.slug} entry={entry} href={ruleHref(entry.origin, entry.slug)} />
+            <RuleRow key={entry.slug} entry={entry} href={ruleHref(entry.slug)} />
           ))}
         </tbody>
       </table>
@@ -96,7 +84,7 @@ function RuleTable({ rules, ruleHref }: Omit<RulesViewProps, 'onNew'>) {
   )
 }
 
-/** The rule list: filters, then the rules grouped by origin. */
+/** The rule list: filters, then the rules. */
 export function RulesView({ rules, ruleHref, onNew }: RulesViewProps) {
   const [text, setText] = useState('')
   const [badge, setBadge] = useState<Badge | ''>('')
@@ -154,19 +142,7 @@ export function RulesView({ rules, ruleHref, onNew }: RulesViewProps) {
       {shown.length === 0 ? (
         <p>No rules match the filters.</p>
       ) : (
-        byOrigin(shown).map(([origin, entries]) =>
-          origin === USER_ORIGIN ? (
-            <div key={origin} role="group" aria-label="Your rules">
-              <h3 className="h6">Your rules</h3>
-              <RuleTable rules={entries} ruleHref={ruleHref} />
-            </div>
-          ) : (
-            <details key={origin} open aria-label={`Ruleset ${origin}`}>
-              <summary className="h6">Ruleset {origin}</summary>
-              <RuleTable rules={entries} ruleHref={ruleHref} />
-            </details>
-          )
-        )
+        <RuleTable rules={shown} ruleHref={ruleHref} />
       )}
     </div>
   )

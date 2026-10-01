@@ -13,14 +13,13 @@ import {
 import type { PathSource } from '../../src/panel/paths/selfPaths'
 import { Shell } from '../../src/panel/Shell'
 import { displayUnit } from '../../src/panel/units'
-import { noControls, noRulesets, ruleEntry } from './fixtures'
+import { noControls, ruleEntry } from './fixtures'
 
 const EXAMPLES = join(import.meta.dirname, '../../examples/rules')
 const stored = JSON.parse(readFileSync(join(EXAMPLES, 'house-battery-low.json'), 'utf8')) as Rule
 
 const running: PluginState = { running: true, securityEnabled: true }
 const battery = ruleEntry({ slug: stored.slug, rule: { name: stored.name } })
-const fromRuleset = ruleEntry({ origin: 'engine-pack', slug: 'engine-hours' })
 
 const paths: PathSource = {
   selfPaths: () =>
@@ -40,7 +39,7 @@ function mockApi(rules: RuleEntry[]) {
     state: vi.fn(() => Promise.resolve(running)),
     rules: vi.fn(() => Promise.resolve(server.rules)),
     resetAccumulator: vi.fn(() => Promise.reject(new Error('not expected'))),
-    ruleDefinition: vi.fn((_origin: string, _slug: string) => Promise.resolve(stored)),
+    ruleDefinition: vi.fn((_slug: string) => Promise.resolve(stored)),
     createRule: vi.fn((rule: Rule) => {
       const entry = ruleEntry({ slug: rule.slug, rule: { name: rule.name } })
       server.rules = [...server.rules, entry]
@@ -63,7 +62,7 @@ function mockApi(rules: RuleEntry[]) {
 
 function renderShell(rules: RuleEntry[]) {
   const api = mockApi(rules)
-  render(<Shell api={api} rulesets={noRulesets} paths={paths} />)
+  render(<Shell api={api} paths={paths} />)
   return api
 }
 
@@ -95,7 +94,7 @@ describe('Shell rule authoring', () => {
     change(screen.getByRole('textbox', { name: 'Name' }), 'Aground')
     fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
     expect(await screen.findByRole('heading', { name: 'Aground' })).toBeTruthy()
-    expect(window.location.hash).toBe('#rule=user/aground')
+    expect(window.location.hash).toBe('#rule=aground')
     expect(api.createRule).toHaveBeenCalledWith({
       name: 'Aground',
       slug: 'aground',
@@ -106,12 +105,12 @@ describe('Shell rule authoring', () => {
     })
   })
 
-  it('edits a user rule from its detail, reading the whole stored rule', async () => {
-    window.history.replaceState(null, '', '/#rule=user/house-battery-low')
+  it('edits a rule from its detail, reading the whole stored rule', async () => {
+    window.history.replaceState(null, '', '/#rule=house-battery-low')
     const api = renderShell([battery])
     fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
     await screen.findByRole('form', { name: /edit/i })
-    expect(api.ruleDefinition).toHaveBeenCalledWith('user', 'house-battery-low')
+    expect(api.ruleDefinition).toHaveBeenCalledWith('house-battery-low')
     expect(screen.getByRole('textbox', { name: 'Hysteresis' })).toHaveProperty('value', '0.2')
     change(screen.getByRole('textbox', { name: 'Message' }), 'Battery low')
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
@@ -146,45 +145,16 @@ describe('Shell rule authoring', () => {
   })
 
   it('says when an edited rule cannot be read, and goes back to it', async () => {
-    window.history.replaceState(null, '', '/#rule=user/house-battery-low')
+    window.history.replaceState(null, '', '/#rule=house-battery-low')
     const api = renderShell([battery])
-    api.ruleDefinition.mockRejectedValueOnce(
-      new Error('/rules/user/house-battery-low answered 500')
-    )
+    api.ruleDefinition.mockRejectedValueOnce(new Error('/rules/house-battery-low answered 500'))
     fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
     expect((await screen.findByRole('alert')).textContent).toContain(
-      'The rule could not be read: /rules/user/house-battery-low answered 500'
+      'The rule could not be read: /rules/house-battery-low answered 500'
     )
     expect(screen.queryByRole('form')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     expect(await screen.findByRole('button', { name: 'Edit' })).toBeTruthy()
-  })
-
-  it('does not offer to edit a ruleset rule', async () => {
-    window.history.replaceState(null, '', '/#rule=engine-pack/engine-hours')
-    renderShell([fromRuleset])
-    const edit = await screen.findByRole('button', { name: 'Edit' })
-    expect((edit as HTMLButtonElement).disabled).toBe(true)
-  })
-
-  it('asks before a tab switch drops unsaved changes', async () => {
-    renderShell([battery])
-    fireEvent.click(await screen.findByRole('button', { name: 'New rule' }))
-    change(await screen.findByRole('combobox', { name: 'Input path' }), 'a.b')
-    fireEvent.click(screen.getByRole('tab', { name: 'Rulesets' }))
-    const dialog = screen.getByRole('alertdialog', { name: /leave the rule form/i })
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
-    expect(screen.getByRole('form', { name: 'New rule' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('tab', { name: 'Rulesets' }))
-    fireEvent.click(
-      within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard changes' })
-    )
-    await waitFor(() => {
-      expect(screen.getByRole('tab', { name: 'Rulesets' }).getAttribute('aria-selected')).toBe(
-        'true'
-      )
-    })
-    expect(screen.queryByRole('form')).toBeNull()
   })
 
   it('moves focus to the form heading when it opens, and back to the list when it closes', async () => {
@@ -200,7 +170,7 @@ describe('Shell rule authoring', () => {
   })
 
   it('moves focus to the form heading once an edited rule has loaded', async () => {
-    window.history.replaceState(null, '', '/#rule=user/house-battery-low')
+    window.history.replaceState(null, '', '/#rule=house-battery-low')
     renderShell([battery])
     fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
     const heading = await screen.findByRole('heading', { name: /^edit/i })

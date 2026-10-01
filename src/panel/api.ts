@@ -1,9 +1,6 @@
 import { BADGES, SUB_LABELS, type Badge, type SubLabel } from '../alerts/badge'
 import type { Rule } from '../model/rule'
 
-/** The origin of rules written through the panel; only they can be edited. */
-export const USER_ORIGIN = 'user'
-
 export { BADGES, SUB_LABELS, type Badge, type SubLabel }
 
 /** The plugin id, which is also the path segment of its routes. */
@@ -95,19 +92,9 @@ export interface RuleDisabled {
   note?: string
 }
 
-/** The ruleset that provides a rule, and the package that ships it, if any. */
-export interface RuleSource {
-  name: string
-  version: string
-  package?: { name: string; version: string }
-}
-
 /** A rule entry, as `GET /rules` answers it. */
 export interface RuleEntry {
-  origin: string
   slug: string
-  /** Present for a ruleset rule only. */
-  ruleset?: RuleSource
   rule: RuleInfo
   /** Present while the rule is disabled. */
   disabled?: RuleDisabled
@@ -119,25 +106,25 @@ export interface PanelApi {
   state(): Promise<PluginState>
   rules(): Promise<RuleEntry[]>
   /** Clears the rule's active alerts and sets its accumulator totals to zero. */
-  resetAccumulator(origin: string, slug: string): Promise<RuleEntry>
+  resetAccumulator(slug: string): Promise<RuleEntry>
   /** The whole stored rule, which the rule list abbreviates. */
-  ruleDefinition(origin: string, slug: string): Promise<Rule>
-  /** Creates a user rule; it starts enabled. A refused rule rejects with RuleRejectedError. */
+  ruleDefinition(slug: string): Promise<Rule>
+  /** Creates a rule; it starts enabled. A refused rule rejects with RuleRejectedError. */
   createRule(rule: Rule): Promise<RuleEntry>
-  /** Replaces a user rule; a refused rule rejects with RuleRejectedError. */
+  /** Replaces a rule; a refused rule rejects with RuleRejectedError. */
   updateRule(slug: string, rule: Rule): Promise<RuleEntry>
-  /** What replacing a user rule would do to its alerts and totals, without doing it. */
+  /** What replacing a rule would do to its alerts and totals, without doing it. */
   previewRule(slug: string, rule: Rule): Promise<EditPreview>
   /**
    * Disabling clears the rule's alerts and holds back new ones while it keeps
    * evaluating; an empty note is no note.
    */
-  disableRule(origin: string, slug: string, note: string): Promise<RuleEntry>
+  disableRule(slug: string, note: string): Promise<RuleEntry>
   /** Enabling raises an alert at once if the rule's condition holds. */
-  enableRule(origin: string, slug: string): Promise<RuleEntry>
+  enableRule(slug: string): Promise<RuleEntry>
 }
 
-/** `POST /rules/user/:slug/preview`, as docs/api.md describes it. */
+/** `POST /rules/:slug/preview`, as docs/api.md describes it. */
 export interface EditPreview {
   restarts: boolean
   /** The parts of the rule that make it restart, by field path. */
@@ -320,18 +307,6 @@ export function parseRuleEntry(body: unknown, what: string): RuleEntry {
     if (typeof v.combinator !== 'string' || !Array.isArray(v.inputs)) throw malformed(what)
     return { paths: v.inputs.map((i) => string(record(i).path)), combinator: v.combinator }
   }
-  const nameVersion = (v: unknown) => {
-    const r = record(v)
-    return { name: string(r.name), version: string(r.version) }
-  }
-  const ruleSource = (v: unknown): RuleSource | undefined => {
-    if (v === undefined) return undefined
-    const r = record(v)
-    return {
-      ...nameVersion(r),
-      ...optional('package', r.package === undefined ? undefined : nameVersion(r.package))
-    }
-  }
   const rule = (r: unknown): RuleInfo => {
     const v = record(r)
     const d = record(v.detector)
@@ -354,9 +329,7 @@ export function parseRuleEntry(body: unknown, what: string): RuleEntry {
 
   const entry = record(body)
   return {
-    origin: string(entry.origin),
     slug: string(entry.slug),
-    ...optional('ruleset', ruleSource(entry.ruleset)),
     rule: rule(entry.rule),
     ...optional('disabled', ruleDisabled(entry.disabled)),
     status: status(entry.status)
@@ -474,7 +447,7 @@ export function getJson(fetchFn: typeof fetch, path: string): Promise<unknown> {
  * 204. The server refuses a mutating request without this content type; that
  * is what keeps another site from acting through an admin's session.
  */
-export function sendJson(
+function sendJson(
   fetchFn: typeof fetch,
   method: string,
   path: string,
@@ -492,18 +465,17 @@ export function httpApi(fetchFn: typeof fetch = (input, init) => fetch(input, in
   const request = (path: string, init: RequestInit = {}) => requestJson(fetchFn, path, init)
   const send = (method: string, path: string, body?: unknown) =>
     sendJson(fetchFn, method, path, body)
-  const ruleRoute = (origin: string, slug: string) =>
-    `${PLUGIN_BASE}/rules/${encodeURIComponent(origin)}/${encodeURIComponent(slug)}`
+  const ruleRoute = (slug: string) => `${PLUGIN_BASE}/rules/${encodeURIComponent(slug)}`
 
   return {
     state: async () => parseState(await request(`${PLUGIN_BASE}/state`)),
     rules: async () => parseRules(await request(`${PLUGIN_BASE}/rules`)),
-    resetAccumulator: async (origin, slug) => {
-      const path = `${ruleRoute(origin, slug)}/reset`
+    resetAccumulator: async (slug) => {
+      const path = `${ruleRoute(slug)}/reset`
       return parseRuleEntry(await send('POST', path), path)
     },
-    ruleDefinition: async (origin, slug) => {
-      const path = ruleRoute(origin, slug)
+    ruleDefinition: async (slug) => {
+      const path = ruleRoute(slug)
       return parseRuleDefinition(await request(path), path)
     },
     createRule: async (rule) => {
@@ -511,19 +483,19 @@ export function httpApi(fetchFn: typeof fetch = (input, init) => fetch(input, in
       return parseRuleEntry(await send('POST', path, rule), path)
     },
     updateRule: async (slug, rule) => {
-      const path = ruleRoute(USER_ORIGIN, slug)
+      const path = ruleRoute(slug)
       return parseRuleEntry(await send('PUT', path, rule), path)
     },
     previewRule: async (slug, rule) => {
-      const path = `${ruleRoute(USER_ORIGIN, slug)}/preview`
+      const path = `${ruleRoute(slug)}/preview`
       return parsePreview(await send('POST', path, rule), path)
     },
-    disableRule: async (origin, slug, note) => {
-      const path = `${ruleRoute(origin, slug)}/disable`
+    disableRule: async (slug, note) => {
+      const path = `${ruleRoute(slug)}/disable`
       return parseRuleEntry(await send('POST', path, { note }), path)
     },
-    enableRule: async (origin, slug) => {
-      const path = `${ruleRoute(origin, slug)}/enable`
+    enableRule: async (slug) => {
+      const path = `${ruleRoute(slug)}/enable`
       return parseRuleEntry(await send('POST', path), path)
     }
   }

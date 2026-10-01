@@ -6,9 +6,6 @@ import type { Value } from '@signalk/server-api'
 import { serverDeps } from '../../src/alerts/server'
 import { Application } from '../../src/application'
 import { parseRuleEntry, parseState, type RuleEntry } from '../../src/panel/api'
-import { httpRulesetsApi } from '../../src/panel/rulesets/api'
-import { validateRuleset } from '../../src/model/validate'
-import type { LoadedRuleset } from '../../src/rulesets/discovery'
 import { Store } from '../../src/store/store'
 import { MockServerAPI } from '../helpers/MockServerAPI'
 
@@ -101,8 +98,8 @@ function running() {
   publish('electrical.batteries.start.voltage', 11.5)
   now = 20
   application.tick()
-  application.disableRule('user', hours.slug, undefined, 'admin')
-  application.disableRule('user', mismatch.slug, 'sender loose', 'skipper')
+  application.disableRule(hours.slug, undefined, 'admin')
+  application.disableRule(mismatch.slug, 'sender loose', 'skipper')
   return application
 }
 
@@ -135,7 +132,6 @@ describe('panel parsers against the Application', () => {
     const entry = parsedRules(running()).get(oil.slug)
     expect(entry?.disabled).toBeUndefined()
     expect(entry).toMatchObject({
-      origin: 'user',
       rule: { name: oil.name, priority: 'alarm', detector: { type: 'sustained' } },
       status: { badge: 'alertActive' }
     })
@@ -178,8 +174,8 @@ describe('panel parsers against the Application', () => {
     expect(entry?.status.instances[0]?.gates).toEqual([{ holds: true, input: 'value' }])
   })
 
-  it('read one rule as GET /rules/:origin/:slug answers it', () => {
-    const entry = parseRuleEntry(wire(running().rule('user', oil.slug)), '/rules/user/oil')
+  it('read one rule as GET /rules/:slug answers it', () => {
+    const entry = parseRuleEntry(wire(running().rule(oil.slug)), '/rules/oil')
     expect(entry.slug).toBe(oil.slug)
   })
 
@@ -194,125 +190,6 @@ describe('panel parsers against the Application', () => {
       })
     )
     expect(state.issues).toEqual([expect.stringMatching(/stored rule broken is not valid/)])
-  })
-})
-
-describe('ruleset parsers against the Application', () => {
-  const VOLTAGE = 'electrical.batteries.house.voltage'
-  const low = {
-    name: 'Battery low',
-    slug: 'low',
-    message: 'Battery voltage low',
-    priority: 'warning',
-    signal: { path: '${prefix}.voltage' },
-    detector: {
-      type: 'sustained',
-      direction: 'below',
-      limit: { kind: 'fixed', value: { param: 'lowVoltage' } }
-    }
-  }
-  const hot = { ...low, name: 'Battery hot', slug: 'hot', signal: { path: COOLANT } }
-
-  function batteries(version: string, rules: unknown[]): LoadedRuleset {
-    const result = validateRuleset({
-      name: 'Battery monitoring',
-      slug: 'batteries',
-      version,
-      description: 'House bank',
-      parameters: [
-        { name: 'prefix', type: 'string', default: 'electrical.batteries.house' },
-        { name: 'lowVoltage', type: 'number', unit: 'V', default: 12, minimum: 10, maximum: 14 }
-      ],
-      rules
-    })
-    if (!result.ok) throw new Error(JSON.stringify(result.errors))
-    return {
-      slug: 'batteries',
-      source: 'package signalk-alert-ruleset-batteries',
-      package: { name: 'signalk-alert-ruleset-batteries', version },
-      ruleset: result.value
-    }
-  }
-
-  /**
-   * An enabled ruleset with a stored value, upgraded to drop a rule, whose
-   * remaining rule reads a path the server has not had.
-   */
-  function upgraded() {
-    const installed = { rulesets: [batteries('1.0.0', [low, hot])] }
-    const server = new MockServerAPI(true, dir)
-    let now = 0
-    const application = new Application(
-      {
-        ...serverDeps(server.asServerAPI(), PLUGIN),
-        clock: () => now,
-        wallClock: () => new Date('2026-09-30T12:00:00.000Z')
-      },
-      new Store(dir),
-      () => ({ rulesets: installed.rulesets, problems: [] })
-    )
-    application.start()
-    application.setRulesetEnabled('batteries', true, 'admin')
-    application.setRulesetParameters('batteries', { lowVoltage: 11.5 }, 'admin')
-    installed.rulesets = [batteries('2.0.0', [low])]
-    application.rescan('admin')
-    now = 30
-    application.tick()
-    return application
-  }
-
-  /** The panel's strict reader, answered with what the route would send. */
-  const rulesetsApi = (body: unknown) =>
-    httpRulesetsApi(() => Promise.resolve(new Response(JSON.stringify(body))))
-
-  it('read the ruleset listing', async () => {
-    const listing = await rulesetsApi(wire(upgraded().rulesets())).list()
-    expect(listing.problems).toEqual([])
-    expect(listing.rulesets).toEqual([
-      expect.objectContaining({
-        slug: 'batteries',
-        version: '2.0.0',
-        description: 'House bank',
-        package: { name: 'signalk-alert-ruleset-batteries', version: '2.0.0' },
-        enabled: true,
-        parameters: [
-          { name: 'prefix', type: 'string', default: 'electrical.batteries.house' },
-          { name: 'lowVoltage', type: 'number', unit: 'V', default: 12, minimum: 10, maximum: 14 }
-        ],
-        values: { lowVoltage: 11.5 },
-        rules: ['low'],
-        missingPaths: [VOLTAGE],
-        notices: [
-          {
-            at: '2026-09-30T12:00:00.000Z',
-            message: expect.stringContaining('rule hot') as string
-          }
-        ]
-      })
-    ])
-  })
-
-  it('read one ruleset as a ruleset action answers it', async () => {
-    const entry = wire(upgraded().ruleset('batteries'))
-    const read = await rulesetsApi(entry).setEnabled('batteries', true)
-    expect(read.slug).toBe('batteries')
-  })
-
-  it('read a ruleset rule with its source and the path it is missing', () => {
-    const entry = parseRuleEntry(wire(upgraded().rule('batteries', 'low')), '/rules/batteries/low')
-    expect(entry).toMatchObject({
-      origin: 'batteries',
-      ruleset: {
-        name: 'Battery monitoring',
-        version: '2.0.0',
-        package: { name: 'signalk-alert-ruleset-batteries', version: '2.0.0' }
-      },
-      status: {
-        badge: 'inactive',
-        reason: 'ruleset path missing',
-        issues: [`path ${VOLTAGE} has not been seen`]
-      }
-    })
   })
 })
 

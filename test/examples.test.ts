@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
 import type { AlertValue } from '../src/alerts/emitter.js'
-import { ruleId } from '../src/alerts/paths.js'
 import { RuleRunner } from '../src/alerts/runner.js'
 import { validateRule } from '../src/model/validate.js'
 import { exampleScenarios, type AlertStep, type Scenario } from './fixtures/example-scenarios.js'
@@ -43,7 +42,7 @@ function run(rule: unknown, scenario: Scenario): { steps: AlertStep[]; problems:
         if (!value.latching) active.set(path, value)
       }
     },
-    [{ origin: 'user', rule: validated.value }]
+    [validated.value]
   )
   runner.start()
 
@@ -59,7 +58,7 @@ function run(rule: unknown, scenario: Scenario): { steps: AlertStep[]; problems:
     }
     runner.tick()
   }
-  const status = runner.status(ruleId('user', validated.value.slug))
+  const status = runner.status(validated.value.slug)
   if (status === undefined) throw new Error('the rule has no status')
   const problems = [
     ...status.issues,

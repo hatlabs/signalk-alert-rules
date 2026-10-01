@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { PathValueState, Value } from '@signalk/server-api'
 import { HEARTBEAT_S, type AlertValue } from '../../src/alerts/emitter.js'
-import { RuleRunner, type LoadedRule } from '../../src/alerts/runner.js'
+import { RuleRunner } from '../../src/alerts/runner.js'
 import type { PathMeta } from '../../src/engine/evaluator.js'
 import type { Rule } from '../../src/model/rule.js'
 import { validateRule } from '../../src/model/validate.js'
@@ -88,10 +88,10 @@ const pumpOn = valid({
   signal: { path: PUMP },
   detector: { type: 'match', op: 'changesTo', value: true }
 })
-const BATTERY_ALERT = 'rules.user.house-battery-low'
-const OIL_ALERT = 'rules.user.oil-pressure-low'
-const PORT_ALERT = 'rules.user.coolant-high.port'
-const PUMP_ALERT = 'rules.user.bilge-pump-cycling'
+const BATTERY_ALERT = 'rules.house-battery-low'
+const OIL_ALERT = 'rules.oil-pressure-low'
+const PORT_ALERT = 'rules.coolant-high.port'
+const PUMP_ALERT = 'rules.bilge-pump-cycling'
 
 function setup(
   rules: Rule[],
@@ -110,7 +110,6 @@ function setup(
   const core = options.core ?? new FakeAlertsCore()
   const sent: [string, AlertValue | null][] = []
   let now = 0
-  const loaded: LoadedRule[] = rules.map((rule) => ({ origin: 'user', rule }))
   const runner = new RuleRunner(
     {
       pluginId: PLUGIN,
@@ -125,7 +124,7 @@ function setup(
         core.ingest(PLUGIN, path, value)
       }
     },
-    loaded,
+    rules,
     options.accumulated,
     options.disabled
   )
@@ -152,7 +151,7 @@ function coreWith(path: string, message = 'Engine oil pressure is low'): FakeAle
     priority: 'alarm',
     message,
     latching: false,
-    data: { rule: 'user.oil-pressure-low' }
+    data: { rule: 'oil-pressure-low' }
   })
   core.alertings = 0
   return core
@@ -192,7 +191,7 @@ describe('rule runner', () => {
           message: 'Engine oil pressure is low',
           latching: false,
           data: {
-            rule: 'user.oil-pressure-low',
+            rule: 'oil-pressure-low',
             name: 'Oil pressure low',
             limit: 100000,
             valueAtRaise: 0,
@@ -215,10 +214,7 @@ describe('rule runner', () => {
     at(0, OIL, 0)
     run(1, 5)
     const raised = sent[0]?.[1]
-    runner.update({
-      origin: 'user',
-      rule: { ...oil, message: 'Check the oil', priority: 'emergency' }
-    })
+    runner.update({ ...oil, message: 'Check the oil', priority: 'emergency' })
     expect(sent).toHaveLength(1)
     run(6, 5 + HEARTBEAT_S)
     expect(sent.at(-1)).toEqual([
@@ -258,7 +254,7 @@ describe('rule runner', () => {
       priority: 'alarm',
       state: 'unacknowledged'
     })
-    expect(runner.status('user.house-battery-low')?.instances[0]).toMatchObject({
+    expect(runner.status('house-battery-low')?.instances[0]).toMatchObject({
       level: 'alarm',
       priority: 'alarm'
     })
@@ -276,7 +272,7 @@ describe('rule runner', () => {
     const { at, run, sent, runner } = setup([batteryLow], { meta: { [VOLTAGE]: batteryZones } })
     at(0, VOLTAGE, 11.3)
     run(1, 5)
-    runner.update({ origin: 'user', rule: { ...batteryLow, message: 'Charge the battery' } })
+    runner.update({ ...batteryLow, message: 'Charge the battery' })
     run(6, 5 + HEARTBEAT_S)
     expect(sent.at(-1)?.[1]).toMatchObject({ priority: 'alarm', message: 'Charge the battery' })
   })
@@ -307,7 +303,7 @@ describe('rule runner', () => {
     expect(sent.length).toBeGreaterThan(1)
     expect(sent.every(([, v]) => v?.message === 'New message' && v.data === undefined)).toBe(true)
     expect(core.getByPath(OIL_ALERT)).toMatchObject({
-      data: { rule: 'user.oil-pressure-low' },
+      data: { rule: 'oil-pressure-low' },
       message: 'New message',
       state: 'acknowledged'
     })
@@ -316,11 +312,11 @@ describe('rule runner', () => {
 
   it("an adopted wildcard alert's message keeps the instance name its raise used", () => {
     const core = new FakeAlertsCore()
-    core.ingest(PLUGIN, 'rules.user.coolant-high.port_aft', {
+    core.ingest(PLUGIN, 'rules.coolant-high.port_aft', {
       priority: 'alarm',
       message: 'Coolant high on port.aft',
       latching: false,
-      data: { rule: 'user.coolant-high', instance: 'port.aft' }
+      data: { rule: 'coolant-high', instance: 'port.aft' }
     })
     core.alertings = 0
     const { sent } = setup([coolant], { core })
@@ -335,9 +331,9 @@ describe('rule runner', () => {
   })
 
   it('clears an alert whose rule was deleted', () => {
-    const core = coreWith('rules.user.deleted-rule')
+    const core = coreWith('rules.deleted-rule')
     const { sent } = setup([oil], { core })
-    expect(sent).toEqual([['rules.user.deleted-rule', null]])
+    expect(sent).toEqual([['rules.deleted-rule', null]])
   })
 
   it('leaves an alert whose condition ended to core across a restart, and raises it on re-entry', () => {
@@ -398,7 +394,7 @@ describe('rule runner', () => {
     run(0, 200)
     expect(sent).toHaveLength(1)
     expect(core.getByPath(OIL_ALERT)?.condition).toBe(true)
-    expect(runner.status('user.oil-pressure-low')?.instances[0]?.awaitingInput).toBe(true)
+    expect(runner.status('oil-pressure-low')?.instances[0]?.awaitingInput).toBe(true)
   })
 
   it('an absence alert raised while its input has never been seen keeps heartbeating', () => {
@@ -413,11 +409,11 @@ describe('rule runner', () => {
     const { run, sent, runner } = setup([watch])
     run(0, 900 + 2 * HEARTBEAT_S)
     expect(sent).toHaveLength(3)
-    expect(runner.status('user.watch-not-acknowledged')?.instances[0]?.awaitingInput).toBe(false)
+    expect(runner.status('watch-not-acknowledged')?.instances[0]?.awaitingInput).toBe(false)
   })
 
   it('an adopted absence alert keeps heartbeating while its input stays silent', () => {
-    const WATCH_ALERT = 'rules.user.watch-not-acknowledged'
+    const WATCH_ALERT = 'rules.watch-not-acknowledged'
     const watch = valid({
       name: 'Watch not acknowledged',
       slug: 'watch-not-acknowledged',
@@ -467,7 +463,7 @@ describe('rule runner', () => {
     const { at, run, runner, sent, core } = setup([latchingPump])
     pumpStarts(at, 0)
     pumpStarts(at, 10)
-    runner.update({ origin: 'user', rule: { ...latchingPump, message: 'Check the bilge' } })
+    runner.update({ ...latchingPump, message: 'Check the bilge' })
     run(14, 13 + 60 + 3 * HEARTBEAT_S)
     expect(sent).toEqual([
       [PUMP_ALERT, expect.objectContaining({ priority: 'alarm', latching: true })]
@@ -491,7 +487,7 @@ describe('rule runner', () => {
     at(0, PUMP, false)
     run(1, 3 * HEARTBEAT_S)
     expect(sent).toEqual([])
-    expect(runner.status('user.bilge-pump-cycling')?.instances[0]).toMatchObject({
+    expect(runner.status('bilge-pump-cycling')?.instances[0]).toMatchObject({
       active: false,
       adopted: false
     })
@@ -501,7 +497,7 @@ describe('rule runner', () => {
   it('turning latching on clears an active alert, and the next occurrence raises once as an event', () => {
     const { at, run, runner, sent } = setup([pumpCycling])
     pumpStarts(at, 0)
-    runner.update({ origin: 'user', rule: latchingPump })
+    runner.update(latchingPump)
     pumpStarts(at, 10)
     run(14, 13 + 3 * HEARTBEAT_S)
     expect(sent.map(([, v]) => v?.latching ?? null)).toEqual([false, null, true])
@@ -510,7 +506,7 @@ describe('rule runner', () => {
   it('turning latching off has nothing to clear, and the next occurrence raises an active alert', () => {
     const { at, run, runner, sent, core } = setup([latchingPump])
     pumpStarts(at, 0)
-    runner.update({ origin: 'user', rule: pumpCycling })
+    runner.update(pumpCycling)
     pumpStarts(at, 10)
     run(14, 13 + HEARTBEAT_S)
     expect(sent.map(([, v]) => v?.latching ?? null)).toEqual([true, false, false])
@@ -536,7 +532,7 @@ describe('rule runner', () => {
   })
 
   it('a latching changesTo match does not raise again at restart when its value is replayed', () => {
-    const alert = 'rules.user.bilge-pump-on'
+    const alert = 'rules.bilge-pump-on'
     const core = coreWithLatching(alert, 'Bilge pump started')
     const { at, run, sent } = setup([pumpOn], { core, cached: [[PUMP, true]] })
     at(5, PUMP, true)
@@ -547,11 +543,11 @@ describe('rule runner', () => {
 
   it('starts a rule added while running', () => {
     const { at, run, runner, sent } = setup([])
-    runner.update({ origin: 'user', rule: oil })
+    runner.update(oil)
     at(0, OIL, 0)
     run(1, 5)
     expect(sent).toHaveLength(1)
-    expect(runner.status('user.oil-pressure-low')).toBeDefined()
+    expect(runner.status('oil-pressure-low')).toBeDefined()
   })
 
   it('restores accumulator totals per rule and reports them for checkpoints', () => {
@@ -565,24 +561,23 @@ describe('rule runner', () => {
     })
     const { at, run, runner, sent } = setup([hours, oil], {
       accumulated: new Map([
-        ['user.engine-hours', new Map([['', 95]])],
-        ['user.deleted-rule', new Map([['', 5]])]
+        ['engine-hours', new Map([['', 95]])],
+        ['deleted-rule', new Map([['', 5]])]
       ])
     })
     at(0, 'propulsion.main.revolutions', 30)
     run(1, 4)
     expect(runner.accumulators()).toEqual(
-      new Map([['user.engine-hours', { measure: 'time', totals: new Map([['', 99]]) }]])
+      new Map([['engine-hours', { measure: 'time', totals: new Map([['', 99]]) }]])
     )
     run(5, 5)
-    expect(sent.map(([path]) => path)).toEqual(['rules.user.engine-hours'])
+    expect(sent.map(([path]) => path)).toEqual(['rules.engine-hours'])
   })
 
   it('a rule added while running reports its accumulator total', () => {
     const { at, runner } = setup([])
-    runner.update({
-      origin: 'user',
-      rule: valid({
+    runner.update(
+      valid({
         name: 'Engine hours',
         slug: 'engine-hours',
         message: 'Engine service due',
@@ -590,11 +585,11 @@ describe('rule runner', () => {
         signal: { path: 'propulsion.main.revolutions' },
         detector: { type: 'accumulator', measure: 'time', limit: 100 }
       })
-    })
+    )
     at(0, 'propulsion.main.revolutions', 30)
     at(7)
     expect(runner.accumulators()).toEqual(
-      new Map([['user.engine-hours', { measure: 'time', totals: new Map([['', 7]]) }]])
+      new Map([['engine-hours', { measure: 'time', totals: new Map([['', 7]]) }]])
     )
   })
 
@@ -610,7 +605,7 @@ describe('rule runner', () => {
     const { at, run, runner, sent } = setup([oil])
     at(0, OIL, 0)
     run(1, 5)
-    runner.remove('user.oil-pressure-low')
+    runner.remove('oil-pressure-low')
     expect(sent.at(-1)).toEqual([OIL_ALERT, null])
   })
 
@@ -626,14 +621,14 @@ describe('rule runner', () => {
     const { at, sent, runner } = setup([rule])
     at(0, `tanks.fuel.${'x'.repeat(260)}.currentLevel`, 0.05)
     expect(sent).toEqual([])
-    expect(runner.status('user.tank-low')).toMatchObject({ badge: 'inactive', errors: [] })
-    expect(runner.status('user.tank-low')?.reason).toMatch(/longer than/)
-    expect(runner.status('user.tank-low')?.instances[0]?.inactive).toMatch(/longer than/)
+    expect(runner.status('tank-low')).toMatchObject({ badge: 'inactive', errors: [] })
+    expect(runner.status('tank-low')?.reason).toMatch(/longer than/)
+    expect(runner.status('tank-low')?.instances[0]?.inactive).toMatch(/longer than/)
   })
 })
 
 describe('rule status', () => {
-  const OIL_ID = 'user.oil-pressure-low'
+  const OIL_ID = 'oil-pressure-low'
 
   it('a wildcard rule with one instance active and one gated off reports each instance', () => {
     const rule = valid({
@@ -651,7 +646,7 @@ describe('rule status', () => {
     at(0, 'propulsion.starboard.revolutions', 0)
     at(1, 'propulsion.port.coolantTemperature', 370)
     at(1, 'propulsion.starboard.coolantTemperature', 371)
-    const status = runner.status('user.coolant-high')
+    const status = runner.status('coolant-high')
     expect(status).toMatchObject({ badge: 'alertActive', subLabels: [], errors: [], issues: [] })
     const byName = new Map(status?.instances.map((i) => [i.instance?.name, i]))
     expect(byName.get('port')).toMatchObject({
@@ -731,7 +726,7 @@ describe('rule status', () => {
       meta: { [VOLTAGE]: { zones: [{ upper: 11.5, state: 'alarm' }] } }
     })
     at(0, VOLTAGE, 12.6)
-    expect(runner.status('user.house-battery-low')).toMatchObject({
+    expect(runner.status('house-battery-low')).toMatchObject({
       badge: 'inactive',
       reason: 'the path has no warn zone'
     })
@@ -749,14 +744,14 @@ describe('rule status', () => {
     at(0, VOLTAGE, 12.6)
     broken = true
     at(1)
-    expect(runner.status('user.house-battery-low')).toMatchObject({
+    expect(runner.status('house-battery-low')).toMatchObject({
       badge: 'errored',
       reason: 'evaluation failed: meta unreadable',
       errors: ['evaluation failed: meta unreadable']
     })
     broken = false
-    runner.update({ origin: 'user', rule: batteryLow })
-    expect(runner.status('user.house-battery-low')).toMatchObject({ badge: 'idle', errors: [] })
+    runner.update(batteryLow)
+    expect(runner.status('house-battery-low')).toMatchObject({ badge: 'idle', errors: [] })
   })
 
   it('a rule that throws at start is errored while the others run, until it is edited', () => {
@@ -768,7 +763,7 @@ describe('rule status', () => {
       }
     }
     const { at, run, runner, sent } = setup([batteryLow, oil], { meta })
-    expect(runner.status('user.house-battery-low')).toMatchObject({
+    expect(runner.status('house-battery-low')).toMatchObject({
       badge: 'errored',
       reason: 'failed to start: meta unreadable'
     })
@@ -778,8 +773,8 @@ describe('rule status', () => {
     expect(sent.map(([path]) => path)).toEqual([OIL_ALERT])
 
     broken = false
-    runner.update({ origin: 'user', rule: batteryLow })
-    expect(runner.status('user.house-battery-low')).toMatchObject({ errors: [] })
+    runner.update(batteryLow)
+    expect(runner.status('house-battery-low')).toMatchObject({ errors: [] })
     at(7, VOLTAGE, 11.8)
     run(8, 12)
     expect(sent.map(([path]) => path)).toEqual([OIL_ALERT, BATTERY_ALERT])
@@ -799,14 +794,14 @@ describe('rule status', () => {
         }
       }
       const env = setup([batteryLow], { core, meta })
-      expect(env.runner.failedToStart('user.house-battery-low')).toBe(true)
+      expect(env.runner.failedToStart('house-battery-low')).toBe(true)
       expect(core.getByPath(BATTERY_ALERT)?.condition).toBe(true)
       return env
     }
 
     it('clears the alert when edited', () => {
       const { core, run, runner, sent } = failing()
-      runner.update({ origin: 'user', rule: { ...batteryLow, message: 'Check the battery' } })
+      runner.update({ ...batteryLow, message: 'Check the battery' })
       expect(core.getByPath(BATTERY_ALERT)?.condition).toBe(false)
       const cleared = sent.length
       run(1, 120)
@@ -815,7 +810,7 @@ describe('rule status', () => {
 
     it('clears the alert when deleted', () => {
       const { core, run, runner, sent } = failing()
-      runner.remove('user.house-battery-low')
+      runner.remove('house-battery-low')
       expect(core.getByPath(BATTERY_ALERT)?.condition).toBe(false)
       const cleared = sent.length
       run(1, 120)
@@ -824,7 +819,7 @@ describe('rule status', () => {
   })
 
   describe('an accumulator rule that failed to start with a restored total', () => {
-    const HOURS_ID = 'user.engine-hours'
+    const HOURS_ID = 'engine-hours'
     const hours = valid({
       name: 'Engine hours',
       slug: 'engine-hours',
@@ -849,7 +844,7 @@ describe('rule status', () => {
           alerts: new FakeAlertsCore(),
           send: () => undefined
         },
-        [{ origin: 'user', rule: hours }],
+        [hours],
         new Map([[HOURS_ID, new Map([['', 42]])]])
       )
       runner.start()
@@ -867,7 +862,7 @@ describe('rule status', () => {
 
     it('keeps the total across an edit that carries it', () => {
       const runner = failing()
-      runner.update({ origin: 'user', rule: { ...hours, message: 'Service the engine' } })
+      runner.update({ ...hours, message: 'Service the engine' })
       expect(runner.accumulators().get(HOURS_ID)?.totals).toEqual(new Map([['', 42]]))
     })
 
@@ -877,7 +872,7 @@ describe('rule status', () => {
         ...hours,
         detector: { type: 'accumulator', measure: 'integral', limit: 100 }
       })
-      runner.update({ origin: 'user', rule: integral })
+      runner.update(integral)
       expect(runner.accumulators().get(HOURS_ID)?.totals.get('') ?? 0).toBe(0)
     })
   })
@@ -925,7 +920,7 @@ describe('rule status', () => {
 })
 
 describe('disabled rules', () => {
-  const OIL_ID = 'user.oil-pressure-low'
+  const OIL_ID = 'oil-pressure-low'
 
   it('disabling a rule clears its alert in core, stops its heartbeat and shows it disabled', () => {
     const disabled = new Set<string>()
@@ -956,15 +951,15 @@ describe('disabled rules', () => {
     at(0, VOLTAGE, 12.6)
     broken = true
     expect(() => {
-      runner.refresh('user.house-battery-low')
+      runner.refresh('house-battery-low')
     }).not.toThrow()
-    expect(runner.status('user.house-battery-low')?.errors).toEqual([
+    expect(runner.status('house-battery-low')?.errors).toEqual([
       'evaluation failed: meta unreadable'
     ])
   })
 
   describe('a rule that failed to start with an adopted alert', () => {
-    const BATTERY_ID = 'user.house-battery-low'
+    const BATTERY_ID = 'house-battery-low'
     const failing = (disabled: Set<string>) => {
       const core = new FakeAlertsCore()
       core.ingest(PLUGIN, BATTERY_ALERT, {

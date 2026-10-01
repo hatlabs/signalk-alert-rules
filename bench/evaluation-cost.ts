@@ -17,14 +17,12 @@ import type {
   Unsubscribes,
   Value
 } from '@signalk/server-api'
-import { RuleRunner, type LoadedRule } from '../src/alerts/runner.js'
-import { ruleId } from '../src/alerts/paths.js'
+import { RuleRunner } from '../src/alerts/runner.js'
 import { MAX_WINDOW_SAMPLES } from '../src/engine/detectors/trend.js'
 import type { PathMeta } from '../src/engine/evaluator.js'
-import { MAX_INSTANCES, MAX_RULES } from '../src/model/rule.js'
-import { validateRule, validateRuleSet } from '../src/model/validate.js'
+import { MAX_INSTANCES, MAX_RULES, type Rule } from '../src/model/rule.js'
+import { validateRule } from '../src/model/validate.js'
 
-const ORIGIN = 'user'
 /** Assumed evaluation cycle; the plugin's tick cadence is not fixed yet. */
 const TICK_S = 1
 /** Simulation step: the fastest input rate is 10 Hz. */
@@ -460,14 +458,14 @@ function heapMiB(): number {
   return process.memoryUsage().heapUsed / 2 ** 20
 }
 
-function load(scenario: Scenario): LoadedRule[] {
-  const loaded = scenario.rules.map((input): LoadedRule => {
+function load(scenario: Scenario): Rule[] {
+  const loaded = scenario.rules.map((input): Rule => {
     const result = validateRule(input)
     if (!result.ok) throw new Error(`invalid bench rule: ${JSON.stringify(result.errors)}`)
-    return { origin: ORIGIN, rule: result.value }
+    return result.value
   })
-  const setErrors = validateRuleSet(loaded)
-  if (setErrors.length > 0) throw new Error(`invalid bench rule set: ${JSON.stringify(setErrors)}`)
+  if (new Set(loaded.map((rule) => rule.slug)).size !== loaded.length)
+    throw new Error('bench rule slugs are not unique')
   if (loaded.length !== MAX_RULES) throw new Error(`expected ${String(MAX_RULES)} rules`)
   return loaded
 }
@@ -555,8 +553,8 @@ function run(scenario: Scenario): Result {
   const gateSubscribers = sm.prepare(ENGINE_RPM).length
   let units = 0
   let issues = 0
-  for (const { rule } of rules) {
-    const status = runner.status(ruleId(ORIGIN, rule.slug))
+  for (const rule of rules) {
+    const status = runner.status(rule.slug)
     units += status?.instances.length ?? 0
     if ((status?.issues.length ?? 0) + (status?.errors.length ?? 0) > 0) issues++
   }

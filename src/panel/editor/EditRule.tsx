@@ -11,7 +11,6 @@ export interface EditRuleProps {
   entry: RuleEntry
   onSaved: (entry: RuleEntry) => void
   onClose: () => void
-  onDirtyChange?: (dirty: boolean) => void
 }
 
 type Loaded =
@@ -20,11 +19,11 @@ type Loaded =
 /** The authoring form on a stored rule, once the whole rule has been read. */
 export function EditRule({ api, entry, onClose, ...rest }: EditRuleProps) {
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' })
-  const { origin, slug } = entry
+  const { slug } = entry
 
   useEffect(() => {
     let cancelled = false
-    api.ruleDefinition(origin, slug).then(
+    api.ruleDefinition(slug).then(
       (rule) => {
         if (!cancelled) setLoaded({ status: 'ready', rule })
       },
@@ -37,7 +36,7 @@ export function EditRule({ api, entry, onClose, ...rest }: EditRuleProps) {
     return () => {
       cancelled = true
     }
-  }, [api, origin, slug])
+  }, [api, slug])
 
   switch (loaded.status) {
     case 'loading':

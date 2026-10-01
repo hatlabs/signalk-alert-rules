@@ -1,4 +1,4 @@
-import Type, { type Static, type TNumber, type TNumberOptions, type TSchema } from 'typebox'
+import Type, { type Static, type TNumberOptions } from 'typebox'
 
 export const MAX_DURATION_S = 24 * 3600
 export const MAX_RULES = 500
@@ -58,174 +58,166 @@ export const LEVEL_PRIORITY: Readonly<Record<ZoneLevel, Priority>> = {
   emergency: 'emergency'
 }
 
-type NumberField<N extends TSchema> = (quantity: Quantity, options?: TNumberOptions) => N
-
-/**
- * Builds every rule schema around one numeric-field constructor, so a ruleset
- * can accept parameter references wherever a user rule takes a number.
- */
-export function ruleSchemas<N extends TSchema>(num: NumberField<N>) {
-  const duration = () => num('duration', { minimum: 0, maximum: MAX_DURATION_S })
-  const window = () => num('duration', { exclusiveMinimum: 0, maximum: MAX_DURATION_S })
-  const nonNegative = (quantity: Quantity) => num(quantity, { minimum: 0 })
-  const closed = { additionalProperties: false }
-
-  const Path = Type.String({
-    minLength: 1,
-    maxLength: 255,
-    pattern: PATH_PATTERN,
-    [PATTERN_MESSAGE_KEY]: 'must be a dot-separated path in which * stands alone as a segment'
-  })
-
-  const PathInput = Type.Object(
-    { path: Path, source: Type.Optional(Type.String({ minLength: 1 })) },
-    closed
-  )
-
-  const Combinator = Type.Object(
-    {
-      combinator: Type.Enum(COMBINATORS),
-      inputs: Type.Array(PathInput, { maxItems: MAX_COMBINATOR_INPUTS }),
-      angular: Type.Optional(Type.Boolean())
-    },
-    closed
-  )
-
-  const Signal = Type.Union([PathInput, Combinator], { [DISCRIMINATOR_KEY]: 'combinator' })
-
-  const Limit = Type.Union(
-    [
-      Type.Object({ kind: Type.Literal('fixed'), value: num('absolute') }, closed),
-      Type.Object(
-        { kind: Type.Literal('zone'), level: Type.Enum(ZONE_LEVELS), path: Type.Optional(Path) },
-        closed
-      )
-    ],
-    { [DISCRIMINATOR_KEY]: 'kind' }
-  )
-
-  const Value = Type.Union([num('absolute'), Type.String(), Type.Boolean()])
-
-  const Comparison = {
-    direction: Type.Enum(['above', 'below']),
-    limit: Limit,
-    duration: Type.Optional(duration()),
-    hysteresis: Type.Optional(nonNegative('interval')),
-    clearDuration: Type.Optional(duration())
-  }
-
-  const StateCondition = Type.Object(
-    { op: Type.Enum(['above', 'below', 'equals', 'notEquals']), value: Value },
-    closed
-  )
-
-  const Event = Type.Object(
-    { op: Type.Enum(['changes', 'changesTo', 'decreases']), value: Type.Optional(Value) },
-    closed
-  )
-
-  const Detector = Type.Union(
-    [
-      Type.Object(
-        {
-          type: Type.Literal('match'),
-          op: Type.Enum(['equals', 'notEquals', 'changesTo', 'decreases', 'timedOut']),
-          value: Type.Optional(Value),
-          duration: Type.Optional(duration())
-        },
-        closed
-      ),
-      Type.Object({ type: Type.Literal('sustained'), ...Comparison }, closed),
-      Type.Object(
-        {
-          type: Type.Literal('slope'),
-          direction: Type.Enum(['rising', 'falling']),
-          window: window(),
-          limit: num('interval', { exclusiveMinimum: 0 })
-        },
-        closed
-      ),
-      Type.Object(
-        {
-          type: Type.Literal('projection'),
-          direction: Type.Enum(['rising', 'falling']),
-          limit: Limit,
-          window: window(),
-          horizon: window()
-        },
-        closed
-      ),
-      Type.Object(
-        {
-          type: Type.Literal('accumulator'),
-          measure: Type.Enum(['time', 'integral']),
-          while: Type.Optional(StateCondition),
-          resetOn: Type.Optional(Event),
-          limit: num('accumulated', { exclusiveMinimum: 0 })
-        },
-        closed
-      ),
-      Type.Object(
-        {
-          type: Type.Literal('count'),
-          event: Event,
-          window: window(),
-          limit: num('count', { minimum: 1, multipleOf: 1 })
-        },
-        closed
-      ),
-      Type.Object({ type: Type.Literal('absence'), event: Event, within: window() }, closed)
-    ],
-    { [DISCRIMINATOR_KEY]: 'type' }
-  )
-
-  const Gate = Type.Object({ signal: Signal, ...Comparison }, closed)
-
-  const Rule = Type.Object(
-    {
-      name: Type.String({ minLength: 1, maxLength: 200 }),
-      slug: Type.String({
-        maxLength: MAX_SLUG_LENGTH,
-        pattern: SLUG_PATTERN,
-        [PATTERN_MESSAGE_KEY]: SLUG_MESSAGE
-      }),
-      message: Type.String({ minLength: 1, maxLength: 500 }),
-      /** Required unless the detector has a zone limit, whose levels set the priority. */
-      priority: Type.Optional(Type.Enum(PRIORITIES)),
-      /**
-       * Accepted only on detectors whose condition is an event: a count, or a
-       * `changesTo` or `decreases` match. Each time the condition becomes
-       * active the alert is raised once and waits for acknowledgment. A
-       * lasting condition cannot latch: a restart would see it again and
-       * raise it as a new occurrence, and at a priority that needs
-       * acknowledgment its alert already waits for it after the condition
-       * returns to normal.
-       */
-      latching: Type.Optional(Type.Boolean()),
-      signal: Signal,
-      detector: Detector,
-      gates: Type.Optional(Type.Array(Gate, { maxItems: MAX_GATES }))
-    },
-    closed
-  )
-
-  return { Rule, Signal, PathInput, Limit, Detector, Gate, Event, StateCondition }
-}
-
-const number: NumberField<TNumber> = (quantity, options) =>
+const num = (quantity: Quantity, options?: TNumberOptions) =>
   Type.Number({ ...options, [QUANTITY_KEY]: quantity })
 
-const schemas = ruleSchemas(number)
+const duration = () => num('duration', { minimum: 0, maximum: MAX_DURATION_S })
+const timeWindow = () => num('duration', { exclusiveMinimum: 0, maximum: MAX_DURATION_S })
+const nonNegative = (quantity: Quantity) => num(quantity, { minimum: 0 })
+const closed = { additionalProperties: false }
 
-export const RuleSchema = schemas.Rule
+const PathSchema = Type.String({
+  minLength: 1,
+  maxLength: 255,
+  pattern: PATH_PATTERN,
+  [PATTERN_MESSAGE_KEY]: 'must be a dot-separated path in which * stands alone as a segment'
+})
 
-export type Rule = Static<typeof schemas.Rule>
-export type Signal = Static<typeof schemas.Signal>
-export type PathInput = Static<typeof schemas.PathInput>
-export type Limit = Static<typeof schemas.Limit>
-export type Detector = Static<typeof schemas.Detector>
-export type Gate = Static<typeof schemas.Gate>
-export type Event = Static<typeof schemas.Event>
+const PathInputSchema = Type.Object(
+  { path: PathSchema, source: Type.Optional(Type.String({ minLength: 1 })) },
+  closed
+)
+
+const CombinatorSchema = Type.Object(
+  {
+    combinator: Type.Enum(COMBINATORS),
+    inputs: Type.Array(PathInputSchema, { maxItems: MAX_COMBINATOR_INPUTS }),
+    angular: Type.Optional(Type.Boolean())
+  },
+  closed
+)
+
+const SignalSchema = Type.Union([PathInputSchema, CombinatorSchema], {
+  [DISCRIMINATOR_KEY]: 'combinator'
+})
+
+const LimitSchema = Type.Union(
+  [
+    Type.Object({ kind: Type.Literal('fixed'), value: num('absolute') }, closed),
+    Type.Object(
+      {
+        kind: Type.Literal('zone'),
+        level: Type.Enum(ZONE_LEVELS),
+        path: Type.Optional(PathSchema)
+      },
+      closed
+    )
+  ],
+  { [DISCRIMINATOR_KEY]: 'kind' }
+)
+
+const ValueSchema = Type.Union([num('absolute'), Type.String(), Type.Boolean()])
+
+const comparisonFields = {
+  direction: Type.Enum(['above', 'below']),
+  limit: LimitSchema,
+  duration: Type.Optional(duration()),
+  hysteresis: Type.Optional(nonNegative('interval')),
+  clearDuration: Type.Optional(duration())
+}
+
+const StateConditionSchema = Type.Object(
+  { op: Type.Enum(['above', 'below', 'equals', 'notEquals']), value: ValueSchema },
+  closed
+)
+
+const EventSchema = Type.Object(
+  { op: Type.Enum(['changes', 'changesTo', 'decreases']), value: Type.Optional(ValueSchema) },
+  closed
+)
+
+const DetectorSchema = Type.Union(
+  [
+    Type.Object(
+      {
+        type: Type.Literal('match'),
+        op: Type.Enum(['equals', 'notEquals', 'changesTo', 'decreases', 'timedOut']),
+        value: Type.Optional(ValueSchema),
+        duration: Type.Optional(duration())
+      },
+      closed
+    ),
+    Type.Object({ type: Type.Literal('sustained'), ...comparisonFields }, closed),
+    Type.Object(
+      {
+        type: Type.Literal('slope'),
+        direction: Type.Enum(['rising', 'falling']),
+        window: timeWindow(),
+        limit: num('interval', { exclusiveMinimum: 0 })
+      },
+      closed
+    ),
+    Type.Object(
+      {
+        type: Type.Literal('projection'),
+        direction: Type.Enum(['rising', 'falling']),
+        limit: LimitSchema,
+        window: timeWindow(),
+        horizon: timeWindow()
+      },
+      closed
+    ),
+    Type.Object(
+      {
+        type: Type.Literal('accumulator'),
+        measure: Type.Enum(['time', 'integral']),
+        while: Type.Optional(StateConditionSchema),
+        resetOn: Type.Optional(EventSchema),
+        limit: num('accumulated', { exclusiveMinimum: 0 })
+      },
+      closed
+    ),
+    Type.Object(
+      {
+        type: Type.Literal('count'),
+        event: EventSchema,
+        window: timeWindow(),
+        limit: num('count', { minimum: 1, multipleOf: 1 })
+      },
+      closed
+    ),
+    Type.Object({ type: Type.Literal('absence'), event: EventSchema, within: timeWindow() }, closed)
+  ],
+  { [DISCRIMINATOR_KEY]: 'type' }
+)
+
+const GateSchema = Type.Object({ signal: SignalSchema, ...comparisonFields }, closed)
+
+export const RuleSchema = Type.Object(
+  {
+    name: Type.String({ minLength: 1, maxLength: 200 }),
+    slug: Type.String({
+      maxLength: MAX_SLUG_LENGTH,
+      pattern: SLUG_PATTERN,
+      [PATTERN_MESSAGE_KEY]: SLUG_MESSAGE
+    }),
+    message: Type.String({ minLength: 1, maxLength: 500 }),
+    /** Required unless the detector has a zone limit, whose levels set the priority. */
+    priority: Type.Optional(Type.Enum(PRIORITIES)),
+    /**
+     * Accepted only on detectors whose condition is an event: a count, or a
+     * `changesTo` or `decreases` match. Each time the condition becomes
+     * active the alert is raised once and waits for acknowledgment. A
+     * lasting condition cannot latch: a restart would see it again and
+     * raise it as a new occurrence, and at a priority that needs
+     * acknowledgment its alert already waits for it after the condition
+     * returns to normal.
+     */
+    latching: Type.Optional(Type.Boolean()),
+    signal: SignalSchema,
+    detector: DetectorSchema,
+    gates: Type.Optional(Type.Array(GateSchema, { maxItems: MAX_GATES }))
+  },
+  closed
+)
+
+export type Rule = Static<typeof RuleSchema>
+export type Signal = Static<typeof SignalSchema>
+export type PathInput = Static<typeof PathInputSchema>
+export type Limit = Static<typeof LimitSchema>
+export type Detector = Static<typeof DetectorSchema>
+export type Gate = Static<typeof GateSchema>
+export type Event = Static<typeof EventSchema>
 
 export type ZoneLimit = Extract<Limit, { kind: 'zone' }>
 

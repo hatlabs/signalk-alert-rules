@@ -2,28 +2,18 @@
 export const RULES_PREFIX = 'rules'
 
 const DELTA_PREFIX = 'alerts.'
-// `rules.<origin>.<slug>`, and one more segment for a wildcard instance.
-const RULE_SEGMENTS = 3
+// `rules.<slug>`, and one more segment for a wildcard instance.
+const RULE_SEGMENTS = 2
 const INSTANCE_SEGMENTS = RULE_SEGMENTS + 1
 
 export interface ParsedAlertPath {
-  ruleId: string
+  /** The rule's slug, which identifies it across the store, the runner and alert paths. */
+  slug: string
   /** The instance segment of a wildcard rule's alert. */
   segment?: string
 }
 
-/** Identifies a rule across the store, the runner and alert paths. */
-export function ruleId(origin: string, slug: string): string {
-  return `${origin}.${slug}`
-}
-
-/** A rule id with the origin and slug it is made of; neither contains a dot. */
-export function ruleRef(id: string): { rule: string; origin: string; slug: string } {
-  const dot = id.indexOf('.')
-  return { rule: id, origin: id.slice(0, dot), slug: id.slice(dot + 1) }
-}
-
-/** Splits a core alert path (without `alerts.`) of the form `rules.<origin>.<slug>[.<instance>]`. */
+/** Splits a core alert path (without `alerts.`) of the form `rules.<slug>[.<instance>]`. */
 export function parseAlertPath(path: string): ParsedAlertPath | undefined {
   const segments = path.split('.')
   if (
@@ -33,9 +23,8 @@ export function parseAlertPath(path: string): ParsedAlertPath | undefined {
   ) {
     return undefined
   }
-  const [, origin, slug, segment] = segments
-  const id = ruleId(origin, slug)
-  return segments.length === INSTANCE_SEGMENTS ? { ruleId: id, segment } : { ruleId: id }
+  const [, slug, segment] = segments
+  return segments.length === INSTANCE_SEGMENTS ? { slug, segment } : { slug }
 }
 
 /** The delta path that raises or clears the alert at a core alert path. */

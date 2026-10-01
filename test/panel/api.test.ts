@@ -33,7 +33,6 @@ const runningState = {
 
 /** A rule entry as `GET /rules` answers it, as src/application.ts builds it. */
 const ruleEntry = {
-  origin: 'user',
   slug: 'house-battery-low',
   rule: {
     name: 'House battery low',
@@ -85,9 +84,8 @@ const ruleEntry = {
   }
 }
 
-/** An accumulator rule of a disabled ruleset, which is not evaluated and keeps its total. */
-const disabledAccumulator = {
-  origin: 'engine-pack',
+/** An accumulator rule before the runner starts, which is not evaluated and keeps its total. */
+const notStartedAccumulator = {
   slug: 'engine-hours',
   rule: {
     name: 'Engine service due',
@@ -101,15 +99,15 @@ const disabledAccumulator = {
     detector: { type: 'accumulator', measure: 'time', limit: 360000 }
   },
   status: {
-    badge: 'disabled',
-    reason: 'ruleset is disabled',
+    badge: 'inactive',
+    reason: 'not started',
     subLabels: [],
     issues: [],
     errors: [],
     instances: [
       {
-        badge: 'disabled',
-        reason: 'ruleset is disabled',
+        badge: 'inactive',
+        reason: 'not started',
         subLabels: [],
         progress: { kind: 'total', total: 7200, limit: 360000 }
       }
@@ -201,11 +199,10 @@ describe('httpApi', () => {
   describe('rules', () => {
     it('reads each entry with its rule, controls and status', async () => {
       const api = httpApi(
-        fakeFetch({ [`${BASE}/rules`]: { body: [ruleEntry, disabledAccumulator] } })
+        fakeFetch({ [`${BASE}/rules`]: { body: [ruleEntry, notStartedAccumulator] } })
       )
       const [battery, hours] = await api.rules()
       expect(battery).toEqual({
-        origin: 'user',
         slug: 'house-battery-low',
         rule: {
           name: 'House battery low',
@@ -239,7 +236,6 @@ describe('httpApi', () => {
         }
       })
       expect(hours).toEqual({
-        origin: 'engine-pack',
         slug: 'engine-hours',
         rule: {
           name: 'Engine service due',
@@ -252,15 +248,15 @@ describe('httpApi', () => {
           gates: []
         },
         status: {
-          badge: 'disabled',
-          reason: 'ruleset is disabled',
+          badge: 'inactive',
+          reason: 'not started',
           subLabels: [],
           issues: [],
           errors: [],
           instances: [
             {
-              badge: 'disabled',
-              reason: 'ruleset is disabled',
+              badge: 'inactive',
+              reason: 'not started',
               subLabels: [],
               progress: { kind: 'total', total: 7200, limit: 360000 },
               gates: []
@@ -289,28 +285,6 @@ describe('httpApi', () => {
       })
     })
 
-    it('reads the ruleset of a ruleset rule', async () => {
-      const ruleset = {
-        name: 'Engine pack',
-        version: '2.1.0',
-        package: { name: 'signalk-engine-pack', version: '2.1.0' }
-      }
-      const fromFile = { name: 'Extra', version: '1' }
-      const api = httpApi(
-        fakeFetch({
-          [`${BASE}/rules`]: {
-            body: [
-              { ...disabledAccumulator, ruleset },
-              { ...disabledAccumulator, slug: 'other', ruleset: fromFile }
-            ]
-          }
-        })
-      )
-      const [packaged, file] = await api.rules()
-      expect(packaged.ruleset).toEqual(ruleset)
-      expect(file.ruleset).toEqual(fromFile)
-    })
-
     it('reads a position value', async () => {
       const position = { latitude: 60.1, longitude: 24.9 }
       const entry = {
@@ -326,7 +300,7 @@ describe('httpApi', () => {
     })
 
     it('rejects an entry without a slug', async () => {
-      const api = httpApi(fakeFetch({ [`${BASE}/rules`]: { body: [{ origin: 'user' }] } }))
+      const api = httpApi(fakeFetch({ [`${BASE}/rules`]: { body: [{}] } }))
       await expect(api.rules()).rejects.toThrow(/unexpected response from \/rules/)
     })
 
@@ -340,9 +314,9 @@ describe('httpApi', () => {
   describe('actions', () => {
     it('resets an accumulator with a JSON request and reads the entry it answers', async () => {
       const fetchFn = fakeFetch({
-        [`${BASE}/rules/engine-pack/engine-hours/reset`]: { body: disabledAccumulator }
+        [`${BASE}/rules/engine-hours/reset`]: { body: notStartedAccumulator }
       })
-      const entry = await httpApi(fetchFn).resetAccumulator('engine-pack', 'engine-hours')
+      const entry = await httpApi(fetchFn).resetAccumulator('engine-hours')
       expect(entry.slug).toBe('engine-hours')
       const [, init] = fetchFn.mock.calls[0]
       expect(init?.method).toBe('POST')
@@ -350,32 +324,32 @@ describe('httpApi', () => {
       expect(init?.credentials).toBe('same-origin')
     })
 
-    it('escapes the origin and slug in the path', async () => {
+    it('escapes the slug in the path', async () => {
       const fetchFn = fakeFetch({
-        [`${BASE}/rules/a%2Fb/c%3F/reset`]: { body: disabledAccumulator }
+        [`${BASE}/rules/a%2Fb%3F/reset`]: { body: notStartedAccumulator }
       })
-      await httpApi(fetchFn).resetAccumulator('a/b', 'c?')
+      await httpApi(fetchFn).resetAccumulator('a/b?')
       expect(fetchFn).toHaveBeenCalledOnce()
     })
 
     it('fails with the error the server gives', async () => {
       const api = httpApi(
         fakeFetch({
-          [`${BASE}/rules/user/x/reset`]: {
+          [`${BASE}/rules/x/reset`]: {
             status: 400,
             body: { error: 'only an accumulator rule can be reset' }
           }
         })
       )
-      await expect(api.resetAccumulator('user', 'x')).rejects.toThrow(
+      await expect(api.resetAccumulator('x')).rejects.toThrow(
         'only an accumulator rule can be reset'
       )
     })
 
     it('reports an expired session', async () => {
       const denied = { status: 401, body: { error: 'Unauthorized' } }
-      const api = httpApi(fakeFetch({ [`${BASE}/rules/user/x/reset`]: denied }))
-      await expect(api.resetAccumulator('user', 'x')).rejects.toBeInstanceOf(SessionExpiredError)
+      const api = httpApi(fakeFetch({ [`${BASE}/rules/x/reset`]: denied }))
+      await expect(api.resetAccumulator('x')).rejects.toBeInstanceOf(SessionExpiredError)
     })
   })
 
@@ -383,14 +357,14 @@ describe('httpApi', () => {
     const rule = ruleEntry.rule as unknown as Rule
 
     it('reads the full stored rule of an entry', async () => {
-      const fetchFn = fakeFetch({ [`${BASE}/rules/user/house-battery-low`]: { body: ruleEntry } })
-      expect(await httpApi(fetchFn).ruleDefinition('user', 'house-battery-low')).toEqual(rule)
+      const fetchFn = fakeFetch({ [`${BASE}/rules/house-battery-low`]: { body: ruleEntry } })
+      expect(await httpApi(fetchFn).ruleDefinition('house-battery-low')).toEqual(rule)
     })
 
     it('rejects an entry whose rule has no signal or detector', async () => {
       const broken = { ...ruleEntry, rule: { name: 'x', slug: 'x' } }
-      const api = httpApi(fakeFetch({ [`${BASE}/rules/user/x`]: { body: broken } }))
-      await expect(api.ruleDefinition('user', 'x')).rejects.toThrow(/unexpected response/)
+      const api = httpApi(fakeFetch({ [`${BASE}/rules/x`]: { body: broken } }))
+      await expect(api.ruleDefinition('x')).rejects.toThrow(/unexpected response/)
     })
 
     it('creates a rule with a JSON POST and reads the entry it answers', async () => {
@@ -403,8 +377,8 @@ describe('httpApi', () => {
       expect(new Headers(init?.headers).get('content-type')).toBe('application/json')
     })
 
-    it('replaces a user rule with a PUT on its slug', async () => {
-      const fetchFn = fakeFetch({ [`${BASE}/rules/user/house-battery-low`]: { body: ruleEntry } })
+    it('replaces a rule with a PUT on its slug', async () => {
+      const fetchFn = fakeFetch({ [`${BASE}/rules/house-battery-low`]: { body: ruleEntry } })
       await httpApi(fetchFn).updateRule('house-battery-low', rule)
       expect(fetchFn.mock.calls[0][1]?.method).toBe('PUT')
     })
@@ -418,7 +392,7 @@ describe('httpApi', () => {
         discardsTotal: false
       }
       const fetchFn = fakeFetch({
-        [`${BASE}/rules/user/house-battery-low/preview`]: { body: preview }
+        [`${BASE}/rules/house-battery-low/preview`]: { body: preview }
       })
       expect(await httpApi(fetchFn).previewRule('house-battery-low', rule)).toEqual(preview)
       expect(fetchFn.mock.calls[0][1]?.method).toBe('POST')
@@ -453,9 +427,9 @@ describe('httpApi', () => {
   describe('controls', () => {
     it('disables a rule with its note and reads the entry it answers', async () => {
       const fetchFn = fakeFetch({
-        [`${BASE}/rules/user/house-battery-low/disable`]: { body: ruleEntry }
+        [`${BASE}/rules/house-battery-low/disable`]: { body: ruleEntry }
       })
-      const entry = await httpApi(fetchFn).disableRule('user', 'house-battery-low', 'new sender')
+      const entry = await httpApi(fetchFn).disableRule('house-battery-low', 'new sender')
       expect(entry.disabled?.note).toBe('Sender replaced in spring')
       const [, init] = fetchFn.mock.calls[0]
       expect(init?.method).toBe('POST')
@@ -466,9 +440,9 @@ describe('httpApi', () => {
     it('enables a rule with a bodiless JSON request and reads the entry it answers', async () => {
       const { disabled: _disabled, ...enabled } = ruleEntry
       const fetchFn = fakeFetch({
-        [`${BASE}/rules/%40acme%2Frules/house-battery-low/enable`]: { body: enabled }
+        [`${BASE}/rules/house-battery-low/enable`]: { body: enabled }
       })
-      const entry = await httpApi(fetchFn).enableRule('@acme/rules', 'house-battery-low')
+      const entry = await httpApi(fetchFn).enableRule('house-battery-low')
       expect(entry.disabled).toBeUndefined()
       const [, init] = fetchFn.mock.calls[0]
       expect(init?.method).toBe('POST')

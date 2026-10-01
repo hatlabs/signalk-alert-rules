@@ -74,9 +74,9 @@ const WATCH = 'navigation.watch.acknowledged'
 const HEADING = 'navigation.headingMagnetic'
 const DEPTH = 'environment.depth.belowTransducer'
 
-/** The alert path, under `alerts.`, of a user rule's alert. */
+/** The alert path, under `alerts.`, of a rule's alert. */
 const alert = (slug: string, instance?: string) =>
-  ['rules', 'user', slug, ...(instance === undefined ? [] : [instance])].join('.')
+  ['rules', slug, ...(instance === undefined ? [] : [instance])].join('.')
 
 export const exampleScenarios: Record<string, Scenario> = {
   // Zones: warn below 12 V, alarm below 11.5 V. Each level must hold for 60 s,

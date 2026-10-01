@@ -1,15 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import {
   alertPathFor,
-  resolveRuleset,
+  substitutePlaceholders,
   validateRule,
-  validateRuleSet,
-  validateRuleset,
   type PathInfo,
   type ValidationError
 } from '../../src/model/validate.js'
-import { MAX_RULES, type Rule } from '../../src/model/rule.js'
-import type { Ruleset } from '../../src/model/ruleset.js'
 import { workedExamples } from '../fixtures/worked-examples.js'
 
 const base = {
@@ -471,231 +467,58 @@ describe('validateRule', () => {
   })
 })
 
-describe('validateRuleSet', () => {
-  function valid(slug: string): Rule {
-    const result = validateRule(rule({ slug, detector: minimalDetectors.match }))
-    if (!result.ok) throw new Error('fixture invalid')
-    return result.value
-  }
-
-  it('accepts distinct slugs, and the same slug in different origins', () => {
-    expect(
-      validateRuleSet([
-        { origin: 'user', rule: valid('a') },
-        { origin: 'user', rule: valid('b') },
-        { origin: 'batteries', rule: valid('a') }
-      ])
-    ).toEqual([])
-  })
-
-  it('rejects a duplicate slug within an origin', () => {
-    const errors = validateRuleSet([
-      { origin: 'user', rule: valid('a') },
-      { origin: 'user', rule: valid('a') }
-    ])
-    expect(paths(errors)).toEqual(['/1/slug'])
-  })
-
-  it('rejects more than the rule limit', () => {
-    const entries = Array.from({ length: MAX_RULES + 1 }, (_, i) => ({
-      origin: 'user',
-      rule: valid(`r${String(i)}`)
-    }))
-    expect(paths(validateRuleSet(entries))).toEqual([''])
-    expect(validateRuleSet(entries.slice(1))).toEqual([])
-  })
-})
-
 describe('alertPathFor', () => {
   it('builds the reserved path', () => {
-    expect(alertPathFor('user', 'low-battery')).toEqual({
-      ok: true,
-      value: 'rules.user.low-battery'
-    })
-    expect(alertPathFor('engines', 'hot', 'port')).toEqual({
-      ok: true,
-      value: 'rules.engines.hot.port'
-    })
+    expect(alertPathFor('low-battery')).toEqual({ ok: true, value: 'rules.low-battery' })
+    expect(alertPathFor('hot', 'port')).toEqual({ ok: true, value: 'rules.hot.port' })
   })
 
   it('rejects an instance that is not a valid segment', () => {
-    expect(alertPathFor('user', 'hot', 'port side').ok).toBe(false)
+    expect(alertPathFor('hot', 'port side').ok).toBe(false)
   })
 
   it('rejects a path over 255 characters', () => {
-    expect(alertPathFor('user', 'hot', 'x'.repeat(250)).ok).toBe(false)
+    expect(alertPathFor('hot', 'x'.repeat(250)).ok).toBe(false)
   })
 })
 
-const ruleset = {
-  name: 'Battery monitoring',
-  slug: 'batteries',
-  version: '1.2.0',
-  parameters: [
-    { name: 'prefix', type: 'string', default: 'electrical.batteries.house' },
-    { name: 'lowVoltage', type: 'number', unit: 'V', default: 12, minimum: 10, maximum: 14 },
-    { name: 'delay', type: 'number', unit: 's', default: 60, minimum: 0, maximum: 600 }
-  ],
-  rules: [
-    {
-      name: 'Battery low',
-      slug: 'low',
-      message: 'Battery voltage low',
-      priority: 'warning',
-      signal: { path: '${prefix}.voltage' },
-      detector: {
-        type: 'sustained',
-        direction: 'below',
-        limit: { kind: 'fixed', value: { param: 'lowVoltage' } },
-        duration: { param: 'delay' }
+describe('substitutePlaceholders', () => {
+  const PATHS = new Set(['path'])
+
+  it('replaces placeholders under the named keys only, reporting where each is', () => {
+    const uses: unknown[] = []
+    const out = substitutePlaceholders(
+      {
+        name: 'Bank ${instance}',
+        signal: { path: 'electrical.batteries.${instance}.voltage' },
+        gates: [{ signal: { path: '${instance}.${other}' } }]
+      },
+      PATHS,
+      (use) => {
+        uses.push(use)
+        return use.name.toUpperCase()
       }
-    }
-  ]
-}
-
-function rulesetErrors(input: unknown): ValidationError[] {
-  const result = validateRuleset(input)
-  return result.ok ? [] : result.errors
-}
-
-function withRule(changes: Record<string, unknown>): Record<string, unknown> {
-  return { ...ruleset, rules: [{ ...ruleset.rules[0], ...changes }] }
-}
-
-describe('validateRuleset', () => {
-  it('accepts a parameterised ruleset', () => {
-    expect(rulesetErrors(ruleset)).toEqual([])
-  })
-
-  it('rejects a reference to an undeclared parameter', () => {
-    const errors = rulesetErrors(
-      withRule({ detector: { ...ruleset.rules[0]?.detector, duration: { param: 'missing' } } })
     )
-    expect(paths(errors)).toEqual(['/rules/0/detector/duration'])
-  })
-
-  it('rejects an undeclared parameter in a path', () => {
-    const errors = rulesetErrors(withRule({ signal: { path: '${nope}.voltage' } }))
-    expect(paths(errors)).toEqual(['/rules/0/signal/path'])
-  })
-
-  it('rejects a string parameter used as a number', () => {
-    const errors = rulesetErrors(
-      withRule({ detector: { ...ruleset.rules[0]?.detector, duration: { param: 'prefix' } } })
-    )
-    expect(paths(errors)).toEqual(['/rules/0/detector/duration'])
-  })
-
-  it('rejects a default outside the parameter bounds', () => {
-    const parameters = [
-      ...ruleset.parameters.slice(0, 1),
-      { name: 'lowVoltage', type: 'number', default: 20, maximum: 14 },
-      ruleset.parameters[2]
-    ]
-    expect(paths(rulesetErrors({ ...ruleset, parameters }))).toEqual(['/parameters/1/default'])
-  })
-
-  it('rejects the reserved slug user', () => {
-    expect(paths(rulesetErrors({ ...ruleset, slug: 'user' }))).toEqual(['/slug'])
-  })
-
-  it('rejects duplicate rule slugs', () => {
-    expect(
-      paths(rulesetErrors({ ...ruleset, rules: [ruleset.rules[0], ruleset.rules[0]] }))
-    ).toEqual(['/rules/1/slug'])
-  })
-
-  it('rejects duplicate parameter names', () => {
-    const parameters = [...ruleset.parameters, ruleset.parameters[0]]
-    expect(paths(rulesetErrors({ ...ruleset, parameters }))).toEqual(['/parameters/3/name'])
-  })
-
-  it('reports rule errors that only appear once defaults are substituted', () => {
-    const parameters = [
-      ruleset.parameters[0],
-      ruleset.parameters[1],
-      { name: 'delay', type: 'number', default: 90000 }
-    ]
-    expect(paths(rulesetErrors({ ...ruleset, parameters }))).toEqual(['/rules/0/detector/duration'])
-  })
-})
-
-describe('resolveRuleset', () => {
-  function parsed(): Ruleset {
-    const result = validateRuleset(ruleset)
-    if (!result.ok) throw new Error('fixture invalid')
-    return result.value
-  }
-
-  it('substitutes defaults', () => {
-    const result = resolveRuleset(parsed(), {})
-    expect(result.ok && result.value[0]).toMatchObject({
-      signal: { path: 'electrical.batteries.house.voltage' },
-      detector: { limit: { kind: 'fixed', value: 12 }, duration: 60 }
+    expect(out).toEqual({
+      name: 'Bank ${instance}',
+      signal: { path: 'electrical.batteries.INSTANCE.voltage' },
+      gates: [{ signal: { path: 'INSTANCE.OTHER' } }]
     })
+    expect(uses).toEqual([
+      { name: 'instance', key: 'path', at: '/signal/path' },
+      { name: 'instance', key: 'path', at: '/gates/0/signal/path' },
+      { name: 'other', key: 'path', at: '/gates/0/signal/path' }
+    ])
   })
 
-  it('substitutes user values', () => {
-    const result = resolveRuleset(parsed(), {
-      prefix: 'electrical.batteries.start',
-      lowVoltage: 11.8
-    })
-    expect(result.ok && result.value[0]).toMatchObject({
-      signal: { path: 'electrical.batteries.start.voltage' },
-      detector: { limit: { value: 11.8 } }
-    })
-  })
-
-  it('rejects a value outside bounds', () => {
-    const result = resolveRuleset(parsed(), { lowVoltage: 9 })
-    expect(result.ok ? [] : paths(result.errors)).toEqual(['/lowVoltage'])
-  })
-
-  it('rejects a value of the wrong type', () => {
-    const result = resolveRuleset(parsed(), { lowVoltage: 'high' })
-    expect(result.ok ? [] : paths(result.errors)).toEqual(['/lowVoltage'])
-  })
-
-  it('rejects a value for an undeclared parameter', () => {
-    const result = resolveRuleset(parsed(), { other: 1 })
-    expect(result.ok ? [] : paths(result.errors)).toEqual(['/other'])
-  })
-
-  it('reports a substituted path that is invalid', () => {
-    const result = resolveRuleset(parsed(), { prefix: 'electrical..house' })
-    expect(result.ok ? [] : paths(result.errors)).toEqual(['/rules/0/signal/path'])
-  })
-
-  it('takes the default of an unset parameter named like an Object member', () => {
-    const named = validateRuleset({
-      ...ruleset,
-      parameters: [
-        ruleset.parameters[0],
-        { name: 'constructor', type: 'number', default: 12 },
-        ruleset.parameters[2]
-      ],
-      rules: [
-        {
-          ...ruleset.rules[0],
-          detector: {
-            ...ruleset.rules[0]?.detector,
-            limit: { kind: 'fixed', value: { param: 'constructor' } }
-          }
-        }
-      ]
-    })
-    if (!named.ok) throw new Error(JSON.stringify(named.errors))
-    const result = resolveRuleset(named.value, {})
-    expect(result.ok && result.value[0]?.detector).toMatchObject({ limit: { value: 12 } })
-  })
-
-  it('rejects a number that is not finite, even for a parameter no rule uses', () => {
-    const unused = validateRuleset({
-      ...ruleset,
-      parameters: [...ruleset.parameters, { name: 'spare', type: 'number', default: 1 }]
-    })
-    if (!unused.ok) throw new Error(JSON.stringify(unused.errors))
-    const result = resolveRuleset(unused.value, { spare: Infinity })
-    expect(result.ok ? [] : paths(result.errors)).toEqual(['/spare'])
+  it('returns fresh objects, so a shared value is never shared between copies', () => {
+    const shared = { kind: 'fixed', value: 12 }
+    const out = substitutePlaceholders({ a: shared, b: shared }, PATHS, () => '') as Record<
+      string,
+      unknown
+    >
+    expect(out.a).toEqual(shared)
+    expect(out.a).not.toBe(shared)
+    expect(out.a).not.toBe(out.b)
   })
 })

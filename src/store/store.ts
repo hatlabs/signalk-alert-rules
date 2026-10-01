@@ -1,6 +1,5 @@
 import * as nodeFs from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
-import type { EditBasis } from '../engine/evaluator.js'
 import { SLUG_PATTERN, type Rule } from '../model/rule.js'
 import { errorMessage, isRecord } from '../util.js'
 
@@ -19,7 +18,7 @@ export type FileSystem = Pick<
   | 'rmSync'
 > & { writeSync: (fd: number, buffer: Uint8Array, offset: number) => number }
 
-/** A user rule file as read; the caller validates it. */
+/** A rule file as read; the caller validates it. */
 export interface StoredRule {
   slug: string
   value: unknown
@@ -51,39 +50,17 @@ export interface RuleControl {
   disabled?: Disabled
 }
 
-/** Something an upgrade or rescan changed that the operator should know, kept until dismissed. */
-export interface RulesetNotice {
-  at: string
-  message: string
-}
-
-/** An operator's settings for one ruleset, with what was loaded last to tell what an upgrade changed. */
-export interface RulesetControl {
-  enabled: boolean
-  /** Values the operator set, by parameter name; the rest take their defaults. */
-  parameters: Record<string, number | string>
-  version: string
-  /** The rules last loaded, by slug, with the gates an edit of each compares. */
-  rules: Record<string, EditBasis>
-  notices: RulesetNotice[]
-}
-
 export interface Controls {
-  /** By rule id, `<origin>.<slug>`. */
+  /** By rule slug. */
   rules: Record<string, RuleControl>
-  /** By ruleset slug; a ruleset without an entry is disabled. Absent when no ruleset was ever seen. */
-  rulesets?: Record<string, RulesetControl>
 }
 
 const RULE_ACTIONS = ['delete', 'reset', 'enable'] as const
-const RULESET_ACTIONS = ['enable', 'disable', 'parameters', 'dismiss'] as const
 
 /** An operator action that changed what SKAR raises, with who did it and when. */
 export type LogEntry = { at: string; actor: string } & (
   | { action: (typeof RULE_ACTIONS)[number]; rule: string }
   | { action: 'disable'; rule: string; note?: string }
-  | { action: (typeof RULESET_ACTIONS)[number]; ruleset: string }
-  | { action: 'rescan' }
 )
 
 export interface StoreContents {
@@ -138,38 +115,8 @@ function isRuleControl(value: unknown): value is RuleControl {
   return isRecord(value) && (value.disabled === undefined || isDisabled(value.disabled))
 }
 
-function isNotice(value: unknown): value is RulesetNotice {
-  return isRecord(value) && typeof value.at === 'string' && typeof value.message === 'string'
-}
-
-const isParameterValues = recordOf(
-  (v): v is number | string =>
-    typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v))
-)
-
-function isEditBasis(value: unknown): value is EditBasis {
-  return isRecord(value) && Array.isArray(value.gates)
-}
-
-function isRulesetControl(value: unknown): value is RulesetControl {
-  return (
-    isRecord(value) &&
-    typeof value.enabled === 'boolean' &&
-    isParameterValues(value.parameters) &&
-    typeof value.version === 'string' &&
-    recordOf(isEditBasis)(value.rules) &&
-    Array.isArray(value.notices) &&
-    value.notices.every(isNotice)
-  )
-}
-
 function isControls(value: unknown): value is Controls {
-  return (
-    isRecord(value) &&
-    isRecord(value.rules) &&
-    Object.values(value.rules).every(isRuleControl) &&
-    (value.rulesets === undefined || recordOf(isRulesetControl)(value.rulesets))
-  )
+  return isRecord(value) && recordOf(isRuleControl)(value.rules)
 }
 
 const isOneOf = <T extends string>(values: readonly T[], value: unknown): value is T =>
@@ -179,8 +126,6 @@ function isLogEntry(value: unknown): value is LogEntry {
   if (!isRecord(value) || typeof value.at !== 'string' || typeof value.actor !== 'string') {
     return false
   }
-  if (value.action === 'rescan') return true
-  if (isOneOf(RULESET_ACTIONS, value.action) && typeof value.ruleset === 'string') return true
   if (value.action === 'disable') {
     return typeof value.rule === 'string' && optional(value.note, 'string')
   }
@@ -205,13 +150,12 @@ function checkSlug(slug: string): void {
 /**
  * SKAR's persistent state in the plugin's data directory:
  *
- * - `rules/<slug>.json`: one user rule per file, so saving one rule never
+ * - `rules/<slug>.json`: one rule per file, so saving one rule never
  *   rewrites another;
  * - `accumulators.json`: accumulator totals, each with the measure it was
  *   built under, rewritten whole at each checkpoint;
- * - `controls.json`: which rules are disabled, by whom, when and why, and
- *   per-ruleset enable, parameter values and notices, rewritten whole at
- *   each change;
+ * - `controls.json`: which rules are disabled, by whom, when and why,
+ *   rewritten whole at each change;
  * - `log.json`: the recent operator actions, rewritten whole at each action.
  *
  * Every write goes to a temporary file in the same directory, is flushed to

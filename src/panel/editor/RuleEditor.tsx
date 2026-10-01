@@ -1,12 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Rule } from '../../model/rule'
-import {
-  RuleRejectedError,
-  USER_ORIGIN,
-  type FieldError,
-  type PanelApi,
-  type RuleEntry
-} from '../api'
+import { RuleRejectedError, type FieldError, type PanelApi, type RuleEntry } from '../api'
 import type { PathList, PathSource } from '../paths/selfPaths'
 import { Confirm } from '../rules/Confirm'
 import { discardedTotals, ruleDisplay } from '../rules/describe'
@@ -64,8 +58,6 @@ export interface RuleEditorProps {
   onSaved: (entry: RuleEntry) => void
   /** The operator left the form, having confirmed any unsaved changes are lost. */
   onClose: () => void
-  /** Whether the form holds changes not saved yet, for the view around it to guard leaving. */
-  onDirtyChange?: (dirty: boolean) => void
 }
 
 /**
@@ -119,7 +111,7 @@ function hasAdvancedValues(d: DetectorForm, latching: boolean): boolean {
   return d.hysteresis !== '' || d.clearDuration.amount !== '' || latching
 }
 
-function EditorForm({ api, paths, units, editing, onSaved, onClose, onDirtyChange }: FormProps) {
+function EditorForm({ api, paths, units, editing, onSaved, onClose }: FormProps) {
   const [initial] = useState<RuleForm>(() =>
     editing === undefined ? emptyForm() : fromRule(editing.rule, units)
   )
@@ -151,9 +143,6 @@ function EditorForm({ api, paths, units, editing, onSaved, onClose, onDirtyChang
   }, [])
 
   const dirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(initial), [form, initial])
-  useEffect(() => {
-    onDirtyChange?.(dirty)
-  }, [dirty, onDirtyChange])
   useEffect(() => {
     if (!dirty) return undefined
     // The browser asks before a reload or closing the tab drops the changes.
@@ -234,7 +223,7 @@ function EditorForm({ api, paths, units, editing, onSaved, onClose, onDirtyChang
     })
   }
 
-  const alertPath = `alerts.rules.${USER_ORIGIN}.${form.slug === '' ? '<slug>' : form.slug}${
+  const alertPath = `alerts.rules.${form.slug === '' ? '<slug>' : form.slug}${
     wildcard ? '.<instance>' : ''
   }`
 

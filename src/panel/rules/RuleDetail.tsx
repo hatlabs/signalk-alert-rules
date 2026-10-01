@@ -1,6 +1,5 @@
 import { useId, type ReactNode, type Ref } from 'react'
 import type { RuleEntry } from '../api'
-import { ProvidedBy } from '../rulesets/ProvidedBy'
 import { NO_UNITS, type UnitLookup } from '../signalUnits'
 import { Confirm, useConfirmation } from './Confirm'
 import {
@@ -36,8 +35,6 @@ export interface RuleDetailProps {
   disable?: (note: string) => Promise<void>
   /** Enables the rule; a rejection is shown. */
   enable?: () => Promise<void>
-  /** Shows the ruleset that provides the rule. */
-  openRuleset?: () => void
 }
 
 function Fact({ term, children }: { term: string; children: ReactNode }) {
@@ -82,8 +79,7 @@ export function RuleDetail({
   instance,
   instanceRef,
   disable,
-  enable,
-  openRuleset
+  enable
 }: RuleDetailProps) {
   const confirmation = useConfirmation()
   const { rule, status } = entry
@@ -99,10 +95,7 @@ export function RuleDetail({
       <h3 ref={headingRef} tabIndex={-1} className="h5 mt-2">
         {rule.name}
       </h3>
-      <p className="skar-path">
-        {entry.origin}/{entry.slug}
-      </p>
-      {entry.ruleset !== undefined && <ProvidedBy source={entry.ruleset} open={openRuleset} />}
+      <p className="skar-path">{entry.slug}</p>
       <StatusBadge status={status} />
       {status.errors.length > 0 && (
         <>
