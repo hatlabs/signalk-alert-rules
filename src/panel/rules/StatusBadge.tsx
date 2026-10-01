@@ -1,4 +1,4 @@
-import type { Badge, SubLabel, SuppressionScope } from '../api'
+import type { Badge, SubLabel } from '../api'
 
 interface BadgeLook {
   label: string
@@ -10,7 +10,6 @@ interface BadgeLook {
 
 export const BADGE_LOOK: Readonly<Record<Badge, BadgeLook>> = {
   disabled: { label: 'Disabled', icon: '⊘', tone: 'secondary' },
-  suppressed: { label: 'Suppressed', icon: '⊖', tone: 'secondary' },
   errored: { label: 'Errored', icon: '✕', tone: 'danger' },
   inactive: { label: 'Inactive', icon: '⚠', tone: 'warning' },
   alertActive: { label: 'Alert active', icon: '▲', tone: 'danger' },
@@ -30,25 +29,17 @@ export const SUB_LABEL_TEXT: Readonly<Record<SubLabel, string>> = {
 export interface Verdict {
   badge: Badge
   reason?: string
-  suppression?: SuppressionScope
   subLabels: SubLabel[]
 }
 
-function suppressionText(s: SuppressionScope): string {
-  const what = s.scope === 'rule' ? 'rule' : `input ${s.path}`
-  return s.autoEndAfter === undefined ? what : `${what}; ends by itself once clear`
-}
-
 /**
- * A status badge with its one-line reason or suppression and its sub-labels.
+ * A status badge with its one-line reason and its sub-labels.
  * It is deliberately not a live region: the list polls every few seconds and
  * a screen reader would otherwise announce every row each time.
  */
 export function StatusBadge({ status }: { status: Verdict }) {
   const look = BADGE_LOOK[status.badge]
-  const detail =
-    status.reason ??
-    (status.suppression === undefined ? undefined : suppressionText(status.suppression))
+  const detail = status.reason
   return (
     <div className="skar-status">
       <span className={`badge text-bg-${look.tone}`}>

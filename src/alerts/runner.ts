@@ -7,7 +7,6 @@ import {
   type InstanceStatus,
   type RuleEvent
 } from '../engine/evaluator.js'
-import { NO_SUPPRESSIONS, ruleScope, type Suppressions } from '../engine/suppression.js'
 import { priorityOf, type Priority, type Rule } from '../model/rule.js'
 import { alertPathFor } from '../model/validate.js'
 import { statusBadge, type Verdict } from './badge.js'
@@ -82,13 +81,14 @@ export class RuleRunner {
   /**
    * @param accumulated accumulator totals restored from the store, by rule id
    *   and instance segment; applied to the rules started by `start`.
-   * @param suppressions read at every evaluation; `refresh` applies a change at once.
+   * @param disabled whether a rule, by id, is disabled; read at every
+   *   evaluation, and `refresh` applies a change at once.
    */
   constructor(
     private readonly deps: RunnerDeps,
     rules: readonly LoadedRule[],
     private readonly accumulated: ReadonlyMap<string, ReadonlyMap<string, number>> = new Map(),
-    private readonly suppressions: Suppressions = NO_SUPPRESSIONS
+    private readonly disabled: (id: string) => boolean = () => false
   ) {
     this.emitter = new AlertEmitter(deps)
     for (const entry of rules) this.entries.set(idOf(entry), entry)
@@ -133,26 +133,19 @@ export class RuleRunner {
   }
 
   /**
-   * Evaluates every rule now, so a change of the suppressions clears or
-   * raises at once rather than at the next sample or tick.
+   * Evaluates a rule now, so disabling or enabling it clears or raises at
+   * once rather than at the next sample or tick.
    */
-  refresh(): void {
-    for (const [id, evaluator] of this.evaluators) {
-      try {
-        evaluator.refresh()
-      } catch (err) {
-        this.error(id, `evaluation failed: ${errorMessage(err)}`)
-      }
-    }
-  }
-
-  /** Restarts the clear count of a rule's instances, or of the instances of any rule that read a path. */
-  restartClearCount(target: { rule: string } | { path: string }): void {
-    if ('rule' in target) {
-      this.evaluators.get(target.rule)?.restartClearCount()
+  refresh(id: string): void {
+    if (this.failed.has(id)) {
+      this.clearIfDisabled(id)
       return
     }
-    for (const evaluator of this.evaluators.values()) evaluator.restartClearCount(target.path)
+    try {
+      this.evaluators.get(id)?.refresh()
+    } catch (err) {
+      this.error(id, `evaluation failed: ${errorMessage(err)}`)
+    }
   }
 
   /** Stops evaluating without clearing anything: stop runs on every configuration save. */
@@ -247,11 +240,10 @@ export class RuleRunner {
         ? instance
         : { ...instance, ...alert, awaitingInput: !this.hasEvidence(entry.rule, instance) }
     })
-    const verdict = statusBadge(errors, instances, ruleScope(this.suppressions.rule(id)))
+    const verdict = statusBadge(errors, instances, this.disabled(id))
     return {
       badge: verdict.badge,
       ...(verdict.reason === undefined ? {} : { reason: verdict.reason }),
-      ...(verdict.suppression === undefined ? {} : { suppression: verdict.suppression }),
       subLabels: verdict.subLabels,
       issues: status.issues,
       errors,
@@ -273,20 +265,30 @@ export class RuleRunner {
       },
       adopted,
       accumulated,
-      { id, suppressions: this.suppressions }
+      () => this.disabled(id)
     )
     this.evaluators.set(id, evaluator)
     // One rule failing to start, such as on a meta read that throws, must not
     // keep the others from starting. The stopped evaluator stays for its
     // status and its restored accumulator totals; like any stop, it clears
-    // nothing.
+    // nothing, unless the rule is disabled.
     try {
       evaluator.start()
     } catch (err) {
       evaluator.stop()
       this.failed.add(id)
       this.error(id, `failed to start: ${errorMessage(err)}`)
+      this.clearIfDisabled(id)
     }
+  }
+
+  /**
+   * Clears the adopted alerts of a rule that failed to start once it is
+   * disabled. Its stopped evaluator never steps, and stepping is what clears
+   * a disabled rule's alerts.
+   */
+  private clearIfDisabled(id: string): void {
+    if (this.disabled(id)) this.evaluators.get(id)?.remove()
   }
 
   private error(id: string, message: string): void {

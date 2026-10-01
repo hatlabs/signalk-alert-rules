@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Plugin, PluginRouter } from '@signalk/server-api'
+import { Application } from '../src/application.js'
 import { Store } from '../src/store/store.js'
 import { FakeAlertsCore } from './helpers/FakeAlertsCore.js'
 import { MockServerAPI } from './helpers/MockServerAPI.js'
@@ -313,56 +314,23 @@ describe('plugin', () => {
     await plugin.stop()
   })
 
-  it('logs an auto-end it cannot save once and restores the status when the disk recovers', async () => {
-    storeRule(hours)
-    const suppression = { since: '2026-09-30T12:00:00.000Z', actor: 'admin', autoEndAfter: 5 }
-    writeFileSync(
-      join(dir, 'controls.json'),
-      JSON.stringify({ rules: { 'user.engine-hours': { enabled: true, suppression } }, inputs: {} })
-    )
-    const app = new MockServerAPI(true, dir)
-    const plugin = createPlugin(app.asServerAPI())
-    plugin.start({}, () => undefined)
-    const running = app.pluginStatus
-    app.subscriptionmanager.publish(RPM, 'src', 30)
-    // A directory where the file belongs makes the rename fail.
-    rmSync(join(dir, 'controls.json'))
-    mkdirSync(join(dir, 'controls.json', 'blocker'), { recursive: true })
-
-    vi.advanceTimersByTime(60_000)
-    expect(app.pluginError).toMatch(/could not end a suppression by itself/)
-    expect(app.errors).toEqual([expect.stringMatching(/user\.engine-hours/)])
-
-    rmSync(join(dir, 'controls.json'), { recursive: true })
-    vi.advanceTimersByTime(1_000)
-    expect(app.pluginError).toBeUndefined()
-    expect(app.pluginStatus).toBe(running)
-    expect(new Store(dir).load().controls.rules).toEqual({})
-
-    await plugin.stop()
-  })
-
   it('keeps reporting a failing checkpoint when a failing tick recovers', async () => {
     storeRule(hours)
-    const suppression = { since: '2026-09-30T12:00:00.000Z', actor: 'admin', autoEndAfter: 5 }
-    writeFileSync(
-      join(dir, 'controls.json'),
-      JSON.stringify({ rules: { 'user.engine-hours': { enabled: true, suppression } }, inputs: {} })
-    )
     const app = new MockServerAPI(true, dir)
     const plugin = createPlugin(app.asServerAPI())
     plugin.start({}, () => undefined)
     const running = app.pluginStatus
     app.subscriptionmanager.publish(RPM, 'src', 30)
-    // Directories where the files belong make both renames fail.
-    rmSync(join(dir, 'controls.json'))
-    mkdirSync(join(dir, 'controls.json', 'blocker'), { recursive: true })
+    const tick = vi.spyOn(Application.prototype, 'tick').mockImplementation(() => {
+      throw new Error('tick failed')
+    })
+    // A directory where the file belongs makes the rename fail.
     mkdirSync(join(dir, 'accumulators.json', 'blocker'), { recursive: true })
 
     vi.advanceTimersByTime(60_000)
     expect(app.pluginError).toMatch(/accumulator totals/)
 
-    rmSync(join(dir, 'controls.json'), { recursive: true })
+    tick.mockRestore()
     vi.advanceTimersByTime(1_000)
     expect(app.pluginError).toMatch(/accumulator totals/)
 

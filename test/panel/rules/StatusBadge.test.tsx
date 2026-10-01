@@ -9,7 +9,6 @@ describe('StatusBadge', () => {
 
   const LABELS = {
     disabled: 'Disabled',
-    suppressed: 'Suppressed',
     errored: 'Errored',
     inactive: 'Inactive',
     alertActive: 'Alert active',
@@ -37,36 +36,11 @@ describe('StatusBadge', () => {
     expect(new Set(icons).size).toBe(BADGES.length)
   })
 
-  it('carries the reason of a disabled, errored or inactive badge', () => {
+  it('carries the reason of an errored or inactive badge', () => {
     const { container } = render(
       <StatusBadge status={{ badge: 'errored', reason: 'evaluation threw', subLabels: [] }} />
     )
     expect(container.textContent).toMatch(/errored.*evaluation threw/i)
-  })
-
-  it('says where a suppression comes from and that it ends by itself', () => {
-    const { container } = render(
-      <StatusBadge
-        status={{
-          badge: 'suppressed',
-          suppression: { scope: 'input', path: 'propulsion.port.revolutions', autoEndAfter: 600 },
-          subLabels: []
-        }}
-      />
-    )
-    expect(container.textContent).toMatch(
-      /suppressed.*input propulsion\.port\.revolutions.*ends by itself/i
-    )
-  })
-
-  it('shows what a rule suppression is', () => {
-    const { container } = render(
-      <StatusBadge
-        status={{ badge: 'suppressed', suppression: { scope: 'rule' }, subLabels: [] }}
-      />
-    )
-    expect(container.textContent).toMatch(/suppressed.*rule/i)
-    expect(container.textContent).not.toMatch(/ends by itself/i)
   })
 
   it('shows the sub-labels in the order the server gives', () => {

@@ -29,6 +29,8 @@ interface Options {
   accumulated?: Map<string, number>
   /** Values already in the server's delta cache when the rule starts. */
   cached?: [string, Value][]
+  /** Whether the rule starts disabled. */
+  disabled?: boolean
 }
 
 type Logged = [number, string, string, string?]
@@ -39,6 +41,7 @@ function setup(rule: Rule, options: Options = {}) {
   let now = 0
   const log: Logged[] = []
   const events: RuleEvent[] = []
+  let disabled = options.disabled ?? false
   const evaluator = new RuleEvaluator(
     rule,
     {
@@ -53,7 +56,8 @@ function setup(rule: Rule, options: Options = {}) {
       log.push(e.type === 'clear' ? [now, e.type, key] : [now, e.type, key, e.priority])
     },
     options.adopted,
-    options.accumulated
+    options.accumulated,
+    () => disabled
   )
   for (const [path, value] of options.cached ?? []) sm.publish(path, 'src', value)
   evaluator.start()
@@ -67,6 +71,12 @@ function setup(rule: Rule, options: Options = {}) {
       now = t
       if (path === undefined) evaluator.tick()
       else sm.publish(path, source, value ?? null, state)
+    },
+    /** Disables or enables the rule at `t`, applied at once as the runner does. */
+    setDisabled: (t: number, value: boolean) => {
+      now = t
+      disabled = value
+      evaluator.refresh()
     }
   }
 }
@@ -680,17 +690,18 @@ describe('wildcard rules', () => {
   })
 })
 
+const engineStopped = valid({
+  name: 'Engine stopped',
+  slug: 'engine-stopped',
+  message: 'Engine {instance} stopped',
+  priority: 'warning',
+  signal: { path: 'propulsion.*.state' },
+  detector: { type: 'match', op: 'changesTo', value: 'stopped' }
+})
+
 describe('pulses', () => {
   it('a transition match raises and clears at once', () => {
-    const rule = valid({
-      name: 'Engine stopped',
-      slug: 'engine-stopped',
-      message: 'Engine {instance} stopped',
-      priority: 'warning',
-      signal: { path: 'propulsion.*.state' },
-      detector: { type: 'match', op: 'changesTo', value: 'stopped' }
-    })
-    const { at, log } = setup(rule)
+    const { at, log } = setup(engineStopped)
     at(0, 'propulsion.port.state', 'started')
     at(5, 'propulsion.port.state', 'stopped')
     expect(log).toEqual([
@@ -1222,5 +1233,174 @@ describe('live status', () => {
     at(0, OIL, 0)
     expect(evaluator.evidence('')).toEqual({ input: 'value', adopted: true })
     expect(evaluator.evidence('port')).toBeUndefined()
+  })
+})
+
+describe('disabled rules', () => {
+  const portOil = valid({ ...oilPressure, slug: 'port-oil', gates: [] })
+
+  it('disabling clears the active alert at once and raises nothing while the condition holds', () => {
+    const { at, log, evaluator, setDisabled } = setup(portOil)
+    at(0, OIL, 0)
+    at(5)
+    setDisabled(6, true)
+    at(10, OIL, 50)
+    at(100)
+    expect(log).toEqual([
+      [5, 'raise', '', 'alarm'],
+      [6, 'clear', '']
+    ])
+    expect(evaluator.status().instances[0]).toMatchObject({ active: false, conditionPresent: true })
+    expect(evaluator.status().instances[0]?.clearedFor).toBeUndefined()
+  })
+
+  it('enabling while the condition holds raises a new alert at once', () => {
+    const { at, log, setDisabled } = setup(portOil, { disabled: true })
+    at(0, OIL, 0)
+    at(30)
+    expect(log).toEqual([])
+    setDisabled(31, false)
+    expect(log).toEqual([[31, 'raise', '', 'alarm']])
+  })
+
+  it('enabling while the condition is clear raises nothing', () => {
+    const { at, log, setDisabled } = setup(portOil, { disabled: true })
+    at(0, OIL, 0)
+    at(30, OIL, 300000)
+    setDisabled(31, false)
+    at(40)
+    expect(log).toEqual([])
+  })
+
+  it('reports how long ago the condition cleared, and moves it when it clears again', () => {
+    const { at, evaluator } = setup(portOil, { disabled: true })
+    at(0, OIL, 0)
+    at(5)
+    expect(evaluator.status().instances[0]).toMatchObject({ conditionPresent: true })
+    at(10, OIL, 300000)
+    at(70)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      conditionPresent: false,
+      clearedFor: 60
+    })
+    at(80, OIL, 0)
+    at(85)
+    expect(evaluator.status().instances[0]?.clearedFor).toBeUndefined()
+    at(90, OIL, 300000)
+    at(100)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      conditionPresent: false,
+      clearedFor: 10
+    })
+  })
+
+  it('reports the condition per instance of a wildcard rule', () => {
+    const each = valid({ ...portOil, signal: { path: 'propulsion.*.oilPressure' } })
+    const { at, evaluator } = setup(each, { disabled: true })
+    at(0, 'propulsion.port.oilPressure', 0)
+    at(0, 'propulsion.starboard.oilPressure', 0)
+    at(5)
+    at(10, 'propulsion.starboard.oilPressure', 300000)
+    at(30)
+    expect(
+      evaluator.status().instances.map((i) => [i.instance?.name, i.conditionPresent, i.clearedFor])
+    ).toEqual([
+      ['port', true, undefined],
+      ['starboard', false, 20]
+    ])
+  })
+
+  it('keeps the last judged condition while out of use, and judges again back in use', () => {
+    const gated = valid({
+      ...oilPressure,
+      gates: [{ ...oilPressure.gates?.[0], duration: 0 }]
+    })
+    const { at, evaluator } = setup(gated, { disabled: true })
+    at(0, RPM, 30)
+    at(0, OIL, 0)
+    at(5)
+    expect(evaluator.status().instances[0]).toMatchObject({ conditionPresent: true })
+    at(10, RPM, 0)
+    at(100)
+    expect(evaluator.status().instances[0]).toMatchObject({ inUse: false, conditionPresent: true })
+    expect(evaluator.status().instances[0]?.clearedFor).toBeUndefined()
+
+    at(110, RPM, 30)
+    at(110, OIL, 300000)
+    at(120)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      conditionPresent: false,
+      clearedFor: 10
+    })
+    at(130, RPM, 0)
+    at(200)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      inUse: false,
+      conditionPresent: false,
+      clearedFor: 90
+    })
+  })
+
+  it('a condition never present since start has no clear time', () => {
+    const { at, evaluator } = setup(portOil, { disabled: true })
+    at(0, OIL, 300000)
+    at(10)
+    expect(evaluator.status().instances[0]).toMatchObject({ conditionPresent: false })
+    expect(evaluator.status().instances[0]?.clearedFor).toBeUndefined()
+  })
+
+  it('an accumulator keeps accumulating while disabled, so its total includes that time', () => {
+    const genset = valid({
+      ...portOil,
+      signal: { path: RPM },
+      detector: { type: 'accumulator', measure: 'time', limit: 100 }
+    })
+    const { at, log, evaluator, setDisabled } = setup(genset)
+    at(0, RPM, 30)
+    at(40)
+    setDisabled(40, true)
+    at(110)
+    expect(log).toEqual([])
+    expect(evaluator.accumulators()).toEqual(new Map([['', 110]]))
+    setDisabled(120, false)
+    expect(log).toEqual([[120, 'raise', '', 'alarm']])
+  })
+
+  it('a transition match raises nothing, and its clear time is the last transition', () => {
+    const { at, log, evaluator } = setup(engineStopped, { disabled: true })
+    at(0, 'propulsion.port.state', 'started')
+    at(5, 'propulsion.port.state', 'stopped')
+    at(10, 'propulsion.port.state', 'started')
+    at(15, 'propulsion.port.state', 'stopped')
+    at(40)
+    expect(log).toEqual([])
+    expect(evaluator.status().instances[0]).toMatchObject({
+      conditionPresent: false,
+      clearedFor: 25
+    })
+  })
+
+  it('clears an alert adopted at start rather than keep it', () => {
+    const { log } = setup(portOil, { disabled: true, adopted: [{}] })
+    expect(log).toEqual([[0, 'clear', '']])
+  })
+
+  it('an edit of a disabled rule, in place or structural, raises nothing', () => {
+    const AUX_OIL = 'propulsion.aux.oilPressure'
+    const { at, log, evaluator } = setup(portOil, { disabled: true })
+    at(0, OIL, 0)
+    at(10)
+    evaluator.update(valid({ ...portOil, detector: { ...portOil.detector, duration: 1 } }))
+    evaluator.update(
+      valid({
+        ...portOil,
+        signal: { path: AUX_OIL },
+        detector: { ...portOil.detector, duration: 1 }
+      })
+    )
+    at(20, AUX_OIL, 0)
+    at(30)
+    expect(log).toEqual([])
+    expect(evaluator.status().instances[0]).toMatchObject({ conditionPresent: true })
   })
 })

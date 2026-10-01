@@ -14,26 +14,10 @@ export const noAuthoring: Pick<
   previewRule: notExpected
 }
 
-/** The control and suppression routes of a fake API, for tests that never use them. */
-export const noControls: Pick<
-  PanelApi,
-  | 'setEnabled'
-  | 'setNote'
-  | 'suppressions'
-  | 'suppressRule'
-  | 'endRuleSuppression'
-  | 'suppressInput'
-  | 'endInputSuppression'
-  | 'previewInputSuppression'
-> = {
-  setEnabled: notExpected,
-  setNote: notExpected,
-  suppressions: () => Promise.resolve([]),
-  suppressRule: notExpected,
-  endRuleSuppression: notExpected,
-  suppressInput: notExpected,
-  endInputSuppression: notExpected,
-  previewInputSuppression: notExpected
+/** The control routes of a fake API, for tests that never use them. */
+export const noControls: Pick<PanelApi, 'disableRule' | 'enableRule'> = {
+  disableRule: notExpected,
+  enableRule: notExpected
 }
 
 /** The ruleset routes of a server with no ruleset, for tests that change none. */
@@ -69,7 +53,6 @@ export function ruleEntry(overrides: EntryOverrides = {}): RuleEntry {
   return {
     origin: 'user',
     slug: 'oil-pressure-low',
-    enabled: true,
     ...rest,
     rule: {
       name: 'Oil pressure low',

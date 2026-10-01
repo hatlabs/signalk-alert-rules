@@ -1,7 +1,6 @@
 import * as nodeFs from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
 import type { EditBasis } from '../engine/evaluator.js'
-import type { FrozenGates } from '../engine/suppression.js'
 import { SLUG_PATTERN, type Rule } from '../model/rule.js'
 import { errorMessage, isRecord } from '../util.js'
 
@@ -39,26 +38,17 @@ export interface StoredTotals {
 /** Accumulator totals by rule id. */
 export type Checkpoints = Record<string, StoredTotals>
 
-/** A suppression of a rule or an input path, with who started it and when. */
-export interface Suppression {
-  /** Wall time the suppression started. */
+/** Who disabled a rule, when, and why. */
+export interface Disabled {
+  /** Wall time the rule was disabled. */
   since: string
   actor: string
   note?: string
-  /** Seconds the condition must stay clear for the suppression to end by itself; manual when absent. */
-  autoEndAfter?: number
 }
 
-/** A suppression of an input path, with the gate states it froze when it started. */
-export interface InputSuppression extends Suppression {
-  frozen?: FrozenGates
-}
-
-/** An operator's settings for one rule; a rule without them is enabled, unsuppressed and has no note. */
+/** An operator's settings for one rule; a rule without them is enabled. */
 export interface RuleControl {
-  enabled: boolean
-  note?: string
-  suppression?: Suppression
+  disabled?: Disabled
 }
 
 /** Something an upgrade or rescan changed that the operator should know, kept until dismissed. */
@@ -81,21 +71,17 @@ export interface RulesetControl {
 export interface Controls {
   /** By rule id, `<origin>.<slug>`. */
   rules: Record<string, RuleControl>
-  /** By exact concrete path. */
-  inputs: Record<string, InputSuppression>
   /** By ruleset slug; a ruleset without an entry is disabled. Absent when no ruleset was ever seen. */
   rulesets?: Record<string, RulesetControl>
 }
 
-const RULE_ACTIONS = ['delete', 'reset', 'enable', 'disable', 'note'] as const
-const SUPPRESSION_ACTIONS = ['suppress', 'unsuppress'] as const
+const RULE_ACTIONS = ['delete', 'reset', 'enable'] as const
 const RULESET_ACTIONS = ['enable', 'disable', 'parameters', 'dismiss'] as const
 
 /** An operator action that changed what SKAR raises, with who did it and when. */
 export type LogEntry = { at: string; actor: string } & (
   | { action: (typeof RULE_ACTIONS)[number]; rule: string }
-  | { action: (typeof SUPPRESSION_ACTIONS)[number]; rule: string }
-  | { action: (typeof SUPPRESSION_ACTIONS)[number]; path: string }
+  | { action: 'disable'; rule: string; note?: string }
   | { action: (typeof RULESET_ACTIONS)[number]; ruleset: string }
   | { action: 'rescan' }
 )
@@ -132,13 +118,12 @@ function isStoredTotals(value: unknown): value is StoredTotals {
 const optional = (value: unknown, type: 'string' | 'number') =>
   value === undefined || typeof value === type
 
-function isSuppression(value: unknown): value is Suppression {
+function isDisabled(value: unknown): value is Disabled {
   return (
     isRecord(value) &&
     typeof value.since === 'string' &&
     typeof value.actor === 'string' &&
-    optional(value.note, 'string') &&
-    optional(value.autoEndAfter, 'number')
+    optional(value.note, 'string')
   )
 }
 
@@ -149,25 +134,8 @@ const recordOf =
 
 const isCheckpoints = recordOf(isStoredTotals)
 
-const isFrozenGates = recordOf(
-  recordOf(recordOf((holds): holds is boolean => typeof holds === 'boolean'))
-)
-
-function isInputSuppression(value: unknown): value is InputSuppression {
-  return (
-    isRecord(value) &&
-    (value.frozen === undefined || isFrozenGates(value.frozen)) &&
-    isSuppression(value)
-  )
-}
-
 function isRuleControl(value: unknown): value is RuleControl {
-  return (
-    isRecord(value) &&
-    typeof value.enabled === 'boolean' &&
-    optional(value.note, 'string') &&
-    (value.suppression === undefined || isSuppression(value.suppression))
-  )
+  return isRecord(value) && (value.disabled === undefined || isDisabled(value.disabled))
 }
 
 function isNotice(value: unknown): value is RulesetNotice {
@@ -200,8 +168,6 @@ function isControls(value: unknown): value is Controls {
     isRecord(value) &&
     isRecord(value.rules) &&
     Object.values(value.rules).every(isRuleControl) &&
-    isRecord(value.inputs) &&
-    Object.values(value.inputs).every(isInputSuppression) &&
     (value.rulesets === undefined || recordOf(isRulesetControl)(value.rulesets))
   )
 }
@@ -215,10 +181,10 @@ function isLogEntry(value: unknown): value is LogEntry {
   }
   if (value.action === 'rescan') return true
   if (isOneOf(RULESET_ACTIONS, value.action) && typeof value.ruleset === 'string') return true
-  if (isOneOf(RULE_ACTIONS, value.action)) return typeof value.rule === 'string'
-  if (isOneOf(SUPPRESSION_ACTIONS, value.action)) {
-    return typeof value.rule === 'string' || typeof value.path === 'string'
+  if (value.action === 'disable') {
+    return typeof value.rule === 'string' && optional(value.note, 'string')
   }
+  if (isOneOf(RULE_ACTIONS, value.action)) return typeof value.rule === 'string'
   return false
 }
 
@@ -243,9 +209,9 @@ function checkSlug(slug: string): void {
  *   rewrites another;
  * - `accumulators.json`: accumulator totals, each with the measure it was
  *   built under, rewritten whole at each checkpoint;
- * - `controls.json`: per-rule enable, note and suppression, input
- *   suppressions, and per-ruleset enable, parameter values and notices,
- *   rewritten whole at each change;
+ * - `controls.json`: which rules are disabled, by whom, when and why, and
+ *   per-ruleset enable, parameter values and notices, rewritten whole at
+ *   each change;
  * - `log.json`: the recent operator actions, rewritten whole at each action.
  *
  * Every write goes to a temporary file in the same directory, is flushed to
@@ -293,7 +259,7 @@ export class Store {
     return {
       rules,
       accumulators: this.read(ACCUMULATORS_FILE, isCheckpoints, issues) ?? {},
-      controls: this.read(CONTROLS_FILE, isControls, issues) ?? { rules: {}, inputs: {} },
+      controls: this.read(CONTROLS_FILE, isControls, issues) ?? { rules: {} },
       log: (this.read(LOG_FILE, isLog, issues) ?? []).filter(isLogEntry),
       unreadableRules,
       issues

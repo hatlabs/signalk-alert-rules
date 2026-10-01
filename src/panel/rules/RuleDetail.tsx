@@ -9,14 +9,11 @@ import {
   describePriority,
   discardedTotals,
   formatTime,
-  markers,
   ruleDisplay,
   type RuleDisplay
 } from './describe'
 import { InstanceTable, isLinked } from './InstanceTable'
-import { InputChips, SuppressButton } from '../suppression/SuppressButton'
-import type { SuppressContext } from '../suppression/SuppressDialog'
-import { EnableToggle, NoteEditor } from './RuleControls'
+import { DisableToggle } from './RuleControls'
 import { StatusBadge } from './StatusBadge'
 
 export interface RuleDetailProps {
@@ -35,12 +32,10 @@ export interface RuleDetailProps {
   instance?: string
   /** The linked instance's row, which takes focus when the operator follows the link. */
   instanceRef?: Ref<HTMLTableRowElement>
-  /** Enables or disables the rule; absent where it cannot be changed. A rejection is shown. */
-  setEnabled?: (enabled: boolean) => Promise<void>
-  /** Sets the rule's note, an empty one removing it; a rejection is shown. */
-  setNote?: (note: string) => Promise<void>
-  /** Suppresses the rule or one of its inputs; absent where suppression is not offered. */
-  suppression?: SuppressContext
+  /** Disables the rule with a note, an empty one meaning none; absent where it cannot be changed. */
+  disable?: (note: string) => Promise<void>
+  /** Enables the rule; a rejection is shown. */
+  enable?: () => Promise<void>
   /** Shows the ruleset that provides the rule. */
   openRuleset?: () => void
 }
@@ -86,9 +81,8 @@ export function RuleDetail({
   edit,
   instance,
   instanceRef,
-  setEnabled,
-  setNote,
-  suppression,
+  disable,
+  enable,
   openRuleset
 }: RuleDetailProps) {
   const confirmation = useConfirmation()
@@ -107,11 +101,6 @@ export function RuleDetail({
       </h3>
       <p className="skar-path">
         {entry.origin}/{entry.slug}
-        {markers(entry).map((marker) => (
-          <span key={marker} className="badge text-bg-light skar-marker">
-            {marker}
-          </span>
-        ))}
       </p>
       {entry.ruleset !== undefined && <ProvidedBy source={entry.ruleset} open={openRuleset} />}
       <StatusBadge status={status} />
@@ -138,17 +127,14 @@ export function RuleDetail({
             ))}
           </Fact>
         )}
-        {entry.note !== undefined && <Fact term="Note">{entry.note}</Fact>}
-        {entry.suppression !== undefined && (
-          <Fact term="Suppressed">
-            since{' '}
-            <time dateTime={entry.suppression.since}>{formatTime(entry.suppression.since)}</time> by{' '}
-            {entry.suppression.actor}
-            {entry.suppression.note === undefined ? '' : `: ${entry.suppression.note}`}
+        {entry.disabled !== undefined && (
+          <Fact term="Disabled">
+            since <time dateTime={entry.disabled.since}>{formatTime(entry.disabled.since)}</time> by{' '}
+            {entry.disabled.actor}
+            {entry.disabled.note === undefined ? '' : `: ${entry.disabled.note}`}
           </Fact>
         )}
       </dl>
-      {suppression !== undefined && <InputChips entry={entry} context={suppression} />}
       {status.issues.length > 0 && (
         <ul className="skar-issues">
           {status.issues.map((issue) => (
@@ -178,11 +164,9 @@ export function RuleDetail({
         >
           Edit
         </button>
-        {suppression !== undefined && (
-          <SuppressButton target={{ kind: 'rule', entry }} context={suppression} />
+        {disable !== undefined && enable !== undefined && (
+          <DisableToggle entry={entry} disable={disable} enable={enable} />
         )}
-        {setEnabled !== undefined && <EnableToggle entry={entry} setEnabled={setEnabled} />}
-        {setNote !== undefined && <NoteEditor entry={entry} setNote={setNote} />}
         {isAccumulator && (
           <button
             ref={confirmation.trigger}

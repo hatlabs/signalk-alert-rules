@@ -34,7 +34,6 @@ const batteries = ruleEntry({
 const engineHours = ruleEntry({
   origin: 'engine-pack',
   slug: 'engine-hours',
-  enabled: false,
   rule: {
     name: 'Engine service due',
     priority: 'caution',
@@ -44,7 +43,7 @@ const engineHours = ruleEntry({
       paths: ['propulsion.port.revolutions', 'propulsion.stbd.revolutions']
     }
   },
-  status: { badge: 'disabled', reason: 'disabled', instances: [] }
+  status: { badge: 'disabled', reason: 'ruleset is disabled', instances: [] }
 })
 
 function renderView(rules: RuleEntry[]) {
@@ -105,18 +104,6 @@ describe('RulesView', () => {
     )
     expect(rowOf('Engine service due').textContent).toContain('accumulator (time)')
     expect(rowOf('Battery low').textContent).toContain('zone warn')
-  })
-
-  it('marks a suppressed rule when the badge does not already say so', () => {
-    const suppressedAndDisabled = ruleEntry({
-      enabled: false,
-      suppression: { since: '2026-09-30T12:00:00.000Z', actor: 'admin' },
-      status: { badge: 'disabled', reason: 'disabled' }
-    })
-    renderView([suppressedAndDisabled])
-    const shownMarkers = (name: string) =>
-      [...rowOf(name).querySelectorAll('.skar-marker')].map((m) => m.textContent)
-    expect(shownMarkers('Oil pressure low')).toEqual(['suppressed'])
   })
 
   it('summarises the instances of a wildcard rule by precedence', () => {

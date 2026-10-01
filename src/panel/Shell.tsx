@@ -18,12 +18,9 @@ import {
   type ShellView
 } from './shellState'
 import { useUnits } from './signalUnits'
-import type { SuppressContext } from './suppression/SuppressDialog'
-import { SuppressionsView } from './suppression/SuppressionsView'
 
 const TABS = [
   { id: 'rules', label: 'Rules' },
-  { id: 'suppressions', label: 'Suppressions' },
   { id: 'rulesets', label: 'Rulesets' }
 ] as const
 
@@ -102,7 +99,7 @@ function SecurityWarning() {
   return (
     <div className="alert alert-warning" role="alert">
       <strong>Server security is disabled.</strong> Anyone who can reach this server can create,
-      change, suppress and delete alert rules. Enable security in the server settings.
+      change, disable and delete alert rules. Enable security in the server settings.
     </div>
   )
 }
@@ -380,8 +377,6 @@ function Views({ api, rulesets, view, paths, refresh }: ViewsProps) {
     )
   }
 
-  const suppression: SuppressContext = { api, rules, paths, done: refresh }
-
   const rulesTab = () => {
     if (editor !== undefined) return editorView(editor)
     if (ref !== undefined) {
@@ -411,15 +406,14 @@ function Views({ api, rulesets, view, paths, refresh }: ViewsProps) {
             await api.resetAccumulator(entry.origin, entry.slug)
             refresh()
           }}
-          setEnabled={async (enabled) => {
-            await api.setEnabled(entry.origin, entry.slug, enabled)
+          disable={async (note) => {
+            await api.disableRule(entry.origin, entry.slug, note)
             refresh()
           }}
-          setNote={async (note) => {
-            await api.setNote(entry.origin, entry.slug, note)
+          enable={async () => {
+            await api.enableRule(entry.origin, entry.slug)
             refresh()
           }}
-          suppression={suppression}
           openRuleset={
             entry.ruleset === undefined
               ? undefined
@@ -461,7 +455,6 @@ function Views({ api, rulesets, view, paths, refresh }: ViewsProps) {
         <RulesView
           rules={rules}
           ruleHref={(origin, slug) => hashWithRule(hash, { origin, slug })}
-          suppression={suppression}
           onNew={() => {
             setEditor({ kind: 'new' })
           }}
@@ -507,15 +500,6 @@ function Views({ api, rulesets, view, paths, refresh }: ViewsProps) {
       )}
       <div role="tabpanel" aria-label={current.label} className="skar-view">
         {tab === 'rules' && rulesTab()}
-        {tab === 'suppressions' && (
-          <SuppressionsView
-            api={api}
-            rules={rules}
-            paths={paths}
-            ruleHref={(origin, slug) => hashWithRule(hash, { origin, slug })}
-            refresh={refresh}
-          />
-        )}
         {tab === 'rulesets' && (
           <RulesetsView
             api={rulesets}

@@ -46,38 +46,23 @@ describe('store', () => {
     expect(contents).toEqual({
       rules: [],
       accumulators: {},
-      controls: { rules: {}, inputs: {} },
+      controls: { rules: {} },
       log: [],
       unreadableRules: [],
       issues: []
     })
   })
 
-  it('round-trips rule controls and input suppressions', () => {
+  it('round-trips rule controls', () => {
     const store = new Store(dir)
     store.load()
     const controls = {
       rules: {
         'user.oil': {
-          enabled: false,
-          note: 'sender replaced in spring',
-          suppression: {
-            since: '2026-09-30T12:00:00.000Z',
-            actor: 'admin',
-            note: 'faulty sender',
-            autoEndAfter: 600
-          }
+          disabled: { since: '2026-09-30T12:00:00.000Z', actor: 'admin', note: 'faulty sender' }
         },
-        'halpi.board-temperature': { enabled: true }
-      },
-      inputs: {
-        'propulsion.main.revolutions': {
-          since: '2026-09-30T12:00:00.000Z',
-          actor: 'admin',
-          frozen: {
-            'user.coolant-high': { '0': { '': true } },
-            'user.wild': { '1': { port: false } }
-          }
+        'halpi.board-temperature': {
+          disabled: { since: '2026-09-30T12:01:00.000Z', actor: 'unauthenticated' }
         }
       }
     }
@@ -89,8 +74,7 @@ describe('store', () => {
     const store = new Store(dir)
     store.load()
     const controls = {
-      rules: { 'batteries.low': { enabled: false } },
-      inputs: {},
+      rules: { 'batteries.low': { disabled: { since: '2026-09-30T12:00:00.000Z', actor: 'a' } } },
       rulesets: {
         batteries: {
           enabled: true,
@@ -112,45 +96,42 @@ describe('store', () => {
   const ruleset = { enabled: true, parameters: {}, version: '1', rules: {}, notices: [] }
   const since = { since: '2026-09-30T12:00:00.000Z', actor: 'admin' }
   it.each([
-    ['rulesets as a list', { rules: {}, inputs: {}, rulesets: [] }],
+    ['rulesets as a list', { rules: {}, rulesets: [] }],
     [
       'a ruleset without its version',
-      { rules: {}, inputs: {}, rulesets: { a: { ...ruleset, version: undefined } } }
+      { rules: {}, rulesets: { a: { ...ruleset, version: undefined } } }
     ],
     [
       'a ruleset parameter that is neither number nor string',
-      { rules: {}, inputs: {}, rulesets: { a: { ...ruleset, parameters: { x: true } } } }
+      { rules: {}, rulesets: { a: { ...ruleset, parameters: { x: true } } } }
     ],
     [
       'ruleset rules as a list of slugs',
-      { rules: {}, inputs: {}, rulesets: { a: { ...ruleset, rules: ['low'] } } }
+      { rules: {}, rulesets: { a: { ...ruleset, rules: ['low'] } } }
     ],
     [
       'a ruleset rule without its gates',
-      { rules: {}, inputs: {}, rulesets: { a: { ...ruleset, rules: { low: {} } } } }
+      { rules: {}, rulesets: { a: { ...ruleset, rules: { low: {} } } } }
     ],
     [
       'a ruleset notice without its message',
-      { rules: {}, inputs: {}, rulesets: { a: { ...ruleset, notices: [{ at: 'x' }] } } }
+      { rules: {}, rulesets: { a: { ...ruleset, notices: [{ at: 'x' }] } } }
     ],
-    ['a rule control', { rules: { 'user.oil': { enabled: 'no' } }, inputs: {} }],
-    ['no inputs', { rules: {} }],
-    ['inputs as a list', { rules: {}, inputs: [] }],
-    ['an input suppression without its actor', { rules: {}, inputs: { 'a.b': { since: 'x' } } }],
+    ['no rules', {}],
     [
-      'an input suppression with a text autoEndAfter',
-      { rules: {}, inputs: { 'a.b': { ...since, autoEndAfter: '60' } } }
+      'a disabled record without its actor',
+      { rules: { 'user.oil': { disabled: { since: 'x' } } } }
     ],
     [
-      'a frozen gate state',
-      { rules: {}, inputs: { 'a.b': { ...since, frozen: { 'user.oil': { '0': { '': 'yes' } } } } } }
+      'a disabled note that is not text',
+      { rules: { 'user.oil': { disabled: { ...since, note: 1 } } } }
     ]
   ])('moves aside controls with %s it does not recognise and starts them empty', (_, bad) => {
     const store = new Store(dir)
     store.load()
     writeFileSync(join(dir, 'controls.json'), JSON.stringify(bad))
     const contents = new Store(dir).load()
-    expect(contents.controls).toEqual({ rules: {}, inputs: {} })
+    expect(contents.controls).toEqual({ rules: {} })
     expect(contents.issues).toEqual([expect.stringMatching(/^controls\.json could not be read/)])
   })
 
@@ -161,12 +142,14 @@ describe('store', () => {
       { at: '2026-09-30T12:00:00.000Z', actor: 'admin', action: 'delete', rule: 'user.oil' },
       { at: '2026-09-30T12:01:00.000Z', actor: 'admin', action: 'reset', rule: 'user.hours' },
       { at: '2026-09-30T12:03:00.000Z', actor: 'admin', action: 'disable', rule: 'user.oil' },
-      { at: '2026-09-30T12:04:00.000Z', actor: 'admin', action: 'enable', rule: 'user.oil' },
-      { at: '2026-09-30T12:05:00.000Z', actor: 'admin', action: 'note', rule: 'user.oil' },
-      { at: '2026-09-30T12:06:00.000Z', actor: 'admin', action: 'suppress', rule: 'user.oil' },
-      { at: '2026-09-30T12:07:00.000Z', actor: 'auto-end', action: 'unsuppress', rule: 'user.oil' },
-      { at: '2026-09-30T12:08:00.000Z', actor: 'admin', action: 'suppress', path: 'a.b' },
-      { at: '2026-09-30T12:09:00.000Z', actor: 'admin', action: 'unsuppress', path: 'a.b' },
+      {
+        at: '2026-09-30T12:04:00.000Z',
+        actor: 'admin',
+        action: 'disable',
+        rule: 'user.oil',
+        note: 'paddlewheel fouled'
+      },
+      { at: '2026-09-30T12:05:00.000Z', actor: 'admin', action: 'enable', rule: 'user.oil' },
       { at: '2026-09-30T12:10:00.000Z', actor: 'admin', action: 'rescan' },
       { at: '2026-09-30T12:11:00.000Z', actor: 'admin', action: 'enable', ruleset: 'batteries' },
       { at: '2026-09-30T12:12:00.000Z', actor: 'admin', action: 'disable', ruleset: 'batteries' },

@@ -11,7 +11,7 @@ import { BADGE_LOOK } from './StatusBadge'
 
 export { USER_ORIGIN } from '../api'
 
-/** The longest note the server accepts, for a rule and for a suppression. */
+/** The longest note the server accepts with a disable. */
 export const MAX_NOTE_LENGTH = 500
 
 export function plural(count: number, noun: string): string {
@@ -78,16 +78,6 @@ export function instanceSummary(entry: RuleEntry): string {
   const parts = counts.map(([badge, count]) => `${String(count)} ${BADGE_LOOK[badge].label}`)
   const noun = instances.length === 1 ? 'instance' : 'instances'
   return `${String(instances.length)} ${noun}: ${parts.join(', ').toLowerCase()}`
-}
-
-/**
- * Operator controls the badge does not already show: a suppression under a
- * higher-ranking badge. A disabled rule always shows the disabled badge.
- */
-export function markers(entry: RuleEntry): string[] {
-  return entry.suppression !== undefined && entry.status.badge !== 'suppressed'
-    ? ['suppressed']
-    : []
 }
 
 function formatNumber(value: number): string {

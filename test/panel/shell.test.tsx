@@ -83,10 +83,10 @@ describe('Shell', () => {
     renderShell({ state: running, rules: [rule] })
     await settle()
     const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent)
-    expect(tabs).toEqual(['Rules', 'Suppressions', 'Rulesets'])
+    expect(tabs).toEqual(['Rules', 'Rulesets'])
     expect(screen.getByRole('tab', { name: 'Rules' }).getAttribute('aria-selected')).toBe('true')
-    fireEvent.click(screen.getByRole('tab', { name: 'Suppressions' }))
-    expect(screen.getByRole('tabpanel').getAttribute('aria-label')).toBe('Suppressions')
+    fireEvent.click(screen.getByRole('tab', { name: 'Rulesets' }))
+    expect(screen.getByRole('tabpanel').getAttribute('aria-label')).toBe('Rulesets')
   })
 
   it('points to rule creation and rulesets when there are no rules', async () => {
@@ -108,7 +108,7 @@ describe('Shell', () => {
     server.state = running
     await tick(POLL_INTERVAL_MS)
     expect(screen.queryByText(/cannot reach/i)).toBeNull()
-    expect(screen.getAllByRole('tab')).toHaveLength(3)
+    expect(screen.getAllByRole('tab')).toHaveLength(2)
     expect(api.state).toHaveBeenCalledTimes(2)
   })
 
@@ -128,7 +128,7 @@ describe('Shell', () => {
     server.state = running
     await tick(1)
     expect(api.state).toHaveBeenCalledTimes(2)
-    expect(screen.getAllByRole('tab')).toHaveLength(3)
+    expect(screen.getAllByRole('tab')).toHaveLength(2)
   })
 
   it('asks to log in again when the session has expired, and stops polling', async () => {
@@ -144,7 +144,7 @@ describe('Shell', () => {
     fireEvent.click(screen.getByRole('button', { name: /check again/i }))
     await settle()
     expect(api.state).toHaveBeenCalledTimes(2)
-    expect(screen.getAllByRole('tab')).toHaveLength(3)
+    expect(screen.getAllByRole('tab')).toHaveLength(2)
   })
 
   it('shows the start error and that editing is unavailable', async () => {
@@ -333,7 +333,7 @@ describe('Shell rules', () => {
 
     it('moves to the rule once the rules tab opens for it', async () => {
       await renderShell({ state: running, rules: [rule] })
-      fireEvent.click(screen.getByRole('tab', { name: 'Suppressions' }))
+      fireEvent.click(screen.getByRole('tab', { name: 'Rulesets' }))
       act(() => {
         goTo('#rule=user/oil-pressure-low')
       })
@@ -400,7 +400,7 @@ describe('Shell rules', () => {
 
   it('shows the rules tab when a fragment names a rule', async () => {
     await renderShell({ state: running, rules: [rule] })
-    fireEvent.click(screen.getByRole('tab', { name: 'Suppressions' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Rulesets' }))
     act(() => {
       goTo('#rule=user/oil-pressure-low')
     })
@@ -414,7 +414,7 @@ describe('Shell rules', () => {
     act(() => {
       goTo(`${ADMIN}#rule=user/oil-pressure-low`)
     })
-    fireEvent.click(screen.getByRole('tab', { name: 'Suppressions' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Rulesets' }))
     await settle()
     expect(window.location.hash).toBe(ADMIN)
     act(() => {
@@ -429,7 +429,7 @@ describe('Shell rules', () => {
     act(() => {
       goTo('#rule=user/oil-pressure-low')
     })
-    fireEvent.click(screen.getByRole('tab', { name: 'Suppressions' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Rulesets' }))
     await settle()
     const rulesTab = screen.getByRole('tab', { name: 'Rules' })
     rulesTab.focus()
@@ -451,7 +451,7 @@ describe('Shell rules', () => {
     })
     window.history.replaceState(null, '', '/#rule=user/battery-low&instance=house')
     await renderShell({ state: running, rules: [batteries] })
-    fireEvent.click(screen.getByRole('tab', { name: 'Suppressions' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Rulesets' }))
     act(() => {
       goTo('#rule=user/battery-low&instance=start')
     })
@@ -488,44 +488,22 @@ describe('Shell rules', () => {
     const server: Server = { state: running, rules: [rule] }
     const api = await renderShell(server)
     const disabled = ruleEntry({
-      enabled: false,
-      status: { badge: 'disabled', reason: 'disabled' }
+      disabled: { since: '2026-09-30T12:00:00.000Z', actor: 'skipper', note: 'fouled' },
+      status: { badge: 'disabled' }
     })
-    const setEnabled = vi.fn(() => {
+    const disableRule = vi.fn(() => {
       server.rules = [disabled]
       return Promise.resolve(disabled)
     })
-    Object.assign(api, { setEnabled })
+    Object.assign(api, { disableRule })
     fireEvent.click(screen.getByRole('button', { name: 'Disable…' }))
+    fireEvent.change(screen.getByRole('textbox', { name: /note/i }), {
+      target: { value: 'fouled' }
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Disable' }))
     await settle()
-    expect(setEnabled).toHaveBeenCalledWith('user', 'oil-pressure-low', false)
+    expect(disableRule).toHaveBeenCalledWith('user', 'oil-pressure-low', 'fouled')
     expect(screen.getByRole('button', { name: 'Enable' })).toBeTruthy()
-  })
-
-  it('lists the suppressions on their tab, each rule linking to its detail', async () => {
-    window.history.replaceState(null, '', `/admin/${ADMIN}`)
-    const api = await renderShell({ state: running, rules: [rule] })
-    const suppressions = vi.fn(() =>
-      Promise.resolve([
-        {
-          scope: 'rule' as const,
-          rule: 'user.oil-pressure-low',
-          origin: 'user',
-          slug: 'oil-pressure-low',
-          since: '2026-09-30T12:00:00.000Z',
-          actor: 'skipper'
-        }
-      ])
-    )
-    Object.assign(api, { suppressions })
-    fireEvent.click(screen.getByRole('tab', { name: 'Suppressions' }))
-    await settle()
-    const link = within(screen.getByRole('tabpanel')).getByRole('link', {
-      name: 'Oil pressure low'
-    })
-    expect(link.getAttribute('href')).toBe(`${ADMIN}#rule=user/oil-pressure-low`)
-    expect(screen.getByRole('tabpanel').textContent).toContain('skipper')
   })
 
   describe('problems found while loading', () => {
@@ -580,19 +558,19 @@ describe('Shell rules', () => {
     it('keeps the selected tab and the last rules read while the plugin is not running', async () => {
       const server: Server = { state: running, rules: [rule] }
       const api = await renderShell(server)
-      fireEvent.click(screen.getByRole('tab', { name: 'Suppressions' }))
+      fireEvent.click(screen.getByRole('tab', { name: 'Rulesets' }))
       server.state = { running: false, securityEnabled: true }
       await tick(POLL_INTERVAL_MS)
       expect(screen.getByRole('alert').textContent).toMatch(/not running.*last read/i)
       expect(screen.queryByRole('button', { name: /check again/i })).toBeNull()
-      expect(screen.getByRole('tab', { name: 'Suppressions' }).getAttribute('aria-selected')).toBe(
+      expect(screen.getByRole('tab', { name: 'Rulesets' }).getAttribute('aria-selected')).toBe(
         'true'
       )
       server.state = running
       await tick(POLL_INTERVAL_MS)
       expect(api.state).toHaveBeenCalledTimes(3)
       expect(screen.queryByRole('alert')).toBeNull()
-      expect(screen.getByRole('tab', { name: 'Suppressions' }).getAttribute('aria-selected')).toBe(
+      expect(screen.getByRole('tab', { name: 'Rulesets' }).getAttribute('aria-selected')).toBe(
         'true'
       )
     })

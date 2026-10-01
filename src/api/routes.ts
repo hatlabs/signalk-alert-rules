@@ -1,12 +1,5 @@
 import type { IRouter, NextFunction, Request, RequestHandler, Response } from 'express'
-import type {
-  Application,
-  ControlOutcome,
-  RuleEntry,
-  SaveOutcome,
-  SuppressionRequest
-} from '../application.js'
-import { MAX_DURATION_S } from '../model/rule.js'
+import type { Application, ControlOutcome, RuleEntry, SaveOutcome } from '../application.js'
 import { USER_ORIGIN } from '../model/ruleset.js'
 import type { ValidationError } from '../model/validate.js'
 import { errorMessage, isRecord } from '../util.js'
@@ -199,89 +192,27 @@ export function registerRoutes(router: IRouter, ctx: ApiContext): void {
     else notFound(res, 'such rule')
   }
 
-  router.put(
-    '/rules/:origin/:slug/enabled',
+  router.post(
+    '/rules/:origin/:slug/disable',
     requireJson,
     running((skar, req, res) => {
-      const body: unknown = req.body
-      if (!isRecord(body) || typeof body.enabled !== 'boolean') {
-        invalid(res, [{ path: '/enabled', message: 'must be a boolean' }])
-        return
-      }
-      const { origin, slug } = req.params
-      controlled(res, skar, skar.setEnabled(origin, slug, body.enabled, actorOf(req)), origin, slug)
-    })
-  )
-
-  router.put(
-    '/rules/:origin/:slug/note',
-    requireJson,
-    running((skar, req, res) => {
-      const body: unknown = req.body
-      const note = isRecord(body) ? body.note : undefined
-      if (!isNote(note)) {
-        invalid(res, [NOTE_ERROR])
-        return
-      }
-      const { origin, slug } = req.params
-      controlled(res, skar, skar.setNote(origin, slug, note, actorOf(req)), origin, slug)
-    })
-  )
-
-  router.get(
-    '/suppressions',
-    running((skar, _req, res) => {
-      res.json(skar.suppressions())
-    })
-  )
-
-  router.put(
-    '/suppressions/rules/:origin/:slug',
-    requireJson,
-    running((skar, req, res) => {
-      const request = suppressionRequest(req.body)
+      const request = disableRequest(req.body)
       if (!request.ok) {
         invalid(res, request.errors)
         return
       }
       const { origin, slug } = req.params
-      const outcome = skar.suppressRule(origin, slug, request.value, actorOf(req))
+      const outcome = skar.disableRule(origin, slug, request.note, actorOf(req))
       controlled(res, skar, outcome, origin, slug)
     })
   )
 
-  router.delete(
-    '/suppressions/rules/:origin/:slug',
+  router.post(
+    '/rules/:origin/:slug/enable',
     requireJson,
     running((skar, req, res) => {
       const { origin, slug } = req.params
-      if (skar.endRuleSuppression(origin, slug, actorOf(req)) === 'ok') res.status(204).end()
-      else notFound(res, 'such rule')
-    })
-  )
-
-  router.put(
-    '/suppressions/inputs/:path',
-    requireJson,
-    running((skar, req, res) => {
-      const { path } = req.params
-      const request = suppressionRequest(req.body)
-      const errors = [...pathErrors(path), ...(request.ok ? [] : request.errors)]
-      if (!request.ok || errors.length > 0) {
-        invalid(res, errors)
-        return
-      }
-      res.json(skar.suppressInput(path, request.value, actorOf(req)))
-    })
-  )
-
-  router.delete(
-    '/suppressions/inputs/:path',
-    requireJson,
-    running((skar, req, res) => {
-      // Ending one that has already ended, as by its auto-end, is not an error.
-      skar.endInputSuppression(req.params.path, actorOf(req))
-      res.status(204).end()
+      controlled(res, skar, skar.enableRule(origin, slug, actorOf(req)), origin, slug)
     })
   )
 
@@ -344,38 +275,14 @@ export function registerRoutes(router: IRouter, ctx: ApiContext): void {
       else notFound(res, 'such ruleset')
     })
   )
-
-  router.get(
-    '/suppressions/inputs/:path/preview',
-    running((skar, req, res) => {
-      const { path } = req.params
-      const errors = pathErrors(path)
-      if (errors.length > 0) invalid(res, errors)
-      else res.json(skar.previewInputSuppression(path))
-    })
-  )
 }
 
 const MAX_NOTE_LENGTH = 500
-const MAX_PATH_LENGTH = 255
-// Dot-separated segments without a wildcard: an input suppression names one exact path.
-const CONCRETE_PATH = /^[^.\s*]+(\.[^.\s*]+)*$/
-const SUPPRESSION_FIELDS: readonly string[] = ['note', 'autoEndAfter']
+const DISABLE_FIELDS: readonly string[] = ['note']
 const notAnObject: ValidationError[] = [{ path: '', message: 'must be an object' }]
 
 function escapePointer(key: string): string {
   return key.replaceAll('~', '~0').replaceAll('/', '~1')
-}
-
-function pathErrors(path: string): ValidationError[] {
-  return path.length <= MAX_PATH_LENGTH && CONCRETE_PATH.test(path)
-    ? []
-    : [
-        {
-          path: '/path',
-          message: `must be a path of dot-separated segments without a wildcard, at most ${String(MAX_PATH_LENGTH)} characters`
-        }
-      ]
 }
 
 const NOTE_ERROR: ValidationError = {
@@ -387,32 +294,19 @@ function isNote(note: unknown): note is string {
   return typeof note === 'string' && note.length <= MAX_NOTE_LENGTH
 }
 
-function suppressionRequest(
+/** A disable request's body, which may be left out. */
+function disableRequest(
   body: unknown
-): { ok: true; value: SuppressionRequest } | { ok: false; errors: ValidationError[] } {
+): { ok: true; note?: string } | { ok: false; errors: ValidationError[] } {
+  if (body === undefined) return { ok: true }
   if (!isRecord(body)) return { ok: false, errors: notAnObject }
   const errors = Object.keys(body)
-    .filter((key) => !SUPPRESSION_FIELDS.includes(key))
+    .filter((key) => !DISABLE_FIELDS.includes(key))
     .map((key) => ({ path: `/${escapePointer(key)}`, message: 'is not a known field' }))
-  const { note, autoEndAfter } = body
+  const { note } = body
   if (note !== undefined && !isNote(note)) errors.push(NOTE_ERROR)
-  const autoEndValid =
-    autoEndAfter === undefined ||
-    (typeof autoEndAfter === 'number' && autoEndAfter > 0 && autoEndAfter <= MAX_DURATION_S)
-  if (!autoEndValid) {
-    errors.push({
-      path: '/autoEndAfter',
-      message: `must be a number of seconds above 0 and at most ${String(MAX_DURATION_S)}`
-    })
-  }
   if (errors.length > 0) return { ok: false, errors }
-  return {
-    ok: true,
-    value: {
-      ...(typeof note === 'string' ? { note } : {}),
-      ...(typeof autoEndAfter === 'number' ? { autoEndAfter } : {})
-    }
-  }
+  return typeof note === 'string' ? { ok: true, note } : { ok: true }
 }
 
 function editRefused(res: Response, outcome: Exclude<SaveOutcome, { ok: true }>): void {
