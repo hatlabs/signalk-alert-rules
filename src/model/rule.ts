@@ -57,6 +57,12 @@ export type CombinatorKind = (typeof COMBINATORS)[number]
 export const PRIORITIES = ['emergency', 'alarm', 'warning', 'caution'] as const
 export type Priority = (typeof PRIORITIES)[number]
 
+/** A priority's severity: a more severe priority ranks higher. */
+export function severityOf(priority: Priority): number {
+  // PRIORITIES lists the most severe first.
+  return PRIORITIES.length - PRIORITIES.indexOf(priority)
+}
+
 /** The `meta.zones` states that raise an alert; normal and nominal raise nothing. */
 export const ZONE_LEVELS = ['alert', 'warn', 'alarm', 'emergency'] as const
 export type ZoneLevel = (typeof ZONE_LEVELS)[number]

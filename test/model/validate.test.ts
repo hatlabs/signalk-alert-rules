@@ -339,6 +339,129 @@ describe('validateRule', () => {
     })
   })
 
+  describe('escalation steps', () => {
+    const below = (...steps: [number, string][]) => ({
+      type: 'sustained',
+      direction: 'below',
+      steps: steps.map(([limit, priority]) => ({ limit, priority }))
+    })
+
+    it('accepts steps that climb in priority and move in the condition direction', () => {
+      expect(
+        errorsOf(
+          rule({
+            detector: below(
+              [12.4, 'caution'],
+              [12.2, 'warning'],
+              [11.8, 'alarm'],
+              [11, 'emergency']
+            )
+          })
+        )
+      ).toEqual([])
+    })
+
+    it('refuses a fifth step at the step', () => {
+      const detector = below(
+        [12.4, 'caution'],
+        [12.2, 'warning'],
+        [11.8, 'alarm'],
+        [11, 'emergency'],
+        [10, 'emergency']
+      )
+      const errors = errorsOf(rule({ detector }))
+      expect(paths(errors)).toEqual(['/detector/steps/4'])
+      expect(errors[0]?.message).toMatch(/at most 4 steps/)
+    })
+
+    it('refuses steps out of order at the step', () => {
+      const errors = errorsOf(rule({ detector: below([11.8, 'alarm'], [12.2, 'warning']) }))
+      expect(paths(errors)).toEqual(['/detector/steps/1/priority', '/detector/steps/1/limit'])
+    })
+
+    it('refuses a repeated priority', () => {
+      const errors = errorsOf(rule({ detector: below([12.2, 'warning'], [11.8, 'warning']) }))
+      expect(paths(errors)).toEqual(['/detector/steps/1/priority'])
+      expect(errors[0]?.message).toMatch(/warning/)
+    })
+
+    it.each<[string, Record<string, unknown>, number, number]>([
+      ['a sustained rule below a limit', { type: 'sustained', direction: 'below' }, 12.2, 12.4],
+      ['a sustained rule above a limit', { type: 'sustained', direction: 'above' }, 368, 360],
+      [
+        'a falling projection',
+        { type: 'projection', direction: 'falling', window: 600, horizon: 1800 },
+        12,
+        12.2
+      ],
+      [
+        'a rising projection',
+        { type: 'projection', direction: 'rising', window: 600, horizon: 1800 },
+        0.9,
+        0.8
+      ],
+      ['a slope', { type: 'slope', direction: 'falling', window: 60 }, 0.02, 0.01],
+      ['an accumulator', { type: 'accumulator', measure: 'time' }, 7200, 3600],
+      ['a count', { type: 'count', event: { op: 'changes' }, window: 3600 }, 5, 2]
+    ])('refuses a step limit back toward normal on %s', (_, detector, first, second) => {
+      const steps = [step({ limit: first }), { limit: second, priority: 'alarm' }]
+      const errors = errorsOf(rule({ detector: { ...detector, steps } }))
+      expect(paths(errors)).toEqual(['/detector/steps/1/limit'])
+    })
+
+    it('refuses an equal step limit', () => {
+      const errors = errorsOf(rule({ detector: below([12, 'warning'], [12, 'alarm']) }))
+      expect(paths(errors)).toEqual(['/detector/steps/1/limit'])
+      expect(errors[0]?.message).toBe("must be below the previous step's limit")
+    })
+
+    it.each(['equals', 'changesTo'])('accepts a different value at each step of %s', (op) => {
+      const steps = [step({ value: 'fault' }), { value: 'critical', priority: 'alarm' }]
+      expect(errorsOf(rule({ detector: { type: 'match', op, steps } }))).toEqual([])
+    })
+
+    it('refuses a repeated match value', () => {
+      const steps = [step({ value: 'fault' }), { value: 'fault', priority: 'alarm' }]
+      const errors = errorsOf(rule({ detector: { type: 'match', op: 'equals', steps } }))
+      expect(paths(errors)).toEqual(['/detector/steps/1/value'])
+    })
+
+    it.each<[string, Record<string, unknown>]>([
+      [
+        'notEquals',
+        { op: 'notEquals', steps: [step({ value: 'ok' }), { value: 'x', priority: 'alarm' }] }
+      ],
+      ['decreases', { op: 'decreases', steps: [step(), { priority: 'alarm' }] }],
+      ['timedOut', { op: 'timedOut', duration: 30, steps: [step(), { priority: 'alarm' }] }]
+    ])('refuses a second step on a %s match', (op, fields) => {
+      const errors = errorsOf(rule({ detector: { type: 'match', ...fields } }))
+      expect(paths(errors)).toEqual(['/detector/steps/1'])
+      expect(errors[0]?.message).toContain(op)
+    })
+
+    it('accepts growing absence windows and refuses a shrinking one', () => {
+      const absence = (first: number, second: number) => ({
+        type: 'absence',
+        event: { op: 'changes' },
+        steps: [step({ within: first }), { within: second, priority: 'alarm' }]
+      })
+      expect(errorsOf(rule({ detector: absence(600, 1800) }))).toEqual([])
+      expect(paths(errorsOf(rule({ detector: absence(1800, 600) })))).toEqual([
+        '/detector/steps/1/within'
+      ])
+    })
+
+    it('accepts latching steps on a count', () => {
+      const detector = {
+        type: 'count',
+        event: { op: 'changes' },
+        window: 86400,
+        steps: [step({ limit: 2 }), { limit: 5, priority: 'alarm' }]
+      }
+      expect(errorsOf(rule({ latching: true, detector }))).toEqual([])
+    })
+  })
+
   describe('match detector', () => {
     it('requires a value for equals', () => {
       expect(

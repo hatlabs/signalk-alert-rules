@@ -3,12 +3,15 @@ import Value from 'typebox/value'
 import {
   DISCRIMINATOR_KEY,
   PATTERN_MESSAGE_KEY,
+  PRIORITIES,
+  severityOf,
   RuleSchema,
   type CombinatorKind,
   type Event,
   type Limit,
   type Rule,
   type Signal,
+  type Step,
   zoneLimitOf
 } from './rule.js'
 import { wildcards } from '../alerts/paths.js'
@@ -424,7 +427,86 @@ function stepErrors(rule: Rule): ValidationError[] {
       : 'a rule needs at least one step'
     return [{ path: STEPS_AT, message }]
   }
-  return []
+  return stepOrderErrors(d)
+}
+
+/** At most one step per priority: caution, warning, alarm and emergency. */
+const MAX_STEPS = PRIORITIES.length
+
+// Matches with more than one step: a different value can be worse. The other
+// operators have no worse kind of their condition, so an alert that lasts is
+// core's to escalate when left unacknowledged.
+const STEPPED_MATCHES: ReadonlySet<string> = new Set(['equals', 'changesTo'])
+
+// A later step is a worse condition than an earlier one: more severe, and
+// further from normal, so reaching it implies having passed the earlier one.
+function stepOrderErrors(d: Rule['detector']): ValidationError[] {
+  const steps: readonly Step[] = d.steps ?? []
+  if (steps.length > MAX_STEPS) {
+    return [
+      {
+        path: pointer(STEPS_AT, MAX_STEPS),
+        message: `a rule has at most ${String(MAX_STEPS)} steps, one per priority`
+      }
+    ]
+  }
+  if (d.type === 'match' && !STEPPED_MATCHES.has(d.op) && steps.length > 1) {
+    return [{ path: pointer(STEPS_AT, 1), message: `a ${d.op} match takes one step` }]
+  }
+  return steps.slice(1).flatMap((step, i) => {
+    const previous = steps[i]
+    const at = pointer(STEPS_AT, i + 1)
+    const errors: ValidationError[] = []
+    if (severityOf(step.priority) <= severityOf(previous.priority)) {
+      errors.push({
+        path: pointer(at, 'priority'),
+        message: `must be more severe than the previous step's ${previous.priority}`
+      })
+    }
+    const beyond = beyondError(d, steps.slice(0, i + 1), step)
+    if (beyond !== undefined) {
+      errors.push({ path: pointer(at, beyond.field), message: beyond.message })
+    }
+    return errors
+  })
+}
+
+type BeyondError = { field: string; message: string } | undefined
+
+function beyondError(d: Rule['detector'], earlier: readonly Step[], step: Step): BeyondError {
+  const previous = earlier.at(-1)
+  switch (d.type) {
+    case 'match': {
+      const value = 'value' in step ? step.value : undefined
+      return earlier.some((s) => 'value' in s && s.value === value)
+        ? { field: 'value', message: 'repeats an earlier step' }
+        : undefined
+    }
+    case 'absence':
+      return previous !== undefined &&
+        'within' in previous &&
+        'within' in step &&
+        step.within <= previous.within
+        ? { field: 'within', message: "must be longer than the previous step's" }
+        : undefined
+    case 'sustained':
+      return limitBeyondError(previous, step, d.direction === 'above')
+    case 'projection':
+      return limitBeyondError(previous, step, d.direction === 'rising')
+    case 'slope':
+    case 'accumulator':
+    case 'count':
+      return limitBeyondError(previous, step, true)
+  }
+}
+
+/** A limit moves away from normal: up for a rising condition, down for a falling one. */
+function limitBeyondError(previous: Step | undefined, step: Step, up: boolean): BeyondError {
+  if (previous === undefined || !('limit' in previous) || !('limit' in step)) return undefined
+  const moves = up ? step.limit > previous.limit : step.limit < previous.limit
+  return moves
+    ? undefined
+    : { field: 'limit', message: `must be ${up ? 'above' : 'below'} the previous step's limit` }
 }
 
 // A latching rule holds no alert across a restart, so its condition must be
