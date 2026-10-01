@@ -11,7 +11,8 @@ import { isRecord } from '../util.js'
 import type { Rule } from './rule.js'
 import type { ValidationError } from './validate.js'
 
-const AT = '/condition'
+/** Where a rule document's condition name is. */
+export const CONDITION_POINTER = '/condition'
 
 /**
  * The error of a rule document that stores no condition name and has no
@@ -21,10 +22,13 @@ const AT = '/condition'
 export function conditionMissing(raw: unknown): ValidationError | undefined {
   if (!isRecord(raw) || raw.condition !== undefined) return undefined
   if (isRecord(raw.signal) && 'combinator' in raw.signal)
-    return { path: AT, message: 'is required: a rule over several paths has no default name' }
+    return {
+      path: CONDITION_POINTER,
+      message: 'is required: a rule over several paths has no default name'
+    }
   if (singlePath(raw.signal)?.split('.').at(-1) === WILDCARD)
     return {
-      path: AT,
+      path: CONDITION_POINTER,
       message: 'is required: an input path ending in a wildcard has no default name'
     }
   return undefined
@@ -41,14 +45,14 @@ export function alertPathErrors(rule: Rule): ValidationError[] {
   const { condition } = rule
   // The schema has checked the characters; this leaves the names core forbids.
   if (condition !== undefined && !segmentAccepted(condition))
-    return [{ path: AT, message: `"${condition}" is not allowed in an alert path` }]
+    return [{ path: CONDITION_POINTER, message: `"${condition}" is not allowed in an alert path` }]
   const forbidden = alertParent(rule.signal)?.find((s) => s !== WILDCARD && !segmentAccepted(s))
   if (forbidden !== undefined)
     return [{ path: inputAt(rule), message: `"${forbidden}" is not allowed in an alert path` }]
   const path = alertPathOf(rule)
   if (path !== undefined && path.length > MAX_ALERT_PATH_LENGTH) {
     const message = `makes the alert path longer than ${String(MAX_ALERT_PATH_LENGTH)} characters`
-    return [{ path: condition === undefined ? inputAt(rule) : AT, message }]
+    return [{ path: condition === undefined ? inputAt(rule) : CONDITION_POINTER, message }]
   }
   return []
 }

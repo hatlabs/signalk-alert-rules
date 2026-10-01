@@ -62,9 +62,9 @@ describe('instantiate', () => {
     const template: Template = {
       id: 'charge-imbalance',
       open: ['instance'],
+      condition: 'chargeImbalance',
       rule: {
         name: 'Charge imbalance',
-        condition: 'chargeImbalance',
         message: 'Charge imbalance',
         priority: 'caution',
         signal: {
@@ -96,6 +96,17 @@ describe('instantiate', () => {
     // The inputs share only their first segment, so the name goes under it.
     expect(alertPathOf(rule)).toBe('electrical.chargeImbalance')
     expect(validateRule(rule).ok).toBe(true)
+  })
+
+  it("stores the template's condition name, which names the alert under the input's parent", () => {
+    const rule = created({ ...voltageLow, condition: 'bankFlat' }, { instance: 'house' })
+    expect(rule.condition).toBe('bankFlat')
+    expect(alertPathOf(rule)).toBe('electrical.batteries.house.bankFlat')
+    expect(validateRule(rule).ok).toBe(true)
+  })
+
+  it('stores no condition name for a template without one', () => {
+    expect(created(voltageLow, { instance: 'house' })).not.toHaveProperty('condition')
   })
 
   it('stores a picked source on the input', () => {

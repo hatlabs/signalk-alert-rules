@@ -752,6 +752,36 @@ describe('templates API', () => {
     return h.call('POST', '/rules', made.value)
   }
 
+  it('raises a rule made from the built-in battery template at the data-model alert path', async () => {
+    const h = await serve()
+    const builtin = (await listing(h)).sets.find((s) => s.id === 'builtin')
+    const template = builtin?.templates.find((t) => t.id === 'battery-voltage-low')
+    if (builtin === undefined || template === undefined) throw new Error('no built-in template')
+    expect(template.condition).toBe('voltageLow')
+    const made = instantiate(builtin, template, { instance: 'house' })
+    if (!made.ok) throw new Error(JSON.stringify(made.errors))
+    expect((await h.call('POST', '/rules', made.value)).status).toBe(201)
+    h.mock.subscriptionmanager.publish('electrical.batteries.house.voltage', 'src', 11)
+    at(61)
+    expect(core(h).getByPath('electrical.batteries.house.voltageLow')).toMatchObject({
+      condition: true,
+      $source: 'signalk-alert-rules'
+    })
+
+    // The rule stores the template's name, though it equals the default, so
+    // an edit of the detector keeps it.
+    expect(made.value.condition).toBe('voltageLow')
+    const above = { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 0 } }
+    const flipped = { ...made.value, detector: { ...above, duration: 60 } }
+    expect((await h.call('PUT', `/rules/${String(made.value.slug)}`, flipped)).status).toBe(200)
+    h.mock.subscriptionmanager.publish('electrical.batteries.house.voltage', 'src', 11)
+    at(122)
+    expect(core(h).getByPath('electrical.batteries.house.voltageLow')).toMatchObject({
+      condition: true
+    })
+    expect(core(h).getByPath('electrical.batteries.house.voltageHigh')).toBeNull()
+  })
+
   it('lists the built-in set and a package set with their templates and open parts, all new', async () => {
     installSet('1.0.0')
     const h = await serve()
