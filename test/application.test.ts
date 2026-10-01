@@ -1477,12 +1477,39 @@ describe('pinned sources', () => {
     expect(storedSignal()).toEqual({ path: COOLANT, source: 'nmea0183.GP' })
   })
 
-  it('a pinned source that never appears leaves the input never seen', () => {
+  it('a pinned device that never appears leaves the input never seen', () => {
     const s = setup()
+    withDevice(s.server)
+    s.server.sources.can0 = {
+      ...(s.server.sources.can0 as object),
+      '11': { n2k: { src: '11', canName: 'beef000000000001', pgns: {} } }
+    }
     expect(s.application.createRule(pinned(CANONICAL)).ok).toBe(true)
-    s.at(0, COOLANT, 390)
+    s.at(0)
+    s.server.subscriptionmanager.publish(COOLANT, 'can0.11', 390)
     s.at(3)
     expect(s.alerts()).toEqual([])
     expect(s.application.rule('user', coolant.slug)?.status.badge).toBe('neverSeen')
+  })
+
+  it('a gate pinned to a CAN name reads the address form of that device', () => {
+    const s = setup()
+    withDevice(s.server)
+    const gated = {
+      ...coolant,
+      detector: { ...coolant.detector, duration: 0 },
+      gates: [
+        {
+          signal: { path: RPM, source: CANONICAL },
+          direction: 'above',
+          limit: { kind: 'fixed', value: 8 }
+        }
+      ]
+    }
+    expect(s.application.createRule(gated).ok).toBe(true)
+    s.at(0)
+    s.server.subscriptionmanager.publish(RPM, 'can0.10', 70)
+    s.at(1, COOLANT, 390)
+    expect(s.alerts()).toEqual([['rules.user.coolant-high', true]])
   })
 })
