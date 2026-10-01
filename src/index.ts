@@ -47,7 +47,11 @@ export default function createPlugin(app: ServerAPI): Plugin {
     id: PLUGIN_ID,
     name: 'Alert Rules',
     description: 'Raises alerts through the Signal K alerts API from rules over Signal K data',
-    schema: () => ({ type: 'object', properties: {} }),
+    schema: () => ({
+      type: 'object',
+      description: 'Alert rules are managed in the Alert Rules webapp under Webapps.',
+      properties: {}
+    }),
 
     start() {
       startError = undefined
@@ -143,6 +147,8 @@ export default function createPlugin(app: ServerAPI): Plugin {
     stop() {
       // Stopping must never clear alerts: it also happens on every configuration
       // save, and clearing would re-alert the operator each time.
+      // Disabling stops the plugin too, and a disabled plugin has not failed.
+      startError = undefined
       for (const timer of timers) clearInterval(timer)
       timers = []
       const running = application

@@ -127,19 +127,10 @@ function Condition({ view, stale, checkAgain }: ConditionProps) {
           Cannot reach the alert rules plugin: {view.reason}. Retrying…{lastRead}
         </div>
       )
-    case 'restarting':
+    case 'notRunning':
       return (
         <div className="alert alert-info" role="alert">
-          The alert rules plugin is restarting. Retrying…{lastRead}
-        </div>
-      )
-    case 'disabled':
-      return (
-        <div className="alert alert-secondary" role="alert">
-          <p>The alert rules plugin is disabled. Enable it above to manage alert rules.</p>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={checkAgain}>
-            Check again
-          </button>
+          The alert rules plugin is not running. Retrying…{lastRead}
         </div>
       )
     case 'sessionExpired':

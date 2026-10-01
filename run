@@ -26,7 +26,7 @@ function build {
 }
 
 function build-panel {
-  #@ Bundle the configuration panel into public/
+  #@ Bundle the webapp into public/
   #@ Category: Build
   npm run build:panel
 }

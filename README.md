@@ -4,6 +4,8 @@ A Signal K server plugin that raises alerts through the Signal K alerts API from
 
 The plugin raises alerts; the server's alerts API owns their lifecycle (acknowledgement, silencing, escalation, persistence), and an alert console displays them.
 
+Rules, rulesets and suppressions are managed in the Alert Rules webapp, under Webapps in the admin UI. The admin UI lists it only while the plugin is enabled; the plugin's configuration page holds just the Enabled switch.
+
 [`docs/rules.md`](docs/rules.md) describes the rule model: signals, detectors, gates, limits, and the alerts a rule sends. [`examples/rules`](examples/rules) holds worked example rules covering all seven detectors, gates, a zone limit, latching, and the `absDifference` (plain and angular) and `positionSpread` combinators. [`docs/api.md`](docs/api.md) describes the admin-only REST API that manages rules, reports their status, resets accumulators and switches evaluation off and on.
 
 ## Requirements

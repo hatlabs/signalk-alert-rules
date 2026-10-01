@@ -11,12 +11,11 @@ import {
 } from '../../src/panel/api'
 import type { PathSource } from '../../src/panel/paths/selfPaths'
 import { Shell } from '../../src/panel/Shell'
-import { DISABLED_POLL_INTERVAL_MS, POLL_INTERVAL_MS } from '../../src/panel/shellState'
+import { POLL_INTERVAL_MS } from '../../src/panel/shellState'
 import { instance, noAuthoring, noControls, noRulesets, ruleEntry } from './fixtures'
 
 interface Server {
   state: PluginState | Error
-  enabled: boolean
   rules: RuleEntry[]
 }
 
@@ -25,7 +24,6 @@ function mockApi(server: Server) {
     state: vi.fn(() =>
       server.state instanceof Error ? Promise.reject(server.state) : Promise.resolve(server.state)
     ),
-    pluginEnabled: vi.fn(() => Promise.resolve(server.enabled)),
     rules: vi.fn(() => Promise.resolve(server.rules)),
     resetAccumulator: vi.fn((_origin: string, _slug: string): Promise<RuleEntry> =>
       Promise.reject(new Error('not expected'))
@@ -78,12 +76,12 @@ describe('Shell', () => {
   }
 
   it('shows loading until the first answer', () => {
-    renderShell({ state: running, enabled: true, rules: [] })
+    renderShell({ state: running, rules: [] })
     expect(screen.getByRole('status').textContent).toMatch(/loading/i)
   })
 
   it('shows the views and navigation when the plugin runs', async () => {
-    renderShell({ state: running, enabled: true, rules: [rule] })
+    renderShell({ state: running, rules: [rule] })
     await settle()
     const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent)
     expect(tabs).toEqual(['Rules', 'Suppressions', 'Rulesets'])
@@ -93,7 +91,7 @@ describe('Shell', () => {
   })
 
   it('points to rule creation and rulesets when there are no rules', async () => {
-    renderShell({ state: running, enabled: true, rules: [] })
+    renderShell({ state: running, rules: [] })
     await settle()
     expect(screen.getByText(/no alert rules yet/i)).toBeTruthy()
     expect(screen.getByRole('button', { name: /new rule/i })).toBeTruthy()
@@ -102,7 +100,7 @@ describe('Shell', () => {
   })
 
   it('retries automatically while the API is unreachable', async () => {
-    const server: Server = { state: new Error('Failed to fetch'), enabled: true, rules: [] }
+    const server: Server = { state: new Error('Failed to fetch'), rules: [] }
     const api = renderShell(server)
     await settle()
     expect(screen.getByRole('alert').textContent).toMatch(
@@ -115,62 +113,33 @@ describe('Shell', () => {
     expect(api.state).toHaveBeenCalledTimes(2)
   })
 
-  it('retries automatically while the plugin restarts', async () => {
-    const server: Server = {
-      state: { running: false, securityEnabled: true },
-      enabled: true,
-      rules: []
-    }
-    renderShell(server)
-    await settle()
-    expect(screen.getByRole('alert').textContent).toMatch(/restarting.*retrying/i)
-    server.state = running
-    await tick(POLL_INTERVAL_MS)
-    expect(screen.getAllByRole('tab')).toHaveLength(3)
-  })
-
-  it('asks to enable a disabled plugin and notices when it is enabled', async () => {
-    const server: Server = {
-      state: { running: false, securityEnabled: true },
-      enabled: false,
-      rules: []
-    }
+  // A disabled plugin is one case: the server serves the webapp's files
+  // whether or not the plugin is enabled, so a bookmarked link can open it.
+  it('retries at the normal interval while the plugin is not running', async () => {
+    const server: Server = { state: { running: false, securityEnabled: true }, rules: [] }
     const api = renderShell(server)
     await settle()
-    expect(screen.getByRole('alert').textContent).toMatch(/disabled.*enable/i)
-    await tick(DISABLED_POLL_INTERVAL_MS - 1)
+    expect(screen.getByRole('alert').textContent).toMatch(
+      /the alert rules plugin is not running\. retrying…/i
+    )
+    expect(screen.queryByText(/disabled/i)).toBeNull()
+    expect(screen.queryByRole('button', { name: /check again/i })).toBeNull()
+    await tick(POLL_INTERVAL_MS - 1)
     expect(api.state).toHaveBeenCalledTimes(1)
-    server.enabled = true
     server.state = running
     await tick(1)
     expect(api.state).toHaveBeenCalledTimes(2)
     expect(screen.getAllByRole('tab')).toHaveLength(3)
   })
 
-  it('checks a disabled plugin again at once on request', async () => {
-    const server: Server = {
-      state: { running: false, securityEnabled: true },
-      enabled: false,
-      rules: []
-    }
-    const api = renderShell(server)
-    await settle()
-    server.enabled = true
-    server.state = running
-    fireEvent.click(screen.getByRole('button', { name: /check again/i }))
-    await settle()
-    expect(api.state).toHaveBeenCalledTimes(2)
-    expect(screen.getAllByRole('tab')).toHaveLength(3)
-  })
-
   it('asks to log in again when the session has expired, and stops polling', async () => {
-    const server: Server = { state: new SessionExpiredError(), enabled: true, rules: [] }
+    const server: Server = { state: new SessionExpiredError(), rules: [] }
     const api = renderShell(server)
     await settle()
     expect(screen.getByRole('alert').textContent).toMatch(
       /your session has expired or lacks administrator rights; log in as an administrator/i
     )
-    await tick(DISABLED_POLL_INTERVAL_MS * 3)
+    await tick(POLL_INTERVAL_MS * 3)
     expect(api.state).toHaveBeenCalledTimes(1)
     server.state = running
     fireEvent.click(screen.getByRole('button', { name: /check again/i }))
@@ -183,7 +152,6 @@ describe('Shell', () => {
     const error = 'the server has no alerts API'
     renderShell({
       state: { running: false, error, securityEnabled: true },
-      enabled: true,
       rules: []
     })
     await settle()
@@ -196,7 +164,6 @@ describe('Shell', () => {
   it('warns persistently while server security is disabled', async () => {
     const server: Server = {
       state: { running: true, securityEnabled: false },
-      enabled: true,
       rules: [rule]
     }
     renderShell(server)
@@ -208,7 +175,7 @@ describe('Shell', () => {
   })
 
   it('does not warn about security when it is enabled or unknown', async () => {
-    renderShell({ state: { running: true, securityEnabled: null }, enabled: true, rules: [] })
+    renderShell({ state: { running: true, securityEnabled: null }, rules: [] })
     await settle()
     expect(screen.queryByText(/server security is disabled/i)).toBeNull()
   })
@@ -234,7 +201,7 @@ describe('Shell', () => {
   })
 
   it('polls every interval and pauses while the tab is hidden', async () => {
-    const api = renderShell({ state: running, enabled: true, rules: [] })
+    const api = renderShell({ state: running, rules: [] })
     await settle()
     await tick(POLL_INTERVAL_MS)
     expect(api.state).toHaveBeenCalledTimes(2)
@@ -249,7 +216,7 @@ describe('Shell', () => {
   })
 
   it('stops polling when unmounted', async () => {
-    const api = renderShell({ state: running, enabled: true, rules: [] })
+    const api = renderShell({ state: running, rules: [] })
     await settle()
     expect(api.state).toHaveBeenCalledTimes(1)
     cleanup()
@@ -260,7 +227,7 @@ describe('Shell', () => {
   it('does not start a second probe when the tab reappears during one', async () => {
     vi.useFakeTimers()
     let answerFirst: (state: PluginState) => void = () => undefined
-    const api = mockApi({ state: running, enabled: true, rules: [] })
+    const api = mockApi({ state: running, rules: [] })
     api.state.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
@@ -283,7 +250,7 @@ describe('Shell', () => {
 })
 
 describe('Shell rules', () => {
-  const ADMIN = '#/apps/configuration/signalk-alert-rules'
+  const ADMIN = '#/e/signalk_alert_rules'
   const hours = ruleEntry({
     slug: 'engine-hours',
     rule: { name: 'Engine hours', detector: { type: 'accumulator', measure: 'time' } },
@@ -321,7 +288,7 @@ describe('Shell rules', () => {
 
   it('lists the rules, each linking to its detail after the admin UI route', async () => {
     window.history.replaceState(null, '', `/admin/${ADMIN}`)
-    await renderShell({ state: running, enabled: true, rules: [rule, hours] })
+    await renderShell({ state: running, rules: [rule, hours] })
     expect(screen.getByRole('link', { name: 'Oil pressure low' }).getAttribute('href')).toBe(
       `${ADMIN}#rule=user/oil-pressure-low`
     )
@@ -329,7 +296,7 @@ describe('Shell rules', () => {
 
   it('opens the rule the fragment names and goes back to the list', async () => {
     window.history.replaceState(null, '', `/admin/${ADMIN}#rule=user/engine-hours`)
-    await renderShell({ state: running, enabled: true, rules: [rule, hours] })
+    await renderShell({ state: running, rules: [rule, hours] })
     expect(screen.getByRole('heading', { name: 'Engine hours' })).toBeTruthy()
     const back = screen.getByRole('link', { name: /all rules/i })
     expect(back.getAttribute('href')).toBe(ADMIN)
@@ -345,7 +312,7 @@ describe('Shell rules', () => {
 
   describe('focus on navigation', () => {
     it('moves to the heading of the view opened, not on first load', async () => {
-      await renderShell({ state: running, enabled: true, rules: [rule, hours] })
+      await renderShell({ state: running, rules: [rule, hours] })
       expect(document.activeElement).toBe(document.body)
       act(() => {
         goTo('#rule=user/engine-hours')
@@ -358,7 +325,7 @@ describe('Shell rules', () => {
     })
 
     it('moves to the heading of a rule that is not found', async () => {
-      await renderShell({ state: running, enabled: true, rules: [rule] })
+      await renderShell({ state: running, rules: [rule] })
       act(() => {
         goTo('#rule=user/gone')
       })
@@ -366,7 +333,7 @@ describe('Shell rules', () => {
     })
 
     it('moves to the rule once the rules tab opens for it', async () => {
-      await renderShell({ state: running, enabled: true, rules: [rule] })
+      await renderShell({ state: running, rules: [rule] })
       fireEvent.click(screen.getByRole('tab', { name: 'Suppressions' }))
       act(() => {
         goTo('#rule=user/oil-pressure-low')
@@ -375,7 +342,7 @@ describe('Shell rules', () => {
     })
 
     it('leaves focus alone when a poll re-renders the view', async () => {
-      await renderShell({ state: running, enabled: true, rules: [rule] })
+      await renderShell({ state: running, rules: [rule] })
       act(() => {
         goTo('#rule=user/oil-pressure-low')
       })
@@ -399,7 +366,7 @@ describe('Shell rules', () => {
     })
 
     it('highlights the instance a link names and focuses its row', async () => {
-      await renderShell({ state: running, enabled: true, rules: [rule, batteries] })
+      await renderShell({ state: running, rules: [rule, batteries] })
       act(() => {
         goTo(`${ADMIN}#rule=user/battery-low&instance=Start%201`)
       })
@@ -411,7 +378,7 @@ describe('Shell rules', () => {
 
     it('finds the instance by its alert path segment too', async () => {
       window.history.replaceState(null, '', '/#rule=user/battery-low&instance=Start_1')
-      await renderShell({ state: running, enabled: true, rules: [batteries] })
+      await renderShell({ state: running, rules: [batteries] })
       expect(screen.getByRole('row', { name: /start 1/i }).getAttribute('aria-current')).toBe(
         'true'
       )
@@ -420,7 +387,7 @@ describe('Shell rules', () => {
     })
 
     it('shows the rule with a notice for an instance it does not have', async () => {
-      await renderShell({ state: running, enabled: true, rules: [batteries] })
+      await renderShell({ state: running, rules: [batteries] })
       act(() => {
         goTo('#rule=user/battery-low&instance=aft')
       })
@@ -433,7 +400,7 @@ describe('Shell rules', () => {
   })
 
   it('shows the rules tab when a fragment names a rule', async () => {
-    await renderShell({ state: running, enabled: true, rules: [rule] })
+    await renderShell({ state: running, rules: [rule] })
     fireEvent.click(screen.getByRole('tab', { name: 'Suppressions' }))
     act(() => {
       goTo('#rule=user/oil-pressure-low')
@@ -444,7 +411,7 @@ describe('Shell rules', () => {
 
   it('follows a link to the rule last opened from another tab', async () => {
     window.history.replaceState(null, '', `/admin/${ADMIN}`)
-    await renderShell({ state: running, enabled: true, rules: [rule] })
+    await renderShell({ state: running, rules: [rule] })
     act(() => {
       goTo(`${ADMIN}#rule=user/oil-pressure-low`)
     })
@@ -459,7 +426,7 @@ describe('Shell rules', () => {
   })
 
   it('leaves focus on the tab when returning to the rules from a rule', async () => {
-    await renderShell({ state: running, enabled: true, rules: [rule] })
+    await renderShell({ state: running, rules: [rule] })
     act(() => {
       goTo('#rule=user/oil-pressure-low')
     })
@@ -484,7 +451,7 @@ describe('Shell rules', () => {
       }
     })
     window.history.replaceState(null, '', '/#rule=user/battery-low&instance=house')
-    await renderShell({ state: running, enabled: true, rules: [batteries] })
+    await renderShell({ state: running, rules: [batteries] })
     fireEvent.click(screen.getByRole('tab', { name: 'Suppressions' }))
     act(() => {
       goTo('#rule=user/battery-low&instance=start')
@@ -494,14 +461,14 @@ describe('Shell rules', () => {
 
   it('says when the rule the fragment names does not exist', async () => {
     window.history.replaceState(null, '', '/#rule=user/gone')
-    await renderShell({ state: running, enabled: true, rules: [rule] })
+    await renderShell({ state: running, rules: [rule] })
     expect(screen.getByText(/no rule user\/gone/i)).toBeTruthy()
     expect(screen.getByRole('link', { name: /all rules/i })).toBeTruthy()
   })
 
   it('resets an accumulator and shows the rule as it is after', async () => {
     window.history.replaceState(null, '', '/#rule=user/engine-hours')
-    const server: Server = { state: running, enabled: true, rules: [hours] }
+    const server: Server = { state: running, rules: [hours] }
     const api = await renderShell(server)
     const after = { ...hours, status: { ...hours.status, badge: 'idle' as const, instances: [] } }
     api.resetAccumulator.mockImplementation(() => {
@@ -519,7 +486,7 @@ describe('Shell rules', () => {
 
   it('disables a rule and shows it as the server answers after', async () => {
     window.history.replaceState(null, '', '/#rule=user/oil-pressure-low')
-    const server: Server = { state: running, enabled: true, rules: [rule] }
+    const server: Server = { state: running, rules: [rule] }
     const api = await renderShell(server)
     const disabled = ruleEntry({
       enabled: false,
@@ -539,7 +506,7 @@ describe('Shell rules', () => {
 
   it('lists the suppressions on their tab, each rule linking to its detail', async () => {
     window.history.replaceState(null, '', `/admin/${ADMIN}`)
-    const api = await renderShell({ state: running, enabled: true, rules: [rule] })
+    const api = await renderShell({ state: running, rules: [rule] })
     const suppressions = vi.fn(() =>
       Promise.resolve([
         {
@@ -566,7 +533,7 @@ describe('Shell rules', () => {
     const issues = ['stored rule broken is not valid and does not run: /signal: required']
 
     it('lists them above the rules', async () => {
-      await renderShell({ state: { ...running, issues }, enabled: true, rules: [rule] })
+      await renderShell({ state: { ...running, issues }, rules: [rule] })
       const problems = screen.getByRole('region', { name: /problems/i })
       expect(problems.textContent).toContain(issues[0])
       expect(screen.getByRole('link', { name: 'Oil pressure low' })).toBeTruthy()
@@ -577,21 +544,21 @@ describe('Shell rules', () => {
     })
 
     it('lists them when no rule loaded, without claiming there are none', async () => {
-      await renderShell({ state: { ...running, issues }, enabled: true, rules: [] })
+      await renderShell({ state: { ...running, issues }, rules: [] })
       expect(screen.getByRole('region', { name: /problems/i }).textContent).toContain(issues[0])
       expect(screen.queryByText(/no alert rules yet/i)).toBeNull()
       expect(screen.getByText(/no alert rule is listed/i)).toBeTruthy()
     })
 
     it('shows no problems section when there are none', async () => {
-      await renderShell({ state: { ...running, issues: [] }, enabled: true, rules: [rule] })
+      await renderShell({ state: { ...running, issues: [] }, rules: [rule] })
       expect(screen.queryByRole('region', { name: /problems/i })).toBeNull()
     })
   })
 
   describe('while the plugin is briefly out of reach', () => {
     it('keeps the filters and shows the condition above the last rules read', async () => {
-      const server: Server = { state: running, enabled: true, rules: [rule, hours] }
+      const server: Server = { state: running, rules: [rule, hours] }
       await renderShell(server)
       fireEvent.change(screen.getByRole('searchbox', { name: /filter/i }), {
         target: { value: 'engine' }
@@ -611,13 +578,21 @@ describe('Shell rules', () => {
       expect(filter().value).toBe('engine')
     })
 
-    it('keeps the selected tab while the plugin restarts', async () => {
-      const server: Server = { state: running, enabled: true, rules: [rule] }
-      await renderShell(server)
+    it('keeps the selected tab and the last rules read while the plugin is not running', async () => {
+      const server: Server = { state: running, rules: [rule] }
+      const api = await renderShell(server)
       fireEvent.click(screen.getByRole('tab', { name: 'Suppressions' }))
       server.state = { running: false, securityEnabled: true }
       await tick(POLL_INTERVAL_MS)
-      expect(screen.getByRole('alert').textContent).toMatch(/restarting/i)
+      expect(screen.getByRole('alert').textContent).toMatch(/not running.*last read/i)
+      expect(screen.queryByRole('button', { name: /check again/i })).toBeNull()
+      expect(screen.getByRole('tab', { name: 'Suppressions' }).getAttribute('aria-selected')).toBe(
+        'true'
+      )
+      server.state = running
+      await tick(POLL_INTERVAL_MS)
+      expect(api.state).toHaveBeenCalledTimes(3)
+      expect(screen.queryByRole('alert')).toBeNull()
       expect(screen.getByRole('tab', { name: 'Suppressions' }).getAttribute('aria-selected')).toBe(
         'true'
       )
@@ -625,7 +600,7 @@ describe('Shell rules', () => {
 
     it('keeps an open reset confirmation through a failed poll, and it still resets', async () => {
       window.history.replaceState(null, '', '/#rule=user/engine-hours')
-      const server: Server = { state: running, enabled: true, rules: [hours] }
+      const server: Server = { state: running, rules: [hours] }
       const api = await renderShell(server)
       api.resetAccumulator.mockImplementation(() => Promise.resolve(hours))
       fireEvent.click(screen.getByRole('button', { name: /reset accumulator/i }))
@@ -640,13 +615,16 @@ describe('Shell rules', () => {
       expect(screen.queryByRole('alertdialog')).toBeNull()
     })
 
-    it('drops the views once the plugin is disabled', async () => {
-      const server: Server = { state: running, enabled: true, rules: [rule] }
+    it('drops the views when the plugin fails to start', async () => {
+      const server: Server = { state: running, rules: [rule] }
       await renderShell(server)
-      server.state = { running: false, securityEnabled: true }
-      server.enabled = false
+      server.state = {
+        running: false,
+        error: 'the server has no alerts API',
+        securityEnabled: true
+      }
       await tick(POLL_INTERVAL_MS)
-      expect(screen.getByRole('alert').textContent).toMatch(/disabled/i)
+      expect(screen.getByRole('alert').textContent).toMatch(/could not start/i)
       expect(screen.queryAllByRole('tab')).toHaveLength(0)
     })
   })
@@ -654,7 +632,6 @@ describe('Shell rules', () => {
   it('does not offer to clear all alerts while evaluation is off', async () => {
     await renderShell({
       state: { ...running, evaluation: { enabled: false } },
-      enabled: true,
       rules: [rule, hours]
     })
     expect(screen.getByText(/evaluation is off/i)).toBeTruthy()
@@ -663,7 +640,7 @@ describe('Shell rules', () => {
   })
 
   it('clears all alerts by turning evaluation off, then offers to turn it on', async () => {
-    const server: Server = { state: running, enabled: true, rules: [rule, hours] }
+    const server: Server = { state: running, rules: [rule, hours] }
     const api = await renderShell(server)
     api.setEvaluation.mockImplementation((enabled: boolean) => {
       server.state = { ...running, evaluation: { enabled } }

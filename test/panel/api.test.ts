@@ -119,31 +119,16 @@ const disabledAccumulator = {
   }
 }
 
-/** The plugin route root as signalk-server answers it once the plugin was configured. */
-const pluginInfo = {
-  enabled: true,
-  enabledByDefault: false,
-  id: 'signalk-alert-rules',
-  name: 'Alert rules',
-  version: '0.1.0'
-}
-
 describe('httpApi', () => {
-  it('asks the three routes with the session cookie', async () => {
+  it('asks the routes with the session cookie', async () => {
     const fetchFn = fakeFetch({
       [`${BASE}/state`]: { body: runningState },
-      [`${BASE}/`]: { body: pluginInfo },
       [`${BASE}/rules`]: { body: [] }
     })
     const api = httpApi(fetchFn)
     await api.state()
-    await api.pluginEnabled()
     await api.rules()
-    expect(fetchFn.mock.calls.map(([url]) => url)).toEqual([
-      `${BASE}/state`,
-      `${BASE}/`,
-      `${BASE}/rules`
-    ])
+    expect(fetchFn.mock.calls.map(([url]) => url)).toEqual([`${BASE}/state`, `${BASE}/rules`])
     for (const [, init] of fetchFn.mock.calls) {
       expect(init?.credentials).toBe('same-origin')
     }
@@ -156,18 +141,12 @@ describe('httpApi', () => {
     try {
       const fetchFn = fakeFetch({
         [`${BASE}/state`]: { body: runningState },
-        [`${BASE}/`]: { body: pluginInfo },
         [`${BASE}/rules`]: { body: [] }
       })
       const api = httpApi(fetchFn)
       await api.state()
-      await api.pluginEnabled()
       await api.rules()
-      expect(timeout.mock.calls).toEqual([
-        [REQUEST_TIMEOUT_MS],
-        [REQUEST_TIMEOUT_MS],
-        [REQUEST_TIMEOUT_MS]
-      ])
+      expect(timeout.mock.calls).toEqual([[REQUEST_TIMEOUT_MS], [REQUEST_TIMEOUT_MS]])
       const signals = fetchFn.mock.calls.map(([, init]) => init?.signal)
       expect(signals).toEqual(timeout.mock.results.map((r) => r.value as AbortSignal))
     } finally {
@@ -183,11 +162,8 @@ describe('httpApi', () => {
 
   it.each([401, 403])('reports an expired session on %i from any route', async (status) => {
     const denied = { status, body: { error: 'Unauthorized' } }
-    const api = httpApi(
-      fakeFetch({ [`${BASE}/state`]: denied, [`${BASE}/`]: denied, [`${BASE}/rules`]: denied })
-    )
+    const api = httpApi(fakeFetch({ [`${BASE}/state`]: denied, [`${BASE}/rules`]: denied }))
     await expect(api.state()).rejects.toBeInstanceOf(SessionExpiredError)
-    await expect(api.pluginEnabled()).rejects.toBeInstanceOf(SessionExpiredError)
     await expect(api.rules()).rejects.toBeInstanceOf(SessionExpiredError)
   })
 
@@ -415,28 +391,6 @@ describe('httpApi', () => {
       const denied = { status: 401, body: { error: 'Unauthorized' } }
       const api = httpApi(fakeFetch({ [`${BASE}/evaluation`]: denied }))
       await expect(api.setEvaluation(true)).rejects.toBeInstanceOf(SessionExpiredError)
-    })
-  })
-
-  describe('pluginEnabled', () => {
-    it('reads the enabled flag', async () => {
-      const api = httpApi(fakeFetch({ [`${BASE}/`]: { body: { ...pluginInfo, enabled: false } } }))
-      expect(await api.pluginEnabled()).toBe(false)
-    })
-
-    it('reads a fresh install, whose answer has no enabled flag, as disabled', async () => {
-      // signalk-server answers `enabledByDefault || options.enabled`, which is
-      // undefined before the plugin was ever configured and so left out.
-      const { enabled: _, ...freshInstall } = pluginInfo
-      const api = httpApi(
-        fakeFetch({ [`${BASE}/`]: { body: { ...freshInstall, enabledByDefault: false } } })
-      )
-      expect(await api.pluginEnabled()).toBe(false)
-    })
-
-    it('rejects an enabled flag that is not a boolean', async () => {
-      const api = httpApi(fakeFetch({ [`${BASE}/`]: { body: { ...pluginInfo, enabled: 'yes' } } }))
-      await expect(api.pluginEnabled()).rejects.toThrow(/unexpected response/)
     })
   })
 

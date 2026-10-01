@@ -5,9 +5,12 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "signalk": {
+    "displayName": "Alert Rules"
+  },
   "keywords": [
     "signalk-node-server-plugin",
-    "signalk-plugin-configurator",
+    "signalk-embeddable-webapp",
     "signalk-category-notifications",
     "signalk",
     "alerts",

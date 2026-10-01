@@ -128,7 +128,7 @@ function autoEndSeconds(field: DurationField): number | string {
  * Suppresses a rule or an input path, with a note and how it ends. It shows
  * what an input suppression would do, from the server's preview, before it
  * is made. It sits in the page next to its trigger, as the confirmations do:
- * the admin UI has no modal for a plugin panel.
+ * the admin UI has no modal for an embedded webapp.
  */
 export function SuppressDialog({ target, context, onClose }: SuppressDialogProps) {
   const { api, rules, paths } = context

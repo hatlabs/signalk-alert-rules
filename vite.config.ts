@@ -26,7 +26,7 @@ export default defineConfig({
       name: containerName,
       filename: 'remoteEntry.js',
       exposes: {
-        './PluginConfigurationPanel': './src/panel/index.tsx'
+        './AppPanel': './src/panel/index.tsx'
       },
       shared: {},
       // Without this the stylesheet is emitted but nothing links it: the

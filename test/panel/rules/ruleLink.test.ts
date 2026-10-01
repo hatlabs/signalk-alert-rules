@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { hashWithRule, parseRuleFragment } from '../../../src/panel/rules/ruleLink'
 
-const ADMIN = '#/apps/configuration/signalk-alert-rules'
+const ADMIN = '#/e/signalk_alert_rules'
 
 describe('parseRuleFragment', () => {
   it('reads the rule after the admin UI route', () => {

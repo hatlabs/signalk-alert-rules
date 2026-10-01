@@ -4,8 +4,7 @@ import { SessionExpiredError, type PanelApi, type RuleEntry } from './api'
 export type ShellView =
   | { kind: 'loading' }
   | { kind: 'unreachable'; reason: string }
-  | { kind: 'restarting' }
-  | { kind: 'disabled' }
+  | { kind: 'notRunning' }
   | { kind: 'sessionExpired' }
   | { kind: 'failed'; error: string }
   | ReadyView
@@ -30,9 +29,11 @@ function reasonOf(err: unknown): string {
 
 /**
  * Reads the plugin's condition from the server. A plugin that is not running
- * is either disabled, failed to start, or between the stop and start of a
- * configuration save; only the server's enabled flag tells the first apart,
- * because a disabled plugin keeps the error of its last failed start.
+ * either failed to start, or is disabled or between the stop and start of a
+ * configuration save; stopping clears a start error, so only the first
+ * reports one. The panel does not tell the last two apart: the admin UI
+ * lists the webapp only while the plugin is enabled, so the panel is reached
+ * while it is disabled only through a bookmarked link.
  */
 export async function probe(api: PanelApi): Promise<ShellSnapshot> {
   let securityEnabled: boolean | null = null
@@ -46,11 +47,10 @@ export async function probe(api: PanelApi): Promise<ShellSnapshot> {
       const issues = state.issues ?? []
       return { view: { kind: 'ready', rules, evaluationEnabled, issues }, securityEnabled }
     }
-    if (!(await api.pluginEnabled())) return { view: { kind: 'disabled' }, securityEnabled }
     if (state.error !== undefined) {
       return { view: { kind: 'failed', error: state.error }, securityEnabled }
     }
-    return { view: { kind: 'restarting' }, securityEnabled }
+    return { view: { kind: 'notRunning' }, securityEnabled }
   } catch (err) {
     if (err instanceof SessionExpiredError)
       return { view: { kind: 'sessionExpired' }, securityEnabled }
@@ -65,14 +65,14 @@ export async function probe(api: PanelApi): Promise<ShellSnapshot> {
  * after its session lapsed, would otherwise unmount the views and lose the
  * operator's filters, tab, any confirmation in progress and a rule being
  * written; with the views kept, an action fails with the session message
- * instead. A disabled or failed plugin has no views to keep.
+ * instead. A plugin that failed to start has no views to keep.
  */
 export function shownReady(view: ShellView, last: ReadyView | undefined): ReadyView | undefined {
   switch (view.kind) {
     case 'ready':
       return view
     case 'unreachable':
-    case 'restarting':
+    case 'notRunning':
     case 'sessionExpired':
       return last
     default:
@@ -83,23 +83,9 @@ export function shownReady(view: ShellView, last: ReadyView | undefined): ReadyV
 export const POLL_INTERVAL_MS = 5000
 
 /**
- * A disabled plugin changes only when someone enables it with the toggle
- * above the panel, and the admin UI does not remount the panel then, so it is
- * still polled, less often.
- */
-export const DISABLED_POLL_INTERVAL_MS = 15_000
-
-/**
  * How long to wait before probing again after showing `view`, or null to stop:
  * an expired session stays expired until the operator logs in again.
  */
 export function pollDelay(view: ShellView): number | null {
-  switch (view.kind) {
-    case 'sessionExpired':
-      return null
-    case 'disabled':
-      return DISABLED_POLL_INTERVAL_MS
-    default:
-      return POLL_INTERVAL_MS
-  }
+  return view.kind === 'sessionExpired' ? null : POLL_INTERVAL_MS
 }

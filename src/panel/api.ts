@@ -158,13 +158,6 @@ export interface InputSuppressionPreview {
 /** What the panel asks of the server; tests substitute their own. */
 export interface PanelApi {
   state(): Promise<PluginState>
-  /**
-   * Whether the plugin is enabled in the server's plugin settings. The
-   * server answers this on the plugin's own route root, whether or not the
-   * plugin is running (signalk-server src/interfaces/plugins.ts, the
-   * router's `GET /`).
-   */
-  pluginEnabled(): Promise<boolean>
   rules(): Promise<RuleEntry[]>
   /** Clears the rule's active alerts and sets its accumulator totals to zero. */
   resetAccumulator(origin: string, slug: string): Promise<RuleEntry>
@@ -261,17 +254,6 @@ export function parseState(body: unknown): PluginState {
     ...(evaluation === undefined ? {} : { evaluation: parseEvaluation(evaluation, '/state') }),
     ...(issues === undefined ? {} : { issues })
   }
-}
-
-/**
- * The server answers `enabledByDefault || options.enabled`, which is undefined
- * for a plugin that was never configured, so JSON leaves the flag out.
- */
-function parseEnabled(body: unknown): boolean {
-  if (!isRecord(body)) throw malformed('the plugin route')
-  if (body.enabled === undefined) return false
-  if (typeof body.enabled !== 'boolean') throw malformed('the plugin route')
-  return body.enabled
 }
 
 /** `{ key: value }`, or nothing when the value is absent, for spreading into an object. */
@@ -651,7 +633,6 @@ export function httpApi(fetchFn: typeof fetch = (input, init) => fetch(input, in
 
   return {
     state: async () => parseState(await request(`${PLUGIN_BASE}/state`)),
-    pluginEnabled: async () => parseEnabled(await request(`${PLUGIN_BASE}/`)),
     rules: async () => parseRules(await request(`${PLUGIN_BASE}/rules`)),
     resetAccumulator: async (origin, slug) => {
       const path = `${ruleRoute(origin, slug)}/reset`

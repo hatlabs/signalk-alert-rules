@@ -64,6 +64,14 @@ describe('plugin', () => {
     expect(plugin.id).toBe('signalk-alert-rules')
   })
 
+  it('has no configuration and points to the webapp where rules are managed', () => {
+    const plugin = createPlugin(new MockServerAPI(true, dir).asServerAPI())
+    expect(plugin.schema).toBeTypeOf('function')
+    const schema = (plugin.schema as () => object)()
+    expect(schema).toMatchObject({ type: 'object', properties: {} })
+    expect(schema).toHaveProperty('description', expect.stringMatching(/Alert Rules webapp/))
+  })
+
   it('starts and stops on a server with the alerts API', async () => {
     const app = new MockServerAPI(true, dir)
     const plugin = createPlugin(app.asServerAPI())
@@ -96,6 +104,18 @@ describe('plugin', () => {
     expect(readdirSync(dir)).toEqual([])
 
     await plugin.stop()
+  })
+
+  it('reports no start error once a plugin whose start failed is stopped', async () => {
+    const app = new MockServerAPI(false, dir)
+    const plugin = createPlugin(app.asServerAPI())
+    const state = stateOf(plugin)
+
+    plugin.start({}, () => undefined)
+    expect((state() as { error?: string }).error).toMatch(/no alerts API/)
+    await plugin.stop()
+
+    expect(state()).toEqual({ running: false, securityEnabled: null })
   })
 
   it('evaluates stored rules every second and leaves their alerts when stopped', async () => {
