@@ -14,6 +14,7 @@ import type { AlertValue, CoreAlert } from '../../src/alerts/emitter.js'
 import { alertPathOf } from '../../src/alerts/paths.js'
 import { serverDeps } from '../../src/alerts/server.js'
 import { RuleRunner, type RunnerDeps } from '../../src/alerts/runner.js'
+import type { Priority } from '../../src/model/rule.js'
 import { validateRule } from '../../src/model/validate.js'
 
 const SERVER = process.env.SKAR_CONTRACT_SERVER
@@ -396,6 +397,104 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
       references: [OIL]
     })
     second.stop()
+  })
+
+  it('a rule with steps escalates its one alert on the same path, resetting acknowledgment, and never lowers it', async () => {
+    const VOLTAGE = 'electrical.batteries.contract.voltage'
+    const validated = validateRule({
+      name: 'Contract voltage low',
+      slug: 'contract-voltage-low',
+      message: 'Contract voltage is low',
+      signal: { path: VOLTAGE },
+      detector: {
+        type: 'sustained',
+        direction: 'below',
+        steps: [
+          { limit: 12.2, priority: 'warning' },
+          { limit: 11.8, priority: 'alarm' }
+        ]
+      }
+    })
+    if (!validated.ok) throw new Error(JSON.stringify(validated.errors))
+    const rule = validated.value
+    const path = 'electrical.batteries.contract.voltageLow'
+    const sent: (AlertValue | null)[] = []
+    const recording: RunnerDeps = {
+      ...deps,
+      send: (to, value) => {
+        if (to === path) sent.push(value)
+        deps.send(to, value)
+      }
+    }
+    const measure = async (value: number) => {
+      running().app.handleMessage('contract-sensor', {
+        updates: [{ values: [{ path: VOLTAGE as never, value }] }]
+      })
+      await until(
+        () => (runner.status(rule.slug)?.instances[0]?.value === value ? true : undefined),
+        `the rule to read ${String(value)}`
+      )
+      runner.tick()
+      await alerts().ingressSettled()
+    }
+    const runner = new RuleRunner(recording, [rule])
+    runner.start()
+
+    await measure(12)
+    const raised = await until(() => alerts().getByPath(path), 'the raise at the first step')
+    expect(raised).toMatchObject({
+      priority: 'warning',
+      condition: true,
+      data: { rule: rule.slug, limit: 12.2 }
+    })
+    await alerts().acknowledge(raised.id, 'contract-test')
+
+    await measure(11.7)
+    expect(alerts().getByPath(path)).toMatchObject({
+      id: raised.id,
+      priority: 'alarm',
+      state: 'unacknowledged',
+      condition: true,
+      data: { rule: rule.slug, limit: 11.8, raisedAt: raised.data?.raisedAt }
+    })
+    await alerts().acknowledge(raised.id, 'contract-test')
+
+    await measure(12)
+    expect(alerts().getByPath(path)).toMatchObject({
+      id: raised.id,
+      priority: 'alarm',
+      state: 'acknowledged',
+      condition: true
+    })
+    expect(sent.map((value) => value?.priority)).toEqual(['warning', 'alarm'])
+    expect(runner.status(rule.slug)?.instances[0]).toMatchObject({ step: 1, priority: 'alarm' })
+    runner.stop()
+  })
+
+  it('a latching raise at a higher priority escalates the held occurrence, and raises anew once it was acknowledged', async () => {
+    const path = 'contract.latching.stepped'
+    const occurrence = (priority: Priority): AlertValue => ({
+      priority,
+      message: 'pump cycling',
+      latching: true
+    })
+    deps.send(path, occurrence('warning'))
+    const first = await until(() => alerts().getByPath(path), 'the first occurrence')
+    await sleep(STAMP_GAP_MS)
+    deps.send(path, occurrence('alarm'))
+    await alerts().ingressSettled()
+    expect(alerts().getByPath(path)).toMatchObject({
+      id: first.id,
+      priority: 'alarm',
+      state: 'unacknowledged'
+    })
+    await alerts().acknowledge(first.id, 'contract-test')
+    deps.send(path, occurrence('emergency'))
+    await alerts().ingressSettled()
+    expect(alerts().getByPath(path)).toMatchObject({
+      priority: 'emergency',
+      state: 'unacknowledged'
+    })
   })
 
   it("a starting runner clears its own orphan and leaves another source's alert at a rule's path", async () => {
