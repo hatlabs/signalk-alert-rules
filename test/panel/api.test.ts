@@ -28,7 +28,6 @@ function fakeFetch(routes: Partial<Record<string, { status?: number; body: unkno
 const runningState = {
   running: true,
   securityEnabled: true,
-  evaluation: { enabled: true, actor: 'admin', at: '2026-09-30T12:00:00.000Z' },
   issues: ['stored rule broken is not valid and does not run: /signal: required']
 }
 
@@ -168,12 +167,11 @@ describe('httpApi', () => {
   })
 
   describe('state', () => {
-    it('reads the state, the evaluation switch and the load issues', async () => {
+    it('reads the state and the load issues', async () => {
       const api = httpApi(fakeFetch({ [`${BASE}/state`]: { body: runningState } }))
       expect(await api.state()).toEqual({
         running: true,
         securityEnabled: true,
-        evaluation: { enabled: true },
         issues: ['stored rule broken is not valid and does not run: /signal: required']
       })
     })
@@ -342,8 +340,6 @@ describe('httpApi', () => {
   })
 
   describe('actions', () => {
-    const answered = { enabled: false, actor: 'admin', at: '2026-09-30T12:00:00.000Z' }
-
     it('resets an accumulator with a JSON request and reads the entry it answers', async () => {
       const fetchFn = fakeFetch({
         [`${BASE}/rules/engine-pack/engine-hours/reset`]: { body: disabledAccumulator }
@@ -364,15 +360,6 @@ describe('httpApi', () => {
       expect(fetchFn).toHaveBeenCalledOnce()
     })
 
-    it('sets the evaluation switch and reads what it answers', async () => {
-      const fetchFn = fakeFetch({ [`${BASE}/evaluation`]: { body: answered } })
-      expect(await httpApi(fetchFn).setEvaluation(false)).toEqual({ enabled: false })
-      const [, init] = fetchFn.mock.calls[0]
-      expect(init?.method).toBe('PUT')
-      expect(init?.body).toBe(JSON.stringify({ enabled: false }))
-      expect(new Headers(init?.headers).get('content-type')).toBe('application/json')
-    })
-
     it('fails with the error the server gives', async () => {
       const api = httpApi(
         fakeFetch({
@@ -389,8 +376,8 @@ describe('httpApi', () => {
 
     it('reports an expired session', async () => {
       const denied = { status: 401, body: { error: 'Unauthorized' } }
-      const api = httpApi(fakeFetch({ [`${BASE}/evaluation`]: denied }))
-      await expect(api.setEvaluation(true)).rejects.toBeInstanceOf(SessionExpiredError)
+      const api = httpApi(fakeFetch({ [`${BASE}/rules/user/x/reset`]: denied }))
+      await expect(api.resetAccumulator('user', 'x')).rejects.toBeInstanceOf(SessionExpiredError)
     })
   })
 

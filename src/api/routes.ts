@@ -108,7 +108,7 @@ export function registerRoutes(router: IRouter, ctx: ApiContext): void {
     res.json({
       running: skar !== undefined,
       ...ctx.state(),
-      ...(skar === undefined ? {} : { evaluation: skar.evaluation, issues: skar.issues })
+      ...(skar === undefined ? {} : { issues: skar.issues })
     })
   })
 
@@ -178,27 +178,6 @@ export function registerRoutes(router: IRouter, ctx: ApiContext): void {
         case 'notAccumulator':
           res.status(400).json({ error: 'only an accumulator rule can be reset' })
       }
-    })
-  )
-
-  router.get(
-    '/evaluation',
-    running((skar, _req, res) => {
-      res.json(skar.evaluation)
-    })
-  )
-
-  router.put(
-    '/evaluation',
-    requireJson,
-    running((skar, req, res) => {
-      const body: unknown = req.body
-      if (!isRecord(body) || typeof body.enabled !== 'boolean') {
-        invalid(res, [{ path: '/enabled', message: 'must be a boolean' }])
-        return
-      }
-      skar.setEvaluation(body.enabled, actorOf(req))
-      res.json(skar.evaluation)
     })
   )
 

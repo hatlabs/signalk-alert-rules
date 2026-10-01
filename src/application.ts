@@ -26,7 +26,6 @@ import { PathPresence, rulePaths } from './rulesets/presence.js'
 import type {
   Checkpoints,
   Controls,
-  EvaluationSwitch,
   InputSuppression,
   LogEntry,
   RuleControl,
@@ -56,7 +55,7 @@ export const AUTO_END_ACTOR = 'auto-end'
 export type NotEvaluatedReason =
   | 'disabled'
   | 'ruleset is disabled'
-  | 'evaluation is off'
+  | 'not started'
   | 'ruleset path missing'
   | 'starts at the next tick'
 
@@ -233,7 +232,9 @@ function notEvaluated(
   issues: string[] = []
 ): NotEvaluatedStatus {
   const badge: NotEvaluatedStatus['badge'] =
-    reason === 'ruleset path missing' || reason === 'starts at the next tick'
+    reason === 'ruleset path missing' ||
+    reason === 'starts at the next tick' ||
+    reason === 'not started'
       ? 'inactive'
       : 'disabled'
   const d = rule.detector
@@ -260,9 +261,9 @@ function stayedClearFor(instances: readonly Pick<RunnerInstanceStatus, 'clearFor
 }
 
 /**
- * SKAR's running state: the stored rules, the evaluation switch, the
- * operator's per-rule controls and input suppressions, the operator action
- * log and, while evaluation is on, the runner evaluating the enabled rules.
+ * SKAR's running state: the stored rules, the operator's per-rule controls
+ * and input suppressions, the operator action log and, once started, the
+ * runner evaluating the enabled rules.
  * Every change is persisted first and then applied to the one rule it
  * concerns, so other rules keep their timers; a change the store fails to
  * write is not applied.
@@ -270,7 +271,6 @@ function stayedClearFor(instances: readonly Pick<RunnerInstanceStatus, 'clearFor
 export class Application {
   /** Problems found while loading or starting and still standing, for the plugin status. */
   readonly issues: string[]
-  private evaluationSwitch: EvaluationSwitch
   private runner: RuleRunner | undefined
   private readonly rulesBySlug = new Map<string, Rule>()
   /** Slugs of stored rule files, loaded or not, so a skipped one can be deleted. */
@@ -280,7 +280,7 @@ export class Application {
   /**
    * Checkpointed totals of rules the runner does not hold: a stored rule that
    * no longer validates, kept until the rule is deleted or saved again, and
-   * every rule's while evaluation is off.
+   * a rule's that is not running, such as a disabled one.
    */
   private readonly retained: Map<string, Accumulated>
   /**
@@ -323,7 +323,6 @@ export class Application {
     this.presence = new PathPresence(deps.subscriptions)
     const contents = store.load()
     this.issues = [...contents.issues]
-    this.evaluationSwitch = contents.evaluation
     this.actions = contents.log
     this.controls = contents.controls
     // A rule file that could not be read is still on disk: a create must not overwrite it.
@@ -351,15 +350,9 @@ export class Application {
     this.unreadable = new Set(contents.unreadableRules)
   }
 
-  get evaluation(): EvaluationSwitch {
-    return this.evaluationSwitch
-  }
-
   /**
    * Loads the rulesets and starts evaluating, adopting the alerts SKAR
-   * already has in core. With evaluation off nothing is evaluated and
-   * nothing is cleared: the alerts were cleared when it was turned off.
-   * A start that throws leaves no subscription behind.
+   * already has in core. A start that throws leaves no subscription behind.
    */
   start(): void {
     try {
@@ -392,7 +385,7 @@ export class Application {
       const rule = origin === USER_ORIGIN ? undefined : this.find(origin, slug)
       if (rule !== undefined) this.present.set(owned.ruleId, pathSet(rule))
     }
-    if (this.evaluationSwitch.enabled) this.startRunner(true)
+    this.startRunner()
   }
 
   /**
@@ -740,8 +733,8 @@ export class Application {
     if (!carries) this.retained.delete(id)
     this.rulesBySlug.set(rule.slug, rule)
     if (this.runner !== undefined && this.control(id).enabled) {
-      // While evaluation is on, only a rule the runner does not hold has a
-      // retained total; the runner takes it over.
+      // Once started, only a rule the runner does not hold has a retained
+      // total; the runner takes it over.
       const retained = this.retained.get(id)
       this.retained.delete(id)
       this.runner.update({ origin: USER_ORIGIN, rule }, retained?.totals)
@@ -869,41 +862,6 @@ export class Application {
       this.checkpoint()
     }
     return 'reset'
-  }
-
-  /**
-   * Turns evaluation off, clearing every alert SKAR owns, or on, starting
-   * every rule from nothing. Accumulator totals are kept either way. Setting
-   * the current value does nothing. Throws when the store cannot write.
-   */
-  setEvaluation(enabled: boolean, actor: string): void {
-    if (enabled === this.evaluationSwitch.enabled) return
-    const at = this.now()
-    const next = { enabled, actor, at }
-    if (enabled) {
-      // Saved only once the runner has started, so a runner that cannot
-      // start leaves evaluation off rather than on with nothing evaluated.
-      this.startRunner(false, () => {
-        this.store.saveEvaluation(next)
-      })
-      this.evaluationSwitch = next
-      this.record({ at, actor, action: 'evaluation', enabled })
-      return
-    }
-    this.store.saveEvaluation(next)
-    this.evaluationSwitch = next
-    const runner = this.runner
-    this.runner = undefined
-    // Evaluation is off even when its alerts cannot be cleared: the runner
-    // is dropped and its totals retained before the clear can throw.
-    try {
-      this.record({ at, actor, action: 'evaluation', enabled })
-    } finally {
-      if (runner !== undefined) {
-        for (const [id, accumulated] of runner.accumulators()) this.retained.set(id, accumulated)
-        runner.clearAll()
-      }
-    }
   }
 
   /**
@@ -1107,12 +1065,11 @@ export class Application {
   }
 
   /**
-   * Starts a runner on the stored rules and, once `commit` has succeeded too,
-   * hands it their retained totals. On a throw from either, nothing changes:
-   * a runner that failed to start holds no totals, so keeping it would let
-   * the next checkpoint drop them.
+   * Starts a runner on the stored rules and hands it their retained totals.
+   * On a throw nothing changes: a runner that failed to start holds no
+   * totals, so keeping it would let the next checkpoint drop them.
    */
-  private startRunner(adopt: boolean, commit?: () => void): void {
+  private startRunner(): void {
     const loaded = this.loaded()
     const ids = new Set(loaded.map(({ origin, rule }) => ruleId(origin, rule.slug)))
     const accumulated = new Map(
@@ -1120,8 +1077,7 @@ export class Application {
     )
     const runner = new RuleRunner(this.deps, loaded, accumulated, this.suppressionsInForce)
     try {
-      runner.start(adopt)
-      commit?.()
+      runner.start()
     } catch (err) {
       runner.stop()
       throw err
@@ -1179,7 +1135,7 @@ export class Application {
     if (origin !== USER_ORIGIN && !this.rulesetEnabled(origin)) {
       return notEvaluated(rule, totals, 'ruleset is disabled')
     }
-    if (this.runner === undefined) return notEvaluated(rule, totals, 'evaluation is off')
+    if (this.runner === undefined) return notEvaluated(rule, totals, 'not started')
     const missing = this.missingPaths(id, rule).map((path) => `path ${path} has not been seen`)
     // Its paths have appeared since the last tick, which starts it.
     if (missing.length === 0) return notEvaluated(rule, totals, 'starts at the next tick')
@@ -1212,7 +1168,7 @@ export class Application {
   }
 
   /**
-   * Whether a rule is to be evaluated while evaluation is on: it is enabled
+   * Whether a rule is to be evaluated: it is enabled
    * and, for a ruleset rule, so is its ruleset and the server has had its paths.
    */
   private shouldRun(origin: string, rule: Rule): boolean {

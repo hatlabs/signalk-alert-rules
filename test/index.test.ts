@@ -195,7 +195,7 @@ describe('plugin', () => {
   it('runs and reports what it could not load', async () => {
     storeRule(hours)
     storeRule({ ...hours, slug: 'genset-hours', priority: 'loud' })
-    writeFileSync(join(dir, 'evaluation.json'), '{')
+    writeFileSync(join(dir, 'accumulators.json'), '{')
     const app = new MockServerAPI(true, dir)
     const plugin = createPlugin(app.asServerAPI())
     plugin.start({}, () => undefined)
@@ -203,7 +203,7 @@ describe('plugin', () => {
     expect(app.pluginError).toBeUndefined()
     expect(app.pluginStatus).toMatch(/^Running; /)
     expect(app.pluginStatus).toMatch(/genset-hours/)
-    expect(app.pluginStatus).toMatch(/evaluation\.json/)
+    expect(app.pluginStatus).toMatch(/accumulators\.json/)
     expect(app.errors).toHaveLength(2)
 
     await plugin.stop()
@@ -266,7 +266,6 @@ describe('plugin', () => {
     expect(state()).toEqual({
       running: true,
       securityEnabled: null,
-      evaluation: { enabled: true },
       issues: []
     })
     app.subscriptionmanager.publish(RPM, 'src', 30)

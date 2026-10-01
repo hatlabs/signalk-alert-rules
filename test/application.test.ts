@@ -287,15 +287,6 @@ describe('application', () => {
       'user.engine-hours': { measure: 'time', totals: { '': 5 } }
     })
   })
-
-  it('exposes the stored evaluation switch', () => {
-    new Store(dir).saveEvaluation({ enabled: false, actor: 'admin', at: '2026-09-30T12:00:00Z' })
-    expect(setup().application.evaluation).toEqual({
-      enabled: false,
-      actor: 'admin',
-      at: '2026-09-30T12:00:00Z'
-    })
-  })
 })
 
 describe('application operator actions', () => {
@@ -303,139 +294,45 @@ describe('application operator actions', () => {
   // Not caution: core drops a cleared caution alert, which the tests read back.
   const shortHours = { ...hours, priority: 'warning', detector: { ...hours.detector, limit: 10 } }
 
-  it('evaluation off clears every alert SKAR owns, stops evaluating and records the actor', () => {
+  it('ignores a stored evaluation switch set to off: start evaluates', () => {
     stored(oil)
-    const core = new FakeAlertsCore()
-    const { application, at } = setup(undefined, core)
+    writeFileSync(join(dir, 'evaluation.json'), JSON.stringify({ enabled: false }))
+    const { at, alerts } = setup()
     at(0, OIL, 0)
     at(5)
-    // An owned alert the emitter does not hold, such as one whose rule's
-    // clear was lost, and another source's alert under the same prefix.
-    core.ingest(PLUGIN, 'rules.user.lost', { priority: 'alarm', message: 'x', latching: false })
-    core.raiseFrom('other-plugin', 'rules.user.foreign')
+    expect(alerts()).toEqual([[OIL_ALERT, true]])
+  })
 
-    application.setEvaluation(false, 'admin')
+  it('start adopts the active alerts SKAR has in core rather than clearing them', () => {
+    stored(oil)
+    const core = new FakeAlertsCore()
+    core.ingest(PLUGIN, OIL_ALERT, { priority: 'alarm', message: oil.message, latching: false })
+    // A clear and re-raise would keep the condition but lose the acknowledgement.
+    core.acknowledge(OIL_ALERT)
+    const { at, alerts } = setup(undefined, core)
+    expect(core.getByPath(OIL_ALERT)).toMatchObject({ condition: true, state: 'acknowledged' })
+    at(0, OIL, 0)
+    at(4)
+    expect(alerts()).toEqual([[OIL_ALERT, true]])
+    expect(core.getByPath(OIL_ALERT)).toMatchObject({ condition: true, state: 'acknowledged' })
+  })
 
-    const active = core.list().filter((a) => a.condition)
-    expect(active.map((a) => a.path)).toEqual(['rules.user.foreign'])
-    expect(application.evaluation).toEqual({ enabled: false, actor: 'admin', at: WALL })
-    expect(new Store(dir).load().evaluation).toEqual(application.evaluation)
-    expect(application.log()).toEqual([
-      { at: WALL, actor: 'admin', action: 'evaluation', enabled: false }
-    ])
-
-    const writes = core.writes
-    at(6, OIL, 0)
-    at(100)
-    expect(core.writes).toBe(writes)
-    expect(application.rules()[0]?.status).toEqual({
-      badge: 'disabled',
-      reason: 'evaluation is off',
-      subLabels: [],
-      issues: [],
-      errors: [],
-      instances: []
+  it('a rule is not evaluated before start, and says so', () => {
+    stored(oil)
+    const server = new MockServerAPI(true, dir, new FakeAlertsCore())
+    const application = new Application(serverDeps(server.asServerAPI(), PLUGIN), new Store(dir))
+    expect(application.rule('user', oil.slug)?.status).toMatchObject({
+      badge: 'inactive',
+      reason: 'not started'
     })
   })
 
-  it("while evaluation is off an accumulator rule's status shows its retained total", () => {
+  it('accumulator totals are kept while a rule is disabled, and edits while disabled keep them', () => {
     stored(hours)
     const { application, at } = setup()
     at(0, RPM, 30)
     at(20)
-    application.setEvaluation(false, 'admin')
-    expect(application.rule('user', 'engine-hours')?.status).toMatchObject({
-      badge: 'disabled',
-      reason: 'evaluation is off',
-      instances: [
-        {
-          badge: 'disabled',
-          reason: 'evaluation is off',
-          subLabels: [],
-          progress: { kind: 'total', total: 20, limit: 1000 }
-        }
-      ]
-    })
-  })
-
-  it('evaluation off stops evaluating and keeps the totals when its alerts cannot be cleared', () => {
-    stored(oil)
-    stored(hours)
-    const core = new FakeAlertsCore()
-    const { application, at } = setup(undefined, core)
-    at(0, OIL, 0)
-    at(0, RPM, 30)
-    at(10)
-    vi.spyOn(core, 'list').mockImplementation(() => {
-      throw new Error('alerts unavailable')
-    })
-
-    expect(() => {
-      application.setEvaluation(false, 'admin')
-    }).toThrow('alerts unavailable')
-    expect(application.evaluation.enabled).toBe(false)
-    expect(new Store(dir).load().evaluation.enabled).toBe(false)
-    expect(application.log()).toEqual([
-      { at: WALL, actor: 'admin', action: 'evaluation', enabled: false }
-    ])
-
-    const writes = core.writes
-    at(11, OIL, 0)
-    at(11, RPM, 30)
-    at(100)
-    expect(core.writes).toBe(writes)
-    expect(application.rules().map((r) => r.status)).toMatchObject([
-      { badge: 'disabled', reason: 'evaluation is off' },
-      { badge: 'disabled', reason: 'evaluation is off' }
-    ])
-    application.checkpoint()
-    const totals: Partial<Checkpoints> = new Store(dir).load().accumulators
-    expect(totals['user.engine-hours']?.totals['']).toBe(10)
-  })
-
-  it('a stored evaluation off is honoured at start: nothing is evaluated or cleared', () => {
-    stored(oil)
-    new Store(dir).saveEvaluation({ enabled: false, actor: 'admin', at: WALL })
-    const core = new FakeAlertsCore()
-    core.ingest(PLUGIN, OIL_ALERT, { priority: 'alarm', message: 'x', latching: false })
-    const writes = core.writes
-    const { at } = setup(undefined, core)
-    at(0, OIL, 0)
-    at(100)
-    expect(core.writes).toBe(writes)
-    expect(core.list().map((a) => [a.path, a.condition])).toEqual([[OIL_ALERT, true]])
-  })
-
-  it('evaluation on starts every rule fresh, clearing rather than adopting an alert core holds', () => {
-    stored(oil)
-    new Store(dir).saveEvaluation({ enabled: false })
-    const core = new FakeAlertsCore()
-    core.ingest(PLUGIN, OIL_ALERT, { priority: 'alarm', message: 'x', latching: false })
-    const { application, at } = setup(undefined, core)
-
-    at(10, OIL, 0)
-    application.setEvaluation(true, 'admin')
-    expect(core.getByPath(OIL_ALERT)?.condition).toBe(false)
-    at(14)
-    expect(core.getByPath(OIL_ALERT)?.condition).toBe(false)
-    at(15)
-    expect(core.getByPath(OIL_ALERT)?.condition).toBe(true)
-    expect(application.log().map((e) => e.action)).toEqual(['evaluation'])
-  })
-
-  it('setting the evaluation switch to its current value changes and records nothing', () => {
-    const { application } = setup()
-    application.setEvaluation(true, 'admin')
-    expect(application.evaluation).toEqual({ enabled: true })
-    expect(application.log()).toEqual([])
-  })
-
-  it('accumulator totals are kept while evaluation is off, and edits while off keep them', () => {
-    stored(hours)
-    const { application, at } = setup()
-    at(0, RPM, 30)
-    at(20)
-    application.setEvaluation(false, 'admin')
+    application.setEnabled('user', hours.slug, false, 'admin')
     at(50)
     expect(
       application.replaceRule(hours.slug, { ...hours, message: 'Service the engine' }).ok
@@ -445,8 +342,8 @@ describe('application operator actions', () => {
       'user.engine-hours': { measure: 'time', totals: { '': 20 } }
     })
 
-    // Turned on at 50 s, the rule starts from the cached value: still running.
-    application.setEvaluation(true, 'admin')
+    // Enabled at 50 s, the rule starts from the cached value: still running.
+    application.setEnabled('user', hours.slug, true, 'admin')
     at(70)
     application.checkpoint()
     expect(new Store(dir).load().accumulators).toEqual({
@@ -454,12 +351,12 @@ describe('application operator actions', () => {
     })
   })
 
-  it('a measure change while evaluation is off drops the total from the store at once', () => {
+  it('a measure change while a rule is disabled drops the total from the store at once', () => {
     stored(hours)
     const { application, at } = setup()
     at(0, RPM, 30)
     at(20)
-    application.setEvaluation(false, 'admin')
+    application.setEnabled('user', hours.slug, false, 'admin')
     application.checkpoint()
     expect(new Store(dir).load().accumulators).toEqual({
       'user.engine-hours': { measure: 'time', totals: { '': 20 } }
@@ -492,12 +389,12 @@ describe('application operator actions', () => {
     expect(alerts()).toEqual([['rules.user.engine-hours', true]])
   })
 
-  it('an accumulator reset while evaluation is off zeroes the retained total', () => {
+  it('an accumulator reset while a rule is disabled zeroes the retained total', () => {
     stored(hours)
     const { application, at } = setup()
     at(0, RPM, 30)
     at(20)
-    application.setEvaluation(false, 'admin')
+    application.setEnabled('user', hours.slug, false, 'admin')
     expect(application.resetAccumulator('user', 'engine-hours', 'admin')).toBe('reset')
     expect(new Store(dir).load().accumulators).toEqual({})
   })
@@ -555,12 +452,15 @@ describe('application operator actions', () => {
 
   it('keeps the most recent log entries, newest first', () => {
     // Hundreds of flushed writes would take seconds.
+    stored(oil)
     const { application } = setup(new Store(dir, { ...fs, fsyncSync: () => undefined }))
-    for (let i = 0; i < LOG_LIMIT + 5; i++) application.setEvaluation(i % 2 === 1, 'admin')
+    for (let i = 0; i < LOG_LIMIT + 5; i++) {
+      application.setEnabled('user', oil.slug, i % 2 === 1, 'admin')
+    }
     const log = application.log()
     expect(log).toHaveLength(LOG_LIMIT)
-    // The last action, the 205th, turned evaluation off.
-    expect(log[0]).toMatchObject({ enabled: false })
+    // The last action, the 205th, disabled the rule.
+    expect(log[0]).toMatchObject({ action: 'disable' })
     expect(new Store(dir).load().log).toHaveLength(LOG_LIMIT)
   })
 
@@ -722,71 +622,6 @@ describe('application accumulator totals across edits', () => {
     expect(total()).toBe(120)
   })
 
-  it('with evaluation off, the replaced rule keeps the total until evaluation is on', () => {
-    stored(brokenHours)
-    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
-    new Store(dir).saveEvaluation({ enabled: false })
-    const { application, at } = setup()
-
-    expect(application.replaceRule(hours.slug, hours).ok).toBe(true)
-    application.checkpoint()
-    expect(total()).toBe(100)
-    application.setEvaluation(true, 'admin')
-    at(0, RPM, 30)
-    at(20)
-    application.checkpoint()
-    expect(total()).toBe(120)
-  })
-
-  it('turning evaluation on when the runner cannot start keeps it off and keeps the totals', () => {
-    stored(hours)
-    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
-    new Store(dir).saveEvaluation({ enabled: false })
-    const core = new FakeAlertsCore()
-    const { application } = setup(new Store(dir), core)
-    const before = readFileSync(join(dir, 'evaluation.json'), 'utf8')
-    vi.spyOn(core, 'list').mockImplementation(() => {
-      throw new Error('alerts unavailable')
-    })
-
-    expect(() => {
-      application.setEvaluation(true, 'admin')
-    }).toThrow('alerts unavailable')
-    expect(application.evaluation.enabled).toBe(false)
-    expect(readFileSync(join(dir, 'evaluation.json'), 'utf8')).toBe(before)
-    expect(application.rules()[0]?.status).toMatchObject({
-      badge: 'disabled',
-      reason: 'evaluation is off'
-    })
-    new Store(dir).saveCheckpoints({})
-    application.checkpoint()
-    expect(total()).toBe(100)
-  })
-
-  it('turning evaluation on when the switch cannot be saved stops the started runner', () => {
-    stored(hours)
-    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
-    new Store(dir).saveEvaluation({ enabled: false })
-    const store = new Store(dir)
-    const { application, at } = setup(store)
-    vi.spyOn(store, 'saveEvaluation').mockImplementation(() => {
-      throw new Error('ENOSPC: no space left on device')
-    })
-
-    expect(() => {
-      application.setEvaluation(true, 'admin')
-    }).toThrow('ENOSPC')
-    expect(application.evaluation.enabled).toBe(false)
-    expect(application.rules()[0]?.status).toMatchObject({
-      badge: 'disabled',
-      reason: 'evaluation is off'
-    })
-    at(0, RPM, 30)
-    at(20)
-    application.checkpoint()
-    expect(total()).toBe(100)
-  })
-
   it('replacing a stored rule that failed validation with another measure drops its total at once', () => {
     stored(brokenHours)
     new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
@@ -885,7 +720,7 @@ describe('application accumulator totals across edits', () => {
     expect(application.previewRule(hours.slug, integral)).toMatchObject({
       value: { discardsTotal: false }
     })
-    application.setEvaluation(false, 'admin')
+    application.setEnabled('user', hours.slug, false, 'admin')
     expect(application.previewRule(hours.slug, integral)).toMatchObject({
       value: { discardsTotal: false }
     })
@@ -908,7 +743,7 @@ describe('application accumulator totals across edits', () => {
       value: { discardsTotal: false }
     })
 
-    application.setEvaluation(false, 'admin')
+    application.setEnabled('user', hours.slug, false, 'admin')
     expect(application.previewRule(hours.slug, integral)).toMatchObject({
       value: { discardsTotal: true }
     })
@@ -1497,13 +1332,6 @@ describe('rule controls', () => {
       expectFrozenHolding(second, 10)
     })
 
-    it('a gate keeps its frozen state across evaluation off and on', () => {
-      const s = frozenRunning()
-      s.application.setEvaluation(false, 'admin')
-      s.application.setEvaluation(true, 'admin')
-      expectFrozenHolding(s, 10)
-    })
-
     it('a gate keeps its frozen state across disable and enable', () => {
       const s = frozenRunning()
       s.application.setEnabled('user', 'coolant-high', false, 'admin')
@@ -1550,9 +1378,9 @@ describe('rule controls', () => {
     it('a gate with no stored state takes one reading and then freezes', () => {
       stored(gatedCoolant)
       const s = setup()
-      s.application.setEvaluation(false, 'admin')
+      s.application.setEnabled('user', 'coolant-high', false, 'admin')
       s.application.suppressInput(RPM, {}, 'admin')
-      s.application.setEvaluation(true, 'admin')
+      s.application.setEnabled('user', 'coolant-high', true, 'admin')
       s.at(1, RPM, 70)
       expectFrozenHolding(s, 2)
     })

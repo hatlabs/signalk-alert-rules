@@ -174,20 +174,20 @@ describe('RuleDetail', () => {
     )
   })
 
-  it('marks a disabled or suppressed rule when the badge does not already say so', () => {
+  it('marks a suppressed rule when the badge does not already say so', () => {
     const { container } = render(
       <RuleDetail
         entry={ruleEntry({
           enabled: false,
           suppression: { since: '2026-09-30T12:00:00.000Z', actor: 'admin' },
-          status: { badge: 'disabled', reason: 'evaluation is off' }
+          status: { badge: 'disabled', reason: 'disabled' }
         })}
         backHref="#/config"
         reset={() => Promise.resolve()}
       />
     )
     const shown = [...container.querySelectorAll('.skar-marker')].map((m) => m.textContent)
-    expect(shown).toEqual(['disabled', 'suppressed'])
+    expect(shown).toEqual(['suppressed'])
   })
 
   it('says values are in SI units', () => {

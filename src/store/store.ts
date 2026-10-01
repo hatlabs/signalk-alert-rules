@@ -26,13 +26,6 @@ export interface StoredRule {
   value: unknown
 }
 
-/** Whether rules are evaluated at all, and who last changed that. */
-export interface EvaluationSwitch {
-  enabled: boolean
-  actor?: string
-  at?: string
-}
-
 /**
  * A rule's accumulator totals by instance segment (`''` for a rule without
  * instances), with the measure they were built under: a rule of another
@@ -103,14 +96,12 @@ export type LogEntry = { at: string; actor: string } & (
   | { action: (typeof RULE_ACTIONS)[number]; rule: string }
   | { action: (typeof SUPPRESSION_ACTIONS)[number]; rule: string }
   | { action: (typeof SUPPRESSION_ACTIONS)[number]; path: string }
-  | { action: 'evaluation'; enabled: boolean }
   | { action: (typeof RULESET_ACTIONS)[number]; ruleset: string }
   | { action: 'rescan' }
 )
 
 export interface StoreContents {
   rules: StoredRule[]
-  evaluation: EvaluationSwitch
   accumulators: Checkpoints
   controls: Controls
   /** Oldest first. */
@@ -122,22 +113,12 @@ export interface StoreContents {
 }
 
 const RULES_DIR = 'rules'
-const EVALUATION_FILE = 'evaluation.json'
 const ACCUMULATORS_FILE = 'accumulators.json'
 const LOG_FILE = 'log.json'
 const CONTROLS_FILE = 'controls.json'
 const JSON_SUFFIX = '.json'
 const TMP_SUFFIX = '.tmp'
 const SLUG = new RegExp(SLUG_PATTERN)
-
-function isEvaluationSwitch(value: unknown): value is EvaluationSwitch {
-  return (
-    isRecord(value) &&
-    typeof value.enabled === 'boolean' &&
-    (value.actor === undefined || typeof value.actor === 'string') &&
-    (value.at === undefined || typeof value.at === 'string')
-  )
-}
 
 function isStoredTotals(value: unknown): value is StoredTotals {
   return (
@@ -238,11 +219,14 @@ function isLogEntry(value: unknown): value is LogEntry {
   if (isOneOf(SUPPRESSION_ACTIONS, value.action)) {
     return typeof value.rule === 'string' || typeof value.path === 'string'
   }
-  return value.action === 'evaluation' && typeof value.enabled === 'boolean'
+  return false
 }
 
-function isLog(value: unknown): value is LogEntry[] {
-  return Array.isArray(value) && value.every(isLogEntry)
+/** An action SKAR does not record, skipped so an older data directory still loads its log. */
+const isRetiredEntry = (value: unknown) => isRecord(value) && value.action === 'evaluation'
+
+function isLog(value: unknown): value is unknown[] {
+  return Array.isArray(value) && value.every((v) => isLogEntry(v) || isRetiredEntry(v))
 }
 
 const anything = (_value: unknown): _value is unknown => true
@@ -257,7 +241,6 @@ function checkSlug(slug: string): void {
  *
  * - `rules/<slug>.json`: one user rule per file, so saving one rule never
  *   rewrites another;
- * - `evaluation.json`: the evaluation switch;
  * - `accumulators.json`: accumulator totals, each with the measure it was
  *   built under, rewritten whole at each checkpoint;
  * - `controls.json`: per-rule enable, note and suppression, input
@@ -309,10 +292,9 @@ export class Store {
     }
     return {
       rules,
-      evaluation: this.read(EVALUATION_FILE, isEvaluationSwitch, issues) ?? { enabled: true },
       accumulators: this.read(ACCUMULATORS_FILE, isCheckpoints, issues) ?? {},
       controls: this.read(CONTROLS_FILE, isControls, issues) ?? { rules: {}, inputs: {} },
-      log: this.read(LOG_FILE, isLog, issues) ?? [],
+      log: (this.read(LOG_FILE, isLog, issues) ?? []).filter(isLogEntry),
       unreadableRules,
       issues
     }
@@ -327,10 +309,6 @@ export class Store {
     checkSlug(slug)
     this.fs.rmSync(join(this.dir, RULES_DIR, slug + JSON_SUFFIX), { force: true })
     this.syncDir(join(this.dir, RULES_DIR))
-  }
-
-  saveEvaluation(evaluation: EvaluationSwitch): void {
-    this.write(EVALUATION_FILE, evaluation)
   }
 
   saveCheckpoints(checkpoints: Checkpoints): void {

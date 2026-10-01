@@ -28,7 +28,6 @@ function fakeApi(server: FakeServer): PanelApi {
     state: () => answer(server.state),
     rules: () => answer(server.rules),
     resetAccumulator: () => Promise.reject(new Error('not expected to be asked')),
-    setEvaluation: () => Promise.reject(new Error('not expected to be asked')),
     ...noAuthoring,
     ...noControls
   }
@@ -37,20 +36,20 @@ function fakeApi(server: FakeServer): PanelApi {
 const rule = ruleEntry()
 
 describe('probe', () => {
-  it('is ready with the rules and the evaluation switch while the plugin runs', async () => {
-    const state = { running: true, securityEnabled: true, evaluation: { enabled: false } }
+  it('is ready with the rules while the plugin runs', async () => {
+    const state = { running: true, securityEnabled: true }
     const snapshot = await probe(fakeApi({ state, rules: [rule] }))
     expect(snapshot).toEqual({
-      view: { kind: 'ready', rules: [rule], evaluationEnabled: false, issues: [] },
+      view: { kind: 'ready', rules: [rule], issues: [] },
       securityEnabled: true
     })
   })
 
   it('carries the problems found while loading into the ready view', async () => {
     const issues = ['stored rule broken is not valid and does not run: /signal: required']
-    const state = { running: true, securityEnabled: true, evaluation: { enabled: true }, issues }
+    const state = { running: true, securityEnabled: true, issues }
     const snapshot = await probe(fakeApi({ state, rules: [] }))
-    expect(snapshot.view).toEqual({ kind: 'ready', rules: [], evaluationEnabled: true, issues })
+    expect(snapshot.view).toEqual({ kind: 'ready', rules: [], issues })
   })
 
   it('is unreachable when /state cannot be fetched', async () => {
@@ -105,9 +104,7 @@ describe('pollDelay', () => {
     expect(pollDelay({ kind: 'notRunning' })).toBe(POLL_INTERVAL_MS)
     expect(pollDelay({ kind: 'unreachable', reason: 'x' })).toBe(POLL_INTERVAL_MS)
     expect(pollDelay({ kind: 'failed', error: 'x' })).toBe(POLL_INTERVAL_MS)
-    expect(pollDelay({ kind: 'ready', rules: [], evaluationEnabled: true, issues: [] })).toBe(
-      POLL_INTERVAL_MS
-    )
+    expect(pollDelay({ kind: 'ready', rules: [], issues: [] })).toBe(POLL_INTERVAL_MS)
   })
 
   it('stops polling once the session has expired', () => {
@@ -116,7 +113,7 @@ describe('pollDelay', () => {
 })
 
 describe('shownReady', () => {
-  const last: ReadyView = { kind: 'ready', rules: [rule], evaluationEnabled: true, issues: [] }
+  const last: ReadyView = { kind: 'ready', rules: [rule], issues: [] }
 
   it('shows a ready view as it is', () => {
     const now: ReadyView = { ...last, rules: [] }

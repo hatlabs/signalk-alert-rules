@@ -20,7 +20,7 @@ import {
   type EmitterDeps
 } from './emitter.js'
 import { ruleId } from './paths.js'
-import { ownedActiveAlert, reconcile } from './reconcile.js'
+import { reconcile } from './reconcile.js'
 import { errorMessage } from '../util.js'
 
 export interface RunnerDeps extends EvaluatorContext, EmitterDeps {
@@ -94,21 +94,13 @@ export class RuleRunner {
     for (const entry of rules) this.entries.set(idOf(entry), entry)
   }
 
-  /**
-   * @param adopt whether active alerts SKAR already has in core are adopted;
-   *   without it they are cleared and every rule starts from nothing.
-   */
-  start(adopt = true): void {
+  start(): void {
     const now = this.deps.clock()
     const rules = new Map([...this.entries].map(([id, e]) => [id, e.rule]))
     const reconciled = reconcile(this.deps.alerts.list(), this.deps.pluginId, rules)
     const { activeByRule } = reconciled
-    const kept = adopt ? reconciled.kept : []
-    const toClear = adopt
-      ? reconciled.toClear
-      : [...reconciled.toClear, ...reconciled.kept.map((k) => k.alert)]
-    for (const alert of toClear) this.deps.send(alert.path, null)
-    for (const { alert, ruleId: id, segment } of kept) {
+    for (const alert of reconciled.toClear) this.deps.send(alert.path, null)
+    for (const { alert, ruleId: id, segment } of reconciled.kept) {
       const rule = this.entries.get(id)?.rule
       if (rule === undefined) continue
       // The segment is the sanitised name; the raise wrote the name itself into data.
@@ -124,8 +116,7 @@ export class RuleRunner {
       )
     }
     for (const [id, entry] of this.entries) {
-      const adopted = adopt ? activeByRule.get(id) : undefined
-      this.startRule(id, entry, adopted, this.accumulated.get(id))
+      this.startRule(id, entry, activeByRule.get(id), this.accumulated.get(id))
     }
   }
 
@@ -205,21 +196,6 @@ export class RuleRunner {
       const path = alertPathFor(entry.origin, entry.rule.slug, instance?.segment)
       if (path.ok) this.emitter.revise(path.value, header(entry.rule, instance?.name, priority))
     }
-  }
-
-  /**
-   * Stops evaluating and clears every active alert SKAR owns: those it
-   * heartbeats, and any other active alert core holds under SKAR's prefix
-   * from SKAR, such as one whose clear was lost. For turning evaluation off;
-   * the runner is not started again.
-   */
-  clearAll(): void {
-    this.stop()
-    const owned = this.deps.alerts
-      .list()
-      .filter((a) => ownedActiveAlert(a, this.deps.pluginId) !== undefined)
-    const cleared = new Set(this.emitter.clearAll())
-    for (const { path } of owned) if (!cleared.has(path)) this.deps.send(path, null)
   }
 
   /** Zeroes an accumulator rule's totals and clears its alerts. */

@@ -311,7 +311,7 @@ An adopted alert ends by its rule's clear criterion or a gate not holding, like 
 
 ### Stopping
 
-Stopping the plugin never clears alerts. Stop runs on every configuration save, enable, disable and server shutdown, and SKAR cannot tell them apart; clearing would re-alert the operator each time. On a server without the alerts API the plugin reports an error and evaluates nothing. To clear all of SKAR's alerts, turn evaluation off through the [REST API](api.md#evaluation-switch).
+Stopping the plugin never clears alerts. Stop runs on every configuration save, enable, disable and server shutdown, and SKAR cannot tell them apart; clearing would re-alert the operator each time. On a server without the alerts API the plugin reports an error and evaluates nothing. Alerts left in core while the plugin is stopped go stale without its heartbeat, and the next start adopts them as [restart reconciliation](#restart-reconciliation) describes, so each rule keeps or clears its alert. To silence an erroneous alert, [suppress](#enable-and-suppression) its rule or input path.
 
 ## Edits
 
@@ -350,7 +350,7 @@ An input suppression names one exact path, without a wildcard. It suppresses, as
 - every combinator rule with the path among its inputs;
 - for a wildcard rule, only the instance whose path it is: suppressing `propulsion.port.oilPressure` suppresses the `port` instance of a rule on `propulsion.*.oilPressure`.
 
-A [gate](#gates) that reads the path is frozen instead: its rule is not suppressed, and the gate keeps the state it had when the suppression started, per rule instance, as the preview below shows it. A gate that held keeps the rule in use; one that did not keeps it out of use. The states are stored with the suppression, so a gate keeps its state across plugin restarts, the evaluation switch, disabling and enabling its rule, and edits that leave its rule's gates as they are. An edit that changes the rule's gates in any way, reordering included, drops the rule's stored states, so no gate inherits another's; deleting the rule drops them too, so a rule re-created under the same name starts without them. A rule instance with no stored state, because its rule was not evaluated when the suppression started, was created after, had its gates edited, or the instance first reported after the suppression started, takes its gate input's first reading and keeps the state that reading gives, without waiting out the gate's `duration`. The stored states go when the suppression ends.
+A [gate](#gates) that reads the path is frozen instead: its rule is not suppressed, and the gate keeps the state it had when the suppression started, per rule instance, as the preview below shows it. A gate that held keeps the rule in use; one that did not keeps it out of use. The states are stored with the suppression, so a gate keeps its state across plugin restarts, disabling and enabling its rule, and edits that leave its rule's gates as they are. An edit that changes the rule's gates in any way, reordering included, drops the rule's stored states, so no gate inherits another's; deleting the rule drops them too, so a rule re-created under the same name starts without them. A rule instance with no stored state, because its rule was not evaluated when the suppression started, was created after, had its gates edited, or the instance first reported after the suppression started, takes its gate input's first reading and keeps the state that reading gives, without waiting out the gate's `duration`. The stored states go when the suppression ends.
 
 An input suppression ends by itself once every rule instance it suppresses directly, those that read the path through their signal, has stayed clear for its `autoEndAfter`, by the same measure as a rule suppression; gated rules do not count. One that suppresses no instance never ends by itself. A rule instance keeps one clear count, shared by every suppression on it: a new suppression, of the rule or of an input it reads, restarts that count, so another suppression's auto-end already counting on the same instance starts over. Each restart delays an auto-end by at most its own `autoEndAfter` and never ends one early. The API can preview, for a path, which rules and instances a suppression would suppress and which gates it would freeze in which state.
 
@@ -415,7 +415,7 @@ The badge is the first of these that applies, most important first:
 
 | Badge | When |
 |---|---|
-| `disabled` | the rule is not evaluated; `reason` is `disabled`, `ruleset is disabled`, or `evaluation is off` while [evaluation](api.md#evaluation-switch) is off |
+| `disabled` | the rule is not evaluated; `reason` is `disabled` or `ruleset is disabled` |
 | `suppressed` | the rule, or the instance's input path, is suppressed; `suppression` gives the scope |
 | `errored` | the rule has an error (rule level only) |
 | `inactive` | the rule cannot evaluate the instance: a ruleset rule whose paths the server has not had (rule level, reason `ruleset path missing`, or `starts at the next tick` once they have appeared), a zone level missing, a timeout rule the server can never time out, a timeout rule on a boolean or string path, an angular combination of an input not in radians, an alert path that would be invalid |
@@ -432,7 +432,7 @@ A rule's badge is `suppressed` when the rule itself is suppressed, else `errored
 - `waitingForClear`: an active alert whose condition is timing its `clearDuration`, or a suppression that ends by itself once the condition has stayed clear.
 - `awaitingInput`: an active alert without input evidence (see [Heartbeat and input evidence](#heartbeat-and-input-evidence)).
 
-A rule that is not evaluated, because it or its ruleset is disabled or evaluation is off, has the `disabled` badge with its reason, no errors or issues, and one instance row per accumulator total it keeps: `badge`, `reason`, `subLabels`, `progress` as `{ "kind": "total", "total", "limit" }`, and for a wildcard rule `instance` with the `segment` only. A ruleset rule waiting for its paths is not evaluated either: it has the `inactive` badge with the reason `ruleset path missing`, one issue per missing path, and the same rows. Between its paths appearing and the next evaluation tick the reason is `starts at the next tick`, with no issues.
+A rule that is not evaluated, because it or its ruleset is disabled, has the `disabled` badge with its reason, no errors or issues, and one instance row per accumulator total it keeps: `badge`, `reason`, `subLabels`, `progress` as `{ "kind": "total", "total", "limit" }`, and for a wildcard rule `instance` with the `segment` only. A ruleset rule waiting for its paths is not evaluated either: it has the `inactive` badge with the reason `ruleset path missing`, one issue per missing path, and the same rows. Between its paths appearing and the next evaluation tick the reason is `starts at the next tick`, with no issues.
 
 ## Worked examples
 

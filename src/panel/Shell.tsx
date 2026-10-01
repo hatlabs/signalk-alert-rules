@@ -3,9 +3,7 @@ import { USER_ORIGIN, type PanelApi, type RuleEntry } from './api'
 import { EditRule } from './editor/EditRule'
 import { RuleEditor } from './editor/RuleEditor'
 import type { PathSource } from './paths/selfPaths'
-import { activeAlerts, ClearAllAlerts } from './rules/ClearAllAlerts'
 import { Confirm } from './rules/Confirm'
-import { EvaluationOffBanner } from './rules/EvaluationOffBanner'
 import { RuleDetail } from './rules/RuleDetail'
 import { hashWithRule, parseRuleFragment, type RuleRef } from './rules/ruleLink'
 import { RulesView } from './rules/RulesView'
@@ -272,7 +270,7 @@ interface ViewsProps {
 type EditorTarget = { kind: 'new' } | { kind: 'edit'; origin: string; slug: string }
 
 function Views({ api, rulesets, view, paths, refresh }: ViewsProps) {
-  const { rules, evaluationEnabled, issues } = view
+  const { rules, issues } = view
   const { units, paths: pathList } = useUnits(paths)
   // The ruleset a rule's detail view opened the Rulesets view on.
   const [shownRuleset, setShownRuleset] = useState<string | undefined>(undefined)
@@ -321,8 +319,6 @@ function Views({ api, rulesets, view, paths, refresh }: ViewsProps) {
       ;(instanceRow.current ?? heading.current)?.focus()
     }
   })
-
-  const [clearedAll, setClearedAll] = useState(false)
 
   const closeEditor = () => {
     setEditor(undefined)
@@ -385,11 +381,6 @@ function Views({ api, rulesets, view, paths, refresh }: ViewsProps) {
   }
 
   const suppression: SuppressContext = { api, rules, paths, done: refresh }
-
-  const setEvaluation = async (enabled: boolean) => {
-    await api.setEvaluation(enabled)
-    refresh()
-  }
 
   const rulesTab = () => {
     if (editor !== undefined) return editorView(editor)
@@ -475,32 +466,12 @@ function Views({ api, rulesets, view, paths, refresh }: ViewsProps) {
             setEditor({ kind: 'new' })
           }}
         />
-        {evaluationEnabled && (
-          <section className="skar-danger-zone" aria-label="All SKAR alerts">
-            <ClearAllAlerts
-              activeAlerts={activeAlerts(rules)}
-              turnOff={async () => {
-                await setEvaluation(false)
-                setClearedAll(true)
-              }}
-            />
-          </section>
-        )}
       </>
     )
   }
 
   return (
     <>
-      {!evaluationEnabled && (
-        <EvaluationOffBanner
-          takeFocus={clearedAll}
-          turnOn={async () => {
-            await setEvaluation(true)
-            setClearedAll(false)
-          }}
-        />
-      )}
       <ul className="nav nav-tabs" role="tablist">
         {TABS.map((t) => (
           <li className="nav-item" key={t.id} role="presentation">
