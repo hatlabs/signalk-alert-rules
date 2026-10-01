@@ -365,9 +365,12 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
       name: 'Oil pressure low',
       slug: 'oil-pressure-low',
       message: 'Engine oil pressure is low',
-      priority: 'alarm',
       signal: { path: OIL },
-      detector: { type: 'sustained', direction: 'below', limit: { kind: 'fixed', value: 100000 } }
+      detector: {
+        type: 'sustained',
+        direction: 'below',
+        steps: [{ limit: 100000, priority: 'alarm' }]
+      }
     })
     if (!validated.ok) throw new Error(JSON.stringify(validated.errors))
     const rules = [validated.value]
@@ -400,9 +403,12 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
       name: 'Fresh water low',
       slug: 'fresh-water-low',
       message: 'Fresh water is low',
-      priority: 'warning',
       signal: { path: 'tanks.freshWater.contract.currentLevel' },
-      detector: { type: 'sustained', direction: 'below', limit: { kind: 'fixed', value: 0.1 } }
+      detector: {
+        type: 'sustained',
+        direction: 'below',
+        steps: [{ limit: 0.1, priority: 'warning' }]
+      }
     })
     if (!validated.ok) throw new Error(JSON.stringify(validated.errors))
     const foreign = 'tanks.freshWater.contract.currentLevelLow'

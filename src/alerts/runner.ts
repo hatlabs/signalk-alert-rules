@@ -7,7 +7,7 @@ import {
   type InstanceStatus,
   type RuleEvent
 } from '../engine/evaluator.js'
-import { priorityOf, type Priority, type Rule } from '../model/rule.js'
+import { firstPriority, type Priority, type Rule } from '../model/rule.js'
 import { statusBadge, type Verdict } from './badge.js'
 import { ruleAlertPath } from '../model/alertPath.js'
 import { instanceAlertPath } from './paths.js'
@@ -102,7 +102,7 @@ export class RuleRunner {
       // priority it holds.
       this.emitter.adopt(
         alert,
-        header(rule, name, priorityOf(rule)),
+        header(rule, name, firstPriority(rule)),
         this.evidence(id, segment ?? ''),
         now
       )

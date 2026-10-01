@@ -73,7 +73,7 @@ export function instanceSummary(entry: RuleEntry): string {
   return `${String(instances.length)} ${noun}: ${parts.join(', ').toLowerCase()}`
 }
 
-function formatNumber(value: number): string {
+export function formatNumber(value: number): string {
   const rounded = Math.abs(value) >= 100 ? value.toFixed(1) : value.toPrecision(4)
   return Number.isInteger(value) ? String(value) : String(Number(rounded))
 }

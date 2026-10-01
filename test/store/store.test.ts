@@ -17,12 +17,11 @@ const oil = valid({
   name: 'Oil pressure low',
   slug: 'oil-pressure-low',
   message: 'Engine oil pressure is low',
-  priority: 'alarm',
   signal: { path: 'propulsion.main.oilPressure' },
   detector: {
     type: 'sustained',
     direction: 'below',
-    limit: { kind: 'fixed', value: 100000 },
+    steps: [{ limit: 100000, priority: 'alarm' }],
     duration: 5
   }
 })

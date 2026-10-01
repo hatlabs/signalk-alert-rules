@@ -82,7 +82,7 @@ export interface RuleInfo {
    * where each instance goes.
    */
   alertPath: string
-  /** Absent for a zone limit, whose levels set the priority. */
+  /** The first step's priority; absent for a zone limit, whose levels set the priority. */
   priority?: string
   detector: { type: string; direction?: string; measure?: string; zoneLevel?: string }
   /** The paths the signal reads; several, with the combinator, for a combined signal. */
@@ -231,6 +231,11 @@ function progressOf(v: unknown): Progress | undefined {
   return undefined
 }
 
+function firstStepPriority(steps: unknown): string | undefined {
+  const first: unknown = Array.isArray(steps) ? steps[0] : undefined
+  return isRecord(first) ? text(first.priority) : undefined
+}
+
 function ruleDisabled(v: unknown): RuleDisabled | undefined {
   if (!isRecord(v) || typeof v.since !== 'string' || typeof v.actor !== 'string') return undefined
   return { since: v.since, actor: v.actor, ...optional('note', text(v.note)) }
@@ -320,7 +325,7 @@ export function parseRuleEntry(body: unknown, what: string): RuleEntry {
     return {
       name: string(v.name),
       alertPath,
-      ...optional('priority', text(v.priority)),
+      ...optional('priority', firstStepPriority(d.steps)),
       detector: {
         type: string(d.type),
         ...optional('direction', text(d.direction)),

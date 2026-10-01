@@ -1,4 +1,4 @@
-import type { Limit, Rule, Signal } from '../model/rule.js'
+import { zoneLimitOf, type Limit, type Rule, type Signal } from '../model/rule.js'
 import { acceptedByCore, fillWildcard } from './paths.js'
 
 /** The most paths core accepts in an alert's `references` (src/api/alerts/description.ts). */
@@ -8,8 +8,8 @@ function signalPaths(signal: Signal): string[] {
   return 'combinator' in signal ? signal.inputs.map((input) => input.path) : [signal.path]
 }
 
-function limitPaths(limit: Limit): string[] {
-  return limit.kind === 'zone' && limit.path !== undefined ? [limit.path] : []
+function limitPaths(limit: Limit | undefined): string[] {
+  return limit?.kind === 'zone' && limit.path !== undefined ? [limit.path] : []
 }
 
 /**
@@ -21,10 +21,9 @@ function limitPaths(limit: Limit): string[] {
  * {@link MAX_REFERENCES} in that order, the input's first.
  */
 export function referencesOf(rule: Rule, instance?: string): string[] {
-  const d = rule.detector
   const paths = [
     ...signalPaths(rule.signal),
-    ...(d.type === 'sustained' || d.type === 'projection' ? limitPaths(d.limit) : []),
+    ...limitPaths(zoneLimitOf(rule)),
     ...(rule.gates ?? []).flatMap((gate) => [
       ...signalPaths(gate.signal),
       ...limitPaths(gate.limit)

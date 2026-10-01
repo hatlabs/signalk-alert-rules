@@ -9,9 +9,8 @@ const voltageLow = {
   rule: {
     name: 'Battery ${instance} voltage low',
     message: 'Battery voltage is low',
-    priority: 'warning',
     signal: { path: 'electrical.batteries.${instance}.voltage' },
-    detector: { type: 'sustained', direction: 'below', limit: { kind: 'fixed', value: 12 } }
+    detector: { type: 'sustained', direction: 'below', steps: [{ limit: 12, priority: 'warning' }] }
   }
 }
 
@@ -100,8 +99,7 @@ describe('validateTemplateSet', () => {
 
   it('reports a template whose rule does not validate, at its place in the set', () => {
     expect(errorsOf(withRule({ detector: { type: 'sustained', direction: 'sideways' } }))).toEqual([
-      { path: '/templates/0/rule/detector/direction', message: 'must be one of: above, below' },
-      { path: '/templates/0/rule/detector/limit', message: 'is required' }
+      { path: '/templates/0/rule/detector/direction', message: 'must be one of: above, below' }
     ])
   })
 

@@ -93,12 +93,15 @@ const notStartedAccumulator = {
     name: 'Engine service due',
     slug: 'engine-hours',
     message: 'Engine service is due',
-    priority: 'caution',
     signal: {
       combinator: 'max',
       inputs: [{ path: 'propulsion.port.revolutions' }, { path: 'propulsion.stbd.revolutions' }]
     },
-    detector: { type: 'accumulator', measure: 'time', limit: 360000 }
+    detector: {
+      type: 'accumulator',
+      measure: 'time',
+      steps: [{ limit: 360000, priority: 'caution' }]
+    }
   },
   status: {
     badge: 'inactive',
@@ -403,7 +406,7 @@ describe('httpApi', () => {
     })
 
     it('carries the field errors of a refused rule', async () => {
-      const errors = [{ path: '/detector/limit/value', message: 'must be a number' }]
+      const errors = [{ path: '/detector/steps/0/limit', message: 'must be a number' }]
       const api = httpApi(
         fakeFetch({
           [`${BASE}/rules`]: { status: 400, body: { error: 'invalid request body', errors } }

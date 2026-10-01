@@ -55,7 +55,6 @@ describe('canonicalSources', () => {
     slug: 'headings-disagree',
     condition: 'headingsDisagree',
     message: 'Compasses disagree',
-    priority: 'warning',
     signal: {
       combinator: 'absDifference',
       angular: true,
@@ -64,7 +63,11 @@ describe('canonicalSources', () => {
         { path: 'navigation.headingMagnetic', source: 'nmea0183.GP' }
       ]
     },
-    detector: { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 0.1 } },
+    detector: {
+      type: 'sustained',
+      direction: 'above',
+      steps: [{ limit: 0.1, priority: 'warning' }]
+    },
     gates: [
       {
         signal: { path: 'navigation.speedOverGround', source: 'can0.10' },

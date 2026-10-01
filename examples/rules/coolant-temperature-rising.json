@@ -2,7 +2,6 @@
   "name": "Coolant temperature rising",
   "slug": "coolant-temperature-rising",
   "message": "Coolant temperature is rising fast on {instance}",
-  "priority": "warning",
   "signal": {
     "path": "propulsion.*.coolantTemperature"
   },
@@ -10,7 +9,12 @@
     "type": "slope",
     "direction": "rising",
     "window": 300,
-    "limit": 0.02
+    "steps": [
+      {
+        "limit": 0.02,
+        "priority": "warning"
+      }
+    ]
   },
   "gates": [
     {

@@ -13,8 +13,7 @@ const base = {
   name: 'r',
   slug: 'r',
   message: 'm',
-  priority: 'warning',
-  detector: { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 1 } }
+  detector: { type: 'sustained', direction: 'above', steps: [{ limit: 1, priority: 'warning' }] }
 }
 
 describe('referencesOf', () => {
@@ -47,9 +46,8 @@ describe('referencesOf', () => {
   })
 
   it("names every input of a combined signal and the zone limit's own path", () => {
-    const { priority: _priority, ...zoned } = base
     const rule = valid({
-      ...zoned,
+      ...base,
       condition: 'diverge',
       signal: {
         combinator: 'difference',
@@ -72,9 +70,8 @@ describe('referencesOf', () => {
   })
 
   it("names a projection's zone limit path after its input, for the instance", () => {
-    const { priority: _priority, ...zoned } = base
     const rule = valid({
-      ...zoned,
+      ...base,
       signal: { path: 'tanks.fuel.*.currentLevel' },
       detector: {
         type: 'projection',

@@ -1,6 +1,7 @@
 import type { SubscriptionManager } from '@signalk/server-api'
 import {
-  priorityOf,
+  firstPriority,
+  LEVEL_PRIORITY,
   zoneLimitOf,
   type Limit,
   type Priority,
@@ -32,6 +33,7 @@ import {
   type SignalValue
 } from './signals.js'
 import { asGiven, canonicalSources, type Canonicalise } from './sourceRefs.js'
+import { stepSpec } from './steps.js'
 import { errorMessage } from '../util.js'
 
 export type { InputState }
@@ -176,7 +178,7 @@ type Resolved =
 const STRUCTURAL: {
   [T in DetectorSpec['type']]: (keyof Extract<DetectorSpec, { type: T }>)[]
 } = {
-  match: ['op', 'value'],
+  match: ['op'],
   sustained: ['direction'],
   slope: ['direction'],
   projection: ['direction'],
@@ -193,6 +195,8 @@ function canonical(value: unknown): string {
   )
 }
 
+// A match's values are structural like its operator: re-evaluated in place, an
+// active match of a value no longer listed would hold until the next sample.
 // A zone limit's named level is structural too: re-evaluated in place, an
 // active alert would at once report the new level, which the value may never
 // have entered, while its detector waits out the clear duration. The alert
@@ -205,7 +209,10 @@ function structure(rule: Rule): Record<string, unknown> {
     signal: rule.signal,
     gates: rule.gates ?? [],
     latching: rule.latching ?? false,
+    'detector.limit': zoneLimitOf(rule) === undefined ? 'steps' : 'zone',
     'detector.limit.level': zoneLimitOf(rule)?.level,
+    'detector.steps.value':
+      rule.detector.type === 'match' ? rule.detector.steps.map((s) => s.value) : undefined,
     ...Object.fromEntries(
       Object.entries(rule.detector)
         .filter(([key]) => fields.includes(key))
@@ -222,7 +229,12 @@ export function structuralChanges(current: Rule, next: Rule): string[] {
   const a = structure(current)
   const b = structure(next)
   const parts = new Set([...Object.keys(a), ...Object.keys(b)])
-  return [...parts].filter((part) => canonical(a[part]) !== canonical(b[part]))
+  const changes = [...parts].filter((part) => canonical(a[part]) !== canonical(b[part]))
+  // Steps have no zone level, so a switch between kinds changes the level too;
+  // it is one change.
+  return changes.includes('detector.limit')
+    ? changes.filter((part) => part !== 'detector.limit.level')
+    : changes
 }
 
 export function isWildcard(signal: Signal): boolean {
@@ -409,7 +421,7 @@ export class RuleEvaluator {
         gates: this.gateStatus(u),
         adopted: u.adoptedAlert,
         level: u.alerting ? u.level : undefined,
-        priority: u.alerting ? priorityOf(this.rule, u.level) : undefined,
+        priority: u.alerting ? this.priority(u.level) : undefined,
         inactive: u.inactive,
         conditionPresent: u.present,
         clearedFor: u.present || u.clearedAt === undefined ? undefined : now - u.clearedAt
@@ -509,23 +521,31 @@ export class RuleEvaluator {
 
   private resolve(unit: Unit): Resolved {
     const d = this.rule.detector
-    if (d.type !== 'sustained' && d.type !== 'projection') return { ok: true, spec: d, levels: [] }
+    const zone = zoneLimitOf(this.rule)
+    if (zone === undefined || (d.type !== 'sustained' && d.type !== 'projection')) {
+      const spec = stepSpec(d, 0)
+      // Validation requires a zone limit or at least one step.
+      if (spec === undefined) throw new Error(`rule ${this.rule.slug} has no steps`)
+      const limit = spec.type === 'sustained' || spec.type === 'projection' ? spec.limit : undefined
+      return { ok: true, spec, limit, levels: [] }
+    }
+    const { steps: _steps, limit: _zone, ...rest } = d
     const direction =
       d.type === 'sustained' ? d.direction : d.direction === 'rising' ? 'above' : 'below'
-    const zones = this.zones(d.limit, this.rule.signal, unit.instance)
-    const resolved = resolveLimit(d.limit, direction, zones)
+    const zones = this.zones(zone, this.rule.signal, unit.instance)
+    const resolved = resolveLimit(zone, direction, zones)
     if (!resolved.ok) return resolved
     // Only a sustained rule escalates: a projection's detectors for more severe
     // levels would share its horizon, so a steady trend would set them all at
     // once and the first alert would name a level the value is nowhere near.
     const levels =
-      d.type === 'sustained' && d.limit.kind === 'zone'
-        ? severerLevels(d.limit, direction, zones).map(({ level, value }) => ({
+      rest.type === 'sustained'
+        ? severerLevels(zone, direction, zones).map(({ level, value }) => ({
             level,
-            spec: { ...d, limit: value }
+            spec: { ...rest, limit: value }
           }))
         : []
-    return { ok: true, spec: { ...d, limit: resolved.value }, limit: resolved.value, levels }
+    return { ok: true, spec: { ...rest, limit: resolved.value }, limit: resolved.value, levels }
   }
 
   /** An angular combination of an input the server reports in units other than radians. */
@@ -691,6 +711,10 @@ export class RuleEvaluator {
     unit.present = present
   }
 
+  private priority(level: ZoneLevel | undefined): Priority {
+    return level === undefined ? firstPriority(this.rule) : LEVEL_PRIORITY[level]
+  }
+
   private raise(unit: Unit, level: ZoneLevel | undefined): void {
     unit.alerting = true
     unit.level = level
@@ -698,7 +722,7 @@ export class RuleEvaluator {
     this.onEvent({
       type: 'raise',
       instance: unit.instance,
-      priority: priorityOf(this.rule, level),
+      priority: this.priority(level),
       rule: this.rule,
       value,
       limit: unit.limit
@@ -710,7 +734,7 @@ export class RuleEvaluator {
     this.onEvent({
       type: 'priority',
       instance: unit.instance,
-      priority: priorityOf(this.rule, level)
+      priority: this.priority(level)
     })
   }
 

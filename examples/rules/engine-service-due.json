@@ -2,7 +2,6 @@
   "name": "Engine service due",
   "slug": "engine-service-due",
   "message": "Engine service is due",
-  "priority": "caution",
   "signal": {
     "path": "propulsion.main.revolutions"
   },
@@ -13,6 +12,11 @@
       "op": "above",
       "value": 0
     },
-    "limit": 900000
+    "steps": [
+      {
+        "limit": 900000,
+        "priority": "caution"
+      }
+    ]
   }
 }

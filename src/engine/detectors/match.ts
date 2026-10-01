@@ -1,5 +1,5 @@
 import { Stopwatch } from '../clock.js'
-import type { Reading } from '../signals.js'
+import type { Reading, SignalValue } from '../signals.js'
 import {
   ConditionDetector,
   EventWatcher,
@@ -29,9 +29,11 @@ export class MatchDetector extends ConditionDetector<MatchSpec> {
 
   constructor(spec: MatchSpec, options: DetectorOptions) {
     super(spec, options)
+    // A change to any of the step's values is the event, so the watcher
+    // recognises a change and `sample` checks the value it changed to.
     this.events =
       spec.op === 'changesTo' || spec.op === 'decreases'
-        ? new EventWatcher({ op: spec.op, value: spec.value }, false)
+        ? new EventWatcher({ op: spec.op === 'changesTo' ? 'changes' : spec.op }, false)
         : undefined
     if (spec.op === 'timedOut') this.timer.start(options.start)
   }
@@ -41,7 +43,9 @@ export class MatchDetector extends ConditionDetector<MatchSpec> {
       const event = this.events.observe(reading, replayed)
       if (!reading.available) return undefined
       if (this.active) return this.change(false)
-      return event ? 'pulse' : undefined
+      return event && (this.spec.op === 'decreases' || this.isStepValue(reading.value))
+        ? 'pulse'
+        : undefined
     }
     if (!this.seen) {
       this.seen = true
@@ -72,11 +76,15 @@ export class MatchDetector extends ConditionDetector<MatchSpec> {
 
   /** Whether the reading matches, or undefined when it can say nothing. */
   private matches(reading: Reading): boolean | undefined {
-    const { op, value } = this.spec
+    const { op, values } = this.spec
     if (op === 'timedOut') return reading.available ? false : reading.timedOut || undefined
-    if (!reading.available || value === undefined) return undefined
-    const equal = sameValue(reading.value, value)
+    if (!reading.available || values.length === 0) return undefined
+    const equal = this.isStepValue(reading.value)
     return op === 'equals' ? equal : !equal
+  }
+
+  private isStepValue(value: SignalValue): boolean {
+    return this.spec.values.some((v) => sameValue(value, v))
   }
 
   private evaluate(now: number): Transition | undefined {

@@ -2,13 +2,17 @@
   "name": "Depth sensor silent",
   "slug": "depth-sensor-silent",
   "message": "No depth data",
-  "priority": "warning",
   "signal": {
     "path": "environment.depth.belowTransducer"
   },
   "detector": {
     "type": "match",
     "op": "timedOut",
+    "steps": [
+      {
+        "priority": "warning"
+      }
+    ],
     "duration": 30
   }
 }

@@ -373,12 +373,11 @@ const oilPressure = valid({
   name: 'Oil pressure low',
   slug: 'oil-pressure-low',
   message: 'Engine oil pressure is low',
-  priority: 'alarm',
   signal: { path: OIL },
   detector: {
     type: 'sustained',
     direction: 'below',
-    limit: { kind: 'fixed', value: 100000 },
+    steps: [{ limit: 100000, priority: 'alarm' }],
     duration: 5
   },
   gates: [
@@ -426,9 +425,8 @@ describe('gates', () => {
       name: 'Bilge high water underway',
       slug: 'bilge-high-water',
       message: 'Bilge water is high',
-      priority: 'alarm',
       signal: { path: HIGH_WATER },
-      detector: { type: 'match', op: 'equals', value: true },
+      detector: { type: 'match', op: 'equals', steps: [{ value: true, priority: 'alarm' }] },
       gates: [
         {
           signal: { path: RPM },
@@ -494,9 +492,12 @@ describe('gates', () => {
       name: 'Genset hours',
       slug: 'genset-hours',
       message: 'Genset service due',
-      priority: 'caution',
       signal: { path: RPM },
-      detector: { type: 'accumulator', measure: 'time', limit: 100 },
+      detector: {
+        type: 'accumulator',
+        measure: 'time',
+        steps: [{ limit: 100, priority: 'caution' }]
+      },
       gates: [
         {
           signal: { path: 'environment.mode' },
@@ -519,9 +520,8 @@ const depthTimeout = valid({
   name: 'Depth sensor silent',
   slug: 'depth-sensor-silent',
   message: 'No depth data',
-  priority: 'warning',
   signal: { path: DEPTH },
-  detector: { type: 'match', op: 'timedOut', duration: 30 }
+  detector: { type: 'match', op: 'timedOut', steps: [{ priority: 'warning' }], duration: 30 }
 })
 
 describe('checks when a path reports', () => {
@@ -532,13 +532,16 @@ describe('checks when a path reports', () => {
     slug: 'compasses-disagree',
     condition: 'compassesDisagree',
     message: 'Compasses disagree',
-    priority: 'caution',
     signal: {
       combinator: 'absDifference',
       angular: true,
       inputs: [{ path: HDG_A }, { path: HDG_B }]
     },
-    detector: { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 0.1 } }
+    detector: {
+      type: 'sustained',
+      direction: 'above',
+      steps: [{ limit: 0.1, priority: 'caution' }]
+    }
   })
 
   it('an angular combination whose input reports units other than radians is inactive', () => {
@@ -665,12 +668,11 @@ describe('wildcard rules', () => {
     name: 'Coolant temperature high',
     slug: 'coolant-high',
     message: 'Coolant temperature is high on {instance}',
-    priority: 'warning',
     signal: { path: 'propulsion.*.coolantTemperature' },
     detector: {
       type: 'sustained',
       direction: 'above',
-      limit: { kind: 'fixed', value: 368 }
+      steps: [{ limit: 368, priority: 'warning' }]
     },
     gates: [
       {
@@ -695,9 +697,8 @@ const engineStopped = valid({
   name: 'Engine stopped',
   slug: 'engine-stopped',
   message: 'Engine {instance} stopped',
-  priority: 'warning',
   signal: { path: 'propulsion.*.state' },
-  detector: { type: 'match', op: 'changesTo', value: 'stopped' }
+  detector: { type: 'match', op: 'changesTo', steps: [{ value: 'stopped', priority: 'warning' }] }
 })
 
 describe('pulses', () => {
@@ -734,7 +735,10 @@ describe('rule edits', () => {
     ],
     [
       'detector type',
-      (r) => ({ ...r, detector: { type: 'match', op: 'equals', value: 0 } }),
+      (r) => ({
+        ...r,
+        detector: { type: 'match', op: 'equals', steps: [{ value: 0, priority: 'alarm' }] }
+      }),
       [OIL, 0, undefined, 'src']
     ],
     [
@@ -760,9 +764,13 @@ describe('rule edits', () => {
       name: 'Bilge pump cycling',
       slug: 'bilge-pump-cycling',
       message: 'Bilge pump is cycling',
-      priority: 'alarm',
       signal: { path: PUMP },
-      detector: { type: 'count', event: { op: 'changesTo', value: true }, window: 600, limit: 1 }
+      detector: {
+        type: 'count',
+        event: { op: 'changesTo', value: true },
+        window: 600,
+        steps: [{ limit: 1, priority: 'alarm' }]
+      }
     })
     const { evaluator, log, at } = setup(pumpCycling)
     at(0, PUMP, true)
@@ -786,13 +794,13 @@ describe('rule edits', () => {
     at(30)
     evaluator.update({
       ...oilPressure,
-      detector: { ...oilPressure.detector, limit: { kind: 'fixed', value: 50000 } }
+      detector: { ...oilPressure.detector, steps: [{ limit: 50000, priority: 'alarm' }] }
     } as Rule)
     expect(log).toEqual([])
     at(31)
     evaluator.update({
       ...oilPressure,
-      detector: { ...oilPressure.detector, limit: { kind: 'fixed', value: -1 } }
+      detector: { ...oilPressure.detector, steps: [{ limit: -1, priority: 'alarm' }] }
     } as Rule)
     expect(log).toEqual([[31, 'clear', '']])
   })
@@ -800,7 +808,10 @@ describe('rule edits', () => {
   it('a priority edit takes effect at the next raise', () => {
     const { evaluator, log, at } = raised()
     at(30)
-    evaluator.update({ ...oilPressure, priority: 'emergency' })
+    evaluator.update({
+      ...oilPressure,
+      detector: { ...oilPressure.detector, steps: [{ limit: 100000, priority: 'emergency' }] }
+    } as Rule)
     expect(log).toEqual([])
     at(40, OIL, 300000)
     at(50, OIL, 0)
@@ -867,9 +878,12 @@ describe('adopted alerts', () => {
       name: 'Coolant temperature high',
       slug: 'coolant-high',
       message: 'Coolant temperature is high on {instance}',
-      priority: 'warning',
       signal: { path: 'propulsion.*.coolantTemperature' },
-      detector: { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 360 } },
+      detector: {
+        type: 'sustained',
+        direction: 'above',
+        steps: [{ limit: 360, priority: 'warning' }]
+      },
       gates: [
         { signal: { path: IGNITION }, direction: 'above', limit: { kind: 'fixed', value: 0.5 } }
       ]
@@ -892,9 +906,12 @@ describe('adopted alerts', () => {
       name: 'Coolant temperature high',
       slug: 'coolant-high',
       message: 'Coolant temperature is high on {instance}',
-      priority: 'warning',
       signal: { path: 'propulsion.*.coolantTemperature' },
-      detector: { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 368 } },
+      detector: {
+        type: 'sustained',
+        direction: 'above',
+        steps: [{ limit: 368, priority: 'warning' }]
+      },
       gates: [
         {
           signal: { path: 'propulsion.*.revolutions' },
@@ -935,9 +952,8 @@ describe('restarts and status', () => {
     name: 'Genset hours',
     slug: 'genset-hours',
     message: 'Genset service due',
-    priority: 'caution',
     signal: { path: RPM },
-    detector: { type: 'accumulator', measure: 'time', limit: 100 }
+    detector: { type: 'accumulator', measure: 'time', steps: [{ limit: 100, priority: 'caution' }] }
   })
 
   const running = (rule: Rule) => {
@@ -1013,7 +1029,11 @@ describe('restarts and status', () => {
     const { at, log, evaluator } = running(genset)
     evaluator.update({
       ...genset,
-      detector: { ...genset.detector, measure: 'integral', limit: 3000 }
+      detector: {
+        ...genset.detector,
+        measure: 'integral',
+        steps: [{ limit: 3000, priority: 'caution' }]
+      }
     } as Rule)
     for (let t = 70; t <= 150; t += 10) at(t, RPM, 30)
     expect(log).toEqual([])
@@ -1026,9 +1046,12 @@ describe('restarts and status', () => {
       name: 'Oil pressure low',
       slug: 'oil-low',
       message: 'Oil pressure low on {instance}',
-      priority: 'alarm',
       signal: { path: 'propulsion.*.oilPressure' },
-      detector: { type: 'sustained', direction: 'below', limit: { kind: 'fixed', value: 100000 } }
+      detector: {
+        type: 'sustained',
+        direction: 'below',
+        steps: [{ limit: 100000, priority: 'alarm' }]
+      }
     })
     const { at, evaluator } = setup(rule)
     at(0, 'propulsion.a b.oilPressure', 300000)
@@ -1086,9 +1109,12 @@ describe('zone changes and adopted gates', () => {
       name: 'Coolant temperature high',
       slug: 'coolant-high',
       message: 'Coolant temperature is high on {instance}',
-      priority: 'warning',
       signal: { path: 'propulsion.*.coolantTemperature' },
-      detector: { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 368 } },
+      detector: {
+        type: 'sustained',
+        direction: 'above',
+        steps: [{ limit: 368, priority: 'warning' }]
+      },
       gates: [
         {
           signal: { path: 'propulsion.*.revolutions' },
@@ -1115,9 +1141,12 @@ describe('zone changes and adopted gates', () => {
       name: 'Coolant temperature high',
       slug: 'coolant-high',
       message: 'Coolant temperature is high on {instance}',
-      priority: 'warning',
       signal: { path: 'propulsion.*.coolantTemperature' },
-      detector: { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 368 } },
+      detector: {
+        type: 'sustained',
+        direction: 'above',
+        steps: [{ limit: 368, priority: 'warning' }]
+      },
       gates: [
         {
           signal: { path: IGNITION },
@@ -1202,7 +1231,7 @@ describe('live status', () => {
   it('reports an accumulator total while its rule is out of use', () => {
     const rule = valid({
       ...oilPressure,
-      detector: { type: 'accumulator', measure: 'time', limit: 100 }
+      detector: { type: 'accumulator', measure: 'time', steps: [{ limit: 100, priority: 'alarm' }] }
     })
     const { at, evaluator } = setup(rule)
     at(0, RPM, 0)
@@ -1363,7 +1392,7 @@ describe('disabled rules', () => {
     const genset = valid({
       ...portOil,
       signal: { path: RPM },
-      detector: { type: 'accumulator', measure: 'time', limit: 100 }
+      detector: { type: 'accumulator', measure: 'time', steps: [{ limit: 100, priority: 'alarm' }] }
     })
     const { at, log, evaluator, setDisabled } = setup(genset)
     at(0, RPM, 30)

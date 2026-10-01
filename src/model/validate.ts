@@ -331,16 +331,16 @@ function eventErrors(event: Event, at: string): ValidationError[] {
   return valueRequired(event.op, event.value !== undefined, event.op === 'changesTo', at)
 }
 
+const STEPS_AT = '/detector/steps'
+
 function detectorErrors(rule: Rule, wildcard: string | undefined): ValidationError[] {
   const d = rule.detector
   const at = '/detector'
   switch (d.type) {
     case 'match': {
-      const errors = valueRequired(
-        d.op,
-        d.value !== undefined,
-        ['equals', 'notEquals', 'changesTo'].includes(d.op),
-        at
+      const takesValue = ['equals', 'notEquals', 'changesTo'].includes(d.op)
+      const errors = d.steps.flatMap((step, i) =>
+        valueRequired(d.op, step.value !== undefined, takesValue, pointer(STEPS_AT, i))
       )
       if (d.duration !== undefined && (d.op === 'changesTo' || d.op === 'decreases')) {
         errors.push({
@@ -353,7 +353,9 @@ function detectorErrors(rule: Rule, wildcard: string | undefined): ValidationErr
     }
     case 'sustained':
     case 'projection':
-      return limitErrors(d.limit, rule.signal, pointer(at, 'limit'), wildcard)
+      return d.limit === undefined
+        ? []
+        : limitErrors(d.limit, rule.signal, pointer(at, 'limit'), wildcard)
     case 'accumulator': {
       const errors = d.resetOn ? eventErrors(d.resetOn, pointer(at, 'resetOn')) : []
       if (
@@ -404,21 +406,23 @@ function timeoutTypeErrors(rule: Rule, ctx: ValidationContext): ValidationError[
   return []
 }
 
-// A zone-limit rule's priority comes from its zone levels rather than from the
-// rule: a sustained rule escalates through them, a projection keeps the level
-// it names.
-function priorityErrors(rule: Rule): ValidationError[] {
+// A zone-limit rule's steps, and so its priorities, come from its zone levels:
+// a sustained rule escalates through them, a projection keeps the level it
+// names.
+function stepErrors(rule: Rule): ValidationError[] {
+  const d = rule.detector
   const zoned = zoneLimitOf(rule) !== undefined
-  if (zoned && rule.priority !== undefined) {
-    return [
-      {
-        path: '/priority',
-        message: 'a zone-limit rule takes its priority from the zone level it is in'
-      }
-    ]
+  if (zoned) {
+    return d.steps === undefined
+      ? []
+      : [{ path: STEPS_AT, message: 'a rule has steps or a zone limit, never both' }]
   }
-  if (!zoned && rule.priority === undefined) {
-    return [{ path: '/priority', message: 'a rule without a zone limit needs a priority' }]
+  if (d.steps === undefined || d.steps.length === 0) {
+    const zonable = d.type === 'sustained' || d.type === 'projection'
+    const message = zonable
+      ? 'a rule needs at least one step or a zone limit'
+      : 'a rule needs at least one step'
+    return [{ path: STEPS_AT, message }]
   }
   return []
 }
@@ -449,7 +453,7 @@ function semanticErrors(rule: Rule, ctx: ValidationContext): ValidationError[] {
 
   const errors = [
     ...signalErrors(rule.signal, '/signal', undefined, ctx),
-    ...priorityErrors(rule),
+    ...stepErrors(rule),
     ...latchingErrors(rule),
     ...detectorErrors(rule, bound),
     ...timeoutTypeErrors(rule, ctx)

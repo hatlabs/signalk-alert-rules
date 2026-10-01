@@ -13,11 +13,11 @@ templates:
     rule:
       name: Battery ${instance} voltage low
       message: Battery ${instance} voltage is low
-      priority: warning
       signal:
         path: electrical.batteries.${instance}.voltage
       detector:
         type: sustained
         direction: below
-        limit: { kind: fixed, value: 12 }
+        steps:
+          - { limit: 12, priority: warning }
         duration: 60

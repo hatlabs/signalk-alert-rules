@@ -144,15 +144,17 @@ function notStarted(
   const badge = 'inactive' as const
   const reason = 'not started' as const
   const d = rule.detector
+  // A total's progress runs toward the first step, which raises the alert.
+  const limit = d.type === 'accumulator' ? d.steps[0]?.limit : undefined
   const instances =
-    d.type !== 'accumulator'
+    limit === undefined
       ? []
       : [...(totals ?? [])].map(([segment, total]) => ({
           ...(segment === '' ? {} : { instance: { segment } }),
           badge,
           reason,
           subLabels: [],
-          progress: { kind: 'total' as const, total, limit: d.limit }
+          progress: { kind: 'total' as const, total, limit }
         }))
   return { badge, reason, subLabels: [], issues: [], errors: [], instances }
 }

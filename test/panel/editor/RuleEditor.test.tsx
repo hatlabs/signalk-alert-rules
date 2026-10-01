@@ -367,7 +367,7 @@ describe('RuleEditor, new rule', () => {
     const { api } = renderEditor()
     api.createRule.mockRejectedValueOnce(
       new RuleRejectedError('invalid request body', [
-        { path: '/detector/limit/value', message: 'must be at most 20' }
+        { path: '/detector/steps/0/limit', message: 'must be at most 20' }
       ])
     )
     await pathsLoaded()
@@ -644,6 +644,38 @@ describe('RuleEditor, editing', () => {
       })
       expect(onSaved).not.toHaveBeenCalled()
     })
+  })
+
+  it('lists the steps it cannot edit yet in display units, and keeps them', async () => {
+    const stepped: Rule = {
+      ...battery,
+      detector: {
+        type: 'sustained',
+        direction: 'below',
+        steps: [
+          { limit: 12.2, priority: 'warning' },
+          { limit: 11.8, priority: 'alarm' }
+        ],
+        duration: 60
+      }
+    }
+    const { api } = renderEditor({ entry: active, rule: stepped })
+    await pathsLoaded()
+    const notice = screen.getByText('Then alarm below 11.8 V')
+    expect(notice.closest('.form-text')?.textContent).toContain('the editor cannot change yet')
+    type(textbox('Limit'), '12.4')
+    click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => {
+      expect(api.previewRule).toHaveBeenCalled()
+    })
+    expect(api.previewRule.mock.calls[0]?.[1].detector).toMatchObject({
+      steps: [
+        { limit: 12.4, priority: 'warning' },
+        { limit: 11.8, priority: 'alarm' }
+      ]
+    })
+    click(screen.getByRole('radio', { name: /zone level/i }))
+    expect(screen.queryByText('Then alarm below 11.8 V')).toBeNull()
   })
 
   it('saves an edit applied in place without asking', async () => {

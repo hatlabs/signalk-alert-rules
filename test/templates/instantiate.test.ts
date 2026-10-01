@@ -26,9 +26,8 @@ const voltageLow: Template = {
   rule: {
     name: 'Battery ${instance} voltage low',
     message: 'Battery ${instance} voltage is low',
-    priority: 'warning',
     signal: { path: 'electrical.batteries.${instance}.voltage' },
-    detector: { type: 'sustained', direction: 'below', limit: { kind: 'fixed', value: 12 } }
+    detector: { type: 'sustained', direction: 'below', steps: [{ limit: 12, priority: 'warning' }] }
   }
 }
 
@@ -45,9 +44,12 @@ describe('instantiate', () => {
       name: 'Battery house voltage low',
       slug: 'voltage-low-house',
       message: 'Battery house voltage is low',
-      priority: 'warning',
       signal: { path: 'electrical.batteries.house.voltage' },
-      detector: { type: 'sustained', direction: 'below', limit: { kind: 'fixed', value: 12 } },
+      detector: {
+        type: 'sustained',
+        direction: 'below',
+        steps: [{ limit: 12, priority: 'warning' }]
+      },
       template: {
         set: 'batteries',
         id: 'voltage-low',
@@ -66,7 +68,6 @@ describe('instantiate', () => {
       rule: {
         name: 'Charge imbalance',
         message: 'Charge imbalance',
-        priority: 'caution',
         signal: {
           combinator: 'absDifference',
           inputs: [
@@ -74,7 +75,11 @@ describe('instantiate', () => {
             { path: 'electrical.chargers.${instance}.voltage' }
           ]
         },
-        detector: { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 0.5 } },
+        detector: {
+          type: 'sustained',
+          direction: 'above',
+          steps: [{ limit: 0.5, priority: 'caution' }]
+        },
         gates: [
           {
             signal: { path: 'electrical.batteries.${instance}.current' },
@@ -205,7 +210,7 @@ describe('substitutePlaceholders', () => {
       {
         name: 'Bank ${instance}',
         signal: { path: 'electrical.batteries.${instance}.voltage' },
-        detector: { type: 'match', op: 'equals', value: '${instance}' },
+        detector: { type: 'match', op: 'equals', steps: [{ value: '${instance}' }] },
         gates: [{ signal: { path: '${instance}.${other}' } }]
       },
       (use) => {
@@ -216,7 +221,7 @@ describe('substitutePlaceholders', () => {
     expect(out).toEqual({
       name: 'Bank INSTANCE',
       signal: { path: 'electrical.batteries.INSTANCE.voltage' },
-      detector: { type: 'match', op: 'equals', value: '${instance}' },
+      detector: { type: 'match', op: 'equals', steps: [{ value: '${instance}' }] },
       gates: [{ signal: { path: 'INSTANCE.OTHER' } }]
     })
     expect(uses).toEqual([

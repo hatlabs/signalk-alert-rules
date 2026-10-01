@@ -23,12 +23,11 @@ const oil = {
   name: 'Oil pressure low',
   slug: 'oil-pressure-low',
   message: 'Engine oil pressure is low',
-  priority: 'alarm',
   signal: { path: OIL },
   detector: {
     type: 'sustained',
     direction: 'below',
-    limit: { kind: 'fixed', value: 100000 },
+    steps: [{ limit: 100000, priority: 'alarm' }],
     duration: 5
   }
 }
@@ -36,9 +35,8 @@ const coolant = {
   name: 'Coolant high',
   slug: 'coolant-high',
   message: 'Coolant high on {instance}',
-  priority: 'alarm',
   signal: { path: 'propulsion.*.coolantTemperature' },
-  detector: { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 368 } },
+  detector: { type: 'sustained', direction: 'above', steps: [{ limit: 368, priority: 'alarm' }] },
   gates: [
     {
       signal: { path: 'propulsion.*.revolutions' },
@@ -47,13 +45,14 @@ const coolant = {
     }
   ]
 }
+/** The oil rule with an unknown priority on its step. */
+const loud = { ...oil, detector: { ...oil.detector, steps: [{ limit: 100000, priority: 'loud' }] } }
 const hours = {
   name: 'Engine hours',
   slug: 'engine-hours',
   message: 'Engine service due',
-  priority: 'warning',
   signal: { path: RPM },
-  detector: { type: 'accumulator', measure: 'time', limit: 10 }
+  detector: { type: 'accumulator', measure: 'time', steps: [{ limit: 10, priority: 'warning' }] }
 }
 
 interface Reply {
@@ -219,10 +218,10 @@ describe('REST API', () => {
 
   it('rejects an invalid rule with field-path errors and persists nothing', async () => {
     const h = await serve()
-    const reply = await h.call('POST', '/rules', { ...oil, priority: 'loud' })
+    const reply = await h.call('POST', '/rules', loud)
     expect(reply.status).toBe(400)
     const errors = (reply.body as { errors: { path: string }[] }).errors
-    expect(errors.map((e) => e.path)).toContain('/priority')
+    expect(errors.map((e) => e.path)).toContain('/detector/steps/0/priority')
     expect(existsSync(join(dir, 'rules', 'oil-pressure-low.json'))).toBe(false)
   })
 
@@ -354,7 +353,10 @@ describe('REST API', () => {
     h.mock.subscriptionmanager.publish(OIL, 'src', 0)
     at(5)
 
-    const retyped = { ...oil, detector: { type: 'match', op: 'equals', value: 0 } }
+    const retyped = {
+      ...oil,
+      detector: { type: 'match', op: 'equals', steps: [{ value: 0, priority: 'alarm' }] }
+    }
     const clearing = await h.call('POST', '/rules/oil-pressure-low/preview', retyped)
     expect(clearing.status).toBe(200)
     expect(clearing.body).toMatchObject({
@@ -364,7 +366,10 @@ describe('REST API', () => {
     })
     expect((clearing.body as { changes: string[] }).changes).toContain('detector.type')
 
-    const limit = { ...oil, detector: { ...oil.detector, limit: { kind: 'fixed', value: 90000 } } }
+    const limit = {
+      ...oil,
+      detector: { ...oil.detector, steps: [{ limit: 90000, priority: 'alarm' }] }
+    }
     const inPlace = await h.call('POST', '/rules/oil-pressure-low/preview', limit)
     expect(inPlace.body).toEqual({
       restarts: false,
@@ -373,7 +378,12 @@ describe('REST API', () => {
       clearsActiveAlert: false,
       discardsTotal: false
     })
-    // Neither preview applied anything.
+
+    const { steps: _steps, ...rest } = oil.detector
+    const zoned = { ...oil, detector: { ...rest, limit: { kind: 'zone', level: 'warn' } } }
+    const switched = await h.call('POST', '/rules/oil-pressure-low/preview', zoned)
+    expect(switched.body).toMatchObject({ restarts: true, changes: ['detector.limit'] })
+    // No preview applied anything.
     expect(core(h).getByPath(OIL_ALERT)?.condition).toBe(true)
     expect(new Store(dir).load().rules[0]?.value).toEqual(oil)
   })
@@ -510,7 +520,7 @@ describe('REST API', () => {
       h.call('PUT', '/rules/oil-pressure-low', { ...oil, slug: 'other' }),
       h.call('POST', '/rules/oil-pressure-low/preview', { ...oil, slug: 'other' }),
       h.call('POST', '/rules/oil-pressure-low/reset'),
-      h.call('PUT', '/rules/oil-pressure-low', { ...oil, priority: 'loud' })
+      h.call('PUT', '/rules/oil-pressure-low', loud)
     ])
     expect(statuses.map((r) => r.status)).toEqual([
       404, 404, 404, 404, 404, 404, 409, 400, 400, 400, 400
@@ -707,10 +717,10 @@ describe('templates API', () => {
       '    rule:',
       `      name: ${id} \${instance}`,
       '      message: Battery voltage low',
-      '      priority: warning',
       '      signal:',
       '        path: electrical.batteries.${instance}.voltage',
-      '      detector: { type: sustained, direction: below, limit: { kind: fixed, value: 12 } }'
+      '      detector:',
+      '        { type: sustained, direction: below, steps: [{ limit: 12, priority: warning }] }'
     ]
     writeFileSync(
       join(pkg, 'templates.yaml'),
@@ -771,7 +781,11 @@ describe('templates API', () => {
     // The rule stores the template's name, though it equals the default, so
     // an edit of the detector keeps it.
     expect(made.value.condition).toBe('voltageLow')
-    const above = { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 0 } }
+    const above = {
+      type: 'sustained',
+      direction: 'above',
+      steps: [{ limit: 0, priority: 'warning' }]
+    }
     const flipped = { ...made.value, detector: { ...above, duration: 60 } }
     expect((await h.call('PUT', `/rules/${String(made.value.slug)}`, flipped)).status).toBe(200)
     h.mock.subscriptionmanager.publish('electrical.batteries.house.voltage', 'src', 11)

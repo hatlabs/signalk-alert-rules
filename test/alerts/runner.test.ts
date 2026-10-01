@@ -23,12 +23,11 @@ const oil = valid({
   name: 'Oil pressure low',
   slug: 'oil-pressure-low',
   message: 'Engine oil pressure is low',
-  priority: 'alarm',
   signal: { path: OIL },
   detector: {
     type: 'sustained',
     direction: 'below',
-    limit: { kind: 'fixed', value: 100000 },
+    steps: [{ limit: 100000, priority: 'alarm' }],
     duration: 5,
     hysteresis: 50000,
     clearDuration: 10
@@ -44,9 +43,8 @@ const coolant = valid({
   name: 'Coolant high',
   slug: 'coolant-high',
   message: 'Coolant high on {instance}',
-  priority: 'alarm',
   signal: { path: 'propulsion.*.coolantTemperature' },
-  detector: { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 368 } }
+  detector: { type: 'sustained', direction: 'above', steps: [{ limit: 368, priority: 'alarm' }] }
 })
 const VOLTAGE = 'electrical.batteries.house.voltage'
 const batteryLow = valid({
@@ -74,19 +72,22 @@ const pumpCycling = valid({
   name: 'Bilge pump cycling',
   slug: 'bilge-pump-cycling',
   message: 'Bilge pump is cycling',
-  priority: 'alarm',
   signal: { path: PUMP },
-  detector: { type: 'count', event: { op: 'changesTo', value: true }, window: 60, limit: 1 }
+  detector: {
+    type: 'count',
+    event: { op: 'changesTo', value: true },
+    window: 60,
+    steps: [{ limit: 1, priority: 'alarm' }]
+  }
 })
 const latchingPump = valid({ ...pumpCycling, latching: true })
 const pumpOn = valid({
   name: 'Bilge pump on',
   slug: 'bilge-pump-on',
   message: 'Bilge pump started',
-  priority: 'alarm',
   latching: true,
   signal: { path: PUMP },
-  detector: { type: 'match', op: 'changesTo', value: true }
+  detector: { type: 'match', op: 'changesTo', steps: [{ value: true, priority: 'alarm' }] }
 })
 const BATTERY_ALERT = 'electrical.batteries.house.voltageLow'
 const OIL_ALERT = 'propulsion.main.oilPressureLow'
@@ -239,7 +240,11 @@ describe('rule runner', () => {
     at(0, OIL, 0)
     run(1, 5)
     const raised = sent[0]?.[1]
-    runner.update({ ...oil, message: 'Check the oil', priority: 'emergency' })
+    runner.update({
+      ...oil,
+      message: 'Check the oil',
+      detector: { ...oil.detector, steps: [{ limit: 100000, priority: 'emergency' }] }
+    } as Rule)
     expect(sent).toHaveLength(1)
     run(6, 5 + HEARTBEAT_S)
     expect(sent.at(-1)).toEqual([
@@ -434,9 +439,12 @@ describe('rule runner', () => {
       name: 'Watch not acknowledged',
       slug: 'watch-not-acknowledged',
       message: 'No watch acknowledgement received',
-      priority: 'alarm',
       signal: { path: 'navigation.watch.acknowledged' },
-      detector: { type: 'absence', event: { op: 'changes' }, within: 900 }
+      detector: {
+        type: 'absence',
+        event: { op: 'changes' },
+        steps: [{ within: 900, priority: 'alarm' }]
+      }
     })
     const { run, sent, runner } = setup([watch])
     run(0, 900 + 2 * HEARTBEAT_S)
@@ -450,9 +458,12 @@ describe('rule runner', () => {
       name: 'Watch not acknowledged',
       slug: 'watch-not-acknowledged',
       message: 'No watch acknowledgement received',
-      priority: 'alarm',
       signal: { path: 'navigation.watch.acknowledged' },
-      detector: { type: 'absence', event: { op: 'changes' }, within: 900 }
+      detector: {
+        type: 'absence',
+        event: { op: 'changes' },
+        steps: [{ within: 900, priority: 'alarm' }]
+      }
     })
     const core = new FakeAlertsCore()
     core.ingest(PLUGIN, WATCH_ALERT, {
@@ -471,9 +482,8 @@ describe('rule runner', () => {
       name: 'Depth sensor silent',
       slug: 'depth-sensor-silent',
       message: 'No depth data',
-      priority: 'warning',
       signal: { path: DEPTH },
-      detector: { type: 'match', op: 'timedOut', duration: 30 }
+      detector: { type: 'match', op: 'timedOut', steps: [{ priority: 'warning' }], duration: 30 }
     })
     const { at, run, sent } = setup([depth])
     at(0, DEPTH, 7)
@@ -587,9 +597,12 @@ describe('rule runner', () => {
       name: 'Engine hours',
       slug: 'engine-hours',
       message: 'Engine service due',
-      priority: 'caution',
       signal: { path: 'propulsion.main.revolutions' },
-      detector: { type: 'accumulator', measure: 'time', limit: 100 }
+      detector: {
+        type: 'accumulator',
+        measure: 'time',
+        steps: [{ limit: 100, priority: 'caution' }]
+      }
     })
     const { at, run, runner, sent } = setup([hours, oil], {
       accumulated: new Map([
@@ -613,9 +626,12 @@ describe('rule runner', () => {
         name: 'Engine hours',
         slug: 'engine-hours',
         message: 'Engine service due',
-        priority: 'caution',
         signal: { path: 'propulsion.main.revolutions' },
-        detector: { type: 'accumulator', measure: 'time', limit: 100 }
+        detector: {
+          type: 'accumulator',
+          measure: 'time',
+          steps: [{ limit: 100, priority: 'caution' }]
+        }
       })
     )
     at(0, 'propulsion.main.revolutions', 30)
@@ -646,9 +662,12 @@ describe('rule runner', () => {
       name: 'Tank low',
       slug: 'tank-low',
       message: 'Tank {instance} low',
-      priority: 'warning',
       signal: { path: 'tanks.fuel.*.currentLevel' },
-      detector: { type: 'sustained', direction: 'below', limit: { kind: 'fixed', value: 0.1 } }
+      detector: {
+        type: 'sustained',
+        direction: 'below',
+        steps: [{ limit: 0.1, priority: 'warning' }]
+      }
     })
     const { at, sent, runner } = setup([rule])
     at(0, `tanks.fuel.${'x'.repeat(260)}.currentLevel`, 0.05)
@@ -856,9 +875,12 @@ describe('rule status', () => {
       name: 'Engine hours',
       slug: 'engine-hours',
       message: 'Engine service due',
-      priority: 'caution',
       signal: { path: RPM },
-      detector: { type: 'accumulator', measure: 'time', limit: 100 }
+      detector: {
+        type: 'accumulator',
+        measure: 'time',
+        steps: [{ limit: 100, priority: 'caution' }]
+      }
     })
     const failing = () => {
       const subscriptions = new FakeSubscriptionManager()
@@ -902,7 +924,11 @@ describe('rule status', () => {
       const runner = failing()
       const integral = valid({
         ...hours,
-        detector: { type: 'accumulator', measure: 'integral', limit: 100 }
+        detector: {
+          type: 'accumulator',
+          measure: 'integral',
+          steps: [{ limit: 100, priority: 'caution' }]
+        }
       })
       runner.update(integral)
       expect(runner.accumulators().get(HOURS_ID)?.totals.get('') ?? 0).toBe(0)

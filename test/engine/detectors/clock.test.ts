@@ -6,8 +6,8 @@ import { harness, v } from './harness.js'
 const HOUR = 3600
 
 const specs: DetectorSpec[] = [
-  { type: 'match', op: 'equals', value: 1, duration: 60 },
-  { type: 'match', op: 'timedOut', duration: 60 },
+  { type: 'match', op: 'equals', values: [1], duration: 60 },
+  { type: 'match', op: 'timedOut', values: [], duration: 60 },
   { type: 'sustained', direction: 'above', limit: 0, duration: 60 },
   { type: 'slope', direction: 'rising', window: 60, limit: 0.001 },
   { type: 'projection', direction: 'rising', limit: 10, window: 60, horizon: 60 },

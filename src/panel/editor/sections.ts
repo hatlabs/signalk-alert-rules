@@ -6,6 +6,7 @@ import type { FieldError } from '../api'
 import type { UnitLookup } from '../signalUnits'
 import {
   canLatch,
+  FIRST_STEP,
   isZoneLimited,
   matchTakesDuration,
   matchTakesValue,
@@ -180,6 +181,13 @@ function limitPointers(limit: LimitForm, at: string): string[] {
     : [`${at}/kind`, `${at}/value`]
 }
 
+// A detector's fixed limit is its first step's.
+function detectorLimitPointers(limit: LimitForm): string[] {
+  return limit.kind === 'zone'
+    ? limitPointers(limit, '/detector/limit')
+    : ['/detector/limit/kind', `${FIRST_STEP}/limit`]
+}
+
 function eventPointers(event: EventForm, at: string): string[] {
   return event.op === 'changesTo' ? [`${at}/op`, `${at}/value`] : [`${at}/op`]
 }
@@ -194,25 +202,25 @@ function detectorPointers(d: DetectorForm): string[] {
       return [
         p('type'),
         p('op'),
-        ...(matchTakesValue(d.matchOp) ? [p('value')] : []),
+        ...(matchTakesValue(d.matchOp) ? [`${FIRST_STEP}/value`] : []),
         ...(matchTakesDuration(d.matchOp) ? [p('duration')] : [])
       ]
     case 'sustained':
       return [
         p('type'),
         p('direction'),
-        ...limitPointers(d.limit, p('limit')),
+        ...detectorLimitPointers(d.limit),
         p('duration'),
         p('hysteresis'),
         p('clearDuration')
       ]
     case 'slope':
-      return [p('type'), p('direction'), p('limit'), p('window')]
+      return [p('type'), p('direction'), `${FIRST_STEP}/limit`, p('window')]
     case 'projection':
       return [
         p('type'),
         p('direction'),
-        ...limitPointers(d.limit, p('limit')),
+        ...detectorLimitPointers(d.limit),
         p('window'),
         p('horizon')
       ]
@@ -222,12 +230,12 @@ function detectorPointers(d: DetectorForm): string[] {
         p('measure'),
         ...(d.useWhile ? [p('while/op'), p('while/value')] : []),
         ...(d.useResetOn ? eventPointers(d.resetOn, p('resetOn')) : []),
-        p('limit')
+        `${FIRST_STEP}/limit`
       ]
     case 'count':
-      return [p('type'), ...eventPointers(d.event, p('event')), p('limit'), p('window')]
+      return [p('type'), ...eventPointers(d.event, p('event')), `${FIRST_STEP}/limit`, p('window')]
     case 'absence':
-      return [p('type'), ...eventPointers(d.event, p('event')), p('within')]
+      return [p('type'), ...eventPointers(d.event, p('event')), `${FIRST_STEP}/within`]
   }
 }
 
@@ -238,7 +246,7 @@ export function fieldPointers(form: RuleForm): string[] {
     ...detectorPointers(form.detector),
     ...(canLatch(form.detector) ? ['/latching'] : []),
     '/message',
-    ...(isZoneLimited(form.detector) ? [] : ['/priority']),
+    ...(isZoneLimited(form.detector) ? [] : [`${FIRST_STEP}/priority`]),
     ...form.gates.flatMap((gate, i) => {
       const at = `/gates/${String(i)}`
       return [

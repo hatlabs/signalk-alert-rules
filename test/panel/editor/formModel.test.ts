@@ -53,6 +53,12 @@ function example(slug: string): Rule {
   return JSON.parse(readFileSync(join(EXAMPLES, `${slug}.json`), 'utf8')) as Rule
 }
 
+/** The first step's limit of a rule whose detector has numeric steps. */
+function firstLimit(rule: Rule): number | undefined {
+  const step = rule.detector.steps?.[0]
+  return step !== undefined && 'limit' in step ? step.limit : undefined
+}
+
 const unit = (units: string, formula: string, symbol: string) =>
   displayUnit({ units, displayUnits: { formula, symbol } })
 
@@ -127,33 +133,37 @@ describe('the form model mirrors the rule model', () => {
 
 describe('the condition name of a form', () => {
   const INPUT = 'electrical.batteries.house.voltage'
-  const fixed = { kind: 'fixed', value: 1 } as const
+  const one = [{ limit: 1, priority: 'warning' }] as const
+  const warning = { priority: 'warning' } as const
   const event = { op: 'changes' } as const
   const states: [Detector, string][] = [
-    [{ type: 'sustained', direction: 'above', limit: fixed }, 'voltageHigh'],
-    [{ type: 'sustained', direction: 'below', limit: fixed }, 'voltageLow'],
-    [{ type: 'slope', direction: 'rising', window: 60, limit: 1 }, 'voltageRising'],
-    [{ type: 'slope', direction: 'falling', window: 60, limit: 1 }, 'voltageFalling'],
+    [{ type: 'sustained', direction: 'above', steps: [...one] }, 'voltageHigh'],
+    [{ type: 'sustained', direction: 'below', steps: [...one] }, 'voltageLow'],
+    [{ type: 'slope', direction: 'rising', window: 60, steps: [...one] }, 'voltageRising'],
+    [{ type: 'slope', direction: 'falling', window: 60, steps: [...one] }, 'voltageFalling'],
     [
-      { type: 'projection', direction: 'rising', limit: fixed, window: 60, horizon: 600 },
+      { type: 'projection', direction: 'rising', steps: [...one], window: 60, horizon: 600 },
       'voltageProjectedHigh'
     ],
     [
-      { type: 'projection', direction: 'falling', limit: fixed, window: 60, horizon: 600 },
+      { type: 'projection', direction: 'falling', steps: [...one], window: 60, horizon: 600 },
       'voltageProjectedLow'
     ],
-    [{ type: 'match', op: 'equals', value: 1 }, 'voltageMatch'],
-    [{ type: 'match', op: 'notEquals', value: 1 }, 'voltageMismatch'],
-    [{ type: 'match', op: 'changesTo', value: 1 }, 'voltageChanged'],
-    [{ type: 'match', op: 'decreases' }, 'voltageDecreased'],
-    [{ type: 'match', op: 'timedOut', duration: 60 }, 'voltageTimedOut'],
-    [{ type: 'accumulator', measure: 'time', limit: 3600 }, 'voltageAccumulated'],
-    [{ type: 'count', event, window: 60, limit: 3 }, 'voltageFrequent'],
-    [{ type: 'absence', event, within: 60 }, 'voltageMissing']
+    [{ type: 'match', op: 'equals', steps: [{ ...warning, value: 1 }] }, 'voltageMatch'],
+    [{ type: 'match', op: 'notEquals', steps: [{ ...warning, value: 1 }] }, 'voltageMismatch'],
+    [{ type: 'match', op: 'changesTo', steps: [{ ...warning, value: 1 }] }, 'voltageChanged'],
+    [{ type: 'match', op: 'decreases', steps: [warning] }, 'voltageDecreased'],
+    [{ type: 'match', op: 'timedOut', steps: [warning], duration: 60 }, 'voltageTimedOut'],
+    [
+      { type: 'accumulator', measure: 'time', steps: [{ ...warning, limit: 3600 }] },
+      'voltageAccumulated'
+    ],
+    [{ type: 'count', event, window: 60, steps: [{ ...warning, limit: 3 }] }, 'voltageFrequent'],
+    [{ type: 'absence', event, steps: [{ ...warning, within: 60 }] }, 'voltageMissing']
   ]
 
   it.each(states)('is the default of the detector the form saves: %j', (detector, condition) => {
-    const base = { name: 'r', slug: 'r', message: 'm', priority: 'warning' }
+    const base = { name: 'r', slug: 'r', message: 'm' }
     const result = validateRule({ ...base, signal: { path: INPUT }, detector })
     if (!result.ok) throw new Error(JSON.stringify(result.errors))
     const rule = result.value
@@ -188,7 +198,7 @@ describe('the condition name of a form', () => {
   })
 
   it('loads a stored name, and none for a rule that stores none', () => {
-    const base = { name: 'r', slug: 'r', message: 'm', priority: 'warning' as const }
+    const base = { name: 'r', slug: 'r', message: 'm' }
     const detector = states[1][0]
     const rule: Rule = { ...base, signal: { path: INPUT }, detector }
     expect(fromRule(rule, NO_UNITS).condition).toBe('')
@@ -255,6 +265,78 @@ describe('a rule made from a template', () => {
   })
 })
 
+describe('a rule with escalation steps', () => {
+  const stepped: Rule = {
+    name: 'House voltage low',
+    slug: 'house-voltage-low',
+    message: 'House voltage is low',
+    signal: { path: 'electrical.batteries.house.voltage' },
+    detector: {
+      type: 'sustained',
+      direction: 'below',
+      steps: [
+        { limit: 12.2, priority: 'warning' },
+        { limit: 11.8, priority: 'alarm' }
+      ],
+      duration: 60
+    }
+  }
+  const matching: Rule = {
+    name: 'Inverter fault',
+    slug: 'inverter-fault',
+    message: 'Inverter fault',
+    signal: { path: 'electrical.inverters.main.state' },
+    detector: {
+      type: 'match',
+      op: 'equals',
+      steps: [
+        { value: 'fault', priority: 'warning' },
+        { value: 'critical', priority: 'alarm' }
+      ]
+    }
+  }
+
+  it.each([
+    ['a value limit', stepped],
+    ['a match', matching]
+  ])('round-trips %s with every step', (_, rule) => {
+    expect(saved(fromRule(rule, displayed))).toEqual(rule)
+  })
+
+  it('shows the first step as the limit and priority, keeping the later steps on save', () => {
+    const form = fromRule(stepped, displayed)
+    expect(form.detector.limit.value).toBe('12.2')
+    expect(form.priority).toBe('warning')
+    form.detector.limit.value = '12.4'
+    form.priority = 'caution'
+    expect(saved(form).detector.steps).toEqual([
+      { limit: 12.4, priority: 'caution' },
+      { limit: 11.8, priority: 'alarm' }
+    ])
+  })
+
+  it('drops the later steps once the detector type or match operator changes', () => {
+    const retyped = fromRule(stepped, displayed)
+    retyped.detector.type = 'projection'
+    retyped.detector.trend = 'falling'
+    retyped.detector.window = { amount: '10', unit: 'min' }
+    retyped.detector.horizon = { amount: '1', unit: 'h' }
+    expect(saved(retyped).detector.steps).toEqual([{ limit: 12.2, priority: 'warning' }])
+
+    const reop = fromRule(matching, displayed)
+    reop.detector.matchOp = 'notEquals'
+    expect(saved(reop).detector.steps).toEqual([{ value: 'fault', priority: 'warning' }])
+  })
+
+  it('drops the steps for a zone limit', () => {
+    const form = fromRule(stepped, displayed)
+    form.detector.limit.kind = 'zone'
+    const detector = saved(form).detector
+    expect(detector.steps).toBeUndefined()
+    expect(detector).toMatchObject({ limit: { kind: 'zone', level: 'warn' } })
+  })
+})
+
 describe('unit storage', () => {
   function sustained(path: string, value: string, hysteresis = ''): RuleForm {
     return authored((f) => {
@@ -272,12 +354,12 @@ describe('unit storage', () => {
 
   it('stores 11.8 V as 11.8', () => {
     const rule = saved(sustained('electrical.batteries.house.voltage', '11.8'))
-    expect(rule.detector).toMatchObject({ limit: { kind: 'fixed', value: 11.8 } })
+    expect(rule.detector).toMatchObject({ steps: [{ limit: 11.8, priority: 'warning' }] })
   })
 
   it('stores 95 °C as 368.15 K and a 2 °C hysteresis as 2 K', () => {
     const rule = saved(sustained('propulsion.port.coolantTemperature', '95', '2'))
-    expect(rule.detector).toMatchObject({ limit: { value: 368.15 }, hysteresis: 2 })
+    expect(rule.detector).toMatchObject({ steps: [{ limit: 368.15 }], hysteresis: 2 })
   })
 
   it('stores a 0.5 °C/min slope as the equivalent K/s', () => {
@@ -295,7 +377,7 @@ describe('unit storage', () => {
       type: 'slope',
       direction: 'rising',
       window: 300,
-      limit: expect.closeTo(0.5 / 60, 15) as number
+      steps: [{ limit: expect.closeTo(0.5 / 60, 15) as number, priority: 'warning' }]
     })
   })
 
@@ -311,7 +393,7 @@ describe('unit storage', () => {
       f.detector.window = { amount: '1', unit: 'min' }
     })
     const rule = saved(form)
-    expect(rule.detector).toMatchObject({ limit: 0.01 })
+    expect(rule.detector).toMatchObject({ steps: [{ limit: 0.01 }] })
     expect(fromRule(rule, displayed).detector.slopeLimit).toBe('0.6')
   })
 
@@ -328,7 +410,7 @@ describe('unit storage', () => {
 
     it('stores an integral limit of 10 °C·s as 10 K·s, without the offset', () => {
       const rule = saved(accumulator(() => undefined))
-      expect(rule.detector).toMatchObject({ limit: 10 })
+      expect(rule.detector).toMatchObject({ steps: [{ limit: 10 }] })
       expect(fromRule(rule, displayed).detector.integralLimit).toBe('10')
     })
 
@@ -384,23 +466,23 @@ describe('unit storage', () => {
       name: 'r',
       slug: 'r',
       message: 'm',
-      priority: 'caution',
       signal: { path: 'navigation.headingMagnetic' },
-      detector: { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 0.1 } }
+      detector: {
+        type: 'sustained',
+        direction: 'above',
+        steps: [{ limit: 0.1, priority: 'caution' }]
+      }
     }
     const form = fromRule(rule, displayed)
     expect(form.detector.limit.value).toBe('5.72957795131')
     expect(saved(form)).toEqual(rule)
     form.detector.limit.value = '6'
-    expect((saved(form).detector as { limit: { value: number } }).limit.value).toBeCloseTo(
-      0.10472,
-      5
-    )
+    expect(firstLimit(saved(form))).toBeCloseTo(0.10472, 5)
   })
 
   it('shows a stored limit in the display unit', () => {
     const rule = saved(sustained('environment.outside.temperature', '212'))
-    expect(rule.detector).toMatchObject({ limit: { value: 373.15 } })
+    expect(rule.detector).toMatchObject({ steps: [{ limit: 373.15 }] })
     expect(fromRule(rule, displayed).detector.limit.value).toBe('212')
   })
 
@@ -434,7 +516,10 @@ describe('authoring the worked scenarios', () => {
         { path: 'propulsion.starboard.revolutions' }
       ]
     })
-    expect(rule.detector).toMatchObject({ limit: { kind: 'fixed', value: 3 }, duration: 30 })
+    expect(rule.detector).toMatchObject({
+      steps: [{ limit: 3, priority: 'caution' }],
+      duration: 30
+    })
     expect(validateRule(rule).ok).toBe(true)
   })
 
@@ -465,7 +550,7 @@ describe('authoring the worked scenarios', () => {
         { path: 'navigation.position', source: 'gnss.mast' }
       ]
     })
-    expect((rule.detector as { limit: { value: number } }).limit.value).toBeCloseTo(50.004, 3)
+    expect(firstLimit(rule)).toBeCloseTo(50.004, 3)
     expect(validateRule(rule).ok).toBe(true)
   })
 
@@ -482,7 +567,7 @@ describe('authoring the worked scenarios', () => {
         f.detector.limit.level = 'warn'
       })
     )
-    expect(rule.priority).toBeUndefined()
+    expect(rule.detector).not.toHaveProperty('steps')
     expect(rule.signal).toEqual({ path: 'electrical.batteries.*.voltage' })
     expect(validateRule(rule).ok).toBe(true)
   })
@@ -537,9 +622,9 @@ describe('local checks', () => {
       '/name',
       '/slug',
       '/message',
-      '/priority',
       '/signal/path',
-      '/detector/limit/value'
+      '/detector/steps/0/limit',
+      '/detector/steps/0/priority'
     ])
   })
 
