@@ -1,7 +1,7 @@
 /**
  * The admin UI routes with its own hash (a HashRouter), so the panel's rule
  * reference rides as a second fragment after it:
- * `#/apps/configuration/signalk-alert-rules#rule=<origin>/<slug>`, optionally
+ * `#/e/signalk-alert-rules#rule=<origin>/<slug>`, optionally
  * followed by `&instance=<name>`. The router reads the second fragment as the
  * route's hash and leaves the page mounted.
  */

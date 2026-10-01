@@ -223,20 +223,20 @@ The last 200 actions, newest first, kept in the data directory:
 
 ### Rule links
 
-The configuration panel opens a rule's detail view from a link, such as one an alert carries. The admin UI routes with its own hash, so the rule rides as a second fragment after the panel's route:
+The Alert Rules webapp opens a rule's detail view from a link, such as one an alert carries. The admin UI routes with its own hash, so the rule rides as a second fragment after the webapp's route:
 
 ```
-/admin/#/apps/configuration/signalk-alert-rules#rule=<origin>/<slug>
+/admin/#/e/signalk-alert-rules#rule=<origin>/<slug>
 ```
 
 A link to one instance of a wildcard rule adds the instance:
 
 ```
-/admin/#/apps/configuration/signalk-alert-rules#rule=<origin>/<slug>&instance=<name>
+/admin/#/e/signalk-alert-rules#rule=<origin>/<slug>&instance=<name>
 ```
 
 - `origin`, `slug` and the instance are each percent-encoded as `encodeURIComponent` does. The origin is `user` or a ruleset's slug, so neither it nor the rule's slug contains a `/`.
-- The instance is its name, the path segment the rule's wildcard matched, or its segment in the alert path `alerts.rules.<origin>.<slug>.<instance>`, so a consumer can build the link from an alert's path. The detail view highlights that instance's row, and moves focus to it when the panel is already open.
+- The instance is its name, the path segment the rule's wildcard matched, or its segment in the alert path `alerts.rules.<origin>.<slug>.<instance>`, so a consumer can build the link from an alert's path. The detail view highlights that instance's row, and moves focus to it when the webapp is already open.
 - A link to a rule that is not listed, because it was deleted or no longer validates, shows that the rule was not found. A link to an instance the rule does not have now shows the rule with a notice saying so.
 
 ## Errors
