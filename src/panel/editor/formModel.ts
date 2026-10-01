@@ -17,6 +17,7 @@ import type {
   Priority,
   Rule,
   Signal,
+  TemplateRecord,
   ZoneLevel
 } from '../../model/rule'
 import type { FieldError } from '../api'
@@ -165,6 +166,8 @@ export interface RuleForm {
   detector: DetectorForm
   gates: GateForm[]
   shown: ShownValues
+  /** The template the rule was made from, which the form does not show and an edit keeps. */
+  template?: TemplateRecord
 }
 
 const UNIT_ONE: DisplayUnit = { symbol: '', scale: 1, offset: 0, si: true }
@@ -487,6 +490,7 @@ export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
     latching: rule.latching === true,
     signal,
     detector: d,
+    ...(rule.template === undefined ? {} : { template: rule.template }),
     gates: (rule.gates ?? []).map((g) => gateFrom(g, units, shown)),
     shown
   }
@@ -732,7 +736,8 @@ export function toRule(form: RuleForm, units: UnitLookup): ToRuleResult {
     latching: form.latching && canLatch(form.detector) ? true : undefined,
     signal,
     detector,
-    gates: gates.length > 0 ? gates : undefined
+    gates: gates.length > 0 ? gates : undefined,
+    template: form.template
   }) as Rule
   return { ok: true, rule }
 }

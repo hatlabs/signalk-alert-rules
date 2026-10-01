@@ -131,6 +131,25 @@ describe('worked examples round-trip through the form', () => {
   })
 })
 
+describe('a rule made from a template', () => {
+  it('keeps the template it records through an edit', () => {
+    const template = {
+      set: 'builtin',
+      id: 'battery-voltage-low',
+      version: '1.0.0',
+      pick: { instance: 'house' }
+    }
+    const rule = { ...example('house-battery-low'), template }
+    const form = fromRule(rule, NO_UNITS)
+    form.name = 'House bank low'
+    expect(saved(form, NO_UNITS)).toEqual({ ...rule, name: 'House bank low' })
+  })
+
+  it('records no template on a new rule', () => {
+    expect(emptyForm().template).toBeUndefined()
+  })
+})
+
 describe('unit storage', () => {
   function sustained(path: string, value: string, hysteresis = ''): RuleForm {
     return authored((f) => {
