@@ -56,12 +56,13 @@ const ruleEntry = {
       }
     ]
   },
-  enabled: true,
-  note: 'Sender replaced in spring',
-  suppression: { since: '2026-09-30T12:00:00.000Z', actor: 'admin', autoEndAfter: 600 },
+  disabled: {
+    since: '2026-09-30T12:00:00.000Z',
+    actor: 'admin',
+    note: 'Sender replaced in spring'
+  },
   status: {
-    badge: 'suppressed',
-    suppression: { scope: 'rule', autoEndAfter: 600 },
+    badge: 'disabled',
     subLabels: ['waitingForClear', 'gateInputUnavailable'],
     issues: ['instance x.y was not admitted'],
     errors: [],
@@ -76,16 +77,15 @@ const ruleEntry = {
         progress: { kind: 'timer', toward: 'set', elapsed: 20, target: 60 },
         gates: [{ holds: true, input: 'unavailable' }],
         adopted: false,
-        clearFor: 3,
-        badge: 'suppressed',
-        suppression: { scope: 'rule', autoEndAfter: 600 },
+        conditionPresent: true,
+        badge: 'disabled',
         subLabels: ['waitingForClear', 'gateInputUnavailable']
       }
     ]
   }
 }
 
-/** An accumulator rule that is not evaluated, keeping its total. */
+/** An accumulator rule of a disabled ruleset, which is not evaluated and keeps its total. */
 const disabledAccumulator = {
   origin: 'engine-pack',
   slug: 'engine-hours',
@@ -100,17 +100,16 @@ const disabledAccumulator = {
     },
     detector: { type: 'accumulator', measure: 'time', limit: 360000 }
   },
-  enabled: false,
   status: {
     badge: 'disabled',
-    reason: 'disabled',
+    reason: 'ruleset is disabled',
     subLabels: [],
     issues: [],
     errors: [],
     instances: [
       {
         badge: 'disabled',
-        reason: 'disabled',
+        reason: 'ruleset is disabled',
         subLabels: [],
         progress: { kind: 'total', total: 7200, limit: 360000 }
       }
@@ -214,20 +213,20 @@ describe('httpApi', () => {
           signal: { paths: ['electrical.batteries.*.voltage'] },
           gates: [{ paths: ['electrical.chargers.shore.state'] }]
         },
-        enabled: true,
-        note: 'Sender replaced in spring',
-        suppression: { since: '2026-09-30T12:00:00.000Z', actor: 'admin', autoEndAfter: 600 },
+        disabled: {
+          since: '2026-09-30T12:00:00.000Z',
+          actor: 'admin',
+          note: 'Sender replaced in spring'
+        },
         status: {
-          badge: 'suppressed',
-          suppression: { scope: 'rule', autoEndAfter: 600 },
+          badge: 'disabled',
           subLabels: ['waitingForClear', 'gateInputUnavailable'],
           issues: ['instance x.y was not admitted'],
           errors: [],
           instances: [
             {
               instance: { name: 'house', segment: 'house' },
-              badge: 'suppressed',
-              suppression: { scope: 'rule', autoEndAfter: 600 },
+              badge: 'disabled',
               subLabels: ['waitingForClear', 'gateInputUnavailable'],
               active: false,
               input: 'value',
@@ -252,17 +251,16 @@ describe('httpApi', () => {
           },
           gates: []
         },
-        enabled: false,
         status: {
           badge: 'disabled',
-          reason: 'disabled',
+          reason: 'ruleset is disabled',
           subLabels: [],
           issues: [],
           errors: [],
           instances: [
             {
               badge: 'disabled',
-              reason: 'disabled',
+              reason: 'ruleset is disabled',
               subLabels: [],
               progress: { kind: 'total', total: 7200, limit: 360000 },
               gates: []
@@ -452,154 +450,30 @@ describe('httpApi', () => {
     })
   })
 
-  describe('controls and suppressions', () => {
-    /** A fetch that answers every request with 204 and no body, as the delete routes do. */
-    const noContent = () =>
-      vi.fn<typeof fetch>(() => Promise.resolve(new Response(null, { status: 204 })))
-
-    it('enables or disables a rule and reads the entry it answers', async () => {
+  describe('controls', () => {
+    it('disables a rule with its note and reads the entry it answers', async () => {
       const fetchFn = fakeFetch({
-        [`${BASE}/rules/engine-pack/engine-hours/enabled`]: { body: disabledAccumulator }
+        [`${BASE}/rules/user/house-battery-low/disable`]: { body: ruleEntry }
       })
-      const entry = await httpApi(fetchFn).setEnabled('engine-pack', 'engine-hours', false)
-      expect(entry.enabled).toBe(false)
+      const entry = await httpApi(fetchFn).disableRule('user', 'house-battery-low', 'new sender')
+      expect(entry.disabled?.note).toBe('Sender replaced in spring')
       const [, init] = fetchFn.mock.calls[0]
-      expect(init?.method).toBe('PUT')
-      expect(init?.body).toBe(JSON.stringify({ enabled: false }))
-      expect(new Headers(init?.headers).get('content-type')).toBe('application/json')
-    })
-
-    it('sets a note and reads the entry it answers', async () => {
-      const fetchFn = fakeFetch({
-        [`${BASE}/rules/user/house-battery-low/note`]: { body: ruleEntry }
-      })
-      const entry = await httpApi(fetchFn).setNote('user', 'house-battery-low', 'new sender')
-      expect(entry.note).toBe('Sender replaced in spring')
-      const [, init] = fetchFn.mock.calls[0]
-      expect(init?.method).toBe('PUT')
+      expect(init?.method).toBe('POST')
       expect(init?.body).toBe(JSON.stringify({ note: 'new sender' }))
-    })
-
-    it('lists the suppressions in force', async () => {
-      const body = [
-        {
-          scope: 'input',
-          path: 'propulsion.port.revolutions',
-          since: '2026-09-30T12:05:00.000Z',
-          actor: 'admin',
-          note: 'Tachometer sender faulty'
-        },
-        {
-          scope: 'rule',
-          rule: 'user.oil-pressure-low',
-          origin: 'user',
-          slug: 'oil-pressure-low',
-          since: '2026-09-30T12:00:00.000Z',
-          actor: 'admin',
-          autoEndAfter: 600
-        }
-      ]
-      const api = httpApi(fakeFetch({ [`${BASE}/suppressions`]: { body } }))
-      expect(await api.suppressions()).toEqual(body)
-    })
-
-    it('rejects a suppression without its scope or start', async () => {
-      const api = httpApi(
-        fakeFetch({ [`${BASE}/suppressions`]: { body: [{ scope: 'input', actor: 'admin' }] } })
-      )
-      await expect(api.suppressions()).rejects.toThrow(/unexpected response from/)
-    })
-
-    it('suppresses a rule with the request as the body', async () => {
-      const fetchFn = fakeFetch({
-        [`${BASE}/suppressions/rules/user/house-battery-low`]: { body: ruleEntry }
-      })
-      const entry = await httpApi(fetchFn).suppressRule('user', 'house-battery-low', {
-        autoEndAfter: 600
-      })
-      expect(entry.suppression?.autoEndAfter).toBe(600)
-      const [, init] = fetchFn.mock.calls[0]
-      expect(init?.method).toBe('PUT')
-      expect(init?.body).toBe(JSON.stringify({ autoEndAfter: 600 }))
       expect(new Headers(init?.headers).get('content-type')).toBe('application/json')
     })
 
-    it('suppresses an input path and reads the suppression it answers', async () => {
-      const answered = {
-        scope: 'input',
-        path: 'propulsion.port.revolutions',
-        since: '2026-09-30T12:05:00.000Z',
-        actor: 'admin',
-        note: 'faulty'
-      }
+    it('enables a rule with a bodiless JSON request and reads the entry it answers', async () => {
+      const { disabled: _disabled, ...enabled } = ruleEntry
       const fetchFn = fakeFetch({
-        [`${BASE}/suppressions/inputs/propulsion.port.revolutions`]: { body: answered }
+        [`${BASE}/rules/%40acme%2Frules/house-battery-low/enable`]: { body: enabled }
       })
-      const read = await httpApi(fetchFn).suppressInput('propulsion.port.revolutions', {
-        note: 'faulty'
-      })
-      expect(read).toEqual(answered)
-      expect(fetchFn.mock.calls[0][1]?.body).toBe(JSON.stringify({ note: 'faulty' }))
-    })
-
-    it('ends suppressions with a JSON DELETE that answers no body', async () => {
-      const fetchFn = noContent()
-      const api = httpApi(fetchFn)
-      await api.endRuleSuppression('@acme/rules', 'x')
-      await api.endInputSuppression('propulsion.port.revolutions')
-      expect(fetchFn.mock.calls.map(([url, init]) => [url, init?.method])).toEqual([
-        [`${BASE}/suppressions/rules/%40acme%2Frules/x`, 'DELETE'],
-        [`${BASE}/suppressions/inputs/propulsion.port.revolutions`, 'DELETE']
-      ])
+      const entry = await httpApi(fetchFn).enableRule('@acme/rules', 'house-battery-low')
+      expect(entry.disabled).toBeUndefined()
       const [, init] = fetchFn.mock.calls[0]
+      expect(init?.method).toBe('POST')
+      expect(init?.body).toBeUndefined()
       expect(new Headers(init?.headers).get('content-type')).toBe('application/json')
-    })
-
-    it('previews an input suppression', async () => {
-      const body = {
-        path: 'propulsion.port.revolutions',
-        suppresses: [
-          { rule: 'user.rpm-high', origin: 'user', slug: 'rpm-high' },
-          { rule: 'user.rpm-each', origin: 'user', slug: 'rpm-each', instance: 'port' }
-        ],
-        freezes: [
-          {
-            rule: 'user.coolant-high',
-            origin: 'user',
-            slug: 'coolant-high',
-            gate: 0,
-            states: [{ holds: true }, { instance: 'port', holds: false }]
-          }
-        ]
-      }
-      const api = httpApi(
-        fakeFetch({ [`${BASE}/suppressions/inputs/propulsion.port.revolutions/preview`]: { body } })
-      )
-      expect(await api.previewInputSuppression('propulsion.port.revolutions')).toEqual(body)
-    })
-
-    it('rejects a preview without its lists', async () => {
-      const api = httpApi(
-        fakeFetch({ [`${BASE}/suppressions/inputs/a.b/preview`]: { body: { path: 'a.b' } } })
-      )
-      await expect(api.previewInputSuppression('a.b')).rejects.toThrow(/unexpected response/)
-    })
-
-    it('carries the field errors of a refused suppression', async () => {
-      const api = httpApi(
-        fakeFetch({
-          [`${BASE}/suppressions/inputs/a.*`]: {
-            status: 400,
-            body: {
-              error: 'invalid request body',
-              errors: [{ path: '/path', message: 'must be a path without a wildcard' }]
-            }
-          }
-        })
-      )
-      const refused = await api.suppressInput('a.*', {}).catch((err: unknown) => err)
-      expect(refused).toBeInstanceOf(RuleRejectedError)
-      expect((refused as RuleRejectedError).errors[0]?.message).toMatch(/without a wildcard/)
     })
   })
 })

@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest'
 import type { PathValueState, Value } from '@signalk/server-api'
 import { HEARTBEAT_S, type AlertValue } from '../../src/alerts/emitter.js'
 import { RuleRunner, type LoadedRule } from '../../src/alerts/runner.js'
-import type { ActiveSuppression, Suppressions } from '../../src/engine/suppression.js'
 import type { PathMeta } from '../../src/engine/evaluator.js'
 import type { Rule } from '../../src/model/rule.js'
 import { validateRule } from '../../src/model/validate.js'
@@ -103,7 +102,7 @@ function setup(
     cached?: [string, Value][]
     /** Accumulator totals restored from the store, by rule id and instance segment. */
     accumulated?: Map<string, Map<string, number>>
-    suppressions?: Suppressions
+    disabled?: (id: string) => boolean
   } = {}
 ) {
   const sm = new FakeSubscriptionManager()
@@ -127,7 +126,7 @@ function setup(
     },
     loaded,
     options.accumulated,
-    options.suppressions
+    options.disabled
   )
   for (const [path, value] of options.cached ?? []) sm.publish(path, 'src', value)
   runner.start()
@@ -924,40 +923,27 @@ describe('rule status', () => {
   })
 })
 
-describe('suppression', () => {
-  function controls() {
-    const rules = new Map<string, ActiveSuppression>()
-    const paths = new Map<string, ActiveSuppression>()
-    return {
-      rules,
-      paths,
-      suppressions: {
-        rule: (id: string) => rules.get(id),
-        path: (path: string) => paths.get(path)
-      }
-    }
-  }
+describe('disabled rules', () => {
+  const OIL_ID = 'user.oil-pressure-low'
 
-  it('suppressing a rule clears its alert in core, stops its heartbeat and shows it suppressed', () => {
-    const c = controls()
-    const { at, run, runner, core, sent } = setup([oil], { suppressions: c.suppressions })
+  it('disabling a rule clears its alert in core, stops its heartbeat and shows it disabled', () => {
+    const disabled = new Set<string>()
+    const { at, run, runner, core, sent } = setup([oil], { disabled: (id) => disabled.has(id) })
     at(0, OIL, 0)
     at(5)
     expect(core.getByPath(OIL_ALERT)?.condition).toBe(true)
-    c.rules.set('user.oil-pressure-low', { autoEndAfter: 60 })
-    runner.refresh()
+    disabled.add(OIL_ID)
+    runner.refresh(OIL_ID)
     expect(core.getByPath(OIL_ALERT)?.condition).toBe(false)
     const count = sent.length
     run(6, 100)
     expect(sent).toHaveLength(count)
-    expect(runner.status('user.oil-pressure-low')).toMatchObject({
-      badge: 'suppressed',
-      suppression: { scope: 'rule', autoEndAfter: 60 },
-      subLabels: ['waitingForClear']
-    })
+    const status = runner.status(OIL_ID)
+    expect(status).toMatchObject({ badge: 'disabled' })
+    expect(status?.instances[0]).toMatchObject({ badge: 'disabled', conditionPresent: true })
   })
 
-  it('applying a suppression reaches every rule when one fails to evaluate', () => {
+  it('applying a disable to a rule whose evaluation throws records the error', () => {
     let broken = false
     const meta = {
       get [VOLTAGE](): PathMeta {
@@ -965,45 +951,26 @@ describe('suppression', () => {
         return batteryZones
       }
     }
-    const c = controls()
-    const { at, runner, core } = setup([batteryLow, oil], { meta, suppressions: c.suppressions })
+    const { at, runner } = setup([batteryLow], { meta, disabled: () => broken })
     at(0, VOLTAGE, 12.6)
-    at(0, OIL, 0)
-    at(5)
-    expect(core.getByPath(OIL_ALERT)?.condition).toBe(true)
     broken = true
-    c.rules.set('user.oil-pressure-low', {})
     expect(() => {
-      runner.refresh()
+      runner.refresh('user.house-battery-low')
     }).not.toThrow()
-    expect(core.getByPath(OIL_ALERT)?.condition).toBe(false)
     expect(runner.status('user.house-battery-low')?.errors).toEqual([
       'evaluation failed: meta unreadable'
     ])
   })
 
-  it('ending a suppression raises an alert whose condition holds as a new alert', () => {
-    const c = controls()
-    c.rules.set('user.oil-pressure-low', {})
-    const { at, runner, core } = setup([oil], { suppressions: c.suppressions })
+  it('enabling a rule raises an alert whose condition holds as a new alert', () => {
+    const disabled = new Set([OIL_ID])
+    const { at, runner, core } = setup([oil], { disabled: (id) => disabled.has(id) })
     at(0, OIL, 0)
     at(5)
     expect(core.getByPath(OIL_ALERT)).toBeNull()
-    c.rules.delete('user.oil-pressure-low')
-    runner.refresh()
+    disabled.delete(OIL_ID)
+    runner.refresh(OIL_ID)
     expect(core.getByPath(OIL_ALERT)?.condition).toBe(true)
     expect(core.alertings).toBe(1)
-  })
-
-  it('an input suppression shows only the matching wildcard instance suppressed, below an alert', () => {
-    const c = controls()
-    c.paths.set('propulsion.port.coolantTemperature', {})
-    const { at, runner, core } = setup([coolant], { suppressions: c.suppressions })
-    at(0, 'propulsion.port.coolantTemperature', 400)
-    at(0, 'propulsion.starboard.coolantTemperature', 400)
-    expect(core.getByPath(PORT_ALERT)).toBeNull()
-    const status = runner.status('user.coolant-high')
-    expect(status?.badge).toBe('alertActive')
-    expect(status?.instances.map((i) => i.badge)).toEqual(['suppressed', 'alertActive'])
   })
 })

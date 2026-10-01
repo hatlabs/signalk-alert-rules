@@ -7,7 +7,6 @@ import { instance, ruleEntry } from '../fixtures'
 
 const batteries = ruleEntry({
   slug: 'battery-low',
-  note: 'House bank replaced in spring',
   rule: {
     name: 'Battery low',
     priority: undefined,
@@ -96,9 +95,6 @@ describe('RuleDetail', () => {
     expect(screen.getByRole('definition', { name: /gates/i }).textContent).toBe(
       'electrical.chargers.shore.state'
     )
-    expect(screen.getByRole('definition', { name: /note/i }).textContent).toBe(
-      'House bank replaced in spring'
-    )
     expect(screen.getByText('instance a.b was not admitted')).toBeTruthy()
   })
 
@@ -153,41 +149,25 @@ describe('RuleDetail', () => {
     expect(cell(row, 'Progress').textContent).toBe('2 of 5 events')
   })
 
-  it("shows the rule's suppression with its actor and note", () => {
+  it('shows who disabled the rule, when, and the note', () => {
     renderDetail(
       ruleEntry({
-        suppression: {
+        disabled: {
           since: '2026-09-30T12:00:00.000Z',
           actor: 'skipper',
           note: 'sender being replaced'
         },
-        status: { badge: 'suppressed', suppression: { scope: 'rule' } }
+        status: { badge: 'disabled' }
       })
     )
     const since = '2026-09-30T12:00:00.000Z'
-    const fact = screen.getByRole('definition', { name: /suppressed/i })
+    const fact = screen.getByRole('definition', { name: /disabled/i })
     expect(fact.textContent).toBe(
       `since ${new Date(since).toLocaleString()} by skipper: sender being replaced`
     )
     expect(within(fact).getByText(new Date(since).toLocaleString()).getAttribute('datetime')).toBe(
       since
     )
-  })
-
-  it('marks a suppressed rule when the badge does not already say so', () => {
-    const { container } = render(
-      <RuleDetail
-        entry={ruleEntry({
-          enabled: false,
-          suppression: { since: '2026-09-30T12:00:00.000Z', actor: 'admin' },
-          status: { badge: 'disabled', reason: 'disabled' }
-        })}
-        backHref="#/config"
-        reset={() => Promise.resolve()}
-      />
-    )
-    const shown = [...container.querySelectorAll('.skar-marker')].map((m) => m.textContent)
-    expect(shown).toEqual(['suppressed'])
   })
 
   it('says values are in SI units', () => {

@@ -171,16 +171,16 @@ describe('Shell rule authoring', () => {
     renderShell([battery])
     fireEvent.click(await screen.findByRole('button', { name: 'New rule' }))
     change(await screen.findByRole('combobox', { name: 'Input path' }), 'a.b')
-    fireEvent.click(screen.getByRole('tab', { name: 'Suppressions' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Rulesets' }))
     const dialog = screen.getByRole('alertdialog', { name: /leave the rule form/i })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     expect(screen.getByRole('form', { name: 'New rule' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('tab', { name: 'Suppressions' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Rulesets' }))
     fireEvent.click(
       within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard changes' })
     )
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: 'Suppressions' }).getAttribute('aria-selected')).toBe(
+      expect(screen.getByRole('tab', { name: 'Rulesets' }).getAttribute('aria-selected')).toBe(
         'true'
       )
     })

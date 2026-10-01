@@ -40,9 +40,6 @@ export interface Position {
 /** A signal's value in SI units. */
 export type SignalValue = number | string | boolean | Position
 
-export type SuppressionScope =
-  { scope: 'rule'; autoEndAfter?: number } | { scope: 'input'; path: string; autoEndAfter?: number }
-
 export type Progress =
   | { kind: 'timer'; toward: 'set' | 'clear'; elapsed: number; target: number }
   | { kind: 'events'; count: number; limit: number }
@@ -59,7 +56,6 @@ export interface InstanceStatus {
   instance?: { name?: string; segment: string }
   badge: Badge
   reason?: string
-  suppression?: SuppressionScope
   subLabels: SubLabel[]
   /** Absent on the rows of a rule that is not evaluated. */
   active?: boolean
@@ -75,7 +71,6 @@ export interface InstanceStatus {
 export interface RuleStatus {
   badge: Badge
   reason?: string
-  suppression?: SuppressionScope
   subLabels: SubLabel[]
   errors: string[]
   issues: string[]
@@ -93,11 +88,11 @@ export interface RuleInfo {
   gates: { paths: string[] }[]
 }
 
-export interface RuleSuppression {
+/** Who disabled a rule, when, and why. */
+export interface RuleDisabled {
   since: string
   actor: string
   note?: string
-  autoEndAfter?: number
 }
 
 /** The ruleset that provides a rule, and the package that ships it, if any. */
@@ -114,38 +109,9 @@ export interface RuleEntry {
   /** Present for a ruleset rule only. */
   ruleset?: RuleSource
   rule: RuleInfo
-  enabled: boolean
-  note?: string
-  /** The rule's own suppression; an input suppression shows in the status only. */
-  suppression?: RuleSuppression
+  /** Present while the rule is disabled. */
+  disabled?: RuleDisabled
   status: RuleStatus
-}
-
-/** A suppression in force, as `GET /suppressions` lists it. */
-export type Suppression = RuleSuppression &
-  ({ scope: 'rule'; rule: string; origin: string; slug: string } | { scope: 'input'; path: string })
-
-/** What a suppression request may set; without `autoEndAfter` it ends only by hand. */
-export interface SuppressionRequest {
-  note?: string
-  /** Seconds the condition must stay clear for the suppression to end by itself. */
-  autoEndAfter?: number
-}
-
-/** A rule named by its id and by the origin and slug it is made of. */
-export interface RuleId {
-  rule: string
-  origin: string
-  slug: string
-}
-
-/** `GET /suppressions/inputs/:path/preview`, as docs/api.md describes it. */
-export interface InputSuppressionPreview {
-  path: string
-  /** The rules whose signal reads the path, with the wildcard instance that does. */
-  suppresses: (RuleId & { instance?: string })[]
-  /** Per gate reading the path, the state each instance of its rule would be frozen at. */
-  freezes: (RuleId & { gate: number; states: { instance?: string; holds: boolean }[] })[]
 }
 
 /** What the panel asks of the server; tests substitute their own. */
@@ -162,20 +128,13 @@ export interface PanelApi {
   updateRule(slug: string, rule: Rule): Promise<RuleEntry>
   /** What replacing a user rule would do to its alerts and totals, without doing it. */
   previewRule(slug: string, rule: Rule): Promise<EditPreview>
-  /** Disabling clears the rule's alerts and stops evaluating it; enabling starts it anew. */
-  setEnabled(origin: string, slug: string, enabled: boolean): Promise<RuleEntry>
-  /** An empty note removes it. */
-  setNote(origin: string, slug: string, note: string): Promise<RuleEntry>
-  /** Every suppression in force, newest first. */
-  suppressions(): Promise<Suppression[]>
-  /** Suppresses a rule, replacing a suppression it has; a refused request rejects with RuleRejectedError. */
-  suppressRule(origin: string, slug: string, request: SuppressionRequest): Promise<RuleEntry>
-  endRuleSuppression(origin: string, slug: string): Promise<void>
-  /** Suppresses an exact input path, replacing a suppression it has. */
-  suppressInput(path: string, request: SuppressionRequest): Promise<Suppression>
-  endInputSuppression(path: string): Promise<void>
-  /** What suppressing the path would suppress and freeze, without doing it. */
-  previewInputSuppression(path: string): Promise<InputSuppressionPreview>
+  /**
+   * Disabling clears the rule's alerts and holds back new ones while it keeps
+   * evaluating; an empty note is no note.
+   */
+  disableRule(origin: string, slug: string, note: string): Promise<RuleEntry>
+  /** Enabling raises an alert at once if the rule's condition holds. */
+  enableRule(origin: string, slug: string): Promise<RuleEntry>
 }
 
 /** `POST /rules/user/:slug/preview`, as docs/api.md describes it. */
@@ -252,16 +211,6 @@ const num = (v: unknown) => (typeof v === 'number' ? v : undefined)
 const inputState = (v: unknown): InputState | undefined =>
   v === 'value' || v === 'unavailable' || v === 'neverSeen' ? v : undefined
 
-function suppressionScope(v: unknown): SuppressionScope | undefined {
-  if (!isRecord(v)) return undefined
-  const autoEnd = optional('autoEndAfter', num(v.autoEndAfter))
-  if (v.scope === 'rule') return { scope: 'rule', ...autoEnd }
-  if (v.scope === 'input' && typeof v.path === 'string') {
-    return { scope: 'input', path: v.path, ...autoEnd }
-  }
-  return undefined
-}
-
 function signalValue(v: unknown): SignalValue | undefined {
   if (typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean') return v
   if (isRecord(v) && typeof v.latitude === 'number' && typeof v.longitude === 'number') {
@@ -290,14 +239,9 @@ function progressOf(v: unknown): Progress | undefined {
   return undefined
 }
 
-function ruleSuppression(v: unknown): RuleSuppression | undefined {
+function ruleDisabled(v: unknown): RuleDisabled | undefined {
   if (!isRecord(v) || typeof v.since !== 'string' || typeof v.actor !== 'string') return undefined
-  return {
-    since: v.since,
-    actor: v.actor,
-    ...optional('note', text(v.note)),
-    ...optional('autoEndAfter', num(v.autoEndAfter))
-  }
+  return { since: v.since, actor: v.actor, ...optional('note', text(v.note)) }
 }
 
 /**
@@ -339,7 +283,6 @@ export function parseRuleEntry(body: unknown, what: string): RuleEntry {
   const verdict = (v: Record<string, unknown>) => ({
     badge: badge(v.badge),
     ...optional('reason', text(v.reason)),
-    ...optional('suppression', suppressionScope(v.suppression)),
     subLabels: (Array.isArray(v.subLabels) ? v.subLabels : []).map(subLabel)
   })
   const instanceStatus = (i: unknown): InstanceStatus => {
@@ -410,15 +353,12 @@ export function parseRuleEntry(body: unknown, what: string): RuleEntry {
   }
 
   const entry = record(body)
-  if (typeof entry.enabled !== 'boolean') throw malformed(what)
   return {
     origin: string(entry.origin),
     slug: string(entry.slug),
     ...optional('ruleset', ruleSource(entry.ruleset)),
     rule: rule(entry.rule),
-    enabled: entry.enabled,
-    ...optional('note', text(entry.note)),
-    ...optional('suppression', ruleSuppression(entry.suppression)),
+    ...optional('disabled', ruleDisabled(entry.disabled)),
     status: status(entry.status)
   }
 }
@@ -503,63 +443,6 @@ function parsePreview(body: unknown, what: string): EditPreview {
   }
 }
 
-function parseRuleId(v: Record<string, unknown>, what: string): RuleId {
-  if (typeof v.rule !== 'string' || typeof v.origin !== 'string' || typeof v.slug !== 'string') {
-    throw malformed(what)
-  }
-  return { rule: v.rule, origin: v.origin, slug: v.slug }
-}
-
-export function parseSuppression(body: unknown, what: string): Suppression {
-  const common = ruleSuppression(body)
-  if (!isRecord(body) || common === undefined) throw malformed(what)
-  if (body.scope === 'rule') return { ...common, scope: 'rule', ...parseRuleId(body, what) }
-  if (body.scope === 'input' && typeof body.path === 'string') {
-    return { ...common, scope: 'input', path: body.path }
-  }
-  throw malformed(what)
-}
-
-export function parseSuppressions(body: unknown, what: string): Suppression[] {
-  if (!Array.isArray(body)) throw malformed(what)
-  return body.map((s) => parseSuppression(s, what))
-}
-
-export function parseInputPreview(body: unknown, what: string): InputSuppressionPreview {
-  if (
-    !isRecord(body) ||
-    typeof body.path !== 'string' ||
-    !Array.isArray(body.suppresses) ||
-    !Array.isArray(body.freezes)
-  ) {
-    throw malformed(what)
-  }
-  const record = (v: unknown): Record<string, unknown> => {
-    if (!isRecord(v)) throw malformed(what)
-    return v
-  }
-  return {
-    path: body.path,
-    suppresses: body.suppresses.map((s) => {
-      const v = record(s)
-      return { ...parseRuleId(v, what), ...optional('instance', text(v.instance)) }
-    }),
-    freezes: body.freezes.map((f) => {
-      const v = record(f)
-      if (typeof v.gate !== 'number' || !Array.isArray(v.states)) throw malformed(what)
-      return {
-        ...parseRuleId(v, what),
-        gate: v.gate,
-        states: v.states.map((st) => {
-          const state = record(st)
-          if (typeof state.holds !== 'boolean') throw malformed(what)
-          return { ...optional('instance', text(state.instance)), holds: state.holds }
-        })
-      }
-    })
-  }
-}
-
 /**
  * A request with the admin UI's session, bounded by the request timeout. A
  * refused session throws SessionExpiredError, any other failure the server's
@@ -611,10 +494,6 @@ export function httpApi(fetchFn: typeof fetch = (input, init) => fetch(input, in
     sendJson(fetchFn, method, path, body)
   const ruleRoute = (origin: string, slug: string) =>
     `${PLUGIN_BASE}/rules/${encodeURIComponent(origin)}/${encodeURIComponent(slug)}`
-  const suppressedRule = (origin: string, slug: string) =>
-    `${PLUGIN_BASE}/suppressions/rules/${encodeURIComponent(origin)}/${encodeURIComponent(slug)}`
-  const suppressedInput = (path: string) =>
-    `${PLUGIN_BASE}/suppressions/inputs/${encodeURIComponent(path)}`
 
   return {
     state: async () => parseState(await request(`${PLUGIN_BASE}/state`)),
@@ -639,35 +518,13 @@ export function httpApi(fetchFn: typeof fetch = (input, init) => fetch(input, in
       const path = `${ruleRoute(USER_ORIGIN, slug)}/preview`
       return parsePreview(await send('POST', path, rule), path)
     },
-    setEnabled: async (origin, slug, enabled) => {
-      const path = `${ruleRoute(origin, slug)}/enabled`
-      return parseRuleEntry(await send('PUT', path, { enabled }), path)
+    disableRule: async (origin, slug, note) => {
+      const path = `${ruleRoute(origin, slug)}/disable`
+      return parseRuleEntry(await send('POST', path, { note }), path)
     },
-    setNote: async (origin, slug, note) => {
-      const path = `${ruleRoute(origin, slug)}/note`
-      return parseRuleEntry(await send('PUT', path, { note }), path)
-    },
-    suppressions: async () => {
-      const path = `${PLUGIN_BASE}/suppressions`
-      return parseSuppressions(await request(path), path)
-    },
-    suppressRule: async (origin, slug, body) => {
-      const path = suppressedRule(origin, slug)
-      return parseRuleEntry(await send('PUT', path, body), path)
-    },
-    endRuleSuppression: async (origin, slug) => {
-      await send('DELETE', suppressedRule(origin, slug))
-    },
-    suppressInput: async (inputPath, body) => {
-      const path = suppressedInput(inputPath)
-      return parseSuppression(await send('PUT', path, body), path)
-    },
-    endInputSuppression: async (inputPath) => {
-      await send('DELETE', suppressedInput(inputPath))
-    },
-    previewInputSuppression: async (inputPath) => {
-      const path = `${suppressedInput(inputPath)}/preview`
-      return parseInputPreview(await request(path), path)
+    enableRule: async (origin, slug) => {
+      const path = `${ruleRoute(origin, slug)}/enable`
+      return parseRuleEntry(await send('POST', path), path)
     }
   }
 }

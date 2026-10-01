@@ -5,19 +5,12 @@ import {
   type Accumulated,
   type LoadedRule,
   type RunnerDeps,
-  type RunnerInstanceStatus,
   type RunnerRuleStatus
 } from './alerts/runner.js'
 import { ownedActiveAlert } from './alerts/reconcile.js'
 import type { Progress } from './engine/detectors/index.js'
-import { carriesTotals, changesGates, measureOf, structuralChanges } from './engine/evaluator.js'
+import { carriesTotals, measureOf, structuralChanges } from './engine/evaluator.js'
 import { asGiven, canonicalSources } from './engine/sourceRefs.js'
-import {
-  readsPath,
-  signalPaths,
-  type FrozenGates,
-  type Suppressions
-} from './engine/suppression.js'
 import { MAX_RULES, type Rule } from './model/rule.js'
 import { USER_ORIGIN, type Parameter } from './model/ruleset.js'
 import { validateRule, type ValidationError } from './model/validate.js'
@@ -27,13 +20,12 @@ import { PathPresence, rulePaths } from './rulesets/presence.js'
 import type {
   Checkpoints,
   Controls,
-  InputSuppression,
+  Disabled,
   LogEntry,
   RuleControl,
   RulesetControl,
   RulesetNotice,
-  Store,
-  Suppression
+  Store
 } from './store/store.js'
 import { errorMessage, isRecord, own } from './util.js'
 
@@ -50,15 +42,8 @@ export const LOG_LIMIT = 200
 const TOTALS = 'the accumulator totals'
 const SETTINGS = 'the operator settings'
 
-/** The actor recorded when a suppression ends by itself. */
-export const AUTO_END_ACTOR = 'auto-end'
-
 export type NotEvaluatedReason =
-  | 'disabled'
-  | 'ruleset is disabled'
-  | 'not started'
-  | 'ruleset path missing'
-  | 'starts at the next tick'
+  'ruleset is disabled' | 'not started' | 'ruleset path missing' | 'starts at the next tick'
 
 /** A row of a rule that is not evaluated: one per accumulator total it keeps. */
 export interface NotEvaluatedInstance extends Verdict {
@@ -68,8 +53,8 @@ export interface NotEvaluatedInstance extends Verdict {
 }
 
 /**
- * The status of a rule that is not being evaluated: disabled, or inactive for
- * a ruleset rule whose paths the server has not had yet.
+ * The status of a rule that is not being evaluated: one of a disabled
+ * ruleset, or inactive for a ruleset rule whose paths the server has not had yet.
  */
 export interface NotEvaluatedStatus extends Verdict {
   badge: 'disabled' | 'inactive'
@@ -96,32 +81,9 @@ export interface RuleEntry {
   ruleset?: RuleSource
   /** A ruleset rule as its parameter values resolve it; read-only. */
   rule: Rule
-  enabled: boolean
-  note?: string
-  /** The rule's own suppression, not one of an input it reads. */
-  suppression?: Suppression
+  /** Present while the rule is disabled. */
+  disabled?: Disabled
   status: RuleStatus
-}
-
-export interface SuppressionRequest {
-  note?: string
-  autoEndAfter?: number
-}
-
-/** A rule by its id and by the origin and slug the id is made of. */
-export type RuleRef = ReturnType<typeof ruleRef>
-
-/** A suppression in force, with what it suppresses. */
-export type SuppressionEntry = Suppression &
-  (({ scope: 'rule' } & RuleRef) | { scope: 'input'; path: string })
-
-/** What suppressing an input path would do, without doing it. */
-export interface InputSuppressionPreview {
-  path: string
-  /** Rules whose detector or combinator reads the path, with the wildcard instance that does. */
-  suppresses: (RuleRef & { instance?: string })[]
-  /** Gates that read the path, and the state each instance of their rule would be frozen at. */
-  freezes: (RuleRef & { gate: number; states: { instance?: string; holds: boolean }[] })[]
 }
 
 export type ControlOutcome = 'ok' | 'notFound'
@@ -209,23 +171,6 @@ function without<T>(record: Record<string, T>, key: string): Record<string, T> {
   return Object.fromEntries(Object.entries(record).filter(([k]) => k !== key))
 }
 
-/** The gate states a preview lists, as an input suppression stores them; undefined for none. */
-function frozenGates(freezes: InputSuppressionPreview['freezes']): FrozenGates | undefined {
-  const frozen: FrozenGates = {}
-  for (const { rule, gate, states } of freezes) {
-    if (states.length === 0) continue
-    const instances = Object.fromEntries(states.map((s) => [s.instance ?? '', s.holds]))
-    frozen[rule] = { ...own(frozen, rule), [String(gate)]: instances }
-  }
-  return Object.keys(frozen).length === 0 ? undefined : frozen
-}
-
-/** An input suppression as listed: the stored gate states are the engine's, not the operator's. */
-function inputEntry(path: string, suppression: InputSuppression): SuppressionEntry {
-  const { frozen: _frozen, ...listed } = suppression
-  return { scope: 'input', path, ...listed }
-}
-
 function notEvaluated(
   rule: Rule,
   totals: ReadonlyMap<string, number> | undefined,
@@ -233,11 +178,7 @@ function notEvaluated(
   issues: string[] = []
 ): NotEvaluatedStatus {
   const badge: NotEvaluatedStatus['badge'] =
-    reason === 'ruleset path missing' ||
-    reason === 'starts at the next tick' ||
-    reason === 'not started'
-      ? 'inactive'
-      : 'disabled'
+    reason === 'ruleset is disabled' ? 'disabled' : 'inactive'
   const d = rule.detector
   const instances =
     d.type !== 'accumulator'
@@ -253,18 +194,8 @@ function notEvaluated(
 }
 
 /**
- * How long every instance has stayed clear, counted from the suppression's
- * start; zero without an instance, which leaves nothing to judge by.
- */
-function stayedClearFor(instances: readonly Pick<RunnerInstanceStatus, 'clearFor'>[]): number {
-  if (instances.length === 0) return 0
-  return Math.min(...instances.map((i) => i.clearFor ?? 0))
-}
-
-/**
- * SKAR's running state: the stored rules, the operator's per-rule controls
- * and input suppressions, the operator action log and, once started, the
- * runner evaluating the enabled rules.
+ * SKAR's running state: the stored rules, which of them are disabled, the
+ * operator action log and, once started, the runner evaluating the rules.
  * Every change is persisted first and then applied to the one rule it
  * concerns, so other rules keep their timers; a change the store fails to
  * write is not applied.
@@ -281,7 +212,7 @@ export class Application {
   /**
    * Checkpointed totals of rules the runner does not hold: a stored rule that
    * no longer validates, kept until the rule is deleted or saved again, and
-   * a rule's that is not running, such as a disabled one.
+   * a rule's that is not running, such as one of a disabled ruleset.
    */
   private readonly retained: Map<string, Accumulated>
   /**
@@ -307,10 +238,7 @@ export class Application {
   private readonly present = new Map<string, string>()
   /** Set while start applies discovery: a failed write is then an issue, not a failed start. */
   private starting = false
-  private readonly suppressionsInForce: Suppressions = {
-    rule: (id) => own(this.controls.rules, id)?.suppression,
-    path: (path) => own(this.controls.inputs, path)
-  }
+  private readonly isDisabled = (id: string): boolean => this.control(id).disabled !== undefined
 
   /**
    * @param discover finds the rulesets installed now; called at start and on
@@ -389,11 +317,7 @@ export class Application {
     this.startRunner()
   }
 
-  /**
-   * Starts the ruleset rules whose paths have appeared, evaluates, then ends
-   * the suppressions whose condition has stayed clear long enough. Throws
-   * when one of those ends cannot be saved.
-   */
+  /** Starts the ruleset rules whose paths have appeared, then evaluates. */
   tick(): void {
     this.presence.prune()
     for (const [origin, { rules }] of this.rulesetsBySlug) {
@@ -404,7 +328,6 @@ export class Application {
       }
     }
     this.runner?.tick()
-    this.endClearedSuppressions()
   }
 
   /**
@@ -568,11 +491,7 @@ export class Application {
     const at = this.now()
     const upgrades = result.rulesets.map((loaded) => {
       const stored = this.rulesetControl(loaded.slug)
-      return {
-        loaded,
-        recorded: stored?.rules ?? {},
-        upgrade: upgradeRuleset(loaded.ruleset, stored, at)
-      }
+      return { loaded, upgrade: upgradeRuleset(loaded.ruleset, stored, at) }
     })
     const removed = upgrades.flatMap(({ loaded, upgrade }) =>
       upgrade.removed.map((slug) => ruleId(loaded.slug, slug))
@@ -599,12 +518,11 @@ export class Application {
     for (const id of removed) {
       this.runner?.remove(id)
       this.retained.delete(id)
-      this.dropFrozenGates(id)
     }
 
     const installed: LoadedRule[] = []
     const changes: { origin: string; previous: Rule; rule: Rule }[] = []
-    for (const { loaded, recorded, upgrade } of upgrades) {
+    for (const { loaded, upgrade } of upgrades) {
       const origin = loaded.slug
       const before = this.rulesetsBySlug.get(origin)?.rules
       const after = new Map(upgrade.rules.map((rule) => [rule.slug, rule]))
@@ -613,12 +531,9 @@ export class Application {
         const previous = before?.get(rule.slug)
         if (previous === undefined) {
           // With no rule in memory, at start or on a ruleset's return, a
-          // total says what it was built under, and the settings recorded
-          // the gates the frozen states were taken from.
+          // total says what it was built under.
           const id = ruleId(origin, rule.slug)
           drops = this.dropTotalOfOtherMeasure(id, measureOf(rule)) || drops
-          const basis = own(recorded, rule.slug)
-          if (basis !== undefined && changesGates(basis, rule)) this.dropFrozenGates(id)
           installed.push({ origin, rule })
         } else if (JSON.stringify(previous) !== JSON.stringify(rule)) {
           changes.push({ origin, previous, rule })
@@ -683,7 +598,6 @@ export class Application {
     const id = ruleId(origin, rule.slug)
     const carries = carriesTotals(previous, rule)
     const drops = this.hasTotal(id) && !carries
-    if (changesGates(previous, rule)) this.dropFrozenGates(id)
     // Stopped first, so a total the edit drops is not retained on the way out.
     if (!this.shouldRun(origin, rule)) this.stopRule(id)
     if (!carries) this.retained.delete(id)
@@ -703,7 +617,7 @@ export class Application {
     return true
   }
 
-  /** Stops a rule, clearing its alerts and keeping its totals, as disabling it does. */
+  /** Stops a rule, clearing its alerts and keeping its totals, as disabling its ruleset does. */
   private stopRule(id: string): void {
     const runner = this.runner
     if (!runner?.has(id)) return
@@ -721,20 +635,13 @@ export class Application {
     const id = this.idOf(rule.slug)
     const carries = this.carriesTotal(rule)
     const drops = this.hasTotal(id) && !carries
-    const previous = this.rulesBySlug.get(rule.slug)
-    // Stored gate states are by gate index: a gate reordered or changed
-    // must not inherit another's, so the new gates take one reading instead.
-    // A pin stored in address form that only changes form is no change.
-    if (previous !== undefined && changesGates(this.withCanonicalSources(previous), rule)) {
-      this.dropFrozenGates(id)
-    }
     this.store.saveRule(rule)
     this.stored.add(rule.slug)
     this.unloadedMeasures.delete(rule.slug)
     // While a rule is not evaluated an edit keeps the total, as the runner would.
     if (!carries) this.retained.delete(id)
     this.rulesBySlug.set(rule.slug, rule)
-    if (this.runner !== undefined && this.control(id).enabled) {
+    if (this.runner !== undefined) {
       // Once started, only a rule the runner does not hold has a retained
       // total; the runner takes it over.
       const retained = this.retained.get(id)
@@ -836,9 +743,6 @@ export class Application {
         // total to a rule re-created with this slug.
         if (drops) this.checkpoint()
       } finally {
-        // Stored gate states are by gate index, so a rule re-created with this
-        // slug would inherit them for gates they were not taken from.
-        this.dropFrozenGates(id)
         if (own(this.controls.rules, id) !== undefined) {
           this.saveControls({ ...this.controls, rules: without(this.controls.rules, id) })
         }
@@ -870,203 +774,40 @@ export class Application {
   }
 
   /**
-   * Enables or disables a rule. A disabled rule is not evaluated: disabling
-   * clears its alerts, and enabling starts it as a new rule. Its accumulator
-   * totals are kept either way. Setting the current value does nothing.
-   * Throws when the store cannot write.
+   * Disables a rule, replacing the record of a rule already disabled: it goes
+   * on evaluating, so its accumulator keeps counting, but raises nothing, and
+   * its active alerts are cleared at once. An empty note is no note. Throws
+   * when the store cannot write.
    */
-  setEnabled(origin: string, slug: string, enabled: boolean, actor: string): ControlOutcome {
-    const rule = this.find(origin, slug)
-    if (rule === undefined) return 'notFound'
-    const id = ruleId(origin, slug)
-    const control = this.control(id)
-    if (control.enabled === enabled) return 'ok'
-    this.saveControls(this.withRule(id, { ...control, enabled }))
-    this.sync(origin, rule)
-    this.record({ at: this.now(), actor, action: enabled ? 'enable' : 'disable', rule: id })
-    return 'ok'
-  }
-
-  /** Sets a rule's note; an empty note removes it. Throws when the store cannot write. */
-  setNote(origin: string, slug: string, note: string, actor: string): ControlOutcome {
-    if (this.find(origin, slug) === undefined) return 'notFound'
-    const id = ruleId(origin, slug)
-    const control = this.control(id)
-    const next = note === '' ? undefined : note
-    if (next === control.note) return 'ok'
-    this.saveControls(this.withRule(id, { ...control, note: next }))
-    this.record({ at: this.now(), actor, action: 'note', rule: id })
-    return 'ok'
-  }
-
-  /**
-   * Suppresses a rule, replacing a suppression it has: it goes on evaluating
-   * but raises nothing, and its active alerts are cleared. Throws when the
-   * store cannot write.
-   */
-  suppressRule(
+  disableRule(
     origin: string,
     slug: string,
-    request: SuppressionRequest,
+    note: string | undefined,
     actor: string
   ): ControlOutcome {
     if (this.find(origin, slug) === undefined) return 'notFound'
     const id = ruleId(origin, slug)
-    const suppression = this.newSuppression(request, actor)
-    this.saveControls(this.withRule(id, { ...this.control(id), suppression }))
-    this.runner?.restartClearCount({ rule: id })
-    this.runner?.refresh()
-    this.record({ at: suppression.since, actor, action: 'suppress', rule: id })
+    const noted = note === undefined || note === '' ? {} : { note }
+    const disabled: Disabled = { since: this.now(), actor, ...noted }
+    this.saveControls(this.withRule(id, { disabled }))
+    this.runner?.refresh(id)
+    this.record({ at: disabled.since, actor, action: 'disable', rule: id, ...noted })
     return 'ok'
   }
 
   /**
-   * Ends a rule's own suppression; an alert whose condition holds is raised
-   * as a new alert. A suppression the controls hold ends even for a rule that
-   * did not load, and a rule that is not suppressed is left as it is. Throws
-   * when the store cannot write.
-   */
-  endRuleSuppression(origin: string, slug: string, actor: string): ControlOutcome {
-    const id = ruleId(origin, slug)
-    if (this.control(id).suppression !== undefined) {
-      this.endSuppressionOf(id, actor)
-      return 'ok'
-    }
-    return this.find(origin, slug) === undefined ? 'notFound' : 'ok'
-  }
-
-  /**
-   * Suppresses an exact concrete path, replacing a suppression it has: every
-   * rule instance whose detector or combinator reads it is suppressed, and
-   * every gate reading it keeps the state it has. Throws when the store
+   * Enables a disabled rule; one whose condition holds raises a new alert at
+   * once. Enabling an enabled rule does nothing. Throws when the store
    * cannot write.
    */
-  suppressInput(path: string, request: SuppressionRequest, actor: string): SuppressionEntry {
-    // Stored, so a gate rebuilt while frozen, as on every restart, keeps its state.
-    const frozen = frozenGates(this.previewInputSuppression(path).freezes)
-    const suppression: InputSuppression = {
-      ...this.newSuppression(request, actor),
-      ...(frozen === undefined ? {} : { frozen })
-    }
-    this.saveControls({
-      ...this.controls,
-      inputs: { ...this.controls.inputs, [path]: suppression }
-    })
-    this.runner?.restartClearCount({ path })
-    this.runner?.refresh()
-    this.record({ at: suppression.since, actor, action: 'suppress', path })
-    return inputEntry(path, suppression)
-  }
-
-  /** Ends an input suppression; false when there is none. Throws when the store cannot write. */
-  endInputSuppression(path: string, actor: string): boolean {
-    if (own(this.controls.inputs, path) === undefined) return false
-    this.saveControls({ ...this.controls, inputs: without(this.controls.inputs, path) })
-    this.runner?.refresh()
-    this.record({ at: this.now(), actor, action: 'unsuppress', path })
-    return true
-  }
-
-  /** Every suppression in force, newest first. */
-  suppressions(): SuppressionEntry[] {
-    const rules = Object.entries(this.controls.rules).flatMap(([id, { suppression }]) =>
-      suppression === undefined ? [] : [{ scope: 'rule' as const, ...ruleRef(id), ...suppression }]
-    )
-    const inputs = Object.entries(this.controls.inputs).map(([path, suppression]) =>
-      inputEntry(path, suppression)
-    )
-    return [...rules, ...inputs].sort((a, b) => b.since.localeCompare(a.since))
-  }
-
-  /** What suppressing an exact concrete path would suppress and freeze, as the rules stand now. */
-  previewInputSuppression(path: string): InputSuppressionPreview {
-    const suppresses: InputSuppressionPreview['suppresses'] = []
-    const freezes: InputSuppressionPreview['freezes'] = []
-    for (const { origin, rule } of this.allLoaded()) {
-      const id = ruleId(origin, rule.slug)
-      const ref = { rule: id, origin, slug: rule.slug }
-      const read = readsPath(rule.signal, path)
-      if (read.reads) {
-        suppresses.push(read.instance === undefined ? ref : { ...ref, instance: read.instance })
-      }
-      const status = this.control(id).enabled ? this.runner?.status(id) : undefined
-      ;(rule.gates ?? []).forEach((gate, i) => {
-        const gateRead = readsPath(gate.signal, path)
-        if (!gateRead.reads) return
-        const states = (status?.instances ?? [])
-          .filter(
-            (row) => gateRead.instance === undefined || row.instance?.name === gateRead.instance
-          )
-          .map((row) => ({
-            ...(row.instance === undefined ? {} : { instance: row.instance.name }),
-            holds: row.gates[i]?.holds ?? false
-          }))
-        freezes.push({ ...ref, gate: i, states })
-      })
-    }
-    return { path, suppresses, freezes }
-  }
-
-  private newSuppression({ note, autoEndAfter }: SuppressionRequest, actor: string): Suppression {
-    return {
-      since: this.now(),
-      actor,
-      ...(note === undefined || note === '' ? {} : { note }),
-      ...(autoEndAfter === undefined ? {} : { autoEndAfter })
-    }
-  }
-
-  private endSuppressionOf(id: string, actor: string): void {
-    this.saveControls(this.withRule(id, { ...this.control(id), suppression: undefined }))
-    this.runner?.refresh()
-    this.record({ at: this.now(), actor, action: 'unsuppress', rule: id })
-  }
-
-  /**
-   * Ends each suppression with an auto-end whose condition has stayed clear
-   * for its time: for a rule, every instance of it; for an input, every
-   * instance it suppresses directly, those whose detector or combinator
-   * reads the path. Gates reading the path do not count. One that cannot be
-   * saved stays for the next tick and does not keep the others from ending;
-   * the failures are thrown once the pass is done.
-   */
-  private endClearedSuppressions(): void {
-    const runner = this.runner
-    if (runner === undefined) return
-    const failures: string[] = []
-    const end = (what: string, action: () => void) => {
-      try {
-        action()
-      } catch (err) {
-        failures.push(`${what}: ${errorMessage(err)}`)
-      }
-    }
-    for (const [id, { enabled, suppression }] of Object.entries(this.controls.rules)) {
-      const after = suppression?.autoEndAfter
-      if (after === undefined || !enabled) continue
-      const instances = runner.status(id)?.instances ?? []
-      if (stayedClearFor(instances) >= after) {
-        end(id, () => {
-          this.endSuppressionOf(id, AUTO_END_ACTOR)
-        })
-      }
-    }
-    for (const [path, { autoEndAfter }] of Object.entries(this.controls.inputs)) {
-      if (autoEndAfter === undefined) continue
-      const direct = this.loaded().flatMap(({ origin, rule }) => {
-        if (!readsPath(rule.signal, path).reads) return []
-        const instances = runner.status(ruleId(origin, rule.slug))?.instances ?? []
-        return instances.filter((row) => signalPaths(rule.signal, row.instance).includes(path))
-      })
-      if (stayedClearFor(direct) >= autoEndAfter) {
-        end(path, () => {
-          this.endInputSuppression(path, AUTO_END_ACTOR)
-        })
-      }
-    }
-    if (failures.length > 0) {
-      throw new Error(`could not end a suppression by itself: ${failures.join('; ')}`)
-    }
+  enableRule(origin: string, slug: string, actor: string): ControlOutcome {
+    if (this.find(origin, slug) === undefined) return 'notFound'
+    const id = ruleId(origin, slug)
+    if (!this.isDisabled(id)) return 'ok'
+    this.saveControls(this.withRule(id, {}))
+    this.runner?.refresh(id)
+    this.record({ at: this.now(), actor, action: 'enable', rule: id })
+    return 'ok'
   }
 
   /**
@@ -1080,7 +821,7 @@ export class Application {
     const accumulated = new Map(
       [...this.retained].filter(([id]) => ids.has(id)).map(([id, { totals }]) => [id, totals])
     )
-    const runner = new RuleRunner(this.deps, loaded, accumulated, this.suppressionsInForce)
+    const runner = new RuleRunner(this.deps, loaded, accumulated, this.isDisabled)
     try {
       runner.start()
     } catch (err) {
@@ -1117,7 +858,7 @@ export class Application {
 
   private entry(origin: string, rule: Rule): RuleEntry {
     const id = ruleId(origin, rule.slug)
-    const { enabled, note, suppression } = this.control(id)
+    const { disabled } = this.control(id)
     const loaded = this.rulesetsBySlug.get(origin)?.loaded
     return {
       origin,
@@ -1132,9 +873,7 @@ export class Application {
             }
           }),
       rule,
-      enabled,
-      ...(note === undefined ? {} : { note }),
-      ...(suppression === undefined ? {} : { suppression }),
+      ...(disabled === undefined ? {} : { disabled }),
       status: this.runner?.status(id) ?? this.notEvaluatedStatus(origin, rule)
     }
   }
@@ -1142,7 +881,6 @@ export class Application {
   private notEvaluatedStatus(origin: string, rule: Rule): NotEvaluatedStatus {
     const id = ruleId(origin, rule.slug)
     const totals = this.retained.get(id)?.totals
-    if (!this.control(id).enabled) return notEvaluated(rule, totals, 'disabled')
     if (origin !== USER_ORIGIN && !this.rulesetEnabled(origin)) {
       return notEvaluated(rule, totals, 'ruleset is disabled')
     }
@@ -1163,7 +901,7 @@ export class Application {
       : this.rulesetsBySlug.get(origin)?.rules.get(slug)
   }
 
-  /** Every loaded rule, enabled or not: user rules, then each ruleset's. */
+  /** Every loaded rule, running or not: user rules, then each ruleset's. */
   private allLoaded(): LoadedRule[] {
     return [
       ...[...this.rulesBySlug.values()].map((rule) => ({ origin: USER_ORIGIN, rule })),
@@ -1179,13 +917,13 @@ export class Application {
   }
 
   /**
-   * Whether a rule is to be evaluated: it is enabled
-   * and, for a ruleset rule, so is its ruleset and the server has had its paths.
+   * Whether a rule is to be evaluated: a user rule always, disabled or not,
+   * and a ruleset rule while its ruleset is enabled and the server has had
+   * its paths.
    */
   private shouldRun(origin: string, rule: Rule): boolean {
-    const id = ruleId(origin, rule.slug)
-    if (!this.control(id).enabled) return false
     if (origin === USER_ORIGIN) return true
+    const id = ruleId(origin, rule.slug)
     return this.rulesetEnabled(origin) && this.missingPaths(id, rule).length === 0
   }
 
@@ -1220,44 +958,20 @@ export class Application {
   }
 
   private control(id: string): RuleControl {
-    return own(this.controls.rules, id) ?? { enabled: true }
+    return own(this.controls.rules, id) ?? {}
   }
 
-  /** Controls with a rule's replaced; a rule back at the defaults has no entry. */
-  private withRule(id: string, control: RuleControl): Controls {
-    const { enabled, note, suppression } = control
+  /** Controls with a rule's replaced; an enabled rule has no entry. */
+  private withRule(id: string, { disabled }: RuleControl): Controls {
     const rules =
-      enabled && note === undefined && suppression === undefined
+      disabled === undefined
         ? without(this.controls.rules, id)
-        : {
-            ...this.controls.rules,
-            [id]: {
-              enabled,
-              ...(note === undefined ? {} : { note }),
-              ...(suppression === undefined ? {} : { suppression })
-            }
-          }
+        : { ...this.controls.rules, [id]: { disabled } }
     return { ...this.controls, rules }
   }
 
   private withRuleset(slug: string, control: RulesetControl): Controls {
     return { ...this.controls, rulesets: { ...this.controls.rulesets, [slug]: control } }
-  }
-
-  /** Removes a rule's stored gate states from every input suppression. */
-  private dropFrozenGates(id: string): void {
-    const hasRule = (s: InputSuppression) =>
-      s.frozen !== undefined && own(s.frozen, id) !== undefined
-    if (!Object.values(this.controls.inputs).some(hasRule)) return
-    const inputs = Object.fromEntries(
-      Object.entries(this.controls.inputs).map(([path, suppression]) => {
-        const { frozen, ...rest } = suppression
-        if (frozen === undefined) return [path, suppression]
-        const others = without(frozen, id)
-        return [path, Object.keys(others).length === 0 ? rest : { ...rest, frozen: others }]
-      })
-    )
-    this.saveControls({ ...this.controls, inputs })
   }
 
   private saveControls(controls: Controls): void {

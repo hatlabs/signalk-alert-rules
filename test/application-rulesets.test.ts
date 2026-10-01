@@ -63,12 +63,6 @@ const hours = {
   detector: { type: 'accumulator', measure: 'time', limit: 1000 }
 }
 const integralHours = { ...hours, detector: { ...hours.detector, measure: 'integral' } }
-const runningGate = (value: number) => ({
-  signal: { path: RPM },
-  direction: 'above',
-  limit: { kind: 'fixed', value }
-})
-const gatedHot = { ...hot, gates: [runningGate(8)] }
 const oil = {
   name: 'Oil pressure low',
   slug: 'oil-pressure-low',
@@ -295,22 +289,19 @@ describe('rulesets in the application', () => {
     at(0, TEMPERATURE, 340)
     application.setRulesetEnabled('batteries', true, 'admin')
     application.setRulesetParameters('batteries', { lowVoltage: 11.5 }, 'admin')
-    application.setNote('batteries', 'low', 'checked in spring', 'admin')
-    application.setNote('batteries', 'hot', 'sensor on the house bank', 'admin')
+    application.disableRule('batteries', 'low', 'checked in spring', 'admin')
     at(5)
     const alertings = core.alertings
+    application.disableRule('batteries', 'hot', undefined, 'admin')
 
     installed.rulesets = [batteries('2.0.0', [low])]
     application.rescan('admin')
 
-    expect(alerts()).toEqual([
-      [LOW, true],
-      [HOT, false]
-    ])
+    expect(alerts()).toEqual([[HOT, false]])
     expect(core.alertings).toBe(alertings)
     expect(application.rule('batteries', 'hot')).toBeUndefined()
     expect(application.rule('batteries', 'low')).toMatchObject({
-      note: 'checked in spring',
+      disabled: { note: 'checked in spring' },
       ruleset: { version: '2.0.0' }
     })
     expect(storedControls()).toMatchObject({ rules: { 'batteries.low': {} } })
@@ -368,16 +359,17 @@ describe('rulesets in the application', () => {
   it('takes per-rule controls under the ruleset rule id', () => {
     const { application, at, alerts } = setup({ rulesets: [batteries()] })
     application.setRulesetEnabled('batteries', true, 'admin')
-    expect(application.setEnabled('batteries', 'low', false, 'admin')).toBe('ok')
+    expect(application.disableRule('batteries', 'low', undefined, 'admin')).toBe('ok')
     at(0, VOLTAGE, 11)
     at(5)
     expect(alerts()).toEqual([])
-    expect(application.rule('batteries', 'low')?.status).toMatchObject({ reason: 'disabled' })
+    expect(application.rule('batteries', 'low')?.status).toMatchObject({ badge: 'disabled' })
 
-    application.setEnabled('batteries', 'low', true, 'admin')
     at(10)
+    expect(alerts()).toEqual([])
+    application.enableRule('batteries', 'low', 'admin')
     expect(alerts()).toEqual([[LOW, true]])
-    application.suppressRule('batteries', 'low', {}, 'admin')
+    application.disableRule('batteries', 'low', undefined, 'admin')
     expect(alerts()).toEqual([[LOW, false]])
   })
 
@@ -562,48 +554,6 @@ describe('rulesets in the application', () => {
 
       expect(storedTotals()).toEqual({ 'batteries.hours': { measure: 'time', totals: { '': 20 } } })
     })
-  })
-
-  it('an upgrade installed while stopped that changes a gate drops its frozen state', () => {
-    const core = new FakeAlertsCore()
-    const first = setup({ rulesets: [batteries('1.0.0', [gatedHot])] }, core)
-    first.at(0, RPM, 20)
-    first.at(0, TEMPERATURE, 340)
-    first.application.setRulesetEnabled('batteries', true, 'admin')
-    first.at(5)
-    first.application.suppressInput(RPM, {}, 'admin')
-    expect(new Store(dir).load().controls.inputs[RPM].frozen).toEqual({
-      'batteries.hot': { '0': { '': true } }
-    })
-    first.application.stop()
-
-    setup({ rulesets: [batteries('2.0.0', [{ ...hot, gates: [runningGate(10)] }])] }, core)
-
-    expect(new Store(dir).load().controls.inputs[RPM]).toEqual({ since: WALL, actor: 'admin' })
-  })
-
-  it('a restart after a parameter change that changed a gate keeps its frozen state', () => {
-    const core = new FakeAlertsCore()
-    const tunedGate = {
-      signal: { path: VOLTAGE },
-      direction: 'above',
-      limit: { kind: 'fixed', value: { param: 'lowVoltage' } }
-    }
-    const installed = { rulesets: [batteries('1.0.0', [{ ...hot, gates: [tunedGate] }])] }
-    const first = setup(installed, core)
-    first.at(0, VOLTAGE, 13)
-    first.at(0, TEMPERATURE, 340)
-    first.application.setRulesetEnabled('batteries', true, 'admin')
-    first.application.setRulesetParameters('batteries', { lowVoltage: 11 }, 'admin')
-    first.at(5)
-    first.application.suppressInput(VOLTAGE, {}, 'admin')
-    const frozen = { 'batteries.hot': { '0': { '': true } } }
-    expect(new Store(dir).load().controls.inputs[VOLTAGE].frozen).toEqual(frozen)
-    first.application.stop()
-
-    setup(installed, core)
-
-    expect(new Store(dir).load().controls.inputs[VOLTAGE].frozen).toEqual(frozen)
   })
 
   describe('a start on a full disk', () => {

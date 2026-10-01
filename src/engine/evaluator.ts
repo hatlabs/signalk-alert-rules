@@ -21,13 +21,6 @@ import {
 import { Gate } from './gates.js'
 import { resolveLimit, severerLevels, severity, type Zone } from './limits.js'
 import {
-  NO_SUPPRESSIONS,
-  signalPaths,
-  suppressionOf,
-  type SuppressionScope,
-  type SuppressionSource
-} from './suppression.js'
-import {
   bindPath,
   inputState,
   openSignal,
@@ -38,7 +31,7 @@ import {
   type SignalValue
 } from './signals.js'
 import { asGiven, canonicalSources, type Canonicalise } from './sourceRefs.js'
-import { errorMessage, own } from '../util.js'
+import { errorMessage } from '../util.js'
 
 export type { InputState }
 
@@ -116,14 +109,16 @@ export interface InstanceStatus {
   priority?: Priority
   /** Why the rule cannot evaluate this instance. */
   inactive?: string
-  /** The suppression the instance is under; it evaluates but raises nothing. */
-  suppression?: SuppressionScope
   /**
-   * Seconds the condition has stayed clear: in use with a value and the
-   * detector not active. Time out of use because a gate does not hold
-   * neither counts nor restarts the count. Absent while it is not clear.
+   * Whether the condition holds: the alert would be active were the rule
+   * enabled. A rule out of use or unable to evaluate has no condition.
    */
-  clearFor?: number
+  conditionPresent: boolean
+  /**
+   * Seconds since the condition last stopped holding; absent while it holds
+   * or when it has not held since start.
+   */
+  clearedFor?: number
 }
 
 export interface RuleStatus {
@@ -157,17 +152,10 @@ interface Unit extends Track {
   limit?: number
   inUse: boolean
   inactive?: string
-  /** Seconds counted clear before the current stretch; undefined while the condition is not clear. */
-  clearCounted?: number
-  /** When the current stretch of counting began, while the count runs. */
-  clearSince?: number
+  present: boolean
+  /** When the condition last stopped holding. */
+  clearedAt?: number
 }
-
-/**
- * How an evaluation bears on the clear count: it counts, it pauses while the
- * rule is out of use because a gate does not hold, or the condition is not clear.
- */
-type ClearState = 'clear' | 'paused' | 'notClear'
 
 interface LevelSpec {
   level: ZoneLevel
@@ -242,10 +230,10 @@ export function isWildcard(signal: Signal): boolean {
  * lifecycle, not the evaluator's. A rule is in use only while every gate holds. Out of use, a detector is dropped and
  * started afresh when the rule comes back into use, fed the last reading, so
  * durations count from then; an accumulator keeps its total and only its
- * alert is held back. A suppressed instance is evaluated as usual, so the
- * time its condition stays clear is known, but raises nothing: its active
- * alert is cleared, and one whose condition still holds when the
- * suppression ends is raised as a new alert.
+ * alert is held back. A disabled rule is evaluated as usual, so whether its
+ * condition holds is known and an accumulator keeps counting, but it raises
+ * nothing: its active alert is cleared, and one whose condition still holds
+ * when the rule is enabled again is raised as a new alert.
  */
 export class RuleEvaluator {
   private readonly units = new Map<string, Unit>()
@@ -263,7 +251,8 @@ export class RuleEvaluator {
     private readonly onEvent: (event: RuleEvent) => void,
     adopted: readonly Adopted[] = [],
     accumulated: ReadonlyMap<string, number> = new Map(),
-    private readonly source: SuppressionSource = { id: '', suppressions: NO_SUPPRESSIONS }
+    /** Read at every evaluation; `refresh` applies a change at once. */
+    private readonly disabled: () => boolean = () => false
   ) {
     this.adopted = new Set(adopted.map((a) => a.segment ?? ''))
     this.carried = new Map(accumulated)
@@ -319,28 +308,11 @@ export class RuleEvaluator {
     for (const unit of this.units.values()) this.step(unit, now)
   }
 
-  /** Evaluates every instance now, applying a change of the suppressions. */
+  /** Evaluates every instance now, so disabling or enabling the rule applies at once. */
   refresh(): void {
     if (!this.running) return
     const now = this.ctx.clock()
-    // A gate whose freeze has ended thaws on its next tick.
-    for (const byKey of this.gates) for (const gate of byKey.values()) gate.tick(now)
     for (const unit of this.units.values()) this.step(unit, now)
-  }
-
-  /**
-   * Restarts the clear count of the instances whose signal reads a path, or
-   * of every instance, so a suppression's auto-end counts from its start.
-   */
-  restartClearCount(path?: string): void {
-    const now = this.ctx.clock()
-    for (const unit of this.units.values()) {
-      if (path !== undefined && !signalPaths(this.rule.signal, unit.instance).includes(path)) {
-        continue
-      }
-      if (unit.clearCounted !== undefined) unit.clearCounted = 0
-      if (unit.clearSince !== undefined) unit.clearSince = now
-    }
   }
 
   /** Applies an edited rule per the edit semantics. */
@@ -433,11 +405,8 @@ export class RuleEvaluator {
         level: u.alerting ? u.level : undefined,
         priority: u.alerting ? priorityOf(this.rule, u.level) : undefined,
         inactive: u.inactive,
-        suppression: this.suppression(u),
-        clearFor:
-          u.clearCounted === undefined
-            ? undefined
-            : u.clearCounted + (u.clearSince === undefined ? 0 : now - u.clearSince)
+        conditionPresent: u.present,
+        clearedFor: u.present || u.clearedAt === undefined ? undefined : now - u.clearedAt
       }))
     }
   }
@@ -465,7 +434,8 @@ export class RuleEvaluator {
         startActive: adopted,
         adoptedAlert: adopted,
         alerting: adopted,
-        inUse: false
+        inUse: false,
+        present: adopted
       }
       this.units.set(key, unit)
     } else if (instance !== undefined) {
@@ -501,41 +471,10 @@ export class RuleEvaluator {
     let gate = byKey.get(k)
     if (gate === undefined) {
       const bound = () => this.units.get(k)?.instance ?? instance
-      gate = new Gate(
-        model,
-        () => this.zones(model.limit, model.signal, bound()),
-        this.ctx.clock(),
-        () => {
-          const states = this.frozenStates(i, bound())
-          if (states === undefined) return undefined
-          // A shared gate of a wildcard rule has a state per rule instance,
-          // which all agree unless an instance holds an adopted alert.
-          const all = Object.values(states)
-          if (all.length === 0) return {}
-          return { holds: own(states, bound()?.name ?? '') ?? all.every(Boolean) }
-        }
-      )
+      gate = new Gate(model, () => this.zones(model.limit, model.signal, bound()), this.ctx.clock())
       byKey.set(k, gate)
     }
     return gate
-  }
-
-  /**
-   * The states stored for gate `i` with the suppression of a path it reads
-   * for the instance, by rule instance name; undefined while none is suppressed.
-   */
-  private frozenStates(
-    i: number,
-    instance: Instance | undefined
-  ): Record<string, boolean> | undefined {
-    const model = (this.rule.gates ?? [])[i]
-    for (const path of signalPaths(model.signal, instance)) {
-      const suppression = this.source.suppressions.path(path)
-      if (suppression === undefined) continue
-      const rule = own(suppression.frozen ?? {}, this.source.id) ?? {}
-      return own(rule, String(i)) ?? {}
-    }
-    return undefined
   }
 
   private gatesOf(unit: Unit): Gate[] {
@@ -548,15 +487,11 @@ export class RuleEvaluator {
       const gate = this.gates[i]?.get(isWildcard(model.signal) ? unit.key : '')
       return gate === undefined
         ? { holds: unit.adoptedAlert, input: 'neverSeen' }
-        : { holds: this.holds(gate, i, unit), input: gate.input }
+        : { holds: this.holds(gate, unit), input: gate.input }
     })
   }
 
-  /** Whether gate `i` holds for the unit: frozen at its stored state, or as the gate reads. */
-  private holds(gate: Gate, i: number, unit: Unit): boolean {
-    const states = this.frozenStates(i, unit.instance)
-    const stored = states === undefined ? undefined : own(states, unit.instance?.name ?? '')
-    if (stored !== undefined) return stored
+  private holds(gate: Gate, unit: Unit): boolean {
     return gate.seen ? gate.holdsFor(unit.adoptedAlert) : unit.adoptedAlert
   }
 
@@ -628,19 +563,12 @@ export class RuleEvaluator {
     return undefined
   }
 
-  private suppression(unit: Unit): SuppressionScope | undefined {
-    return suppressionOf(this.source, this.rule.signal, unit.instance)
-  }
-
   private step(unit: Unit, now: number, feed?: Sample): void {
-    const suppressed = this.suppression(unit) !== undefined
-    if (suppressed && unit.alerting) this.clear(unit)
+    const disabled = this.disabled()
+    if (disabled && unit.alerting) this.clear(unit)
     const resolved = this.resolve(unit)
     // Zones are readable only once the path has a value; until then hold.
-    if (!resolved.ok && unit.last === undefined) {
-      this.trackClear(unit, now, 'notClear')
-      return
-    }
+    if (!resolved.ok && unit.last === undefined) return
     const gates = this.gatesOf(unit)
     const problem =
       this.timeoutProblem(unit) ??
@@ -650,7 +578,7 @@ export class RuleEvaluator {
     unit.inactive = problem
     unit.limit = resolved.ok ? resolved.limit : undefined
 
-    const gatesHold = gates.every((g, i) => this.holds(g, i, unit))
+    const gatesHold = gates.every((g) => this.holds(g, unit))
     if (problem !== undefined || !gatesHold || !resolved.ok) {
       unit.inUse = false
       if (resolved.ok && resolved.spec.type === 'accumulator') {
@@ -660,9 +588,7 @@ export class RuleEvaluator {
       }
       unit.levels.clear()
       if (unit.alerting) this.clear(unit)
-      // A rule out of use because a gate does not hold has no condition to
-      // judge, such as an engine-gated fault with the engine stopped.
-      this.trackClear(unit, now, problem === undefined && resolved.ok ? 'paused' : 'notClear')
+      this.condition(unit, false, now)
       return
     }
     unit.inUse = true
@@ -670,17 +596,19 @@ export class RuleEvaluator {
     this.driveLevels(unit, resolved.levels, now, feed)
     const detector = unit.detector
     if (detector === undefined) return
-    const clear = transition !== 'pulse' && !detector.active && inputState(unit.last) === 'value'
-    this.trackClear(unit, now, clear ? 'clear' : 'notClear')
-    if (suppressed) return
-    const level = this.held(unit)
     if (transition === 'pulse') {
-      if (!unit.alerting) {
-        this.raise(unit, level)
+      // An event holds for a moment only: it has cleared again by now.
+      unit.present = false
+      unit.clearedAt = now
+      if (!disabled && !unit.alerting) {
+        this.raise(unit, this.held(unit))
         this.clear(unit)
       }
       return
     }
+    this.condition(unit, detector.active, now)
+    if (disabled) return
+    const level = this.held(unit)
     if (detector.active && !unit.alerting) this.raise(unit, level)
     else if (!detector.active && unit.alerting) this.clear(unit)
     else if (unit.alerting && level !== unit.level) this.reprioritise(unit, level)
@@ -753,22 +681,9 @@ export class RuleEvaluator {
       : detector.sample(feed.reading, feed.replayed, now)
   }
 
-  private trackClear(unit: Unit, now: number, state: ClearState): void {
-    switch (state) {
-      case 'clear':
-        unit.clearCounted ??= 0
-        unit.clearSince ??= now
-        break
-      case 'paused':
-        if (unit.clearSince !== undefined && unit.clearCounted !== undefined) {
-          unit.clearCounted += now - unit.clearSince
-        }
-        unit.clearSince = undefined
-        break
-      case 'notClear':
-        unit.clearCounted = undefined
-        unit.clearSince = undefined
-    }
+  private condition(unit: Unit, present: boolean, now: number): void {
+    if (unit.present && !present) unit.clearedAt = now
+    unit.present = present
   }
 
   private raise(unit: Unit, level: ZoneLevel | undefined): void {
@@ -809,10 +724,9 @@ export class RuleEvaluator {
 }
 
 /**
- * What an edit's handling of a rule's stored gate states compares, small
- * enough to store beside those states: an upgrade installed while the
- * plugin was stopped is then handled as an edit, with no rule in memory.
- * Accumulator totals are stored with their own measure instead.
+ * What the ruleset settings record of each rule loaded last, small enough
+ * to store: their slugs tell an upgrade installed while the plugin was
+ * stopped which rules it removed.
  */
 export interface EditBasis {
   gates: unknown[]
@@ -831,9 +745,4 @@ export function measureOf(rule: Rule): string | undefined {
 export function carriesTotals(current: Rule, next: Rule): boolean {
   const measure = measureOf(current)
   return measure !== undefined && measure === measureOf(next)
-}
-
-/** Whether an edit changes the gates, whose stored states are by index. */
-export function changesGates(current: Rule | EditBasis, next: Rule | EditBasis): boolean {
-  return canonical(editBasis(current).gates) !== canonical(editBasis(next).gates)
 }
