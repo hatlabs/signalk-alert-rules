@@ -44,14 +44,22 @@ function canonicalSignal(signal: Signal, canonical: Canonicalise): Signal {
   return { ...signal, inputs: signal.inputs.map((i) => canonicalInput(i, canonical)) }
 }
 
-/** The rule with every pinned source, of its signal and its gates, in canonical form. */
+/**
+ * The rule with every pinned source, of its signal and its gates, in
+ * canonical form, and the source its template record says was picked too,
+ * so the record holds the pick in the form the signal stores it.
+ */
 export function canonicalSources(rule: Rule, canonical: Canonicalise): Rule {
-  const { gates } = rule
+  const { gates, template } = rule
+  const picked = template?.pick.source
   return {
     ...rule,
     signal: canonicalSignal(rule.signal, canonical),
     ...(gates === undefined
       ? {}
-      : { gates: gates.map((g) => ({ ...g, signal: canonicalSignal(g.signal, canonical) })) })
+      : { gates: gates.map((g) => ({ ...g, signal: canonicalSignal(g.signal, canonical) })) }),
+    ...(template === undefined || picked === undefined
+      ? {}
+      : { template: { ...template, pick: { ...template.pick, source: canonical(picked) } } })
   }
 }

@@ -6,6 +6,9 @@ export const MAX_INSTANCES = 64
 export const MAX_SLUG_LENGTH = 64
 export const MAX_COMBINATOR_INPUTS = 16
 export const MAX_GATES = 8
+export const MAX_VERSION_LENGTH = 64
+/** Longest instance or source a template pick names; a Signal K path is at most this long. */
+export const MAX_PICK_LENGTH = 255
 
 /**
  * How the panel converts a numeric field between SI and display units.
@@ -28,8 +31,15 @@ export const PATTERN_MESSAGE_KEY = 'x-pattern-message'
 export const SLUG_PATTERN = '^[a-z0-9]+(-[a-z0-9]+)*$'
 export const SLUG_MESSAGE = 'must be lowercase letters and digits separated by single hyphens'
 
+// One segment of a path, other than the wildcard.
+const PATH_SEGMENT = '[^.\\s*]+'
+
 // A dot-separated path relative to vessels.self; `*` stands alone as a segment.
-const PATH_PATTERN = '^([^.\\s*]+|\\*)(\\.([^.\\s*]+|\\*))*$'
+const PATH_PATTERN = `^(${PATH_SEGMENT}|\\*)(\\.(${PATH_SEGMENT}|\\*))*$`
+
+/** An instance pick: the one path segment `${instance}` stands for. */
+export const INSTANCE_PICK_PATTERN = `^${PATH_SEGMENT}$`
+export const INSTANCE_PICK_MESSAGE = 'must be one path segment, without dots, whitespace or *'
 
 export const COMBINATORS = [
   'difference',
@@ -60,6 +70,13 @@ export const LEVEL_PRIORITY: Readonly<Record<ZoneLevel, Priority>> = {
 
 const num = (quantity: Quantity, options?: TNumberOptions) =>
   Type.Number({ ...options, [QUANTITY_KEY]: quantity })
+
+export const slugSchema = () =>
+  Type.String({
+    maxLength: MAX_SLUG_LENGTH,
+    pattern: SLUG_PATTERN,
+    [PATTERN_MESSAGE_KEY]: SLUG_MESSAGE
+  })
 
 const duration = () => num('duration', { minimum: 0, maximum: MAX_DURATION_S })
 const timeWindow = () => num('duration', { exclusiveMinimum: 0, maximum: MAX_DURATION_S })
@@ -183,14 +200,34 @@ const DetectorSchema = Type.Union(
 
 const GateSchema = Type.Object({ signal: SignalSchema, ...comparisonFields }, closed)
 
+// The pattern alone requires a character, so an empty instance gets one error.
+const InstancePickSchema = Type.String({
+  maxLength: MAX_PICK_LENGTH,
+  pattern: INSTANCE_PICK_PATTERN,
+  [PATTERN_MESSAGE_KEY]: INSTANCE_PICK_MESSAGE
+})
+const SourcePickSchema = Type.String({ minLength: 1, maxLength: MAX_PICK_LENGTH })
+
+const TemplateRecordSchema = Type.Object(
+  {
+    set: slugSchema(),
+    id: slugSchema(),
+    version: Type.String({ minLength: 1, maxLength: MAX_VERSION_LENGTH }),
+    pick: Type.Object(
+      {
+        instance: Type.Optional(InstancePickSchema),
+        source: Type.Optional(SourcePickSchema)
+      },
+      closed
+    )
+  },
+  closed
+)
+
 export const RuleSchema = Type.Object(
   {
     name: Type.String({ minLength: 1, maxLength: 200 }),
-    slug: Type.String({
-      maxLength: MAX_SLUG_LENGTH,
-      pattern: SLUG_PATTERN,
-      [PATTERN_MESSAGE_KEY]: SLUG_MESSAGE
-    }),
+    slug: slugSchema(),
     message: Type.String({ minLength: 1, maxLength: 500 }),
     /** Required unless the detector has a zone limit, whose levels set the priority. */
     priority: Type.Optional(Type.Enum(PRIORITIES)),
@@ -206,7 +243,13 @@ export const RuleSchema = Type.Object(
     latching: Type.Optional(Type.Boolean()),
     signal: SignalSchema,
     detector: DetectorSchema,
-    gates: Type.Optional(Type.Array(GateSchema, { maxItems: MAX_GATES }))
+    gates: Type.Optional(Type.Array(GateSchema, { maxItems: MAX_GATES })),
+    /**
+     * The template the rule was created from, as information only: nothing
+     * reads it to evaluate the rule, so changing or removing the template
+     * never affects the rule.
+     */
+    template: Type.Optional(TemplateRecordSchema)
   },
   closed
 )
@@ -218,6 +261,8 @@ export type Limit = Static<typeof LimitSchema>
 export type Detector = Static<typeof DetectorSchema>
 export type Gate = Static<typeof GateSchema>
 export type Event = Static<typeof EventSchema>
+export type TemplateRecord = Static<typeof TemplateRecordSchema>
+export type TemplatePick = TemplateRecord['pick']
 
 export type ZoneLimit = Extract<Limit, { kind: 'zone' }>
 

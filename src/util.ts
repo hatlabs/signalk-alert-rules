@@ -3,6 +3,11 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+/** The JSON pointer to a key below the one at `at`, with `~` and `/` escaped. */
+export function pointer(at: string, key: string | number): string {
+  return `${at}/${String(key).replace(/~/g, '~0').replace(/\//g, '~1')}`
+}
+
 /** The message of a thrown value, which need not be an Error. */
 export function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)

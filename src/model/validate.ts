@@ -12,7 +12,7 @@ import {
   zoneLimitOf
 } from './rule.js'
 import { RULES_PREFIX } from '../alerts/paths.js'
-import { isRecord } from '../util.js'
+import { isRecord, pointer } from '../util.js'
 
 /** A validation failure; `path` is a JSON pointer into the validated document. */
 export interface ValidationError {
@@ -69,10 +69,6 @@ export const ANGULAR_COMBINATORS: ReadonlySet<CombinatorKind> = new Set([
 
 function fail<T>(errors: ValidationError[]): Result<T> {
   return { ok: false, errors }
-}
-
-export function pointer(at: string, key: string | number): string {
-  return `${at}/${String(key).replace(/~/g, '~0').replace(/\//g, '~1')}`
 }
 
 export function prefixed(errors: ValidationError[], at: string): ValidationError[] {
@@ -227,6 +223,11 @@ function nestedCombinatorErrors(rule: unknown, at: string): ValidationError[] {
         : []
     )
   })
+}
+
+/** Schema errors with one entry per offending field, for documents other than a rule. */
+export function checkSchema(schema: TSchema, input: unknown): ValidationError[] {
+  return schemaCheck(schema, input, [])
 }
 
 function schemaCheck(
@@ -490,43 +491,4 @@ export function alertPathFor(slug: string, instance?: string): Result<string> {
   if (bad !== undefined)
     return fail([{ path: '', message: `"${bad}" is not a valid alert path segment` }])
   return { ok: true, value: path }
-}
-
-const PLACEHOLDER = /\$\{([^}]*)\}/g
-
-/** Where a `${name}` placeholder appears: under which key, at which JSON pointer. */
-export interface PlaceholderUse {
-  name: string
-  key: string
-  at: string
-}
-
-/**
- * A copy of a rule document in which each `${name}` placeholder in a string
- * under one of `keys` is replaced by `visit`'s result. Fresh objects
- * throughout, so values a YAML alias shares are never shared between copies.
- */
-export function substitutePlaceholders(
-  value: unknown,
-  keys: ReadonlySet<string>,
-  visit: (use: PlaceholderUse) => string,
-  at = ''
-): unknown {
-  if (Array.isArray(value))
-    return value.map((item: unknown, i) =>
-      substitutePlaceholders(item, keys, visit, pointer(at, i))
-    )
-  if (!isRecord(value)) return value
-  return Object.fromEntries(
-    Object.entries(value).map(([key, child]) => {
-      const childAt = pointer(at, key)
-      if (keys.has(key) && typeof child === 'string') {
-        const replaced = child.replace(PLACEHOLDER, (_, name: string) =>
-          visit({ name, key, at: childAt })
-        )
-        return [key, replaced]
-      }
-      return [key, substitutePlaceholders(child, keys, visit, childAt)]
-    })
-  )
 }

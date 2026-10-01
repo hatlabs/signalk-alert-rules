@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
   alertPathFor,
-  substitutePlaceholders,
   validateRule,
   type PathInfo,
   type ValidationError
@@ -482,43 +481,34 @@ describe('alertPathFor', () => {
   })
 })
 
-describe('substitutePlaceholders', () => {
-  const PATHS = new Set(['path'])
+describe('the template record', () => {
+  const record = {
+    set: 'batteries',
+    id: 'voltage-low',
+    version: '1.0.0',
+    pick: { instance: 'house', source: 'can0.12' }
+  }
+  const detector = minimalDetectors.match
 
-  it('replaces placeholders under the named keys only, reporting where each is', () => {
-    const uses: unknown[] = []
-    const out = substitutePlaceholders(
-      {
-        name: 'Bank ${instance}',
-        signal: { path: 'electrical.batteries.${instance}.voltage' },
-        gates: [{ signal: { path: '${instance}.${other}' } }]
-      },
-      PATHS,
-      (use) => {
-        uses.push(use)
-        return use.name.toUpperCase()
-      }
-    )
-    expect(out).toEqual({
-      name: 'Bank ${instance}',
-      signal: { path: 'electrical.batteries.INSTANCE.voltage' },
-      gates: [{ signal: { path: 'INSTANCE.OTHER' } }]
-    })
-    expect(uses).toEqual([
-      { name: 'instance', key: 'path', at: '/signal/path' },
-      { name: 'instance', key: 'path', at: '/gates/0/signal/path' },
-      { name: 'other', key: 'path', at: '/gates/0/signal/path' }
-    ])
+  it('is accepted as information about the template a rule came from', () => {
+    expect(errorsOf(rule({ detector, template: record }))).toEqual([])
+    expect(errorsOf(rule({ detector, template: { ...record, pick: {} } }))).toEqual([])
   })
 
-  it('returns fresh objects, so a shared value is never shared between copies', () => {
-    const shared = { kind: 'fixed', value: 12 }
-    const out = substitutePlaceholders({ a: shared, b: shared }, PATHS, () => '') as Record<
-      string,
-      unknown
-    >
-    expect(out.a).toEqual(shared)
-    expect(out.a).not.toBe(shared)
-    expect(out.a).not.toBe(out.b)
+  it.each([
+    ['without its set', { ...record, set: undefined }, '/template/set'],
+    ['with a set id that is not a slug', { ...record, set: 'Batteries' }, '/template/set'],
+    ['without its version', { ...record, version: '' }, '/template/version'],
+    ['with a pick of another part', { ...record, pick: { bank: 'house' } }, '/template/pick/bank'],
+    ['with an empty instance', { ...record, pick: { instance: '' } }, '/template/pick/instance'],
+    [
+      'with an instance of two segments',
+      { ...record, pick: { instance: 'house.port' } },
+      '/template/pick/instance'
+    ],
+    ['with a wildcard instance', { ...record, pick: { instance: '*' } }, '/template/pick/instance'],
+    ['with a field of its own', { ...record, extra: 1 }, '/template/extra']
+  ])('is refused %s', (_, template, path) => {
+    expect(paths(errorsOf(rule({ detector, template })))).toEqual([path])
   })
 })

@@ -418,12 +418,3 @@ describe('local checks', () => {
     expect(saved(form, NO_UNITS).latching).toBeUndefined()
   })
 })
-
-describe('slugify', () => {
-  it('derives a valid slug from a name', () => {
-    expect(slugify('Engine RPM mismatch')).toBe('engine-rpm-mismatch')
-    expect(slugify('  Häälytys: öljy  ')).toBe('haalytys-oljy')
-    expect(slugify('x'.repeat(80))).toHaveLength(64)
-    expect(slugify('!!!')).toBe('')
-  })
-})

@@ -8,6 +8,7 @@ import { Application, LOG_LIMIT } from '../src/application.js'
 import type { RunnerDeps } from '../src/alerts/runner.js'
 import { serverDeps } from '../src/alerts/server.js'
 import { Store, type Checkpoints } from '../src/store/store.js'
+import { instantiate } from '../src/templates/instantiate.js'
 import { FakeAlertsCore } from './helpers/FakeAlertsCore.js'
 import { MockServerAPI } from './helpers/MockServerAPI.js'
 
@@ -910,6 +911,21 @@ describe('pinned sources', () => {
     withDevice(s.server)
     expect(s.application.replaceRule(coolant.slug, pinned('can0.10')).ok).toBe(true)
     expect(storedSignal()).toEqual({ path: COOLANT, source: CANONICAL })
+  })
+
+  it('a rule made from a template with an address form source pick is stored in CAN name form', () => {
+    const s = setup()
+    withDevice(s.server)
+    const { slug: _slug, ...rule } = coolant
+    const made = instantiate(
+      { id: 'builtin', version: '1' },
+      { id: coolant.slug, open: ['source'], rule },
+      { source: 'can0.10' }
+    )
+    if (!made.ok) throw new Error('instantiation failed')
+    expect(s.application.createRule(made.value).ok).toBe(true)
+    expect(storedSignal()).toEqual({ path: COOLANT, source: CANONICAL })
+    expect(s.application.rule(coolant.slug)?.rule.template?.pick).toEqual({ source: CANONICAL })
   })
 
   it('a source without a CAN name is stored as it is', () => {
