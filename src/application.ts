@@ -61,6 +61,12 @@ export type RuleStatus = RunnerRuleStatus | NotEvaluatedStatus
 export interface RuleEntry {
   slug: string
   rule: Rule
+  /**
+   * The rule's alert path, without the `alerts.` prefix, as its input and
+   * condition name give it; a wildcard rule's has a `*` where each
+   * instance's segment goes.
+   */
+  alertPath: string
   /** Present while the rule is disabled. */
   disabled?: Disabled
   status: RuleStatus
@@ -629,6 +635,7 @@ export class Application {
     return {
       slug: rule.slug,
       rule,
+      alertPath: ruleAlertPath(rule),
       ...(disabled === undefined ? {} : { disabled }),
       status:
         this.runner?.status(rule.slug) ?? notStarted(rule, this.retained.get(rule.slug)?.totals)

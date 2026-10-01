@@ -46,6 +46,7 @@ SKAR serves its rules, their status and its operator actions under the plugin's 
   "slug": "low",
   "ruleset": { "name": "Battery monitoring", "version": "1.0.0", "package": { "name": "signalk-alert-ruleset-example", "version": "1.0.0" } },
   "rule": { ... },
+  "alertPath": "electrical.batteries.*.voltageLow",
   "enabled": true,
   "note": "Monitor replaced in spring",
   "suppression": { "since": "2026-09-30T12:00:00.000Z", "actor": "admin", "autoEndAfter": 600 },
@@ -56,6 +57,7 @@ SKAR serves its rules, their status and its operator actions under the plugin's 
 - `origin` and `slug`: here a rule of the ruleset `batteries`; a user rule has the origin `user` and no `ruleset`.
 - `ruleset`: for a ruleset rule only, the ruleset's name and version and, for one from a package, the package's name and version.
 - `rule`: for a ruleset rule, the rule as the ruleset's parameter values resolve it.
+- `alertPath`: the rule's alert path without the `alerts.` prefix, its condition name under the parent its input gives, as [Alert paths](rules.md#alert-paths) describes. It is derived, not part of the rule; a wildcard rule's has a `*` where each instance's segment goes.
 - `enabled`, `note` and `suppression`: the rule's [controls](#rule-controls); `note` and `suppression` are absent when the rule has none. `suppression` is the rule's own; an input suppression shows in `status` only.
 - `status`: the rule's status with its badge, sub-labels and per-instance rows, as described in [Status](rules.md#status). A rule that is not evaluated has the `disabled` badge with the reason `disabled` or `ruleset is disabled`. A ruleset rule whose paths the server has not had has the `inactive` badge with the reason `ruleset path missing` and one issue per missing path; once they have all appeared, until the next evaluation tick starts it, the reason is `starts at the next tick` with no issues. Either way its accumulator totals are instance rows with `progress`.
 

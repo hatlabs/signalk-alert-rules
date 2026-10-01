@@ -9,6 +9,7 @@ const batteries = ruleEntry({
   slug: 'battery-low',
   rule: {
     name: 'Battery low',
+    alertPath: 'electrical.batteries.*.voltageLow',
     priority: undefined,
     detector: { type: 'sustained', direction: 'below', zoneLevel: 'warn' },
     signal: { paths: ['electrical.batteries.*.voltage'] },
@@ -92,6 +93,9 @@ describe('RuleDetail', () => {
       'electrical.batteries.*.voltage'
     )
     expect(screen.getByRole('definition', { name: /priority/i }).textContent).toBe('zone warn')
+    expect(screen.getByRole('definition', { name: /alert path/i }).textContent).toBe(
+      'alerts.electrical.batteries.*.voltageLow'
+    )
     expect(screen.getByRole('definition', { name: /gates/i }).textContent).toBe(
       'electrical.chargers.shore.state'
     )
