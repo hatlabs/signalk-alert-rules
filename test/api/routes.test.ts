@@ -773,8 +773,10 @@ describe('templates API', () => {
     expect((await h.call('POST', '/rules', made.value)).status).toBe(201)
     h.mock.subscriptionmanager.publish('electrical.batteries.house.voltage', 'src', 11)
     at(61)
+    // 11 V is past both of the template's steps, so it raises at the second.
     expect(core(h).getByPath('electrical.batteries.house.voltageLow')).toMatchObject({
       condition: true,
+      priority: 'alarm',
       $source: 'signalk-alert-rules'
     })
 

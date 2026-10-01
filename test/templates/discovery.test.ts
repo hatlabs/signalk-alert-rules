@@ -204,6 +204,19 @@ describe('discoverTemplateSets', () => {
     expect(result.sets[0]?.set.templates.length).toBeGreaterThan(0)
   })
 
+  it('ships a battery template that warns below 12.2 V and alarms below 11.8 V', () => {
+    const result = discoverTemplateSets({ builtin: BUILTIN_TEMPLATES })
+    const battery = result.sets[0]?.set.templates.find((t) => t.id === 'battery-voltage-low')
+    expect(battery?.rule.detector).toMatchObject({
+      type: 'sustained',
+      direction: 'below',
+      steps: [
+        { limit: 12.2, priority: 'warning' },
+        { limit: 11.8, priority: 'alarm' }
+      ]
+    })
+  })
+
   it('ships the built-in set in the published package', async () => {
     const root = join(import.meta.dirname, '../..')
     const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')) as {
