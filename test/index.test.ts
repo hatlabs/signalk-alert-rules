@@ -64,6 +64,14 @@ describe('plugin', () => {
     expect(plugin.id).toBe('signalk-alert-rules')
   })
 
+  it('has no configuration and points to the webapp where rules are managed', () => {
+    const plugin = createPlugin(new MockServerAPI(true, dir).asServerAPI())
+    expect(plugin.schema).toBeTypeOf('function')
+    const schema = (plugin.schema as () => object)()
+    expect(schema).toMatchObject({ type: 'object', properties: {} })
+    expect(schema).toHaveProperty('description', expect.stringMatching(/Alert Rules webapp/))
+  })
+
   it('starts and stops on a server with the alerts API', async () => {
     const app = new MockServerAPI(true, dir)
     const plugin = createPlugin(app.asServerAPI())

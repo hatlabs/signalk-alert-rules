@@ -15,12 +15,7 @@ const built = existsSync(remoteEntry)
 /** What the admin UI treats as a federated container (dynamicutilities.ts). */
 interface Container {
   init: (shareScope: Record<string, unknown>) => Promise<void> | void
-  get: (module: string) => Promise<() => { default: React.ComponentType<PanelProps> }>
-}
-
-interface PanelProps {
-  configuration: unknown
-  save: (configuration: unknown) => void
+  get: (module: string) => Promise<() => { default: React.ComponentType }>
 }
 
 function isContainer(value: unknown): value is Container {
@@ -35,7 +30,7 @@ function isContainer(value: unknown): value is Container {
 describe.skipIf(!built)('built panel bundle (skipped until `./run build-panel` has run)', () => {
   const globals = globalThis as { window?: unknown }
 
-  // Only the globals the admin UI sets before loading a panel (bootstrap.tsx);
+  // Only the globals the admin UI sets before loading a webapp (bootstrap.tsx);
   // no document, so the bundle cannot lean on anything else from the page.
   beforeAll(() => {
     globals.window = {
@@ -50,17 +45,15 @@ describe.skipIf(!built)('built panel bundle (skipped until `./run build-panel` h
     delete globals.window
   })
 
-  it('initialises and returns the exposed panel, rendered on the host React', async () => {
+  it('initialises and returns the exposed webapp, rendered on the host React', async () => {
     const container: unknown = await import(pathToFileURL(remoteEntry).href)
     if (!isContainer(container)) throw new Error('remoteEntry.js exports no init/get container')
 
     await container.init({})
-    const factory = await container.get('./PluginConfigurationPanel')
-    const Panel = factory().default
+    const factory = await container.get('./AppPanel')
+    const AppPanel = factory().default
 
-    const html = renderToStaticMarkup(
-      React.createElement(Panel, { configuration: undefined, save: () => undefined })
-    )
+    const html = renderToStaticMarkup(React.createElement(AppPanel))
     expect(html).toContain('role="status"')
     expect(html).toContain('Loading')
   })

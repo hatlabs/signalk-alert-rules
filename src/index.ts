@@ -47,7 +47,11 @@ export default function createPlugin(app: ServerAPI): Plugin {
     id: PLUGIN_ID,
     name: 'Alert Rules',
     description: 'Raises alerts through the Signal K alerts API from rules over Signal K data',
-    schema: () => ({ type: 'object', properties: {} }),
+    schema: () => ({
+      type: 'object',
+      description: 'Alert rules are managed in the Alert Rules webapp under Webapps.',
+      properties: {}
+    }),
 
     start() {
       startError = undefined
