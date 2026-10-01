@@ -10,8 +10,9 @@ type FakeAlert = CoreAlert & { state: string }
 /**
  * The core alerts API's delta ingress and reads, reduced to the behaviour SKAR
  * relies on (signalk-server `src/api/alerts/deltas.ts`, `alertManager.ts`,
- * `alertStateMachine.ts`): an unchanged re-emission of a condition-active
- * alert only refreshes its description, a clear holds an unacknowledged
+ * `alertStateMachine.ts`): a re-emission of a condition-active alert at or
+ * below its priority only refreshes its description, message included, and
+ * never re-alerts; a clear holds an unacknowledged
  * non-caution alert, acknowledging a held alert removes it, a raise on a held
  * alert reactivates it, a latching raise is a momentary event whose condition
  * has already ended and which alerts the operator every time, an omitted
@@ -36,19 +37,17 @@ export class FakeAlertsCore {
       this.raiseOccurrence(source, path, value, existing)
       return
     }
-    if (
-      existing?.condition === true &&
-      rank(value.priority) <= rank(existing.priority) &&
-      value.message === existing.message
-    ) {
+    if (existing?.condition === true && rank(value.priority) <= rank(existing.priority)) {
       const changed =
         existing.$source !== source ||
+        value.message !== existing.message ||
         (value.data !== undefined && !isDeepStrictEqual(value.data, existing.data)) ||
         value.latching !== existing.latching ||
         existing.stale
       if (changed) {
         Object.assign(existing, {
           $source: source,
+          message: value.message,
           data: value.data ?? existing.data,
           stale: false
         })

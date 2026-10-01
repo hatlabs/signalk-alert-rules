@@ -230,7 +230,7 @@ A rule with a fixed limit, or with no limit, raises at its `priority` and keeps 
 | `alarm` | `alarm` |
 | `emergency` | `emergency` |
 
-A sustained rule with a zone limit runs one detector per zone level: the named level and each more severe level that is an escalation step (see [Escalation](#escalation)), all with the rule's `duration`, `hysteresis` and `clearDuration`. The alert's priority is that of the most severe level whose detector is active. When that rises, SKAR sends the higher priority at once and core escalates the alert. When it falls, SKAR sends the lower priority and core keeps the higher one, because core never lowers a priority. The condition, and so the alert, ends only when the named level's detector ends. The message stays the same at every level, so a fall does not re-alert.
+A sustained rule with a zone limit runs one detector per zone level: the named level and each more severe level that is an escalation step (see [Escalation](#escalation)), all with the rule's `duration`, `hysteresis` and `clearDuration`. The alert's priority is that of the most severe level whose detector is active. When that rises, SKAR sends the higher priority at once and core escalates the alert. When it falls, SKAR sends the lower priority and core keeps the higher one, because core never lowers a priority. The condition, and so the alert, ends only when the named level's detector ends. Core treats the lower priority as a repeat, so a fall does not re-alert.
 
 Everything after the raise, acknowledgment, silencing and escalation included, is core's alert lifecycle. SKAR never acknowledges, silences or escalates. It reads core's alert state once, at start, to adopt or clear its own alerts (see [Restart reconciliation](#restart-reconciliation)), and not after that.
 
@@ -284,7 +284,7 @@ Data holds only what changes rarely, so repeats of the alert cause no store writ
 
 ### Heartbeat and input evidence
 
-Core marks an alert stale when its source has not repeated it for 60 s. SKAR repeats every active non-latching alert every 10 s with the same value, data included; an adopted alert's repeats omit `data`, so core keeps what it stored. A priority change is sent at once, and a message or priority edit goes out with the next repeat. Core treats an unchanged repeat as a refresh; it re-alerts on a changed message and escalates on a higher priority.
+Core marks an alert stale when its source has not repeated it for 60 s. SKAR repeats every active non-latching alert every 10 s with the same value, data included; an adopted alert's repeats omit `data`, so core keeps what it stored. A priority change is sent at once, and a message or priority edit goes out with the next repeat. Core treats a repeat at or below the alert's priority as a refresh, updating a changed message without re-alerting, and escalates on a higher priority.
 
 SKAR repeats an alert only while it has input evidence for it, and otherwise lets core mark it stale rather than clearing it; the rule's status shows the alert as awaiting input. An instance has evidence:
 

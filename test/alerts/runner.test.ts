@@ -300,12 +300,18 @@ describe('rule runner', () => {
 
   it("adopts an alert of an existing rule with the rule's current message and no data, without raising", () => {
     const core = coreWith(OIL_ALERT, 'Old message')
+    core.acknowledge(OIL_ALERT)
     const { at, run, sent } = setup([{ ...oil, message: 'New message' }], { core })
     at(0, OIL, 0)
     run(1, 2 * HEARTBEAT_S)
     expect(sent.length).toBeGreaterThan(1)
     expect(sent.every(([, v]) => v?.message === 'New message' && v.data === undefined)).toBe(true)
-    expect(core.getByPath(OIL_ALERT)?.data).toEqual({ rule: 'user.oil-pressure-low' })
+    expect(core.getByPath(OIL_ALERT)).toMatchObject({
+      data: { rule: 'user.oil-pressure-low' },
+      message: 'New message',
+      state: 'acknowledged'
+    })
+    expect(core.alertings).toBe(0)
   })
 
   it("an adopted wildcard alert's message keeps the instance name its raise used", () => {
