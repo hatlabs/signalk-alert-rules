@@ -225,18 +225,20 @@ The last 200 actions, newest first, kept in the data directory:
 The Alert Rules webapp opens a rule's detail view from a link, such as one an alert carries. The admin UI routes with its own hash, so the rule rides as a second fragment after the webapp's route, `#/e/signalk_alert_rules`, which is the route the admin UI's Webapps page opens:
 
 ```
-/admin/#/e/signalk_alert_rules#rule=<origin>/<slug>
+/admin/#/e/signalk_alert_rules#rule=<slug>
 ```
 
 A link to one instance of a wildcard rule adds the instance:
 
 ```
-/admin/#/e/signalk_alert_rules#rule=<origin>/<slug>&instance=<name>
+/admin/#/e/signalk_alert_rules#rule=<slug>&instance=<name>
 ```
 
-- `origin`, `slug` and the instance are each percent-encoded as `encodeURIComponent` does. The origin is `user` or a ruleset's slug, so neither it nor the rule's slug contains a `/`.
-- The instance is its name, the path segment the rule's wildcard matched, or its segment in the alert path, where the rule's alert path has its `*`. A consumer building the link from an alert takes the origin and slug from the alert's `data.rule`, `<origin>.<slug>`, and the instance from the alert path's segment at the rule's `*`. The detail view highlights that instance's row, and moves focus to it when the webapp is already open.
-- A link to a rule that was deleted, or to a stored rule that does not run, which the webapp does not list, shows that the rule was not found. A link to an instance the rule does not have now shows the rule with a notice saying so.
+- The slug and the instance are each percent-encoded as `encodeURIComponent` does.
+- The instance is its name, the path segment the rule's wildcard matched, or its segment in the alert path, where the rule's alert path has its `*`. A consumer building the link from an alert takes the slug from the alert's `data.rule` and the instance from the alert path's segment at the rule's `*`. The detail view highlights that instance's row, and moves focus to it when the webapp is already open.
+- A link to a rule that is not listed, such as one that was deleted, opens the rule list with a notice that the rule was not found. A link to an instance the rule does not have now shows the rule with a notice saying so.
+
+The webapp's other views ride the same way: `#edit=<slug>` opens a rule in the editor, `#add` opens Add rule, and `#add=template` and `#add=path` its two ways to start. A fragment the webapp does not know opens the rule list.
 
 ## Errors
 
