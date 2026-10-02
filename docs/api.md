@@ -15,51 +15,59 @@ SKAR serves its rules, their status and its operator actions under the plugin's 
 |---|---|
 | `GET /state` | the plugin's state (below); answers while the plugin is not running |
 | `GET /rules` | every rule, as rule entries |
-| `GET /rules/:origin/:slug` | one rule entry |
-| `POST /rules` | creates a user rule from the body; 201 with its entry |
-| `PUT /rules/user/:slug` | replaces a user rule with the body; the body's `slug` must equal the path's |
-| `POST /rules/user/:slug/preview` | what replacing the rule with the body would do, without doing it |
-| `DELETE /rules/user/:slug` | deletes a user rule and clears its alerts; 204 |
-| `POST /rules/:origin/:slug/reset` | resets an accumulator rule; answers its entry |
+| `GET /rules/:slug` | one rule entry |
+| `POST /rules` | creates a rule from the body; 201 with its entry |
+| `PUT /rules/:slug` | replaces a rule with the body; the body's `slug` must equal the path's |
+| `POST /rules/:slug/preview` | what replacing the rule with the body would do, without doing it |
+| `DELETE /rules/:slug` | deletes a rule and clears its alerts; 204 |
+| `POST /rules/:slug/reset` | resets an accumulator rule; answers its entry |
+| `POST /rules/:slug/disable` | disables a rule, with an optional `{ "note": "..." }`; answers its entry |
+| `POST /rules/:slug/enable` | enables a rule; answers its entry |
 | `GET /log` | the operator action log, newest first |
-| `PUT /rules/:origin/:slug/enabled` | enables or disables a rule from `{ "enabled": true \| false }`; answers its entry |
-| `PUT /rules/:origin/:slug/note` | sets a rule's note from `{ "note": "..." }`; an empty note removes it; answers its entry |
-| `GET /suppressions` | every suppression in force, newest first |
-| `PUT /suppressions/rules/:origin/:slug` | suppresses a rule, replacing a suppression it has; answers its entry |
-| `DELETE /suppressions/rules/:origin/:slug` | ends a rule's suppression; 204, also when the rule is not suppressed or, with a suppression in force, did not load |
-| `PUT /suppressions/inputs/:path` | suppresses an input path, replacing a suppression it has; answers the suppression |
-| `DELETE /suppressions/inputs/:path` | ends an input suppression; 204, also when the path is not suppressed |
-| `GET /suppressions/inputs/:path/preview` | what suppressing the path would do, without doing it |
-| `GET /rulesets` | every loaded ruleset, and the problems of the last discovery |
-| `POST /rulesets/rescan` | discovers the rulesets again and applies what changed; answers as `GET /rulesets` |
-| `PUT /rulesets/:slug/enabled` | enables or disables a ruleset from `{ "enabled": true \| false }`; answers its entry |
-| `PUT /rulesets/:slug/parameters` | replaces a ruleset's parameter values with the body, an object of values by parameter name; answers its entry |
-| `DELETE /rulesets/:slug/notices` | dismisses a ruleset's notices; 204 |
+| `GET /templates` | the template sets installed now, each with its templates and the ids of those whose notice nobody has dismissed, and the sets that failed to load |
+| `POST /templates/dismiss` | dismisses the notice of every template installed now; answers as `GET /templates` |
 
-`origin` is `user` for rules created through this API. User rules are stored in the plugin's data directory, one file per rule as `rules/<slug>.json`, and validated at start; one that no longer validates does not run and is named in the plugin status. A rule from a ruleset has the ruleset's slug as its `origin`; it is read-only, but takes the same controls, suppressions and resets as a user rule. `:path` is a Signal K path relative to `vessels.self`, such as `propulsion.port.revolutions`.
+Rules are stored in the plugin's data directory, one file per rule as `rules/<slug>.json`, and validated at start; one that does not run is listed as an [invalid rule entry](#invalid-rule-entry) and named in the server's plugin status.
 
 ### Rule entry
 
 ```json
 {
-  "origin": "batteries",
-  "slug": "low",
-  "ruleset": { "name": "Battery monitoring", "version": "1.0.0", "package": { "name": "signalk-alert-ruleset-example", "version": "1.0.0" } },
+  "slug": "oil-pressure-low",
   "rule": { ... },
-  "alertPath": "electrical.batteries.*.voltageLow",
-  "enabled": true,
-  "note": "Monitor replaced in spring",
-  "suppression": { "since": "2026-09-30T12:00:00.000Z", "actor": "admin", "autoEndAfter": 600 },
+  "alertPath": "propulsion.main.oilPressureLow",
+  "disabled": { "since": "2026-09-30T12:00:00.000Z", "actor": "admin", "note": "Sender replaced in spring" },
   "state": { ... }
 }
 ```
 
-- `origin` and `slug`: here a rule of the ruleset `batteries`; a user rule has the origin `user` and no `ruleset`.
-- `ruleset`: for a ruleset rule only, the ruleset's name and version and, for one from a package, the package's name and version.
-- `rule`: for a ruleset rule, the rule as the ruleset's parameter values resolve it.
+- `slug`: the rule's slug, as in its body.
+- `rule`: the rule as stored.
 - `alertPath`: the rule's alert path without the `alerts.` prefix, its condition name under the parent its input gives, as [Alert paths](rules.md#alert-paths) describes. It is derived, not part of the rule; a wildcard rule's has a `*` where each instance's segment goes.
-- `enabled`, `note` and `suppression`: the rule's [controls](#rule-controls); `note` and `suppression` are absent when the rule has none. `suppression` is the rule's own; an input suppression shows in `state` only.
+- `disabled`: present while the rule is disabled: when, by whom and, when given, why; see [Rule controls](#rule-controls).
 - `state`: the rule's state: `ruleState` (`enabled` or `disabled`), its `condition` with a `reason` code and that reason's facts, `changedAt`, the time either last changed since the plugin started (an adopted alert keeps its raise time), `issues` and `errors`, and one row per instance, as described in [State](rules.md#state). While the plugin has not started evaluating, the condition is `noData` with the reason `notEvaluated`, and the rule's accumulator totals are instance rows with `progress`.
+
+### Invalid rule entry
+
+A stored rule file that was read but does not run is listed in `GET /rules`, after the rules that run, and answered by `GET /rules/:slug`:
+
+```json
+{
+  "slug": "coolant-high",
+  "invalid": {
+    "errors": [{ "path": "/detector/steps/0/priority", "message": "..." }],
+    "body": { ... }
+  },
+  "state": { "ruleState": "enabled", "condition": "problem", "reason": "invalidRule", "changedAt": "2026-09-30T12:00:00.000Z", "issues": [], "errors": [], "instances": [] }
+}
+```
+
+- `invalid.errors`: why it does not run, as `{ "path", "message" }` with a JSON pointer into `body`: a rule that does not validate, a `slug` other than the one in its file name (at `/slug`), or an alert path overlapping that of a rule loaded before it (at `/condition`).
+- `invalid.body`: the stored file's content as read.
+- `disabled`: as for a rule entry, present while the rule is disabled.
+- `state`: the condition `problem` with the reason `invalidRule`, dated from when the plugin loaded the stored rules.
+
+A `PUT` of a valid rule with its slug replaces the file and starts the rule; a `DELETE` removes it.
 
 ### Edit preview
 
@@ -205,7 +213,7 @@ The last 200 actions, newest first, kept in the data directory:
 - `running`: whether the plugin is running. While it is not, every other route answers 503.
 - `error`: why the plugin did not start, such as a server without the alerts API, or accumulator totals or an action log that could not be read from the data directory.
 - `securityEnabled`: whether the server enforces security; `null` when SKAR cannot tell.
-- `issues`, while running: the problems found while loading the data directory, such as a stored rule that no longer validates or cannot be read. Such a rule is not listed in `GET /rules`; it can be replaced with `PUT` or deleted.
+- `issues`, while running: the problems found while loading the data directory, such as a stored rule file that cannot be read or parsed. Such a rule is not listed in `GET /rules`; it can be replaced with `PUT` or deleted. A stored rule that is read but does not run is not an issue: it is listed as an [invalid rule entry](#invalid-rule-entry).
 
 ### Rule links
 
@@ -223,7 +231,7 @@ A link to one instance of a wildcard rule adds the instance:
 
 - `origin`, `slug` and the instance are each percent-encoded as `encodeURIComponent` does. The origin is `user` or a ruleset's slug, so neither it nor the rule's slug contains a `/`.
 - The instance is its name, the path segment the rule's wildcard matched, or its segment in the alert path, where the rule's alert path has its `*`. A consumer building the link from an alert takes the origin and slug from the alert's `data.rule`, `<origin>.<slug>`, and the instance from the alert path's segment at the rule's `*`. The detail view highlights that instance's row, and moves focus to it when the webapp is already open.
-- A link to a rule that is not listed, because it was deleted or no longer validates, shows that the rule was not found. A link to an instance the rule does not have now shows the rule with a notice saying so.
+- A link to a rule that was deleted, or to a stored rule that does not run, which the webapp does not list, shows that the rule was not found. A link to an instance the rule does not have now shows the rule with a notice saying so.
 
 ## Errors
 

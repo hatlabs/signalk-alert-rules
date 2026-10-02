@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Value } from '@signalk/server-api'
 import { serverDeps } from '../../src/alerts/server'
 import { Application } from '../../src/application'
-import { parseRuleEntry, parseState, type RuleEntry } from '../../src/panel/api'
+import { parseRuleEntry, parseRules, parseState, type RuleEntry } from '../../src/panel/api'
 import { Store } from '../../src/store/store'
 import { MockServerAPI } from '../helpers/MockServerAPI'
 
@@ -108,18 +108,11 @@ function running() {
 const wire = (value: unknown): unknown => JSON.parse(JSON.stringify(value))
 
 function parsedRules(application: Application): Map<string, RuleEntry> {
-  const body = wire(application.rules())
-  if (!Array.isArray(body)) throw new Error('rules() is not a list')
-  return new Map(
-    body.map((entry) => {
-      const parsed = parseRuleEntry(entry, '/rules')
-      return [parsed.slug, parsed]
-    })
-  )
+  return new Map(parseRules(wire(application.rules())).map((entry) => [entry.slug, entry]))
 }
 
 describe('panel parsers against the Application', () => {
-  it('read every rule entry the Application answers', () => {
+  it('read every rule entry the Application answers, leaving out the invalid stored rule', () => {
     const rules = parsedRules(running())
     expect([...rules.keys()].sort()).toEqual([
       'battery-low',
@@ -184,6 +177,7 @@ describe('panel parsers against the Application', () => {
   })
 
   it('read the load issues in the state', () => {
+    writeFileSync(join(dir, 'rules', 'garbled.json'), '{')
     const application = running()
     // Built as src/api/routes.ts builds GET /state from the Application.
     const state = parseState(
@@ -193,7 +187,7 @@ describe('panel parsers against the Application', () => {
         issues: application.issues
       })
     )
-    expect(state.issues).toEqual([expect.stringMatching(/stored rule broken is not valid/)])
+    expect(state.issues).toEqual([expect.stringMatching(/garbled\.json could not be read/)])
   })
 })
 

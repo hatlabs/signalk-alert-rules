@@ -101,9 +101,8 @@ export default function createPlugin(app: ServerAPI): Plugin {
       let shown: string | undefined
       const report = () => {
         const failure = [...failures.values()].at(-1)
-        const text =
-          failure ??
-          (running.issues.length === 0 ? 'Running' : `Running; ${running.issues.join('; ')}`)
+        const notes = running.statusNotes()
+        const text = failure ?? (notes.length === 0 ? 'Running' : `Running; ${notes.join('; ')}`)
         if (text === shown) return
         shown = text
         if (failure === undefined) app.setPluginStatus(text)
@@ -145,7 +144,7 @@ export default function createPlugin(app: ServerAPI): Plugin {
           CHECKPOINT_MS
         )
       ]
-      for (const issue of running.issues) app.error(issue)
+      for (const note of running.statusNotes()) app.error(note)
       report()
     },
 

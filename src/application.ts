@@ -46,6 +46,31 @@ export interface RuleEntry {
   state: RuleStateReport
 }
 
+/** A stored rule file that does not run: why, and what it holds, so it can be repaired. */
+export interface InvalidRule {
+  errors: ValidationError[]
+  body: unknown
+}
+
+/** A stored rule that does not run, listed so it can be fetched, replaced or deleted. */
+export interface InvalidRuleEntry {
+  slug: string
+  invalid: InvalidRule
+  /** Present while the rule is disabled. */
+  disabled?: Disabled
+  state: RuleStateReport
+}
+
+export type ListedRule = RuleEntry | InvalidRuleEntry
+
+/** The error for a rule whose alert path overlaps rule `holder`'s. */
+export function alertPathOverlap(holder: string): ValidationError {
+  return {
+    path: '/condition',
+    message: `makes an alert path overlapping that of rule ${holder}; each rule needs its own`
+  }
+}
+
 export type ControlOutcome = 'ok' | 'notFound'
 
 export type SaveOutcome =
@@ -150,6 +175,8 @@ export class Application {
   readonly issues: string[]
   private runner: RuleRunner | undefined
   private readonly rulesBySlug = new Map<string, Rule>()
+  /** Stored rule files that were read but do not run, by slug. */
+  private readonly invalid = new Map<string, InvalidRule>()
   /** Slugs of stored rule files, loaded or not, so a skipped one can be deleted. */
   private readonly stored: Set<string>
   /** Slugs of stored rule files that could not be read, which say nothing about their measure. */
@@ -193,11 +220,11 @@ export class Application {
     this.stored = new Set([...contents.rules.map((r) => r.slug), ...contents.unreadableRules])
     for (const { slug, value } of contents.rules) {
       const loaded = this.loadStored(slug, value)
-      if (typeof loaded !== 'string') {
+      if (!Array.isArray(loaded)) {
         this.rulesBySlug.set(slug, loaded)
         continue
       }
-      this.issues.push(loaded)
+      this.invalid.set(slug, { errors: loaded, body: value })
       const detector = isRecord(value) && isRecord(value.detector) ? value.detector : undefined
       if (detector?.type === 'accumulator' && typeof detector.measure === 'string') {
         this.unloadedMeasures.set(slug, detector.measure)
@@ -207,18 +234,14 @@ export class Application {
     this.unreadable = new Set(contents.unreadableRules)
   }
 
-  /** A stored rule file as the rule it loads as, or the issue saying why it does not run. */
-  private loadStored(slug: string, value: unknown): Rule | string {
+  /** A stored rule file as the rule it loads as, or the errors that keep it from running. */
+  private loadStored(slug: string, value: unknown): Rule | ValidationError[] {
     const result = validateRule(value)
-    if (!result.ok) {
-      const errors = result.errors.map((e) => `${e.path || '/'} ${e.message}`).join('; ')
-      return `stored rule ${slug} is not valid and does not run: ${errors}`
-    }
+    if (!result.ok) return result.errors
     if (result.value.slug !== slug)
-      return `stored rule ${slug} has the slug ${result.value.slug} and does not run`
+      return [{ path: '/slug', message: `must equal the slug it is stored under, ${slug}` }]
     const holder = this.alertPathHolder(result.value)
-    if (holder !== undefined)
-      return `stored rule ${slug} has an alert path overlapping that of ${holder} and does not run`
+    if (holder !== undefined) return [alertPathOverlap(holder)]
     return result.value
   }
 
@@ -275,13 +298,32 @@ export class Application {
     return [...this.rulesBySlug.values()]
   }
 
-  rules(): RuleEntry[] {
-    return this.allRules().map((rule) => this.entry(rule))
+  /**
+   * The load issues and the stored rules that do not run, as text for the
+   * server's plugin status and log, where an operator who never opens the
+   * webapp sees them.
+   */
+  statusNotes(): string[] {
+    const invalid = [...this.invalid].map(([slug, { errors }]) => {
+      const why = errors.map((e) => `${e.path || '/'} ${e.message}`).join('; ')
+      return `stored rule ${slug} does not run: ${why}`
+    })
+    return [...this.issues, ...invalid]
   }
 
-  rule(slug: string): RuleEntry | undefined {
+  /** The rules that run, then the stored rules that do not. */
+  rules(): ListedRule[] {
+    return [
+      ...this.allRules().map((rule) => this.entry(rule)),
+      ...[...this.invalid].map(([slug, invalid]) => this.invalidEntry(slug, invalid))
+    ]
+  }
+
+  rule(slug: string): ListedRule | undefined {
     const rule = this.rulesBySlug.get(slug)
-    return rule === undefined ? undefined : this.entry(rule)
+    if (rule !== undefined) return this.entry(rule)
+    const invalid = this.invalid.get(slug)
+    return invalid === undefined ? undefined : this.invalidEntry(slug, invalid)
   }
 
   /** The operator action log, newest first. */
@@ -387,6 +429,7 @@ export class Application {
     const drops = this.hasTotal(slug) && !carries
     this.store.saveRule(rule)
     this.stored.add(slug)
+    this.invalid.delete(slug)
     this.unloadedMeasures.delete(slug)
     // While a rule is not evaluated an edit keeps the total, as the runner would.
     if (!carries) this.retained.delete(slug)
@@ -482,6 +525,7 @@ export class Application {
     const drops = this.hasTotal(slug)
     this.store.deleteRule(slug)
     this.stored.delete(slug)
+    this.invalid.delete(slug)
     this.unloadedMeasures.delete(slug)
     this.retained.delete(slug)
     if (this.rulesBySlug.delete(slug)) this.runner?.remove(slug)
@@ -632,6 +676,20 @@ export class Application {
           disabled !== undefined,
           this.loadedAt
         )
+    }
+  }
+
+  private invalidEntry(slug: string, invalid: InvalidRule): InvalidRuleEntry {
+    const { disabled } = this.control(slug)
+    return {
+      slug,
+      invalid,
+      ...(disabled === undefined ? {} : { disabled }),
+      state: stateReport(
+        disabled !== undefined,
+        { condition: 'problem', reason: 'invalidRule' },
+        this.loadedAt
+      )
     }
   }
 

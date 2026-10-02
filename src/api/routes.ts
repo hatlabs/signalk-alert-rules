@@ -1,5 +1,11 @@
 import type { IRouter, NextFunction, Request, RequestHandler, Response } from 'express'
-import type { Application, ControlOutcome, RuleEntry, SaveOutcome } from '../application.js'
+import {
+  alertPathOverlap,
+  type Application,
+  type ControlOutcome,
+  type ListedRule,
+  type SaveOutcome
+} from '../application.js'
 import type { ValidationError } from '../model/validate.js'
 import { errorMessage, isRecord } from '../util.js'
 
@@ -122,7 +128,7 @@ export function registerRoutes(router: IRouter, ctx: ApiContext): void {
   router.get(
     '/rules/:slug',
     running((skar, req, res) => {
-      const entry: RuleEntry | undefined = skar.rule(req.params.slug)
+      const entry: ListedRule | undefined = skar.rule(req.params.slug)
       if (entry === undefined) notFound(res, 'such rule')
       else res.json(entry)
     })
@@ -270,12 +276,7 @@ function editRefused(res: Response, outcome: Exclude<SaveOutcome, { ok: true }>)
     case 'alertPathTaken':
       res.status(409).json({
         error: 'another rule has this alert path',
-        errors: [
-          {
-            path: '/condition',
-            message: `makes an alert path overlapping that of rule ${outcome.holder}; each rule needs its own`
-          }
-        ]
+        errors: [alertPathOverlap(outcome.holder)]
       })
       break
     case 'slugMismatch':

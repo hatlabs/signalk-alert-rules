@@ -439,6 +439,26 @@ describe('REST API', () => {
     expect((await h.call('PUT', '/rules/port-oil', own)).status).toBe(200)
   })
 
+  it('lists an invalid stored rule with its errors and body, answers it by slug, and starts it once a PUT repairs it', async () => {
+    storeRule(loud)
+    const h = await serve()
+    const entry = {
+      slug: oil.slug,
+      invalid: { errors: [{ path: '/detector/steps/0/priority' }], body: loud },
+      state: { ruleState: 'enabled', condition: 'problem', reason: 'invalidRule', instances: [] }
+    }
+    expect((await h.call('GET', '/rules')).body).toMatchObject([entry])
+    expect((await h.call('GET', `/rules/${oil.slug}`)).body).toMatchObject(entry)
+    expect((await h.call('GET', '/state')).body).toMatchObject({ issues: [] })
+
+    const repaired = await h.call('PUT', `/rules/${oil.slug}`, oil)
+    expect(repaired).toMatchObject({ status: 200, body: { slug: oil.slug, rule: oil } })
+    expect(repaired.body).not.toHaveProperty('invalid')
+    h.mock.subscriptionmanager.publish(OIL, 'src', 0)
+    at(6)
+    expect(core(h).getByPath(OIL_ALERT)?.condition).toBe(true)
+  })
+
   it("refuses a rule taking another rule's alert path, on create and on edit", async () => {
     storeRule(oil)
     const h = await serve()

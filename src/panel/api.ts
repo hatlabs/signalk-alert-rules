@@ -21,8 +21,9 @@ export interface PluginState {
   securityEnabled: boolean | null
   /**
    * Present while the plugin runs: problems found while loading the data
-   * directory, such as a stored rule that no longer validates and so is not
-   * listed.
+   * directory, such as a stored rule file that could not be read. A stored
+   * rule that was read but does not run is an invalid entry of `/rules`
+   * instead, which this webapp does not list yet.
    */
   issues?: string[]
 }
@@ -331,9 +332,12 @@ export function parseRuleEntry(body: unknown, what: string): RuleEntry {
   }
 }
 
-function parseRules(body: unknown): RuleEntry[] {
+// The panel cannot yet show a stored rule that does not validate; it lists the rules that run.
+export function parseRules(body: unknown): RuleEntry[] {
   if (!Array.isArray(body)) throw malformed('/rules')
-  return body.map((entry) => parseRuleEntry(entry, '/rules'))
+  return body
+    .filter((entry) => !(isRecord(entry) && 'invalid' in entry))
+    .map((entry) => parseRuleEntry(entry, '/rules'))
 }
 
 function fieldErrors(v: unknown): FieldError[] | undefined {

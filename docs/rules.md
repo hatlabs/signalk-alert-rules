@@ -453,6 +453,8 @@ A disabled rule's condition is `present` when it holds, judged in this run: an a
 
 A rule that is not evaluated, because the plugin has not started evaluating, has the condition `noData` with the reason `notEvaluated`, no errors or issues, and one instance row per accumulator total it keeps, with `progress` and, for a wildcard rule, `instance` with the `segment` only.
 
+A stored rule that does not run, because it does not validate, names another slug than its file, or overlaps the alert path of a rule loaded before it, is a `problem` with the reason `invalidRule` and no instances; its validation errors and stored body come with it, as [the API](api.md#invalid-rule-entry) describes.
+
 ## Worked examples
 
 Each rule in [`examples/rules`](../examples/rules) runs in `test/examples.test.ts` against the scenario of the same name in `test/fixtures/example-scenarios.ts`, from a plugin start at 0 s. The table summarises the sequence the test asserts, with heartbeats left out.
