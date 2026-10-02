@@ -1,0 +1,224 @@
+// @vitest-environment jsdom
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { HistoryChart, type ChartSpec } from '../../../src/panel/history/HistoryChart'
+import type {
+  HistoryPoint,
+  HistoryQuery,
+  HistorySource
+} from '../../../src/panel/history/historySource'
+import { displayUnit } from '../../../src/panel/units'
+
+afterEach(cleanup)
+
+const NOW = Date.now()
+const HOUR = 3_600_000
+
+/** Coolant in kelvin, shown in °C, so a value drawn in SI would be off by 273. */
+const celsius = displayUnit({
+  units: 'K',
+  displayUnits: { formula: 'value - 273.15', symbol: '°C' }
+})
+
+const coolant: ChartSpec = {
+  path: 'propulsion.port.coolantTemperature',
+  method: 'max',
+  measure: { kind: 'absolute', unit: celsius },
+  limits: [{ value: 95 }],
+  side: 'above'
+}
+
+const BUCKET = 600_000
+
+/** A day of 10 min buckets at 80 °C, peaking at 90 °C ten hours ago. */
+const series: HistoryPoint[] = Array.from({ length: 144 }, (_, i) => {
+  const time = NOW - 24 * HOUR + i * BUCKET
+  return { time, value: time === NOW - 10 * HOUR ? 363.15 : 353.15 }
+})
+
+function fakeHistory(
+  answer: (q: HistoryQuery) => Promise<HistoryPoint[]> = () => Promise.resolve(series),
+  provider = true
+) {
+  return {
+    hasProvider: vi.fn(() => Promise.resolve(provider)),
+    values: vi.fn(answer)
+  } satisfies HistorySource
+}
+
+/** Lets the provider check and the query answer. */
+async function settle() {
+  await act(async () => {
+    await Promise.resolve()
+  })
+  await act(async () => {
+    await Promise.resolve()
+  })
+}
+
+describe('HistoryChart', () => {
+  it('draws the history and the limit in display units', async () => {
+    const history = fakeHistory()
+    render(<HistoryChart history={history} spec={coolant} />)
+    await settle()
+    expect(screen.getByRole('heading', { name: 'Last 24 hours' })).toBeTruthy()
+    const chart = screen.getByRole('img', { name: 'Last 24 hours with the limit' })
+    expect(chart.querySelectorAll('polyline')).toHaveLength(1)
+    expect(chart.textContent).toContain('limit 95 °C')
+    expect(
+      screen.getByText(/^Highest 90 °C at .+\. The rule would not have alerted\.$/)
+    ).toBeTruthy()
+    expect(history.values).toHaveBeenCalledWith({
+      path: 'propulsion.port.coolantTemperature',
+      method: 'max',
+      seconds: 86_400,
+      resolution: 600
+    })
+  })
+
+  it('labels each step’s limit with its priority', async () => {
+    render(
+      <HistoryChart
+        history={fakeHistory()}
+        spec={{
+          ...coolant,
+          limits: [
+            { value: 95, priority: 'warning' },
+            { value: 105, priority: 'alarm' }
+          ]
+        }}
+      />
+    )
+    await settle()
+    const chart = screen.getByRole('img', { name: 'Last 24 hours with the limits' })
+    expect(chart.textContent).toContain('warning 95 °C')
+    expect(chart.textContent).toContain('alarm 105 °C')
+  })
+
+  it('takes the title it is given, as the detail names the path', async () => {
+    render(<HistoryChart history={fakeHistory()} spec={coolant} title="Port coolant" />)
+    await settle()
+    expect(screen.getByRole('heading', { name: 'Port coolant' })).toBeTruthy()
+  })
+
+  it('shows nothing, and asks for no values, without a provider', async () => {
+    const history = fakeHistory(undefined, false)
+    const { container } = render(<HistoryChart history={history} spec={coolant} />)
+    await settle()
+    expect(container.innerHTML).toBe('')
+    expect(history.values).not.toHaveBeenCalled()
+  })
+
+  it('says it is loading while the query has not answered', async () => {
+    render(
+      <HistoryChart history={fakeHistory(() => new Promise(() => undefined))} spec={coolant} />
+    )
+    await settle()
+    expect(screen.getByRole('status').textContent).toBe('Loading history…')
+  })
+
+  it('says quietly that history is unavailable when the query fails', async () => {
+    render(
+      <HistoryChart
+        history={fakeHistory(() => Promise.reject(new Error('timed out')))}
+        spec={coolant}
+      />
+    )
+    await settle()
+    expect(screen.getByText('History unavailable.')).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByRole('img')).toBeNull()
+  })
+
+  it('says when nothing was recorded in the span', async () => {
+    render(<HistoryChart history={fakeHistory(() => Promise.resolve([]))} spec={coolant} />)
+    await settle()
+    expect(screen.getByText('Nothing recorded in the last 24 hours.')).toBeTruthy()
+  })
+
+  it('asks again with a matching resolution when the span changes', async () => {
+    const history = fakeHistory()
+    render(<HistoryChart history={history} spec={coolant} />)
+    await settle()
+    const hour = screen.getByRole('button', { name: '1 h' })
+    expect(hour.getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(hour)
+    await settle()
+    expect(hour.getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('heading', { name: 'Last hour' })).toBeTruthy()
+    expect(history.values).toHaveBeenLastCalledWith({
+      path: 'propulsion.port.coolantTemperature',
+      method: 'max',
+      seconds: 3600,
+      resolution: 30
+    })
+  })
+
+  it('shows the answer to the span chosen last, not to one asked before', async () => {
+    let answerDay: (points: HistoryPoint[]) => void = () => undefined
+    const history = fakeHistory((q) =>
+      q.seconds === 86_400
+        ? new Promise((resolve) => {
+            answerDay = resolve
+          })
+        : Promise.resolve([])
+    )
+    render(<HistoryChart history={history} spec={coolant} />)
+    await settle()
+    fireEvent.click(screen.getByRole('button', { name: '1 h' }))
+    await settle()
+    answerDay(series)
+    await settle()
+    expect(screen.getByText('Nothing recorded in the last hour.')).toBeTruthy()
+  })
+
+  it('does not ask again when only the limits change', async () => {
+    const history = fakeHistory()
+    const { rerender } = render(<HistoryChart history={history} spec={coolant} />)
+    await settle()
+    rerender(<HistoryChart history={history} spec={{ ...coolant, limits: [{ value: 80 }] }} />)
+    await settle()
+    expect(history.values).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('img').textContent).toContain('limit 80 °C')
+  })
+
+  it('keeps the line drawn while it asks again for a new width, as when a tablet turns', async () => {
+    let resized: () => void = () => undefined
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: () => void) {
+          resized = callback
+        }
+        observe() {
+          return undefined
+        }
+        disconnect() {
+          return undefined
+        }
+      }
+    )
+    let width = 360
+    const clientWidth = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockImplementation(() => width)
+    try {
+      const history = fakeHistory((q) =>
+        q.resolution === 600 ? Promise.resolve(series) : new Promise(() => undefined)
+      )
+      render(<HistoryChart history={history} spec={coolant} />)
+      await settle()
+      width = 720
+      act(() => {
+        resized()
+      })
+      await settle()
+      expect(history.values).toHaveBeenLastCalledWith(expect.objectContaining({ resolution: 300 }))
+      expect(screen.getByRole('img')).toBeTruthy()
+      expect(screen.queryByText('Loading history…')).toBeNull()
+    } finally {
+      clientWidth.mockRestore()
+      vi.unstubAllGlobals()
+    }
+  })
+})

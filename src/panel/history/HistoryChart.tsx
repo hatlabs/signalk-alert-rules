@@ -1,0 +1,233 @@
+import { useEffect, useId, useLayoutEffect, useRef, useState, type RefObject } from 'react'
+import { formatNumber } from '../../format'
+import type { Measure } from '../signalUnits'
+import { fromSI } from '../units'
+import { CHART_HEIGHT, chartGeometry, historySummary, type SummaryLimit } from './chart'
+import {
+  DEFAULT_SPAN,
+  resolutionFor,
+  SPANS,
+  type Aggregate,
+  type HistoryPoint,
+  type HistorySource,
+  type Span
+} from './historySource'
+
+/** What to chart: one path, how its buckets aggregate, and the limits to draw. */
+export interface ChartSpec {
+  path: string
+  method: Aggregate
+  /** How the recorded SI values are shown. */
+  measure: Measure
+  /** The limits in display units, in step order, each with its priority when there are several. */
+  limits: SummaryLimit[]
+  /** The side the rule alerts on, whose extreme the summary names; absent for none. */
+  side?: 'below' | 'above'
+}
+
+export interface HistoryChartProps {
+  history: HistorySource
+  spec: ChartSpec
+  /** The heading; the span's own when absent. */
+  title?: string
+}
+
+/** The width drawn for until the chart's own is known, as where nothing is laid out. */
+const FALLBACK_WIDTH = 360
+
+/** Room the x axis labels take inside the chart's right and left edges. */
+const AXIS_LABEL_Y = CHART_HEIGHT - 3
+const LIMIT_LABEL_INSET = 4
+
+/** What the points answer: the path, aggregate and span, but not the bucket length. */
+type Loaded =
+  | { status: 'loading' }
+  | { status: 'failed' }
+  | { status: 'ready'; points: HistoryPoint[]; of: string }
+
+/** The chart's width, following it as the layout changes. */
+function useWidth(): [RefObject<HTMLDivElement | null>, number | undefined] {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const [width, setWidth] = useState<number | undefined>(undefined)
+  useLayoutEffect(() => {
+    const element = ref.current
+    if (element === null) return undefined
+    const measure = () => {
+      setWidth(element.clientWidth > 0 ? element.clientWidth : FALLBACK_WIDTH)
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return undefined
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => {
+      observer.disconnect()
+    }
+  })
+  return [ref, width]
+}
+
+function timeOf(span: Span): (ms: number) => string {
+  const options: Intl.DateTimeFormatOptions =
+    span.seconds > DEFAULT_SPAN.seconds
+      ? { weekday: 'short', hour: '2-digit', minute: '2-digit' }
+      : { hour: '2-digit', minute: '2-digit' }
+  return (ms) => new Date(ms).toLocaleString(undefined, options)
+}
+
+/**
+ * Whether the server has a history provider, asked after the page around the
+ * chart has rendered; undefined until it answers.
+ */
+function useProvider(history: HistorySource): boolean | undefined {
+  const [provider, setProvider] = useState<boolean | undefined>(undefined)
+  useEffect(() => {
+    let cancelled = false
+    void history.hasProvider().then((has) => {
+      if (!cancelled) setProvider(has)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [history])
+  return provider
+}
+
+/**
+ * The path's recorded values over a chosen span with the rule's limits
+ * across them. Without a history provider it shows nothing; a query that
+ * fails says so quietly, as the chart only adds to the page around it.
+ */
+export function HistoryChart({ history, spec, title }: HistoryChartProps) {
+  const provider = useProvider(history)
+  if (provider !== true) return null
+  return <Chart history={history} spec={spec} title={title} />
+}
+
+function Chart({ history, spec, title }: HistoryChartProps) {
+  const titleId = useId()
+  const [span, setSpan] = useState<Span>(DEFAULT_SPAN)
+  const [ref, width] = useWidth()
+  const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' })
+  const resolution = width === undefined ? undefined : resolutionFor(span.seconds, width)
+  const { path, method, measure } = spec
+
+  useEffect(() => {
+    if (resolution === undefined) return undefined
+    let cancelled = false
+    const of = `${path}:${method}:${String(span.seconds)}`
+    // A new width asks for finer or coarser buckets of the same line; the
+    // line drawn stays until they come, rather than blinking out.
+    setLoaded((last) => (last.status === 'ready' && last.of === of ? last : { status: 'loading' }))
+    history.values({ path, method, seconds: span.seconds, resolution }).then(
+      (points) => {
+        if (!cancelled) setLoaded({ status: 'ready', points, of })
+      },
+      () => {
+        if (!cancelled) setLoaded({ status: 'failed' })
+      }
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [history, path, method, span, resolution])
+
+  const symbol = measure.kind === 'ratio' ? '' : measure.unit.symbol
+  const shown = (v: number) => (symbol === '' ? formatNumber(v) : `${formatNumber(v)} ${symbol}`)
+  const points =
+    loaded.status === 'ready'
+      ? loaded.points.map((p) => ({
+          time: p.time,
+          value: p.value === null ? null : fromSI(measure.kind, p.value, measure.unit)
+        }))
+      : []
+  const recorded = points.some((p) => p.value !== null)
+  const several = spec.limits.length > 1
+  const limits = spec.limits.map((l) => ({
+    value: l.value,
+    label: `${several ? (l.priority ?? 'step') : 'limit'} ${shown(l.value)}`,
+    tone: several ? (l.priority ?? 'limit') : 'limit'
+  }))
+  const drawnWidth = width ?? FALLBACK_WIDTH
+  // The span ends at the answer's arrival, near enough to now for the axis.
+  const to = Date.now()
+  const geometry = chartGeometry(points, limits, {
+    from: to - span.seconds * 1000,
+    to,
+    width: drawnWidth,
+    resolution: resolution ?? 1
+  })
+  const summary =
+    spec.side === undefined
+      ? undefined
+      : historySummary(points, spec.side, spec.limits, { value: shown, time: timeOf(span) })
+  const withLimits = limits.length === 0 ? '' : several ? ' with the limits' : ' with the limit'
+
+  return (
+    <section className="skar-card skar-history" aria-labelledby={titleId}>
+      <div className="skar-history-head">
+        <h3 id={titleId} className="skar-card-title">
+          {title ?? span.title}
+        </h3>
+        <div role="group" aria-label="Span" className="skar-spans">
+          {SPANS.map((s) => (
+            <button
+              key={s.label}
+              type="button"
+              className="skar-span"
+              aria-pressed={s === span}
+              onClick={() => {
+                setSpan(s)
+              }}
+            >
+              <span>{s.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div ref={ref} className="skar-history-plot">
+        {loaded.status === 'loading' && (
+          <p role="status" className="skar-history-note">
+            Loading history…
+          </p>
+        )}
+        {loaded.status === 'failed' && <p className="skar-history-note">History unavailable.</p>}
+        {loaded.status === 'ready' && !recorded && (
+          <p className="skar-history-note">{`Nothing recorded in the ${span.title.toLowerCase()}.`}</p>
+        )}
+        {recorded && (
+          <svg
+            width={drawnWidth}
+            height={CHART_HEIGHT}
+            viewBox={`0 0 ${String(drawnWidth)} ${String(CHART_HEIGHT)}`}
+            role="img"
+            aria-label={`${span.title}${withLimits}`}
+          >
+            {geometry.limits.map((l) => (
+              <g key={l.label} className={`skar-history-limit skar-history-limit-${l.tone}`}>
+                <line x1={0} y1={l.y} x2={drawnWidth} y2={l.y} />
+              </g>
+            ))}
+            {geometry.lines.map((line) => (
+              <polyline key={line} className="skar-history-line" points={line} />
+            ))}
+            {/* The labels go over the line, so it never hides one. */}
+            {geometry.limits.map((l) => (
+              <g key={l.label} className={`skar-history-limit skar-history-limit-${l.tone}`}>
+                <text x={drawnWidth - LIMIT_LABEL_INSET} y={l.labelY} textAnchor="end">
+                  {l.label}
+                </text>
+              </g>
+            ))}
+            <text className="skar-history-axis" x={0} y={AXIS_LABEL_Y}>
+              {span.start}
+            </text>
+            <text className="skar-history-axis" x={drawnWidth} y={AXIS_LABEL_Y} textAnchor="end">
+              now
+            </text>
+          </svg>
+        )}
+      </div>
+      {summary !== undefined && <p className="skar-hint">{summary}</p>}
+    </section>
+  )
+}

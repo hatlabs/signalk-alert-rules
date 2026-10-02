@@ -1382,3 +1382,133 @@ select.skar-input {
   font-weight: 600;
   color: var(--skar-danger);
 }
+
+/* The history chart: the path's recorded values with the rule's limits across them. */
+
+.skar-history {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.skar-history-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 8px;
+}
+
+.skar-history-head > .skar-card-title {
+  flex-grow: 1;
+  margin: 0;
+}
+
+.skar-spans {
+  display: flex;
+  margin-inline-end: -6px;
+}
+
+/* The chip is small as drawn; the button around it is a full touch target. */
+.skar-span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 2px;
+  border: none;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.skar-span > span {
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: #f0f3f5;
+  color: var(--skar-muted-on-ground);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.skar-span:hover > span {
+  background: var(--skar-divider);
+}
+
+.skar-span[aria-pressed='true'] > span {
+  background: var(--skar-primary);
+  color: #fff;
+}
+
+.skar-span:focus-visible {
+  outline: none;
+}
+
+.skar-span:focus-visible > span {
+  outline: var(--skar-focus);
+  outline-offset: 2px;
+}
+
+/* Held at the chart's height, so loading and failing do not move the page. */
+.skar-history-plot {
+  height: 110px;
+}
+
+.skar-history-plot > svg {
+  display: block;
+}
+
+.skar-history-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--skar-muted);
+}
+
+.skar-history-line {
+  fill: none;
+  stroke: var(--skar-primary);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.skar-history-limit {
+  --skar-limit-line: var(--skar-danger);
+  --skar-limit-text: var(--skar-danger);
+}
+
+.skar-history-limit-warning {
+  --skar-limit-line: #8a6d00;
+  --skar-limit-text: #5c4600;
+}
+
+.skar-history-limit-caution {
+  --skar-limit-line: #0b2a6f;
+  --skar-limit-text: #0b2a6f;
+}
+
+.skar-history-limit > line {
+  stroke: var(--skar-limit-line);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+
+.skar-history-limit > text {
+  fill: var(--skar-limit-text);
+  font-size: 12px;
+  /* A halo keeps a label legible where the line crosses it. */
+  paint-order: stroke;
+  stroke: var(--skar-surface);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+.skar-history-axis {
+  fill: var(--skar-muted);
+  font-size: 11px;
+}
