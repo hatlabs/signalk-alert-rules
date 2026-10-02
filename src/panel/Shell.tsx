@@ -342,14 +342,18 @@ function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
   const { units } = useUnits(paths)
   // Shown until the list, refreshed after the save, has the rule.
   const [justSaved, setJustSaved] = useState<RuleEntry | undefined>(undefined)
-  // Hidden until the list, refreshed after the delete, no longer has the rule.
-  const [justDeleted, setJustDeleted] = useState<string | undefined>(undefined)
-  if (justDeleted !== undefined && !view.rules.some((r) => r.slug === justDeleted)) {
-    setJustDeleted(undefined)
-  }
-  const rules = view.rules.filter((r) => r.slug !== justDeleted)
+  // Marked as the delete is sent, as a read answering before it may already
+  // lack the rule, which is then gone rather than missing. Once the delete
+  // answers, the rule is hidden until the view has moved off it and the
+  // list no longer has it.
+  const [deleted, setDeleted] = useState<{ slug: string; answered: boolean } | undefined>(undefined)
   const hash = useLocationHash()
   const route = parseRoute(hash)
+  const onDeleted = 'slug' in route && route.slug === deleted?.slug
+  if (deleted?.answered && !onDeleted && !view.rules.some((r) => r.slug === deleted.slug)) {
+    setDeleted(undefined)
+  }
+  const rules = deleted?.answered ? view.rules.filter((r) => r.slug !== deleted.slug) : view.rules
   const routeHref = (to: Route) => hashWithRoute(hash, to)
   const go = (to: Route) => {
     window.location.hash = routeHref(to)
@@ -418,7 +422,7 @@ function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
   const entry = ruleRoute && find(ruleRoute.slug)
   const gone = ruleRoute !== undefined && entry === undefined
   // A rule just deleted is gone, not missing, while the list moves away from it.
-  const missing = gone && ruleRoute.slug !== justDeleted ? ruleRoute.slug : undefined
+  const missing = gone && ruleRoute.slug !== deleted?.slug ? ruleRoute.slug : undefined
   const showsList = route.kind === 'list' || gone
   // Adding and editing say so themselves to anyone below an administrator.
   const shownRefusal = admin || route.kind === 'rule' ? refusal : undefined
@@ -469,8 +473,14 @@ function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
                     refresh()
                   },
                   remove: async () => {
-                    await api.deleteRule(entry.slug)
-                    setJustDeleted(entry.slug)
+                    setDeleted({ slug: entry.slug, answered: false })
+                    try {
+                      await api.deleteRule(entry.slug)
+                    } catch (err) {
+                      setDeleted(undefined)
+                      throw err
+                    }
+                    setDeleted({ slug: entry.slug, answered: true })
                     refresh()
                     go({ kind: 'list' })
                   }

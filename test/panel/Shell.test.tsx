@@ -684,6 +684,33 @@ describe('Shell views', () => {
       expect(screen.getByRole('link', { name: /engine hours/i })).toBeTruthy()
     })
 
+    it('says nothing is missing when a read during the delete no longer has the rule', async () => {
+      window.history.replaceState(null, '', '/#rule=oil-pressure-low')
+      const server: Server = { state: running, rules: [alerting, hours] }
+      const api = await renderShell(server)
+      let answer: () => void = () => undefined
+      Object.assign(api, {
+        deleteRule: vi.fn(
+          () =>
+            new Promise<void>((resolve) => {
+              answer = resolve
+            })
+        )
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Delete rule' }))
+      server.rules = [hours]
+      await tick(POLL_INTERVAL_MS)
+      expect(screen.queryByText(/rule not found/i)).toBeNull()
+      await act(async () => {
+        answer()
+        await Promise.resolve()
+      })
+      await settle()
+      expect(listShown()).toBe(true)
+      expect(screen.queryByText(/rule not found/i)).toBeNull()
+    })
+
     it('keeps the rule and the sheet when the delete fails', async () => {
       window.history.replaceState(null, '', '/#rule=oil-pressure-low')
       const api = await renderShell({ state: running, rules: [alerting] })
