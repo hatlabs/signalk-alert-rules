@@ -39,7 +39,7 @@ const noPaths: PathSource = {
   distanceUnit: () => Promise.resolve({ symbol: 'm', scale: 1, offset: 0, si: true })
 }
 
-const running: PluginState = { running: true, securityEnabled: true }
+const running: PluginState = { running: true, permissions: 'admin', securityEnabled: true }
 const rule = ruleEntry()
 
 function setVisibility(state: DocumentVisibilityState) {
@@ -109,7 +109,10 @@ describe('Shell', () => {
   // A disabled plugin is one case: the server serves the webapp's files
   // whether or not the plugin is enabled, so a bookmarked link can open it.
   it('retries at the normal interval while the plugin is not running', async () => {
-    const server: Server = { state: { running: false, securityEnabled: true }, rules: [] }
+    const server: Server = {
+      state: { running: false, permissions: 'admin', securityEnabled: true },
+      rules: []
+    }
     const api = renderShell(server)
     await settle()
     expect(screen.getByRole('alert').textContent).toMatch(
@@ -144,7 +147,7 @@ describe('Shell', () => {
   it('shows the start error and that editing is unavailable', async () => {
     const error = 'the server has no alerts API'
     renderShell({
-      state: { running: false, error, securityEnabled: true },
+      state: { running: false, permissions: 'admin', error, securityEnabled: true },
       rules: []
     })
     await settle()
@@ -156,19 +159,22 @@ describe('Shell', () => {
 
   it('warns persistently while server security is disabled', async () => {
     const server: Server = {
-      state: { running: true, securityEnabled: false },
+      state: { running: true, permissions: 'admin', securityEnabled: false },
       rules: [rule]
     }
     renderShell(server)
     await settle()
     expect(screen.getByText(/server security is disabled/i)).toBeTruthy()
-    server.state = { running: false, securityEnabled: false }
+    server.state = { running: false, permissions: 'admin', securityEnabled: false }
     await tick(POLL_INTERVAL_MS)
     expect(screen.getByText(/server security is disabled/i)).toBeTruthy()
   })
 
   it('does not warn about security when it is enabled or unknown', async () => {
-    renderShell({ state: { running: true, securityEnabled: null }, rules: [] })
+    renderShell({
+      state: { running: true, permissions: 'admin', securityEnabled: null },
+      rules: []
+    })
     await settle()
     expect(screen.queryByText(/server security is disabled/i)).toBeNull()
   })
@@ -183,7 +189,9 @@ describe('Shell', () => {
               reject(init.signal?.reason as Error)
             })
           })
-        : Promise.resolve(Response.json({ running: true, securityEnabled: true }))
+        : Promise.resolve(
+            Response.json({ running: true, permissions: 'admin', securityEnabled: true })
+          )
     )
     render(<Shell api={httpApi(fetchFn)} paths={noPaths} />)
     await tick(REQUEST_TIMEOUT_MS)
@@ -487,7 +495,7 @@ describe('Shell rules', () => {
     it('keeps the last rules read while the plugin is not running', async () => {
       const server: Server = { state: running, rules: [rule] }
       const api = await renderShell(server)
-      server.state = { running: false, securityEnabled: true }
+      server.state = { running: false, permissions: 'admin', securityEnabled: true }
       await tick(POLL_INTERVAL_MS)
       expect(screen.getByRole('alert').textContent).toMatch(/not running.*last read/i)
       expect(screen.queryByRole('button', { name: /check again/i })).toBeNull()
@@ -520,6 +528,7 @@ describe('Shell rules', () => {
       await renderShell(server)
       server.state = {
         running: false,
+        permissions: 'admin',
         error: 'the server has no alerts API',
         securityEnabled: true
       }

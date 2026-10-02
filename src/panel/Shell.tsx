@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type Ref } from 'react'
-import type { PanelApi, RuleEntry } from './api'
+import { isInvalid, type PanelApi, type RuleEntry } from './api'
 import { EditRule } from './editor/EditRule'
 import { RuleEditor } from './editor/RuleEditor'
 import type { PathSource } from './paths/selfPaths'
@@ -238,7 +238,8 @@ interface ViewsProps {
 type EditorTarget = { kind: 'new' } | { kind: 'edit'; slug: string }
 
 function Views({ api, view, paths, refresh }: ViewsProps) {
-  const { rules, issues } = view
+  const { issues } = view
+  const rules = view.rules.filter((entry): entry is RuleEntry => !isInvalid(entry))
   const { units } = useUnits(paths)
   const [editor, setEditor] = useState<EditorTarget | undefined>(undefined)
   // Shown until the list, refreshed after the save, has the rule.

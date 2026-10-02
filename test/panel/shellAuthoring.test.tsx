@@ -18,7 +18,7 @@ import { noControls, ruleEntry } from './fixtures'
 const EXAMPLES = join(import.meta.dirname, '../../examples/rules')
 const stored = JSON.parse(readFileSync(join(EXAMPLES, 'house-battery-low.json'), 'utf8')) as Rule
 
-const running: PluginState = { running: true, securityEnabled: true }
+const running: PluginState = { running: true, permissions: 'admin', securityEnabled: true }
 const battery = ruleEntry({ slug: stored.slug, rule: { name: stored.name } })
 
 const paths: PathSource = {

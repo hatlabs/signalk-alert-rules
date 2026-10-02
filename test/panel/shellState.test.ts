@@ -1,22 +1,23 @@
 import { describe, expect, it } from 'vitest'
 import {
   SessionExpiredError,
+  type ListedRule,
   type PanelApi,
-  type PluginState,
-  type RuleEntry
+  type PluginState
 } from '../../src/panel/api'
 import {
   POLL_INTERVAL_MS,
   pollDelay,
   probe,
   shownReady,
+  viewMessage,
   type ReadyView
 } from '../../src/panel/shellState'
-import { noAuthoring, noControls, ruleEntry } from './fixtures'
+import { invalidEntry, noAuthoring, noControls, ruleEntry } from './fixtures'
 
 interface FakeServer {
   state?: PluginState | Error
-  rules?: RuleEntry[] | Error
+  rules?: ListedRule[] | Error
 }
 
 function fakeApi(server: FakeServer): PanelApi {
@@ -34,22 +35,33 @@ function fakeApi(server: FakeServer): PanelApi {
 }
 
 const rule = ruleEntry()
+const READ_AT = Date.parse('2026-09-30T12:04:00.000Z')
+const clock = () => READ_AT
+const running: PluginState = { running: true, securityEnabled: true, permissions: 'admin' }
+const ready = (rules: ListedRule[] = [], issues: string[] = []): ReadyView => ({
+  kind: 'ready',
+  rules,
+  issues,
+  permissions: 'admin',
+  readAt: READ_AT
+})
 
 describe('probe', () => {
-  it('is ready with the rules while the plugin runs', async () => {
-    const state = { running: true, securityEnabled: true }
-    const snapshot = await probe(fakeApi({ state, rules: [rule] }))
-    expect(snapshot).toEqual({
-      view: { kind: 'ready', rules: [rule], issues: [] },
-      securityEnabled: true
-    })
+  it("is ready with the rules, the caller's level and the read time while the plugin runs", async () => {
+    const invalid = invalidEntry()
+    const snapshot = await probe(fakeApi({ state: running, rules: [rule, invalid] }), clock)
+    expect(snapshot).toEqual({ view: ready([rule, invalid]), securityEnabled: true })
+  })
+
+  it.each(['readonly', 'readwrite'] as const)('carries the %s level', async (permissions) => {
+    const snapshot = await probe(fakeApi({ state: { ...running, permissions }, rules: [] }), clock)
+    expect(snapshot.view).toEqual({ ...ready(), permissions })
   })
 
   it('carries the problems found while loading into the ready view', async () => {
     const issues = ['stored rule broken is not valid and does not run: /signal: required']
-    const state = { running: true, securityEnabled: true, issues }
-    const snapshot = await probe(fakeApi({ state, rules: [] }))
-    expect(snapshot.view).toEqual({ kind: 'ready', rules: [], issues })
+    const snapshot = await probe(fakeApi({ state: { ...running, issues }, rules: [] }), clock)
+    expect(snapshot.view).toEqual(ready([], issues))
   })
 
   it('is unreachable when /state cannot be fetched', async () => {
@@ -63,7 +75,7 @@ describe('probe', () => {
   it('is failed with the start error when the plugin did not start', async () => {
     const error = 'the server has no alerts API'
     const snapshot = await probe(
-      fakeApi({ state: { running: false, error, securityEnabled: true } })
+      fakeApi({ state: { running: false, error, securityEnabled: true, permissions: 'admin' } })
     )
     expect(snapshot.view).toEqual({ kind: 'failed', error })
   })
@@ -71,7 +83,9 @@ describe('probe', () => {
   // A disabled plugin and one between the stop and start of a restart look
   // alike, so both read as not running.
   it('is not running when the plugin is not running and reports no error', async () => {
-    const snapshot = await probe(fakeApi({ state: { running: false, securityEnabled: false } }))
+    const snapshot = await probe(
+      fakeApi({ state: { running: false, securityEnabled: false, permissions: 'admin' } })
+    )
     expect(snapshot).toEqual({ view: { kind: 'notRunning' }, securityEnabled: false })
   })
 
@@ -81,15 +95,13 @@ describe('probe', () => {
   })
 
   it('is session expired when a later request is refused', async () => {
-    const snapshot = await probe(
-      fakeApi({ state: { running: true, securityEnabled: true }, rules: new SessionExpiredError() })
-    )
+    const snapshot = await probe(fakeApi({ state: running, rules: new SessionExpiredError() }))
     expect(snapshot.view).toEqual({ kind: 'sessionExpired' })
   })
 
   it('keeps the security state when a later request fails', async () => {
     const snapshot = await probe(
-      fakeApi({ state: { running: true, securityEnabled: false }, rules: new Error('503') })
+      fakeApi({ state: { ...running, securityEnabled: false }, rules: new Error('503') })
     )
     expect(snapshot).toEqual({
       view: { kind: 'unreachable', reason: '503' },
@@ -104,7 +116,7 @@ describe('pollDelay', () => {
     expect(pollDelay({ kind: 'notRunning' })).toBe(POLL_INTERVAL_MS)
     expect(pollDelay({ kind: 'unreachable', reason: 'x' })).toBe(POLL_INTERVAL_MS)
     expect(pollDelay({ kind: 'failed', error: 'x' })).toBe(POLL_INTERVAL_MS)
-    expect(pollDelay({ kind: 'ready', rules: [], issues: [] })).toBe(POLL_INTERVAL_MS)
+    expect(pollDelay(ready())).toBe(POLL_INTERVAL_MS)
   })
 
   it('stops polling once the session has expired', () => {
@@ -113,7 +125,7 @@ describe('pollDelay', () => {
 })
 
 describe('shownReady', () => {
-  const last: ReadyView = { kind: 'ready', rules: [rule], issues: [] }
+  const last = ready([rule])
 
   it('shows a ready view as it is', () => {
     const now: ReadyView = { ...last, rules: [] }
@@ -128,5 +140,20 @@ describe('shownReady', () => {
 
   it('drops it once the plugin failed', () => {
     expect(shownReady({ kind: 'failed', error: 'x' }, last)).toBeUndefined()
+  })
+})
+
+describe('viewMessage', () => {
+  it('says what each view other than a ready one means', () => {
+    expect(viewMessage({ kind: 'loading' })).toBe('Loading…')
+    expect(viewMessage({ kind: 'unreachable', reason: 'Failed to fetch' })).toBe(
+      'Reconnecting to the plugin (Failed to fetch).'
+    )
+    expect(viewMessage({ kind: 'notRunning' })).toMatch(/not running\. retrying/i)
+    expect(viewMessage({ kind: 'sessionExpired' })).toMatch(/your login has expired/i)
+    expect(viewMessage({ kind: 'failed', error: 'no alerts API' })).toMatch(
+      /could not start: no alerts API\. rules cannot be edited/i
+    )
+    expect(viewMessage(ready())).toBeUndefined()
   })
 })

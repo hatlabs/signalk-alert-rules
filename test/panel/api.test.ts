@@ -28,6 +28,7 @@ function fakeFetch(routes: Partial<Record<string, { status?: number; body: unkno
 const runningState = {
   running: true,
   securityEnabled: true,
+  permissions: 'readwrite',
   issues: ['stored rule broken is not valid and does not run: /signal: required']
 }
 
@@ -162,8 +163,9 @@ describe('httpApi', () => {
     await expect(api.rules()).rejects.not.toBeInstanceOf(SessionExpiredError)
   })
 
-  it.each([401, 403])('reports an expired session on %i from any route', async (status) => {
-    const denied = { status, body: { error: 'Unauthorized' } }
+  // Signal K answers both a caller who is not logged in and one below the route's level so.
+  it('reports a 401 from any route as refused', async () => {
+    const denied = { status: 401, body: { error: 'Permission Denied' } }
     const api = httpApi(fakeFetch({ [`${BASE}/state`]: denied, [`${BASE}/rules`]: denied }))
     await expect(api.state()).rejects.toBeInstanceOf(SessionExpiredError)
     await expect(api.rules()).rejects.toBeInstanceOf(SessionExpiredError)
@@ -175,8 +177,15 @@ describe('httpApi', () => {
       expect(await api.state()).toEqual({
         running: true,
         securityEnabled: true,
+        permissions: 'readwrite',
         issues: ['stored rule broken is not valid and does not run: /signal: required']
       })
+    })
+
+    it.each(['root', undefined])('reads permissions %s as read-only', async (permissions) => {
+      const body = { ...runningState, permissions }
+      const api = httpApi(fakeFetch({ [`${BASE}/state`]: { body } }))
+      expect((await api.state()).permissions).toBe('readonly')
     })
 
     it('rejects issues that are not a list of strings', async () => {
@@ -186,14 +195,23 @@ describe('httpApi', () => {
     })
 
     it('keeps the start error of a plugin that is not running', async () => {
-      const body = { running: false, error: 'the server has no alerts API', securityEnabled: false }
+      const body = {
+        running: false,
+        error: 'the server has no alerts API',
+        securityEnabled: false,
+        permissions: 'admin'
+      }
       const api = httpApi(fakeFetch({ [`${BASE}/state`]: { body } }))
       expect(await api.state()).toEqual(body)
     })
 
     it('reads a missing securityEnabled as unknown', async () => {
       const api = httpApi(fakeFetch({ [`${BASE}/state`]: { body: { running: true } } }))
-      expect(await api.state()).toEqual({ running: true, securityEnabled: null })
+      expect(await api.state()).toEqual({
+        running: true,
+        securityEnabled: null,
+        permissions: 'readonly'
+      })
     })
 
     it('rejects a body without running', async () => {
@@ -223,8 +241,13 @@ describe('httpApi', () => {
           note: 'Sender replaced in spring'
         },
         status: {
+          ruleState: 'disabled',
           condition: 'present',
           reason: 'conditionPresent',
+          changedAt: '2026-09-30T12:00:00.000Z',
+          instance: { name: 'house', segment: 'house' },
+          value: 12.1,
+          limit: 12.2,
           issues: ['instance x.y was not admitted'],
           errors: [],
           instances: [
@@ -253,8 +276,10 @@ describe('httpApi', () => {
           gates: []
         },
         status: {
+          ruleState: 'enabled',
           condition: 'noData',
           reason: 'notEvaluated',
+          changedAt: '2026-09-30T12:00:00.000Z',
           issues: [],
           errors: [],
           instances: [
@@ -287,6 +312,85 @@ describe('httpApi', () => {
         level: 'alarm',
         priority: 'alarm'
       })
+    })
+
+    it('reads the facts of an alert: its priority and message', async () => {
+      const alerting = {
+        ...ruleEntry.state.instances[0],
+        condition: 'alerting',
+        reason: 'alertActive',
+        priority: 'alarm',
+        step: 1,
+        awaitingInput: true,
+        message: 'House battery at 11.6 V'
+      }
+      const { instance: _, ...facts } = alerting
+      const entry = {
+        ...ruleEntry,
+        state: { ...ruleEntry.state, ruleState: 'enabled', ...facts, instances: [alerting] }
+      }
+      const api = httpApi(fakeFetch({ [`${BASE}/rules`]: { body: [entry] } }))
+      const [read] = await api.rules()
+      const expected = {
+        condition: 'alerting',
+        priority: 'alarm',
+        awaitingInput: true,
+        message: 'House battery at 11.6 V'
+      }
+      expect(read.status).toMatchObject(expected)
+      expect(read.status.instances[0]).toMatchObject(expected)
+    })
+
+    it.each([
+      [{ condition: 'normal', reason: 'withinLimits', clearedAt: '2026-09-30T11:00:00.000Z' }],
+      [{ condition: 'normal', reason: 'withinLimits', clearSince: '2026-09-30T11:00:00.000Z' }],
+      [{ condition: 'noData', reason: 'inputUnavailable', lastSeen: '2026-09-30T11:00:00.000Z' }],
+      [{ condition: 'problem', reason: 'missingZone', level: 'alarm', side: 'low', gate: 0 }],
+      [
+        {
+          condition: 'problem',
+          reason: 'timeoutNotPossible',
+          cause: 'updateContract',
+          contract: 'x'
+        }
+      ],
+      [{ condition: 'problem', reason: 'unitsNotRadians', path: 'a.b', units: 'deg' }]
+    ])('reads the facts of %o', async (facts) => {
+      const entry = { ...ruleEntry, state: { ...ruleEntry.state, ...facts } }
+      const api = httpApi(fakeFetch({ [`${BASE}/rules`]: { body: [entry] } }))
+      const [read] = await api.rules()
+      expect(read.status).toMatchObject(facts)
+    })
+
+    it('lists a stored rule that does not run as a problem, named from its body', async () => {
+      const invalid = {
+        slug: 'coolant-high',
+        invalid: {
+          errors: [{ path: '/detector/steps/0/priority', message: 'must be a priority' }],
+          body: { name: 'Coolant high', slug: 'coolant-high' }
+        },
+        state: {
+          ruleState: 'enabled',
+          condition: 'problem',
+          reason: 'invalidRule',
+          changedAt: '2026-09-30T12:00:00.000Z',
+          issues: [],
+          errors: [],
+          instances: []
+        }
+      }
+      const unnamed = { ...invalid, slug: 'garbled', invalid: { errors: [], body: 'x' } }
+      const api = httpApi(
+        fakeFetch({ [`${BASE}/rules`]: { body: [notStartedAccumulator, invalid, unnamed] } })
+      )
+      const [, read, bare] = await api.rules()
+      expect(read).toEqual({
+        slug: 'coolant-high',
+        name: 'Coolant high',
+        invalid: invalid.invalid,
+        status: { ...invalid.state }
+      })
+      expect(bare).toMatchObject({ slug: 'garbled', name: 'garbled' })
     })
 
     it('reads a position value', async () => {
@@ -351,7 +455,7 @@ describe('httpApi', () => {
     })
 
     it('reports an expired session', async () => {
-      const denied = { status: 401, body: { error: 'Unauthorized' } }
+      const denied = { status: 401, body: { error: 'Permission Denied' } }
       const api = httpApi(fakeFetch({ [`${BASE}/rules/x/reset`]: denied }))
       await expect(api.resetAccumulator('x')).rejects.toBeInstanceOf(SessionExpiredError)
     })

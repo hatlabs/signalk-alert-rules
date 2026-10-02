@@ -14,16 +14,20 @@ export const PLUGIN_BASE = `/plugins/${PLUGIN_ID}`
  */
 export const REQUEST_TIMEOUT_MS = 10_000
 
+/** The caller's access level, which decides the controls the webapp offers. */
+export type Permissions = 'readonly' | 'readwrite' | 'admin'
+
 /** `GET /state`, as docs/api.md describes it. */
 export interface PluginState {
   running: boolean
   error?: string
   securityEnabled: boolean | null
+  permissions: Permissions
   /**
    * Present while the plugin runs: problems found while loading the data
    * directory, such as a stored rule file that could not be read. A stored
    * rule that was read but does not run is an invalid entry of `/rules`
-   * instead, which this webapp does not list yet.
+   * instead.
    */
   issues?: string[]
 }
@@ -47,26 +51,61 @@ export interface GateStatus {
   input: InputState
 }
 
-/** One instance's state, as docs/rules.md "State" describes it. */
-export interface InstanceStatus {
+/**
+ * The facts a condition's reason comes with, as docs/rules.md "Conditions
+ * and reasons" lists them; the webapp words its sentences from these.
+ */
+export interface ConditionFacts {
+  /** The priority an alert has reached. */
+  priority?: string
+  /** The zone level an alert has reached, or the one a path lacks. */
+  level?: string
+  /** The alert's input has stopped reporting, so the alert is not repeated. */
+  awaitingInput?: boolean
+  /** The alert's message with its placeholders filled in. */
+  message?: string
+  clearedAt?: string
+  clearSince?: string
+  lastSeen?: string
+  /** The rule's side of a zone level that exists only on the other side. */
+  side?: string
+  /** The gate, by index, whose path lacks a zone level. */
+  gate?: number
+  cause?: string
+  contract?: string
+  path?: string
+  units?: string
+}
+
+/** What an instance reports whatever its condition. */
+export interface LiveFacts {
   /** For a wildcard rule; a rule that is not evaluated keeps only the segment. */
   instance?: { name?: string; segment: string }
-  condition: Condition
-  /** The reason code the condition comes with. */
-  reason: string
   value?: SignalValue
   limit?: number
   progress?: Progress
-  gates: GateStatus[]
-  /** The zone level and priority an alerting instance has reached. */
-  level?: string
-  priority?: string
 }
 
-/** A rule's state, `state` in a rule entry: its condition and its instances'. */
-export interface RuleStatus {
+/** One instance's state, as docs/rules.md "State" describes it. */
+export interface InstanceStatus extends ConditionFacts, LiveFacts {
+  condition: Condition
+  /** The reason code the condition comes with. */
+  reason: string
+  gates: GateStatus[]
+}
+
+export type RuleState = 'enabled' | 'disabled'
+
+/**
+ * A rule's state, `state` in a rule entry: whether it is enabled, and its
+ * condition, which is its worst instance's with that instance's facts.
+ */
+export interface RuleStatus extends ConditionFacts, LiveFacts {
+  ruleState: RuleState
   condition: Condition
   reason: string
+  /** When the rule state or the condition last changed. */
+  changedAt: string
   errors: string[]
   issues: string[]
   instances: InstanceStatus[]
@@ -104,10 +143,32 @@ export interface RuleEntry {
   status: RuleStatus
 }
 
+/** A stored rule that does not run, listed as a problem so it can be fixed or deleted. */
+export interface InvalidRuleEntry {
+  slug: string
+  /** The stored body's name, or the slug when it has none. */
+  name: string
+  invalid: { errors: FieldError[]; body: unknown }
+  disabled?: RuleDisabled
+  status: RuleStatus
+}
+
+/** An entry of `GET /rules`: a rule that runs, or one that does not. */
+export type ListedRule = RuleEntry | InvalidRuleEntry
+
+export function isInvalid(entry: ListedRule): entry is InvalidRuleEntry {
+  return 'invalid' in entry
+}
+
+/** A listed rule's name, whether it runs or not. */
+export function ruleName(entry: ListedRule): string {
+  return isInvalid(entry) ? entry.name : entry.rule.name
+}
+
 /** What the panel asks of the server; tests substitute their own. */
 export interface PanelApi {
   state(): Promise<PluginState>
-  rules(): Promise<RuleEntry[]>
+  rules(): Promise<ListedRule[]>
   /** Clears the rule's active alerts and sets its accumulator totals to zero. */
   resetAccumulator(slug: string): Promise<RuleEntry>
   /** The whole stored rule, which the rule list abbreviates. */
@@ -155,13 +216,28 @@ export class RuleRejectedError extends Error {
 }
 
 /**
- * The server refused the admin UI's session. Polling cannot recover from
- * this; the operator has to log in again.
+ * The server refused the request (401). Signal K answers a caller who is not
+ * logged in and one below the route's level alike, so for a write this only
+ * says the request was refused; see LevelRefusedError.
  */
 export class SessionExpiredError extends Error {
   constructor() {
     super('the session has expired')
     this.name = 'SessionExpiredError'
+  }
+}
+
+/**
+ * A write refused while `/state` still answers: the caller's level does not
+ * reach the route, as when an administrator lowered it meanwhile. Where the
+ * server lets anyone read, an expired login's `/state` answers too, as
+ * `readonly`, so that level does not tell the two apart.
+ */
+export class LevelRefusedError extends Error {
+  /** @param permissions the level `/state` answered with after the refusal */
+  constructor(readonly permissions: Permissions) {
+    super('the request needs a higher access level')
+    this.name = 'LevelRefusedError'
   }
 }
 
@@ -175,7 +251,7 @@ export function malformed(what: string): Error {
 
 export function parseState(body: unknown): PluginState {
   if (!isRecord(body) || typeof body.running !== 'boolean') throw malformed('/state')
-  const { running, error, securityEnabled, issues } = body
+  const { running, error, securityEnabled, permissions, issues } = body
   if (
     issues !== undefined &&
     !(Array.isArray(issues) && issues.every((i): i is string => typeof i === 'string'))
@@ -186,6 +262,8 @@ export function parseState(body: unknown): PluginState {
     running,
     ...(typeof error === 'string' ? { error } : {}),
     securityEnabled: typeof securityEnabled === 'boolean' ? securityEnabled : null,
+    // Least privilege: a level the panel does not know offers no controls.
+    permissions: permissions === 'admin' || permissions === 'readwrite' ? permissions : 'readonly',
     ...(issues === undefined ? {} : { issues })
   }
 }
@@ -223,6 +301,42 @@ function progressOf(v: unknown): Progress | undefined {
   return undefined
 }
 
+const bool = (v: unknown) => (typeof v === 'boolean' ? v : undefined)
+
+/** The well-formed facts in a state or instance row. */
+function conditionFacts(v: Record<string, unknown>): ConditionFacts {
+  return {
+    ...optional('priority', text(v.priority)),
+    ...optional('level', text(v.level)),
+    ...optional('awaitingInput', bool(v.awaitingInput)),
+    ...optional('message', text(v.message)),
+    ...optional('clearedAt', text(v.clearedAt)),
+    ...optional('clearSince', text(v.clearSince)),
+    ...optional('lastSeen', text(v.lastSeen)),
+    ...optional('side', text(v.side)),
+    ...optional('gate', num(v.gate)),
+    ...optional('cause', text(v.cause)),
+    ...optional('contract', text(v.contract)),
+    ...optional('path', text(v.path)),
+    ...optional('units', text(v.units))
+  }
+}
+
+function instanceOf(v: unknown): LiveFacts['instance'] {
+  return isRecord(v) && typeof v.segment === 'string'
+    ? { ...optional('name', text(v.name)), segment: v.segment }
+    : undefined
+}
+
+function liveFacts(v: Record<string, unknown>): LiveFacts {
+  return {
+    ...optional('instance', instanceOf(v.instance)),
+    ...optional('value', signalValue(v.value)),
+    ...optional('limit', num(v.limit)),
+    ...optional('progress', progressOf(v.progress))
+  }
+}
+
 function firstStepPriority(steps: unknown): string | undefined {
   const first: unknown = Array.isArray(steps) ? steps[0] : undefined
   return isRecord(first) ? text(first.priority) : undefined
@@ -234,12 +348,12 @@ function ruleDisabled(v: unknown): RuleDisabled | undefined {
 }
 
 /**
- * Reads one rule entry. The panel ships in the same package as the server, so
+ * Reads one entry of `GET /rules`. The panel ships in the same package as the server, so
  * a field the server always sends and the panel relies on is required, and an
  * entry without it means the two disagree; optional fields are kept only when
  * well formed.
  */
-export function parseRuleEntry(body: unknown, what: string): RuleEntry {
+export function parseListedRule(body: unknown, what: string): ListedRule {
   const record = (v: unknown): Record<string, unknown> => {
     if (!isRecord(v)) throw malformed(what)
     return v
@@ -270,26 +384,19 @@ export function parseRuleEntry(body: unknown, what: string): RuleEntry {
   })
   const instanceStatus = (i: unknown): InstanceStatus => {
     const v = record(i)
-    const instance =
-      isRecord(v.instance) && typeof v.instance.segment === 'string'
-        ? { ...optional('name', text(v.instance.name)), segment: v.instance.segment }
-        : undefined
-    return {
-      ...optional('instance', instance),
-      ...verdict(v),
-      ...optional('value', signalValue(v.value)),
-      ...optional('limit', num(v.limit)),
-      ...optional('progress', progressOf(v.progress)),
-      gates: gates(v.gates),
-      ...optional('level', text(v.level)),
-      ...optional('priority', text(v.priority))
-    }
+    return { ...verdict(v), ...conditionFacts(v), ...liveFacts(v), gates: gates(v.gates) }
   }
   const status = (s: unknown): RuleStatus => {
     const v = record(s)
     if (!Array.isArray(v.instances)) throw malformed(what)
+    const ruleState = v.ruleState
+    if (ruleState !== 'enabled' && ruleState !== 'disabled') throw malformed(what)
     return {
+      ruleState,
       ...verdict(v),
+      changedAt: string(v.changedAt),
+      ...conditionFacts(v),
+      ...liveFacts(v),
       errors: strings(v.errors),
       issues: strings(v.issues),
       instances: v.instances.map(instanceStatus)
@@ -324,20 +431,37 @@ export function parseRuleEntry(body: unknown, what: string): RuleEntry {
   }
 
   const entry = record(body)
-  return {
-    slug: string(entry.slug),
-    rule: rule(entry.rule, string(entry.alertPath)),
+  const slug = string(entry.slug)
+  const common = {
     ...optional('disabled', ruleDisabled(entry.disabled)),
     status: status(entry.state)
   }
+  if (isRecord(entry.invalid)) {
+    const stored = entry.invalid.body
+    return {
+      slug,
+      name: (isRecord(stored) ? text(stored.name) : undefined) ?? slug,
+      invalid: { errors: fieldErrors(entry.invalid.errors) ?? [], body: stored },
+      ...common
+    }
+  }
+  return { slug, rule: rule(entry.rule, string(entry.alertPath)), ...common }
 }
 
-// The panel cannot yet show a stored rule that does not validate; it lists the rules that run.
-export function parseRules(body: unknown): RuleEntry[] {
+/**
+ * Reads the entry of a rule that runs, as an action on it answers. The
+ * server answers an action only on such a rule.
+ */
+export function parseRuleEntry(body: unknown, what: string): RuleEntry {
+  const entry = parseListedRule(body, what)
+  if (isInvalid(entry)) throw malformed(what)
+  return entry
+}
+
+/** `GET /rules`: the rules that run, then the stored rules that do not. */
+export function parseRules(body: unknown): ListedRule[] {
   if (!Array.isArray(body)) throw malformed('/rules')
-  return body
-    .filter((entry) => !(isRecord(entry) && 'invalid' in entry))
-    .map((entry) => parseRuleEntry(entry, '/rules'))
+  return body.map((entry) => parseListedRule(entry, '/rules'))
 }
 
 function fieldErrors(v: unknown): FieldError[] | undefined {
@@ -430,7 +554,7 @@ async function requestJson(
     credentials: 'same-origin',
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
   })
-  if (res.status === 401 || res.status === 403) throw new SessionExpiredError()
+  if (res.status === 401) throw new SessionExpiredError()
   if (!res.ok) throw await failure(res, path)
   if (res.status === 204) return undefined
   return res.json()
