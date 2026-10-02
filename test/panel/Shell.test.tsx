@@ -334,6 +334,9 @@ describe('Shell views', () => {
     expect(screen.getByRole('heading', { name: 'Coolant high' })).toBeTruthy()
     expect(screen.getByText(/not valid/i)).toBeTruthy()
     expect(screen.getByText('detector is required')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Fix in the editor' }).getAttribute('href')).toBe(
+      '#edit=coolant-high'
+    )
   })
 
   describe('Add rule', () => {
@@ -341,15 +344,32 @@ describe('Shell views', () => {
       window.history.replaceState(null, '', `/${ADMIN}#add`)
       await renderShell({ state: running, rules: [rule] })
       expect(screen.getByRole('heading', { name: 'Add rule' })).toBeTruthy()
-      expect(
-        screen.getByRole('link', { name: 'Start from a data path' }).getAttribute('href')
-      ).toBe(`${ADMIN}#add=path`)
+      expect(screen.getByRole('link', { name: /From a data path/ }).getAttribute('href')).toBe(
+        `${ADMIN}#add=path`
+      )
+      expect(screen.getByText('Adding a rule from a template is not available yet.')).toBeTruthy()
     })
 
-    it('opens the authoring form from a data path', async () => {
+    it('opens the path search from a data path', async () => {
       window.history.replaceState(null, '', `/${ADMIN}#add=path`)
       await renderShell({ state: running, rules: [rule] })
+      expect(screen.getByRole('heading', { name: 'Which value?' })).toBeTruthy()
+    })
+
+    it('asks what should alert once the value is chosen', async () => {
+      window.history.replaceState(null, '', `/${ADMIN}#add=path&path=a.b`)
+      await renderShell({ state: running, rules: [rule] })
+      expect(screen.getByRole('heading', { name: 'What should alert?' })).toBeTruthy()
+    })
+
+    it('opens the editor once the value and what should alert are chosen', async () => {
+      window.history.replaceState(null, '', `/${ADMIN}#add=path&path=a.b&when=below`)
+      await renderShell({ state: running, rules: [rule] })
+      await settle()
       expect(screen.getByRole('form', { name: 'New rule' })).toBeTruthy()
+      expect(screen.getByRole('link', { name: 'What should alert?' }).getAttribute('href')).toBe(
+        `${ADMIN}#add=path&path=a.b`
+      )
     })
 
     it('opens Add rule for a template step, until templates can be picked', async () => {

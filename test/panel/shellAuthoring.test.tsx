@@ -1,19 +1,19 @@
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { Rule } from '../../src/model/rule'
 import {
   SessionExpiredError,
   type PanelApi,
-  type PluginState,
-  type RuleEntry
+  type ListedRule,
+  type PluginState
 } from '../../src/panel/api'
 import type { PathSource } from '../../src/panel/paths/selfPaths'
 import { Shell } from '../../src/panel/Shell'
 import { displayUnit } from '../../src/panel/units'
-import { noControls, ruleEntry } from './fixtures'
+import { invalidEntry, noControls, ruleEntry } from './fixtures'
 
 const EXAMPLES = join(import.meta.dirname, '../../examples/rules')
 const stored = JSON.parse(readFileSync(join(EXAMPLES, 'house-battery-low.json'), 'utf8')) as Rule
@@ -26,14 +26,23 @@ const paths: PathSource = {
     Promise.resolve([
       {
         path: 'electrical.batteries.house.voltage',
+        displayName: 'House battery voltage',
         units: 'V',
-        unit: displayUnit({ units: 'V' })
+        unit: displayUnit({ units: 'V' }),
+        value: 13.3
+      },
+      {
+        path: 'electrical.batteries.bowThruster.voltage',
+        displayName: 'Bow thruster battery voltage',
+        units: 'V',
+        unit: displayUnit({ units: 'V' }),
+        value: 12.9
       }
     ]),
   distanceUnit: () => Promise.resolve(displayUnit({ units: 'm' }))
 }
 
-function mockApi(rules: RuleEntry[]) {
+function mockApi(rules: ListedRule[]) {
   const server = { rules }
   const api = {
     state: vi.fn(() => Promise.resolve(running)),
@@ -60,7 +69,7 @@ function mockApi(rules: RuleEntry[]) {
   return api
 }
 
-function renderShell(rules: RuleEntry[]) {
+function renderShell(rules: ListedRule[]) {
   const api = mockApi(rules)
   render(<Shell api={api} paths={paths} />)
   return api
@@ -70,22 +79,25 @@ const change = (element: HTMLElement, value: string) => {
   fireEvent.change(element, { target: { value } })
 }
 
-/** Add rule, then From a data path: the way to the authoring form until templates land. */
+/** Add rule, From a data path, the value, Below a limit: the way to the editor until templates land. */
 async function openNewRule() {
   fireEvent.click(await screen.findByRole('link', { name: 'Add rule' }))
-  fireEvent.click(await screen.findByRole('link', { name: 'Start from a data path' }))
+  fireEvent.click(await screen.findByRole('link', { name: /From a data path/ }))
+  change(
+    await screen.findByRole('searchbox', { name: 'Search by name or path' }),
+    'bow thruster volt'
+  )
+  fireEvent.click(await screen.findByRole('link', { name: /Bow thruster battery voltage/ }))
+  fireEvent.click(await screen.findByRole('radio', { name: /Below a limit/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+  await screen.findByRole('form', { name: 'New rule' })
 }
 
-/** Fills the new rule form with an alarm when the navigation state changes to aground. */
-function fillAground(inputPath: HTMLElement) {
-  change(inputPath, 'navigation.state')
-  fireEvent.click(screen.getByRole('radio', { name: /a value or state/i }))
-  change(screen.getByRole('combobox', { name: 'The input' }), 'changesTo')
-  change(screen.getByRole('combobox', { name: 'Value type' }), 'text')
-  change(screen.getByRole('textbox', { name: 'Value' }), 'aground')
-  change(screen.getByRole('combobox', { name: 'Priority' }), 'alarm')
-  change(screen.getByRole('textbox', { name: 'Message' }), 'Aground')
-  change(screen.getByRole('textbox', { name: 'Name' }), 'Aground')
+/** Fills the new rule with a warning below 11.8 V, named Thruster battery low. */
+function fillLow() {
+  change(screen.getByRole('combobox', { name: 'Priority for step 1' }), 'warning')
+  change(screen.getByRole('textbox', { name: 'Limit for step 1' }), '11.8')
+  change(screen.getByRole('textbox', { name: /^Name/ }), 'Thruster battery low')
 }
 
 beforeAll(() => {
@@ -98,21 +110,34 @@ describe('Shell rule authoring', () => {
     window.history.replaceState(null, '', '/')
   })
 
-  it('creates a rule from Add rule and opens it once saved', async () => {
+  it('creates a rule from a path and opens it once saved', async () => {
     const api = renderShell([battery])
     await openNewRule()
-    const form = await screen.findByRole('form', { name: 'New rule' })
-    fillAground(within(form).getByRole('combobox', { name: 'Input path' }))
+    fillLow()
     fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
-    expect(await screen.findByRole('heading', { name: 'Aground' })).toBeTruthy()
-    expect(window.location.hash).toBe('#rule=aground')
+    expect(await screen.findByRole('heading', { name: 'Thruster battery low' })).toBeTruthy()
+    expect(window.location.hash).toBe('#rule=thruster-battery-low')
     expect(api.createRule).toHaveBeenCalledWith({
-      name: 'Aground',
-      slug: 'aground',
-      message: 'Aground',
-      signal: { path: 'navigation.state' },
-      detector: { type: 'match', op: 'changesTo', steps: [{ value: 'aground', priority: 'alarm' }] }
+      name: 'Thruster battery low',
+      slug: 'thruster-battery-low',
+      message: 'Bow thruster battery voltage below 11.8 V: {value}',
+      signal: { path: 'electrical.batteries.bowThruster.voltage' },
+      detector: {
+        type: 'sustained',
+        direction: 'below',
+        steps: [{ limit: 11.8, priority: 'warning' }]
+      }
     })
+  })
+
+  it('goes back from the editor to the kinds, and from there to the search', async () => {
+    renderShell([battery])
+    await openNewRule()
+    fireEvent.click(screen.getByRole('link', { name: 'What should alert?' }))
+    expect(await screen.findByRole('heading', { name: 'What should alert?' })).toBeTruthy()
+    expect(screen.getByText(/Bow thruster battery voltage, now/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('link', { name: 'Which value?' }))
+    expect(await screen.findByRole('heading', { name: 'Which value?' })).toBeTruthy()
   })
 
   it('edits a rule from its detail, reading the whole stored rule', async () => {
@@ -121,9 +146,9 @@ describe('Shell rule authoring', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
     await screen.findByRole('form', { name: /edit/i })
     expect(api.ruleDefinition).toHaveBeenCalledWith('house-battery-low')
-    expect(screen.getByRole('textbox', { name: 'Hysteresis' })).toHaveProperty('value', '0.2')
-    change(screen.getByRole('textbox', { name: 'Message' }), 'Battery low')
-    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    expect(screen.getByRole('textbox', { name: 'Clear margin' })).toHaveProperty('value', '0.2')
+    change(screen.getByRole('textbox', { name: /^Message/ }), 'Battery low')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => {
       expect(api.updateRule).toHaveBeenCalled()
     })
@@ -137,13 +162,13 @@ describe('Shell rule authoring', () => {
       Promise.resolve(ruleEntry({ slug: rule.slug, rule: { name: rule.name } }))
     )
     await openNewRule()
-    fillAground(await screen.findByRole('combobox', { name: 'Input path' }))
+    fillLow()
     fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
-    expect(await screen.findByRole('heading', { name: 'Aground' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Thruster battery low' })).toBeTruthy()
     await waitFor(() => {
       expect(api.rules).toHaveBeenCalledTimes(2)
     })
-    expect(screen.getByRole('heading', { name: 'Aground' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Thruster battery low' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Rule not found' })).toBeNull()
   })
 
@@ -185,7 +210,7 @@ describe('Shell rule authoring', () => {
   it('keeps what was typed when a probe finds the session expired', async () => {
     const api = renderShell([battery])
     await openNewRule()
-    change(await screen.findByRole('combobox', { name: 'Input path' }), 'a.b')
+    change(screen.getByRole('textbox', { name: /^Name/ }), 'Typed')
     api.state.mockRejectedValue(new SessionExpiredError())
     // A tablet waking from sleep probes at once.
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
@@ -195,14 +220,14 @@ describe('Shell rule authoring', () => {
     expect((await screen.findByText(/your login has expired/i)).textContent).toMatch(
       /showing states from/i
     )
-    expect(screen.getByRole('combobox', { name: 'Input path' })).toHaveProperty('value', 'a.b')
+    expect(screen.getByRole('textbox', { name: /^Name/ })).toHaveProperty('value', 'Typed')
   })
 
   // Signal K refuses an expired login and a level too low alike with 401.
   it('says a refused save needs an administrator while the login still reads the state', async () => {
     const api = renderShell([battery])
     await openNewRule()
-    fillAground(await screen.findByRole('combobox', { name: 'Input path' }))
+    fillLow()
     api.createRule.mockRejectedValueOnce(new SessionExpiredError())
     // The level was lowered meanwhile.
     api.state.mockResolvedValue({ ...running, permissions: 'readwrite' })
@@ -215,19 +240,45 @@ describe('Shell rule authoring', () => {
   it('says a refused save is an expired login when the state is refused too, keeping the form', async () => {
     const api = renderShell([battery])
     await openNewRule()
-    fillAground(await screen.findByRole('combobox', { name: 'Input path' }))
+    fillLow()
     api.createRule.mockRejectedValueOnce(new SessionExpiredError())
     api.state.mockRejectedValue(new SessionExpiredError())
     fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
-    const form = screen.getByRole('form', { name: 'New rule' })
-    expect((await within(form).findByRole('alert')).textContent).toMatch(/your login has expired/i)
+    await waitFor(() => {
+      expect(
+        screen.getAllByRole('alert').some((a) => /your login has expired/i.test(a.textContent))
+      ).toBe(true)
+    })
     expect(screen.queryByText(/administrator/i)).toBeNull()
-    expect(screen.getByRole('textbox', { name: 'Name' })).toHaveProperty('value', 'Aground')
+    expect(screen.getByRole('textbox', { name: /^Name/ })).toHaveProperty(
+      'value',
+      'Thruster battery low'
+    )
   })
 
-  it('opens the form from the empty rule list', async () => {
+  it('opens the path search from the empty rule list', async () => {
     renderShell([])
     fireEvent.click(await screen.findByRole('link', { name: 'Start from a data path' }))
-    expect(await screen.findByRole('form', { name: 'New rule' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Which value?' })).toBeTruthy()
+  })
+
+  it('fixes an invalid stored rule in the editor', async () => {
+    window.history.replaceState(null, '', '/#rule=house-battery-low')
+    const body = { ...stored, detector: { ...stored.detector, duration: -5 } }
+    const api = renderShell([
+      invalidEntry({
+        slug: stored.slug,
+        name: stored.name,
+        invalid: { body, errors: [{ path: '/detector/duration', message: 'must be at least 0' }] }
+      })
+    ])
+    fireEvent.click(await screen.findByRole('link', { name: 'Fix in the editor' }))
+    expect(await screen.findByRole('heading', { name: 'Fix “House battery low”' })).toBeTruthy()
+    change(screen.getByRole('textbox', { name: 'For at least' }), '1')
+    change(screen.getByRole('combobox', { name: 'For at least unit' }), 'min')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => {
+      expect(api.updateRule).toHaveBeenCalledWith(stored.slug, stored)
+    })
   })
 })

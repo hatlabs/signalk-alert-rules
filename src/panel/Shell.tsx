@@ -15,6 +15,9 @@ import {
   type PanelApi,
   type RuleEntry
 } from './api'
+import { AddRule } from './add/AddRule'
+import { KindPicker } from './add/KindPicker'
+import { PathSearch } from './add/PathSearch'
 import { EditRule } from './editor/EditRule'
 import { RuleEditor } from './editor/RuleEditor'
 import { failureMessage, fieldErrorText, NEEDS_ADMINISTRATOR } from './failure'
@@ -259,36 +262,16 @@ function NeedsAdministrator({
   )
 }
 
-/** Add rule, until template sets can be picked from: only the data path flow works. */
-function AddRule({
-  routeHref,
-  headingRef
-}: {
-  routeHref: (route: Route) => string
-  headingRef: Ref<HTMLHeadingElement>
-}) {
-  return (
-    <div className="skar-placeholder">
-      <BackLink href={routeHref({ kind: 'list' })} />
-      <h2 ref={headingRef} tabIndex={-1} className="skar-title">
-        Add rule
-      </h2>
-      <p>Adding a rule from a template is not available yet.</p>
-      <a className="skar-btn skar-btn-primary" href={routeHref({ kind: 'add', from: 'path' })}>
-        Start from a data path
-      </a>
-    </div>
-  )
-}
-
-/** A stored rule that does not run, until it can be opened in the editor to fix. */
+/** A stored rule that does not run, and what is wrong with it; an administrator can fix it. */
 function InvalidRule({
   entry,
   backHref,
+  fixHref,
   headingRef
 }: {
   entry: InvalidRuleEntry
   backHref: string
+  fixHref: string | undefined
   headingRef: Ref<HTMLHeadingElement>
 }) {
   return (
@@ -303,6 +286,11 @@ function InvalidRule({
           <li key={`${e.path} ${e.message}`}>{fieldErrorText(e)}</li>
         ))}
       </ul>
+      {fixHref !== undefined && (
+        <a className="skar-btn skar-btn-primary" href={fixHref}>
+          Fix in the editor
+        </a>
+      )}
     </div>
   )
 }
@@ -409,6 +397,12 @@ function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
 
   const find = (slug: string) =>
     rules.find((r) => r.slug === slug) ?? (justSaved?.slug === slug ? justSaved : undefined)
+  const ruleName = (slug: string) => {
+    const found = find(slug)
+    if (found === undefined) return undefined
+    return isInvalid(found) ? found.name : found.rule.name
+  }
+  const editHref = (slug: string) => routeHref({ kind: 'edit', slug })
 
   const saved = (entry: RuleEntry) => {
     setJustSaved(entry)
@@ -449,7 +443,31 @@ function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
   const content = () => {
     if (showsList) return list()
     if (entry !== undefined && isInvalid(entry)) {
-      return <InvalidRule entry={entry} backHref={listHref} headingRef={heading} />
+      if (route.kind === 'edit') {
+        return (
+          <RuleEditor
+            key={viewKey}
+            api={api}
+            paths={paths}
+            invalid={{ slug: entry.slug, name: entry.name, ...entry.invalid }}
+            back={{ href: routeHref({ kind: 'rule', slug: entry.slug }), label: entry.name }}
+            ruleName={ruleName}
+            editHref={editHref}
+            onSaved={saved}
+            onClose={() => {
+              go({ kind: 'rule', slug: entry.slug })
+            }}
+          />
+        )
+      }
+      return (
+        <InvalidRule
+          entry={entry}
+          backHref={listHref}
+          fixHref={admin ? editHref(entry.slug) : undefined}
+          headingRef={heading}
+        />
+      )
     }
     switch (route.kind) {
       case 'rule': {
@@ -508,9 +526,13 @@ function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
         if (entry === undefined) return list()
         return (
           <EditRule
+            key={viewKey}
             api={api}
             paths={paths}
             entry={entry}
+            back={{ href: routeHref({ kind: 'rule', slug: entry.slug }), label: entry.rule.name }}
+            ruleName={ruleName}
+            editHref={editHref}
             onSaved={saved}
             onClose={() => {
               go({ kind: 'rule', slug: entry.slug })
@@ -522,19 +544,58 @@ function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
         if (!admin) {
           return <NeedsAdministrator title="Add rule" backHref={listHref} headingRef={heading} />
         }
-        if (route.from === 'path') {
+        if (route.from !== 'path') {
           return (
-            <RuleEditor
-              api={api}
-              paths={paths}
-              onSaved={saved}
-              onClose={() => {
-                go({ kind: 'list' })
-              }}
+            <AddRule
+              backHref={listHref}
+              pathHref={routeHref({ kind: 'add', from: 'path' })}
+              headingRef={heading}
             />
           )
         }
-        return <AddRule routeHref={routeHref} headingRef={heading} />
+        if (route.path === undefined) {
+          return (
+            <PathSearch
+              paths={paths}
+              backHref={routeHref({ kind: 'add' })}
+              pathHref={(path) => routeHref({ kind: 'add', from: 'path', path })}
+              headingRef={heading}
+            />
+          )
+        }
+        if (route.when === undefined) {
+          const { path } = route
+          return (
+            <KindPicker
+              key={viewKey}
+              paths={paths}
+              path={path}
+              backHref={routeHref({ kind: 'add', from: 'path' })}
+              choose={(when) => {
+                go({ kind: 'add', from: 'path', path, when })
+              }}
+              headingRef={heading}
+            />
+          )
+        }
+        return (
+          <RuleEditor
+            key={viewKey}
+            api={api}
+            paths={paths}
+            start={{ path: route.path, kind: route.when }}
+            back={{
+              href: routeHref({ kind: 'add', from: 'path', path: route.path }),
+              label: 'What should alert?'
+            }}
+            ruleName={ruleName}
+            editHref={editHref}
+            onSaved={saved}
+            onClose={() => {
+              go({ kind: 'list' })
+            }}
+          />
+        )
     }
   }
 
