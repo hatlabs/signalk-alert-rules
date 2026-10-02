@@ -5,12 +5,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import express from 'express'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Plugin } from '@signalk/server-api'
+import type { Plugin, PluginRouter, RoutePermission } from '@signalk/server-api'
 import type { TemplateSetEntry, TemplateListing } from '../../src/application.js'
 import createPlugin from '../../src/index.js'
 import { MAX_PICK_LENGTH } from '../../src/model/rule.js'
 import { Store } from '../../src/store/store.js'
 import { instantiate } from '../../src/templates/instantiate.js'
+import type { Permissions } from '../../src/api/routes.js'
+import { admits, withAccess } from '../helpers/accessRouter.js'
 import { FakeAlertsCore } from '../helpers/FakeAlertsCore.js'
 import { MockServerAPI } from '../helpers/MockServerAPI.js'
 
@@ -71,8 +73,12 @@ interface Harness {
   ) => Promise<Reply>
   /** Stops the plugin and starts a new instance on the same data directory and core, as a server restart does. */
   restart: () => Promise<void>
-  /** The authenticated user the server puts on each request; undefined for none. */
+  /** The authenticated user the server puts on each request; undefined while security is disabled. */
   user: string | undefined
+  /** The user's permission level, which the server's plugin gate checks against each route's level. */
+  permissions: Permissions
+  /** The routes the plugin opened to lower levels through `access()`. */
+  opened: RoutePermission[]
 }
 
 /** The server's config directory, where it installs plugins with npm. */
@@ -107,7 +113,14 @@ function storeRule(rule: { slug: string }): void {
  * urlencoded), the authenticated user on the request, and the router under
  * `/plugins/<id>`.
  */
-async function serve(options: { withAlerts?: boolean; start?: boolean } = {}): Promise<Harness> {
+async function serve(
+  options: {
+    withAlerts?: boolean
+    start?: boolean
+    /** False for a server older than 2.31, whose plugin router has no `access()`. */
+    access?: boolean
+  } = {}
+): Promise<Harness> {
   const core = new FakeAlertsCore()
   const app = express()
   app.use(express.json())
@@ -115,6 +128,8 @@ async function serve(options: { withAlerts?: boolean; start?: boolean } = {}): P
   let current: { plugin: Plugin; mock: MockServerAPI } | undefined
   const harness: Harness = {
     user: 'admin',
+    permissions: 'admin',
+    opened: [],
     get mock() {
       if (current === undefined) throw new Error('no plugin')
       return current.mock
@@ -146,9 +161,24 @@ async function serve(options: { withAlerts?: boolean; start?: boolean } = {}): P
   }
   app.use((req, _res, next) => {
     if (harness.user !== undefined) {
-      Object.assign(req, { skPrincipal: { identifier: harness.user, permissions: 'admin' } })
+      Object.assign(req, {
+        skPrincipal: { identifier: harness.user, permissions: harness.permissions }
+      })
     }
     next()
+  })
+  // With security disabled the server lets every request through.
+  app.use(BASE, (req, res, next) => {
+    if (
+      harness.user === undefined ||
+      admits(harness.opened, harness.permissions, req.method, req.path)
+    ) {
+      next()
+      return
+    }
+    // The server refuses every level with 401, never 403 (signalk-server
+    // src/tokensecurity.ts, handlePermissionDenied).
+    res.status(401).json({ error: 'Permission Denied' })
   })
   // The server builds a new router per plugin registration; a restart reuses it.
   let routed: express.Router | undefined
@@ -160,13 +190,14 @@ async function serve(options: { withAlerts?: boolean; start?: boolean } = {}): P
     const mock = new MockServerAPI(options.withAlerts ?? true, dir, core)
     const plugin = createPlugin(mock.asServerAPI())
     const router = express.Router()
-    plugin.registerWithRouter?.(
-      Object.assign(router, {
-        access: () => {
-          throw new Error('every SKAR route stays admin-only')
-        }
-      })
-    )
+    if (options.access ?? true) {
+      const accessible = withAccess(router)
+      harness.opened = accessible.opened
+      plugin.registerWithRouter?.(accessible.router)
+    } else {
+      harness.opened = []
+      plugin.registerWithRouter?.(router as PluginRouter)
+    }
     routed = router
     current = { plugin, mock }
     if (options.start ?? true) plugin.start({}, () => undefined)
@@ -562,6 +593,7 @@ describe('REST API', () => {
     expect((await h.call('GET', '/state')).body).toEqual({
       running: true,
       securityEnabled: null,
+      permissions: 'admin',
       issues: []
     })
     Object.assign(h.mock, { securityStrategy: { isDummy: () => true } })
@@ -575,7 +607,8 @@ describe('REST API', () => {
     expect((await h.call('GET', '/state')).body).toEqual({
       running: false,
       error: 'This server has no alerts API; rules cannot be evaluated',
-      securityEnabled: null
+      securityEnabled: null,
+      permissions: 'admin'
     })
     const replies = await Promise.all([
       h.call('GET', '/rules'),
@@ -981,5 +1014,111 @@ describe('templates API', () => {
       h.call('POST', '/templates/batteries/voltage-low', {})
     ])
     expect(replies.map((r) => r.status)).toEqual([404, 404, 404])
+  })
+})
+
+describe('access by role', () => {
+  const RULE = '/rules/oil-pressure-low'
+
+  /** Every admin-only route, with a body it would accept past the server's gate. */
+  const adminOnly: [string, string, unknown][] = [
+    ['POST', '/rules', coolant],
+    ['PUT', RULE, oil],
+    ['POST', `${RULE}/preview`, oil],
+    ['DELETE', RULE, undefined],
+    ['POST', `${RULE}/reset`, undefined],
+    ['POST', '/templates/dismiss', undefined]
+  ]
+  const reads = ['/state', '/rules', RULE, '/log', '/templates']
+  const controls: [string, string, unknown][] = [
+    ['POST', `${RULE}/disable`, {}],
+    ['POST', `${RULE}/enable`, undefined]
+  ]
+
+  const statuses = async (h: Harness, requests: [string, string, unknown][]) =>
+    (await Promise.all(requests.map(([method, path, body]) => h.call(method, path, body)))).map(
+      (r) => r.status
+    )
+
+  it('opens the reads to read-only users and the rule controls to read/write users', async () => {
+    const h = await serve()
+    const byRoute = (a: RoutePermission, b: RoutePermission) =>
+      `${a.method} ${a.path}`.localeCompare(`${b.method} ${b.path}`)
+    const expected: RoutePermission[] = [
+      { method: 'GET', path: '/state', permission: 'readonly' },
+      { method: 'GET', path: '/rules', permission: 'readonly' },
+      { method: 'GET', path: '/rules/:slug', permission: 'readonly' },
+      { method: 'GET', path: '/log', permission: 'readonly' },
+      { method: 'GET', path: '/templates', permission: 'readonly' },
+      { method: 'POST', path: '/rules/:slug/disable', permission: 'readwrite' },
+      { method: 'POST', path: '/rules/:slug/enable', permission: 'readwrite' }
+    ]
+    expect([...h.opened].sort(byRoute)).toEqual(expected.sort(byRoute))
+  })
+
+  it('lets a read-only user read rules and states, and nothing more', async () => {
+    storeRule(oil)
+    const h = await serve()
+    h.user = 'crew'
+    h.permissions = 'readonly'
+    const readReplies = await Promise.all(reads.map((path) => h.call('GET', path)))
+    expect(readReplies.map((r) => r.status)).toEqual(reads.map(() => 200))
+    const refused = [...controls, ...adminOnly]
+    expect(await statuses(h, refused)).toEqual(refused.map(() => 401))
+    expect((await h.call('GET', '/log')).body).toEqual([])
+  })
+
+  it('lets a read/write user disable and enable a rule, recording them, but not edit it', async () => {
+    storeRule(oil)
+    const h = await serve()
+    h.user = 'mate'
+    h.permissions = 'readwrite'
+    const off = await h.call('POST', `${RULE}/disable`, { note: 'sender fouled' })
+    expect(off.status).toBe(200)
+    expect(off.body).toMatchObject({ disabled: { actor: 'mate', note: 'sender fouled' } })
+    expect((await h.call('POST', `${RULE}/enable`)).status).toBe(200)
+    expect(await statuses(h, adminOnly)).toEqual(adminOnly.map(() => 401))
+    expect((await h.call('GET', '/log')).body).toMatchObject([
+      { actor: 'mate', action: 'enable' },
+      { actor: 'mate', action: 'disable' }
+    ])
+  })
+
+  it("reports the caller's permission level in the state", async () => {
+    const h = await serve()
+    expect((await h.call('GET', '/state')).body).toMatchObject({ permissions: 'admin' })
+    h.permissions = 'readwrite'
+    expect((await h.call('GET', '/state')).body).toMatchObject({ permissions: 'readwrite' })
+    h.permissions = 'readonly'
+    expect((await h.call('GET', '/state')).body).toMatchObject({ permissions: 'readonly' })
+  })
+
+  it('reports a principal of a level it does not know as read-only', async () => {
+    const h = await serve()
+    h.permissions = 'superuser' as Permissions
+    expect((await h.call('GET', '/state')).body).toMatchObject({ permissions: 'readonly' })
+  })
+
+  it('with security disabled reports full rights and records an unauthenticated actor', async () => {
+    storeRule(oil)
+    const h = await serve()
+    h.user = undefined
+    expect((await h.call('GET', '/state')).body).toMatchObject({ permissions: 'admin' })
+    const off = await h.call('POST', `${RULE}/disable`)
+    expect(off.status).toBe(200)
+    expect(off.body).toMatchObject({ disabled: { actor: 'unauthenticated' } })
+  })
+
+  it('registers every route, naming the server requirement, on a router without access levels', async () => {
+    storeRule(oil)
+    const h = await serve({ access: false })
+    expect(h.mock.pluginStatus).toMatch(/Signal K server 2\.31/)
+    expect(
+      await statuses(h, [
+        ['GET', '/rules', undefined],
+        ...controls,
+        ['POST', '/templates/dismiss', undefined]
+      ])
+    ).toEqual([200, 200, 200, 200])
   })
 })

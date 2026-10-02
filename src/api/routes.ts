@@ -1,3 +1,4 @@
+import type { AccessScopedRouter, PluginRouter, RouteAccessLevel } from '@signalk/server-api'
 import type { IRouter, NextFunction, Request, RequestHandler, Response } from 'express'
 import {
   alertPathOverlap,
@@ -26,17 +27,34 @@ export interface ApiContext {
   state: () => PluginState
 }
 
+/** What the caller may do: `admin` everything, `readwrite` also disable and enable rules, `readonly` read. */
+export type Permissions = 'admin' | RouteAccessLevel
+
 // The server authenticates a request before it reaches a plugin route and
 // puts the user on it (signalk-server src/tokensecurity.ts: SKRequest,
 // `skPrincipal` set where a token is verified). With security disabled
 // there is no principal.
 interface AuthenticatedRequest {
-  skPrincipal?: { identifier?: unknown }
+  skPrincipal?: { identifier?: unknown; permissions?: unknown }
+}
+
+function principalOf(req: Request): AuthenticatedRequest['skPrincipal'] {
+  return (req as Request & AuthenticatedRequest).skPrincipal
 }
 
 function actorOf(req: Request): string {
-  const principal = (req as Request & AuthenticatedRequest).skPrincipal
-  return typeof principal?.identifier === 'string' ? principal.identifier : UNAUTHENTICATED
+  const identifier = principalOf(req)?.identifier
+  return typeof identifier === 'string' ? identifier : UNAUTHENTICATED
+}
+
+// With security disabled every route is open to every caller. A level the
+// server does not define is shown as the least, so the webapp offers no
+// control the server might refuse.
+function permissionsOf(req: Request): Permissions {
+  const principal = principalOf(req)
+  if (principal === undefined) return 'admin'
+  const { permissions } = principal
+  return permissions === 'admin' || permissions === 'readwrite' ? permissions : 'readonly'
 }
 
 /**
@@ -65,14 +83,28 @@ function notFound(res: Response, what: string): void {
 
 /**
  * Registers SKAR's REST API on the plugin router. Handlers are thin: the
- * behaviour lives in `Application`. Routes are registered directly on the
- * router, which the server keeps admin-only while security is enabled
- * (signalk-server src/tokensecurity.ts, `pluginAuthenticationMiddleware`:
- * a plugin route without an `access()` level goes through the admin
- * check). The router outlives the plugin, so every route but `/state`
- * answers 503 while the plugin is not running.
+ * behaviour lives in `Application`. Reads are opened to read-only users and
+ * rule controls to read/write users through the router's `access()`; the
+ * rest is registered directly, which the server keeps admin-only while
+ * security is enabled (signalk-server src/tokensecurity.ts,
+ * `pluginAuthenticationMiddleware`). A server older than 2.31 has no
+ * `access()`, and there every route is registered directly. The router
+ * outlives the plugin, so every route but `/state` answers 503 while the
+ * plugin is not running.
+ *
+ * @returns whether lower levels were opened, false on a server without `access()`.
  */
-export function registerRoutes(router: IRouter, ctx: ApiContext): void {
+export function registerRoutes(
+  router: IRouter & Partial<Pick<PluginRouter, 'access'>>,
+  ctx: ApiContext
+): boolean {
+  const { access } = router
+  const opensLevels = typeof access === 'function'
+  const at = (level: RouteAccessLevel): AccessScopedRouter =>
+    opensLevels ? access.call(router, level) : router
+  const readonly = at('readonly')
+  const readwrite = at('readwrite')
+
   const running =
     (handler: (skar: Application, req: Request, res: Response) => void): RequestHandler =>
     (req, res) => {
@@ -101,16 +133,17 @@ export function registerRoutes(router: IRouter, ctx: ApiContext): void {
     editRefused(res, outcome)
   }
 
-  router.get('/state', (_req, res) => {
+  readonly.get('/state', (req, res) => {
     const skar = ctx.application()
     res.json({
       running: skar !== undefined,
       ...ctx.state(),
+      permissions: permissionsOf(req),
       ...(skar === undefined ? {} : { issues: skar.issues })
     })
   })
 
-  router.get(
+  readonly.get(
     '/rules',
     running((skar, _req, res) => {
       res.json(skar.rules())
@@ -125,7 +158,7 @@ export function registerRoutes(router: IRouter, ctx: ApiContext): void {
     })
   )
 
-  router.get(
+  readonly.get(
     '/rules/:slug',
     running((skar, req, res) => {
       const entry: ListedRule | undefined = skar.rule(req.params.slug)
@@ -179,7 +212,7 @@ export function registerRoutes(router: IRouter, ctx: ApiContext): void {
     })
   )
 
-  router.get(
+  readonly.get(
     '/log',
     running((skar, _req, res) => {
       res.json(skar.log())
@@ -191,7 +224,7 @@ export function registerRoutes(router: IRouter, ctx: ApiContext): void {
     else notFound(res, 'such rule')
   }
 
-  router.post(
+  readwrite.post(
     '/rules/:slug/disable',
     requireJson,
     running((skar, req, res) => {
@@ -205,7 +238,7 @@ export function registerRoutes(router: IRouter, ctx: ApiContext): void {
     })
   )
 
-  router.post(
+  readwrite.post(
     '/rules/:slug/enable',
     requireJson,
     running((skar, req, res) => {
@@ -214,7 +247,7 @@ export function registerRoutes(router: IRouter, ctx: ApiContext): void {
     })
   )
 
-  router.get(
+  readonly.get(
     '/templates',
     running((skar, _req, res) => {
       res.json(skar.templates())
@@ -228,6 +261,7 @@ export function registerRoutes(router: IRouter, ctx: ApiContext): void {
       res.json(skar.dismissTemplates())
     })
   )
+  return opensLevels
 }
 
 const MAX_NOTE_LENGTH = 500

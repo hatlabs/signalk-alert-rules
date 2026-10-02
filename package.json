@@ -46,7 +46,7 @@
   },
   "homepage": "https://github.com/hatlabs/signalk-alert-rules#readme",
   "peerDependencies": {
-    "@signalk/server-api": "^2.10.0"
+    "@signalk/server-api": "^2.31.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

@@ -32,6 +32,10 @@ interface ServerWithSecurity {
   securityStrategy?: { isDummy?: () => boolean }
 }
 
+// Server 2.31 added `access()` to the plugin router.
+const NO_ROUTE_LEVELS =
+  'only admins can use Alert Rules: opening it to read-only and read/write users needs Signal K server 2.31 or later'
+
 function securityEnabled(app: ServerAPI): boolean | null {
   const isDummy = (app as ServerAPI & ServerWithSecurity).securityStrategy?.isDummy
   return typeof isDummy === 'function' ? !isDummy() : null
@@ -41,6 +45,10 @@ export default function createPlugin(app: ServerAPI): Plugin {
   let application: Application | undefined
   let startError: string | undefined
   let timers: NodeJS.Timeout[] = []
+  let routeNote: string | undefined
+  // The server hands the plugin its router after starting it, so a note
+  // about the router reaches a status that start has already set.
+  let refreshStatus: (() => void) | undefined
 
   const fail = (text: string) => {
     startError = text
@@ -101,7 +109,7 @@ export default function createPlugin(app: ServerAPI): Plugin {
       let shown: string | undefined
       const report = () => {
         const failure = [...failures.values()].at(-1)
-        const notes = running.statusNotes()
+        const notes = [...running.statusNotes(), ...(routeNote === undefined ? [] : [routeNote])]
         const text = failure ?? (notes.length === 0 ? 'Running' : `Running; ${notes.join('; ')}`)
         if (text === shown) return
         shown = text
@@ -145,6 +153,7 @@ export default function createPlugin(app: ServerAPI): Plugin {
         )
       ]
       for (const note of running.statusNotes()) app.error(note)
+      refreshStatus = report
       report()
     },
 
@@ -153,6 +162,7 @@ export default function createPlugin(app: ServerAPI): Plugin {
       // save, and clearing would re-alert the operator each time.
       // Disabling stops the plugin too, and a disabled plugin has not failed.
       startError = undefined
+      refreshStatus = undefined
       for (const timer of timers) clearInterval(timer)
       timers = []
       const running = application
@@ -166,13 +176,17 @@ export default function createPlugin(app: ServerAPI): Plugin {
     },
 
     registerWithRouter(router: PluginRouter) {
-      registerRoutes(router, {
+      const opensLevels = registerRoutes(router, {
         application: () => application,
         state: () => ({
           ...(startError === undefined ? {} : { error: startError }),
           securityEnabled: securityEnabled(app)
         })
       })
+      // With security disabled every route is open to everyone anyway.
+      routeNote = opensLevels || securityEnabled(app) === false ? undefined : NO_ROUTE_LEVELS
+      // Shows the note now rather than at the next tick's report.
+      refreshStatus?.()
     }
   }
   return plugin
