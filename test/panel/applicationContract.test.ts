@@ -5,7 +5,16 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Value } from '@signalk/server-api'
 import { serverDeps } from '../../src/alerts/server'
 import { Application } from '../../src/application'
-import { parseRuleEntry, parseRules, parseState, type RuleEntry } from '../../src/panel/api'
+import {
+  isInvalid,
+  parseRuleEntry,
+  parseRules,
+  parseState,
+  type RuleEntry
+} from '../../src/panel/api'
+import { byAttention, chipOf, summary } from '../../src/panel/list/attention'
+import { currentFact } from '../../src/panel/list/fact'
+import { NO_UNITS } from '../../src/panel/signalUnits'
 import { Store } from '../../src/store/store'
 import { MockServerAPI } from '../helpers/MockServerAPI'
 
@@ -108,13 +117,18 @@ function running() {
 const wire = (value: unknown): unknown => JSON.parse(JSON.stringify(value))
 
 function parsedRules(application: Application): Map<string, RuleEntry> {
-  return new Map(parseRules(wire(application.rules())).map((entry) => [entry.slug, entry]))
+  return new Map(
+    parseRules(wire(application.rules())).flatMap((entry) =>
+      isInvalid(entry) ? [] : [[entry.slug, entry] as const]
+    )
+  )
 }
 
 describe('panel parsers against the Application', () => {
-  it('read every rule entry the Application answers, leaving out the invalid stored rule', () => {
-    const rules = parsedRules(running())
-    expect([...rules.keys()].sort()).toEqual([
+  it('read every rule entry the Application answers, the invalid stored rule last', () => {
+    const slugs = parseRules(wire(running().rules())).map((entry) => entry.slug)
+    expect(slugs.at(-1)).toBe('broken')
+    expect(slugs.slice(0, -1).sort()).toEqual([
       'battery-low',
       'engine-hours',
       'oil-pressure-low',
@@ -122,13 +136,30 @@ describe('panel parsers against the Application', () => {
     ])
   })
 
-  it('read a running rule with an active alert, and its priority', () => {
+  it('read the invalid stored rule as a problem, named and with its errors', () => {
+    const invalid = parseRules(wire(running().rules())).find((entry) => entry.slug === 'broken')
+    expect(invalid).toMatchObject({
+      name: broken.name,
+      status: { ruleState: 'enabled', condition: 'problem', reason: 'invalidRule' }
+    })
+    const errors = invalid !== undefined && isInvalid(invalid) ? invalid.invalid.errors : []
+    expect(errors.map((e) => e.path)).toEqual(['/detector/steps/0/limit'])
+  })
+
+  it('read a running rule with an active alert, its priority, message and change time', () => {
     const entry = parsedRules(running()).get(oil.slug)
     expect(entry?.disabled).toBeUndefined()
     expect(entry).toMatchObject({
       rule: { name: oil.name, priority: 'alarm', detector: { type: 'sustained' } },
-      status: { condition: 'alerting', reason: 'alertActive' }
+      status: {
+        ruleState: 'enabled',
+        condition: 'alerting',
+        reason: 'alertActive',
+        priority: 'alarm',
+        message: oil.message
+      }
     })
+    expect(Number.isNaN(Date.parse(entry?.status.changedAt ?? ''))).toBe(false)
     expect(entry?.status.instances).toEqual([
       expect.objectContaining({ condition: 'alerting', value: 0, priority: 'alarm' })
     ])
@@ -184,10 +215,30 @@ describe('panel parsers against the Application', () => {
       wire({
         running: true,
         securityEnabled: true,
+        permissions: 'readwrite',
         issues: application.issues
       })
     )
     expect(state.issues).toEqual([expect.stringMatching(/garbled\.json could not be read/)])
+  })
+})
+
+describe('the rule list over what the Application answers', () => {
+  const NOW = Date.parse('2026-09-30T12:00:00.000Z')
+
+  it('orders, counts and words every rule', () => {
+    const rules = byAttention(parseRules(wire(running().rules())))
+    expect(
+      rules.map((entry) => [entry.slug, chipOf(entry), currentFact(entry, NO_UNITS, NOW)])
+    ).toEqual([
+      // Raised at the same time, so in the order the server lists them.
+      ['battery-low', 'alerting', 'start at 11.5: below 12'],
+      ['oil-pressure-low', 'alerting', '0: below 100000'],
+      ['broken', 'problem', 'The stored rule is not valid'],
+      ['engine-hours', 'disabled', 'Condition clear for at least 20 s'],
+      ['rpm-mismatch', 'disabled', '“sender loose”. Condition still present: 10']
+    ])
+    expect(summary(rules)).toBe('2 alerting · 1 problem · 2 disabled')
   })
 })
 

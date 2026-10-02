@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Rule } from '../../model/rule'
 import { RuleRejectedError, type FieldError, type PanelApi, type RuleEntry } from '../api'
+import { failureMessage } from '../failure'
 import type { PathList, PathSource } from '../paths/selfPaths'
 import { Confirm } from '../rules/Confirm'
 import { discardedTotals, ruleDisplay } from '../rules/describe'
@@ -183,7 +184,7 @@ function EditorForm({ api, paths, units, editing, onSaved, onClose }: FormProps)
 
   const refused = (err: unknown) => {
     if (err instanceof RuleRejectedError && err.errors.length > 0) setErrors(err.errors)
-    else setFailure(err instanceof Error ? err.message : String(err))
+    else setFailure(failureMessage(err))
   }
 
   const store = async (rule: Rule) => {

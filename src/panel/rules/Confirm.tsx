@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { failureMessage } from '../failure'
 
 export interface Confirmation {
   open: boolean
@@ -62,7 +63,7 @@ export function Confirm({ title, children, confirmLabel, onConfirm, onCancel }: 
     try {
       await onConfirm()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(failureMessage(err))
       setBusy(false)
     }
   }

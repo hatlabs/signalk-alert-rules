@@ -1,4 +1,4 @@
-import type { InstanceStatus, PanelApi, RuleEntry } from '../../src/panel/api'
+import type { InstanceStatus, InvalidRuleEntry, PanelApi, RuleEntry } from '../../src/panel/api'
 
 const notExpected = () => Promise.reject(new Error('not expected to be asked'))
 
@@ -51,12 +51,33 @@ export function ruleEntry(overrides: EntryOverrides = {}): RuleEntry {
       ...rule
     },
     status: {
+      ruleState: overrides.disabled === undefined ? 'enabled' : 'disabled',
       condition: 'normal',
       reason: 'withinLimits',
+      changedAt: '2026-09-30T12:00:00.000Z',
       errors: [],
       issues: [],
       instances: [instance()],
       ...status
     }
+  }
+}
+
+/** A stored rule that does not run, as `GET /rules` lists it after the others. */
+export function invalidEntry(overrides: Partial<InvalidRuleEntry> = {}): InvalidRuleEntry {
+  return {
+    slug: 'coolant-high',
+    name: 'Coolant high',
+    invalid: { errors: [{ path: '/detector', message: 'is required' }], body: {} },
+    status: {
+      ruleState: 'enabled',
+      condition: 'problem',
+      reason: 'invalidRule',
+      changedAt: '2026-09-30T12:00:00.000Z',
+      errors: [],
+      issues: [],
+      instances: []
+    },
+    ...overrides
   }
 }

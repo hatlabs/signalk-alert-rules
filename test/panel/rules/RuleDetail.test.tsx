@@ -191,9 +191,19 @@ describe('RuleDetail', () => {
     ).toEqual(['evaluation threw', 'subscription refused'])
   })
 
-  it('offers editing, not yet available', () => {
+  it('offers editing only where the rule can be edited', () => {
     renderDetail(batteries)
-    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Edit' }).disabled).toBe(true)
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
+    cleanup()
+    const edit = vi.fn()
+    render(<RuleDetail entry={batteries} backHref="#/config" edit={edit} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    expect(edit).toHaveBeenCalledOnce()
+  })
+
+  it('offers no accumulator reset where the rule cannot be reset', () => {
+    render(<RuleDetail entry={engineHours} backHref="#/config" />)
+    expect(screen.queryByRole('button', { name: /reset/i })).toBeNull()
   })
 
   it('offers an accumulator reset only for an accumulator', () => {

@@ -293,7 +293,7 @@ SKAR raises through delta ingress: a delta from the plugin, whose id core takes 
   "latching": false,
   "references": ["propulsion.port.coolantTemperature"],
   "data": {
-    "rule": "user.coolant-temperature-rising",
+    "rule": "coolant-temperature-rising",
     "name": "Coolant temperature rising",
     "instance": "port",
     "valueAtRaise": 357,
@@ -310,7 +310,7 @@ The keys of `data`, written at each raise:
 
 | Key | Present | Value |
 |---|---|---|
-| `rule` | always | `<origin>.<slug>` |
+| `rule` | always | the rule's `slug` |
 | `name` | always | the rule's `name` |
 | `instance` | wildcard rules | the instance name as the path has it, before sanitising |
 | `limit` | sustained and projection rules | the SI limit of the step the alert has reached, updated as it climbs and when an edit changes that step's limit while that step still has the alert's priority; for a zone limit, that level's threshold. It names a step the alert reached: an edit that inserts a step ahead of the reached one, or an adopted alert, keeps the limit core holds until the next climb. An edit to the reached step's limit sends the new limit even if the value has not crossed it, since the alert keeps that step's priority |

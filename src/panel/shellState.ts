@@ -1,19 +1,25 @@
-import { SessionExpiredError, type PanelApi, type RuleEntry } from './api'
+import { SessionExpiredError, type ListedRule, type PanelApi, type Permissions } from './api'
 
 /** What the shell shows in place of, or around, the views. */
 export type ShellView =
   | { kind: 'loading' }
   | { kind: 'unreachable'; reason: string }
   | { kind: 'notRunning' }
+  /** A 401 on `/state`, which any logged-in user can read: always a login problem. */
   | { kind: 'sessionExpired' }
   | { kind: 'failed'; error: string }
   | ReadyView
 
 export interface ReadyView {
   kind: 'ready'
-  rules: RuleEntry[]
-  /** Problems found while loading, such as stored rules that are not listed because they do not validate. */
+  /** The rules that run, then the stored rules that do not. */
+  rules: ListedRule[]
+  /** Problems found while loading, such as a stored rule file that could not be read. */
   issues: string[]
+  /** The caller's access level, which decides the controls shown. */
+  permissions: Permissions
+  /** When the rules were read, in ms since the epoch; shown while they go stale. */
+  readAt: number
 }
 
 export interface ShellSnapshot {
@@ -34,7 +40,7 @@ function reasonOf(err: unknown): string {
  * lists the webapp only while the plugin is enabled, so the panel is reached
  * while it is disabled only through a bookmarked link.
  */
-export async function probe(api: PanelApi): Promise<ShellSnapshot> {
+export async function probe(api: PanelApi, now: () => number = Date.now): Promise<ShellSnapshot> {
   let securityEnabled: boolean | null = null
   try {
     const state = await api.state()
@@ -42,7 +48,11 @@ export async function probe(api: PanelApi): Promise<ShellSnapshot> {
     if (state.running) {
       const rules = await api.rules()
       const issues = state.issues ?? []
-      return { view: { kind: 'ready', rules, issues }, securityEnabled }
+      const { permissions } = state
+      return {
+        view: { kind: 'ready', rules, issues, permissions, readAt: now() },
+        securityEnabled
+      }
     }
     if (state.error !== undefined) {
       return { view: { kind: 'failed', error: state.error }, securityEnabled }
@@ -85,4 +95,25 @@ export const POLL_INTERVAL_MS = 5000
  */
 export function pollDelay(view: ShellView): number | null {
   return view.kind === 'sessionExpired' ? null : POLL_INTERVAL_MS
+}
+
+/**
+ * What the shell says about a view other than a ready one, whether it stands
+ * in for the views or sits over the last rules read.
+ */
+export function viewMessage(view: ShellView): string | undefined {
+  switch (view.kind) {
+    case 'loading':
+      return 'Loading…'
+    case 'unreachable':
+      return `Reconnecting to the plugin (${view.reason}).`
+    case 'notRunning':
+      return 'The alert rules plugin is not running. Retrying…'
+    case 'sessionExpired':
+      return 'Your login has expired. Log in again, then check again.'
+    case 'failed':
+      return `The alert rules plugin could not start: ${view.error}. Rules cannot be edited until the plugin runs.`
+    case 'ready':
+      return undefined
+  }
 }
