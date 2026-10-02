@@ -391,6 +391,45 @@ describe('RuleDetail', () => {
       expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Enable rule' }))
     })
 
+    it('moves focus to Enable rule when the rule shows disabled before the request answers', async () => {
+      const controls = admin()
+      let finish: () => void = () => undefined
+      controls.disable.mockReturnValue(
+        new Promise<void>((resolve) => {
+          finish = resolve
+        })
+      )
+      const { rerender } = renderDetail(houseLow, controls)
+      fireEvent.click(screen.getByRole('button', { name: 'Disable' }))
+      await click(screen.getByRole('button', { name: 'Disable rule' }))
+      rerender(
+        <RuleDetail entry={disabledHouse} backHref="#/list" units={units} now={NOW} {...controls} />
+      )
+      await act(async () => {
+        finish()
+        await Promise.resolve()
+      })
+      expect(screen.queryByRole('alertdialog')).toBeNull()
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Enable rule' }))
+    })
+
+    it('closes when a poll shows the rule disabled by someone else, and stays closed', () => {
+      const controls = admin()
+      const { rerender } = renderDetail(houseLow, controls)
+      fireEvent.click(screen.getByRole('button', { name: 'Disable' }))
+      const show = (entry: RuleEntry) => {
+        rerender(
+          <RuleDetail entry={entry} backHref="#/list" units={units} now={NOW} {...controls} />
+        )
+      }
+      show(disabledHouse)
+      expect(screen.queryByRole('alertdialog')).toBeNull()
+      expect(document.activeElement).toBe(document.body)
+      show(houseLow)
+      expect(screen.queryByRole('alertdialog')).toBeNull()
+      expect(controls.disable).not.toHaveBeenCalled()
+    })
+
     it('names the count of the current alerts it clears', () => {
       const firing = { condition: 'alerting', reason: 'alertActive', priority: 'warning' } as const
       renderDetail(

@@ -341,6 +341,9 @@ function Controls({
   const { rule } = entry
   const disabled = entry.disabled !== undefined
   const toggled = useToggleFocus(disabled, disabling.trigger, enabling)
+  // A poll can show the rule disabled by someone else while the sheet is open;
+  // confirming then would overwrite their note.
+  if (disabled && disabling.open) disabling.close()
   const canReset = reset !== undefined && rule.detector.type === 'accumulator'
 
   const editButton = edit !== undefined && (
