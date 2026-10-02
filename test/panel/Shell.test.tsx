@@ -312,7 +312,7 @@ describe('Shell views', () => {
     window.history.replaceState(null, '', `/admin/${ADMIN}#rule=engine-hours`)
     await renderShell({ state: running, rules: [rule, hours] })
     expect(screen.getByRole('heading', { name: 'Engine hours' })).toBeTruthy()
-    const back = screen.getByRole('link', { name: /all rules/i })
+    const back = screen.getByRole('link', { name: 'Alert rules' })
     expect(back.getAttribute('href')).toBe(ADMIN)
     goTo(ADMIN)
     expect(screen.queryByRole('heading', { name: 'Engine hours' })).toBeNull()
@@ -372,7 +372,7 @@ describe('Shell views', () => {
       await renderShell({ state: running, rules: [hours] })
       expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy()
       expect(screen.getByRole('button', { name: /disable/i })).toBeTruthy()
-      expect(screen.getByRole('button', { name: /reset accumulator/i })).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Reset total…' })).toBeTruthy()
     })
 
     it('gives a read/write user disable and enable only', async () => {
@@ -423,9 +423,9 @@ describe('Shell views', () => {
       const server: Server = { state: as('readwrite'), rules: [rule] }
       const api = await renderShell(server)
       Object.assign(api, { disableRule: vi.fn(refused) })
-      fireEvent.click(screen.getByRole('button', { name: 'Disable…' }))
-      server.state = after
       fireEvent.click(screen.getByRole('button', { name: 'Disable' }))
+      server.state = after
+      fireEvent.click(screen.getByRole('button', { name: 'Disable rule' }))
       await settle()
       return api
     }
@@ -470,9 +470,9 @@ describe('Shell views', () => {
       const server: Server = { state: running, rules: [hours] }
       const api = await renderShell(server)
       api.resetAccumulator.mockImplementation(refused)
-      fireEvent.click(screen.getByRole('button', { name: /reset accumulator/i }))
+      fireEvent.click(screen.getByRole('button', { name: 'Reset total…' }))
       server.state = after
-      fireEvent.click(screen.getByRole('button', { name: /reset total/i }))
+      fireEvent.click(screen.getByRole('button', { name: 'Reset total' }))
       await settle()
       // In the dialog while it stays, in a notice once the level takes the control away.
       expect(screen.getAllByRole('alert').map((alert) => alert.textContent)).toContainEqual(
@@ -500,7 +500,7 @@ describe('Shell views', () => {
     it('leaves focus alone when a poll re-renders the view', async () => {
       await renderShell({ state: running, rules: [rule] })
       goTo('#rule=oil-pressure-low')
-      const back = screen.getByRole('link', { name: /all rules/i })
+      const back = screen.getByRole('link', { name: 'Alert rules' })
       back.focus()
       await tick(POLL_INTERVAL_MS)
       expect(document.activeElement).toBe(back)
@@ -508,6 +508,12 @@ describe('Shell views', () => {
   })
 
   describe('instance links', () => {
+    const itemOf = (name: string) => {
+      const item = screen.getByText(name).closest('li')
+      if (item === null) throw new Error(`no item for ${name}`)
+      return item
+    }
+
     const batteries = ruleEntry({
       slug: 'battery-low',
       rule: { name: 'Battery low', signal: { paths: ['electrical.batteries.*.voltage'] } },
@@ -522,18 +528,16 @@ describe('Shell views', () => {
     it('highlights the instance a link names and focuses its row', async () => {
       await renderShell({ state: running, rules: [rule, batteries] })
       goTo(`${ADMIN}#rule=battery-low&instance=Start%201`)
-      const row = screen.getByRole('row', { name: /start 1/i })
+      const row = itemOf('Start 1')
       expect(row.getAttribute('aria-current')).toBe('true')
       expect(document.activeElement).toBe(row)
-      expect(screen.getByRole('row', { name: /house/i }).getAttribute('aria-current')).toBeNull()
+      expect(itemOf('house').getAttribute('aria-current')).toBeNull()
     })
 
     it('finds the instance by its alert path segment too', async () => {
       window.history.replaceState(null, '', '/#rule=battery-low&instance=Start_1')
       await renderShell({ state: running, rules: [batteries] })
-      expect(screen.getByRole('row', { name: /start 1/i }).getAttribute('aria-current')).toBe(
-        'true'
-      )
+      expect(itemOf('Start 1').getAttribute('aria-current')).toBe('true')
       // Not on first load, which must not take focus from the admin UI.
       expect(document.activeElement).toBe(document.body)
     })
@@ -558,8 +562,8 @@ describe('Shell views', () => {
       server.rules = [after]
       return Promise.resolve(after)
     })
-    fireEvent.click(screen.getByRole('button', { name: /reset accumulator/i }))
-    fireEvent.click(screen.getByRole('button', { name: /reset total/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reset total…' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reset total' }))
     await settle()
     expect(api.resetAccumulator).toHaveBeenCalledWith('engine-hours')
     expect(api.rules).toHaveBeenCalledTimes(2)
@@ -580,14 +584,124 @@ describe('Shell views', () => {
       return Promise.resolve(disabled)
     })
     Object.assign(api, { disableRule })
-    fireEvent.click(screen.getByRole('button', { name: 'Disable…' }))
-    fireEvent.change(screen.getByRole('textbox', { name: /note/i }), {
+    fireEvent.click(screen.getByRole('button', { name: 'Disable' }))
+    fireEvent.change(screen.getByRole('textbox', { name: /why/i }), {
       target: { value: 'fouled' }
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Disable' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Disable rule' }))
     await settle()
     expect(disableRule).toHaveBeenCalledWith('oil-pressure-low', 'fouled')
-    expect(screen.getByRole('button', { name: 'Enable' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Enable rule' })).toBeTruthy()
+  })
+
+  describe('Disable, Enable and Delete', () => {
+    const alerting = ruleEntry({
+      status: {
+        condition: 'alerting',
+        reason: 'alertActive',
+        priority: 'alarm',
+        instances: [instance({ condition: 'alerting', reason: 'alertActive', priority: 'alarm' })]
+      }
+    })
+    const disabledPresent = ruleEntry({
+      disabled: { since: '2026-09-30T12:00:00.000Z', actor: 'skipper' },
+      status: { condition: 'present', reason: 'conditionPresent' }
+    })
+
+    it('disables an alerting rule in three interactions from the list', async () => {
+      const server: Server = { state: as('readwrite'), rules: [alerting] }
+      const api = await renderShell(server)
+      const disableRule = vi.fn(() => {
+        server.rules = [disabledPresent]
+        return Promise.resolve(disabledPresent)
+      })
+      Object.assign(api, { disableRule })
+      // 1: the rule's row in the list.
+      goTo(screen.getByRole('link', { name: /oil pressure low/i }).getAttribute('href') ?? '')
+      // 2: Disable; 3: Disable rule in the sheet.
+      fireEvent.click(screen.getByRole('button', { name: 'Disable' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Disable rule' }))
+      await settle()
+      expect(disableRule).toHaveBeenCalledWith('oil-pressure-low', '')
+      expect(screen.queryByRole('alertdialog')).toBeNull()
+      expect(screen.getByRole('group', { name: 'State' }).textContent).toBe('Disabled')
+      expect(screen.getByText(/^Disabled by skipper/)).toBeTruthy()
+    })
+
+    it('leaves the rule enabled when the sheet is cancelled', async () => {
+      window.history.replaceState(null, '', '/#rule=oil-pressure-low')
+      const api = await renderShell({ state: running, rules: [alerting] })
+      const disableRule = vi.fn()
+      Object.assign(api, { disableRule })
+      fireEvent.click(screen.getByRole('button', { name: 'Disable' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      expect(disableRule).not.toHaveBeenCalled()
+      expect(screen.getByRole('group', { name: 'State' }).textContent).toBe('AlertingAlarm')
+    })
+
+    it('enables a rule whose condition holds, which shows Alerting after the next poll', async () => {
+      window.history.replaceState(null, '', '/#rule=oil-pressure-low')
+      const server: Server = { state: running, rules: [disabledPresent] }
+      const api = await renderShell(server)
+      const enableRule = vi.fn(() => {
+        server.rules = [alerting]
+        return Promise.resolve(alerting)
+      })
+      Object.assign(api, { enableRule })
+      fireEvent.click(screen.getByRole('button', { name: 'Enable rule' }))
+      await settle()
+      expect(enableRule).toHaveBeenCalledWith('oil-pressure-low')
+      expect(screen.queryByRole('alertdialog')).toBeNull()
+      expect(screen.getByRole('group', { name: 'State' }).textContent).toBe('AlertingAlarm')
+      expect(screen.getByRole('button', { name: 'Disable' })).toBeTruthy()
+    })
+
+    it('deletes a rule after confirming and returns to the list without it', async () => {
+      window.history.replaceState(null, '', '/#rule=oil-pressure-low')
+      const server: Server = { state: running, rules: [alerting, hours] }
+      const api = await renderShell(server)
+      let answer: () => void = () => undefined
+      const deleteRule = vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            answer = resolve
+          })
+      )
+      Object.assign(api, { deleteRule })
+      // The next read still has the rule, as one that raced the delete would.
+      fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Delete rule' }))
+      await act(async () => {
+        answer()
+        await Promise.resolve()
+      })
+      expect(deleteRule).toHaveBeenCalledWith('oil-pressure-low')
+      expect(listShown()).toBe(true)
+      expect(screen.queryByRole('link', { name: /oil pressure low/i })).toBeNull()
+      expect(screen.queryByText(/rule not found/i)).toBeNull()
+      server.rules = [hours]
+      await tick(POLL_INTERVAL_MS)
+      expect(screen.getByRole('link', { name: /engine hours/i })).toBeTruthy()
+    })
+
+    it('keeps the rule and the sheet when the delete fails', async () => {
+      window.history.replaceState(null, '', '/#rule=oil-pressure-low')
+      const api = await renderShell({ state: running, rules: [alerting] })
+      Object.assign(api, { deleteRule: vi.fn(() => Promise.reject(new Error('no such rule'))) })
+      fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Delete rule' }))
+      await settle()
+      expect(within(screen.getByRole('alertdialog')).getByRole('alert').textContent).toBe(
+        'no such rule'
+      )
+      expect(screen.getByRole('heading', { name: 'Oil pressure low' })).toBeTruthy()
+    })
+
+    it('gives Delete only to an administrator', async () => {
+      window.history.replaceState(null, '', '/#rule=oil-pressure-low')
+      await renderShell({ state: as('readwrite'), rules: [alerting] })
+      expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull()
+    })
   })
 
   describe('problems found while loading', () => {
@@ -675,13 +789,13 @@ describe('Shell views', () => {
       const server: Server = { state: running, rules: [hours] }
       const api = await renderShell(server)
       api.resetAccumulator.mockImplementation(() => Promise.resolve(hours))
-      fireEvent.click(screen.getByRole('button', { name: /reset accumulator/i }))
+      fireEvent.click(screen.getByRole('button', { name: 'Reset total…' }))
       server.state = new Error('Failed to fetch')
       await tick(POLL_INTERVAL_MS)
       expect(screen.getByRole('status').textContent).toMatch(/reconnecting/i)
       const dialog = screen.getByRole('alertdialog')
       server.state = running
-      fireEvent.click(within(dialog).getByRole('button', { name: /reset total/i }))
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Reset total' }))
       await settle()
       expect(api.resetAccumulator).toHaveBeenCalledWith('engine-hours')
       expect(screen.queryByRole('alertdialog')).toBeNull()

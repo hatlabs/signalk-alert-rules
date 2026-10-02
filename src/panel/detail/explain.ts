@@ -9,6 +9,8 @@ export type Sentence = Part[]
 
 const strong = (text: string): Part => ({ strong: text })
 
+const MINUTE = 60_000
+
 export function sentenceText(sentence: Sentence): string {
   return sentence.map((p) => (typeof p === 'string' ? p : p.strong)).join('')
 }
@@ -123,19 +125,24 @@ function alerting(
   return facts.awaitingInput === true ? [...sentence, ' No new value since.'] : sentence
 }
 
+/**
+ * @param since how long the condition has held at least; undefined under a
+ *   minute, when it would only count up from 0 s
+ */
 function present(
   facts: Facts,
   rule: RuleInfo,
   display: RuleDisplay,
-  since: string,
+  since: string | undefined,
   on: string | undefined
 ): Sentence {
   const where = on === undefined ? '' : ` on ${on}`
   const passed = passedLimit(facts, rule, display)
   if (passed !== undefined) {
+    const held = since === undefined ? '' : ` for at least ${since}`
     return [
       `Condition still present${where}: `,
-      strong(`${passed.direction} ${passed.limit} for at least ${since}`),
+      strong(`${passed.direction} ${passed.limit}${held}`),
       `, now ${passed.value}.`
     ]
   }
@@ -192,12 +199,13 @@ export function explain(entry: RuleEntry, units: UnitLookup, now: number): Sente
   }
   const on = wildcard ? (status.instance?.name ?? status.instance?.segment) : undefined
   const subject = subjectOf(rule, units, on)
-  const since = elapsed(now - Date.parse(status.changedAt))
+  const held = now - Date.parse(status.changedAt)
+  const since = elapsed(held)
   switch (status.condition) {
     case 'alerting':
       return alerting(status, rule, display, subject, since)
     case 'present':
-      return present(status, rule, display, since, on)
+      return present(status, rule, display, held < MINUTE ? undefined : since, on)
     case 'problem':
       return [`${problem(status)}.`]
     case 'noData':

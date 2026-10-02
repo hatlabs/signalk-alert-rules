@@ -1,0 +1,470 @@
+import { useEffect, useId, useRef, useState, type ReactNode, type Ref } from 'react'
+import { UNAUTHENTICATED_ACTOR, type RuleEntry } from '../api'
+import { failureMessage } from '../failure'
+import { chipOf } from '../list/attention'
+import { elapsed } from '../list/fact'
+import { capitalised, PriorityBadge } from '../list/PriorityBadge'
+import { StateChip } from '../list/StateChip'
+import { ConfirmSheet, useConfirmation, type Confirmation } from '../rules/Confirm'
+import {
+  activeCount,
+  alertsWhen,
+  describeInput,
+  discardedTotals,
+  formatTime,
+  isWildcard,
+  MAX_NOTE_LENGTH,
+  plural,
+  ruleDisplay,
+  type RuleDisplay
+} from '../rules/describe'
+import { NO_UNITS, type UnitLookup } from '../signalUnits'
+import { explain, type Sentence } from './explain'
+import { BackIcon, EditIcon, PowerIcon } from './icons'
+import { Instances, isLinked } from './Instances'
+import { Steps } from './Steps'
+
+export interface RuleDetailProps {
+  entry: RuleEntry
+  /** The link back to the rule list. */
+  backHref: string
+  /** The time the facts' ages are counted to, in ms since the epoch. */
+  now: number
+  /** The rule's heading, which takes focus when the operator navigates to it. */
+  headingRef?: Ref<HTMLHeadingElement>
+  /** The units of the rule's paths; without them values are shown in SI. */
+  units?: UnitLookup
+  /** The instance a link names, to mark, or to say it is not there. */
+  instance?: string
+  /** The linked instance's row, which takes focus when the operator follows the link. */
+  instanceRef?: Ref<HTMLLIElement>
+  /** The rule's history over time, shown under its steps. */
+  history?: ReactNode
+  /** Opens the rule in the editor; absent where the rule cannot be edited. */
+  edit?: () => void
+  /** Disables the rule with a note, an empty one meaning none; absent where it cannot be changed. */
+  disable?: (note: string) => Promise<void>
+  /** Enables the rule; absent where it cannot be changed. */
+  enable?: () => Promise<void>
+  /** Deletes the rule; absent where it cannot be deleted. */
+  remove?: () => Promise<void>
+  /** Resets an accumulator's totals; absent where they cannot be reset. */
+  reset?: () => Promise<void>
+}
+
+const MINUTE = 60_000
+
+/** How long ago, "just now" while the seconds would only count up. */
+function ageOf(ms: number): string {
+  return ms < MINUTE ? 'just now' : `${elapsed(ms)} ago`
+}
+
+const ALERT_CONSOLE_HINT = 'To acknowledge or silence the alert itself, use the alert console.'
+
+function Explanation({ sentence }: { sentence: Sentence }) {
+  return (
+    <p className="skar-card skar-explain">
+      {sentence.map((part, i) =>
+        typeof part === 'string' ? part : <strong key={i}>{part.strong}</strong>
+      )}
+    </p>
+  )
+}
+
+/** Who disabled the rule, how long ago, and their note. */
+function DisabledBy({ entry, now }: { entry: RuleEntry; now: number }) {
+  const { disabled } = entry
+  if (disabled === undefined) return null
+  // Only a server with security off lets a request without a login disable a rule.
+  const actor = disabled.actor === UNAUTHENTICATED_ACTOR ? 'someone' : disabled.actor
+  return (
+    <div className="skar-card skar-card-dark">
+      <p className="skar-disabled-by" title={formatTime(disabled.since)}>
+        {`Disabled by ${actor}, ${ageOf(now - Date.parse(disabled.since))}`}
+      </p>
+      {disabled.note !== undefined && <p className="skar-disabled-note">{`“${disabled.note}”`}</p>}
+    </div>
+  )
+}
+
+function Fact({ term, children }: { term: string; children: ReactNode }) {
+  const id = useId()
+  return (
+    <>
+      <dt id={id}>{term}</dt>
+      <dd aria-labelledby={id}>{children}</dd>
+    </>
+  )
+}
+
+/** What the rule watches, when it alerts and what it sends, as its author set it. */
+function Facts({ entry, display }: { entry: RuleEntry; display: RuleDisplay }) {
+  const { rule, status } = entry
+  const combined = rule.signal.combinator !== undefined
+  return (
+    <dl className="skar-card skar-facts">
+      <Fact term="Watches">
+        <span className="skar-mono">{describeInput(rule.signal)}</span>
+      </Fact>
+      {!combined && <Fact term="Source">{rule.source ?? 'Preferred source'}</Fact>}
+      <Fact term="Alerts when">{alertsWhen(rule, display)}</Fact>
+      {rule.steps.length < 2 && (
+        <Fact term="Priority">
+          {rule.priority === undefined ? "From the path's zones" : capitalised(rule.priority)}
+        </Fact>
+      )}
+      {rule.gates.length > 0 && (
+        <Fact term="Only while">
+          {rule.gates.map((g, n) => (
+            <div key={n} className="skar-mono">
+              {describeInput({ paths: g.paths })}
+            </div>
+          ))}
+        </Fact>
+      )}
+      <Fact term="Alert path">
+        <span className="skar-mono">{`alerts.${rule.alertPath}`}</span>
+      </Fact>
+      <Fact term="Message">{status.message ?? rule.message}</Fact>
+      {rule.template !== undefined && (
+        <Fact term="From template">{`${rule.template.id} (${rule.template.set})`}</Fact>
+      )}
+    </dl>
+  )
+}
+
+/** What a reset discards: each instance's total, or the one total of a plain rule. */
+function DiscardedTotals({ entry, display }: { entry: RuleEntry; display: RuleDisplay }) {
+  const totals = discardedTotals(entry, display.total)
+  if (totals.length === 0) return <p>There is no accumulated total yet.</p>
+  if (totals.length === 1 && totals[0].name === '') {
+    return <p>This discards the total of {totals[0].total}.</p>
+  }
+  return (
+    <>
+      <p>This discards the totals:</p>
+      <ul>
+        {totals.map(({ name, total }) => (
+          <li key={name}>
+            {name}: {total}
+          </li>
+        ))}
+      </ul>
+    </>
+  )
+}
+
+function DisableSheet({
+  entry,
+  disable,
+  onClose
+}: {
+  entry: RuleEntry
+  disable: (note: string) => Promise<void>
+  onClose: () => void
+}) {
+  const [note, setNote] = useState('')
+  const noteId = useId()
+  const alerts = activeCount(entry)
+  const cleared =
+    alerts === 0
+      ? '.'
+      : alerts === 1
+        ? ', and its current alert is cleared now.'
+        : `, and its ${plural(alerts, 'current alert')} are cleared now.`
+  return (
+    <ConfirmSheet
+      title={`Disable the rule “${entry.rule.name}”?`}
+      confirmLabel="Disable rule"
+      confirmIcon={<PowerIcon />}
+      tone="dark"
+      onConfirm={async () => {
+        await disable(note.trim())
+        onClose()
+      }}
+      onCancel={onClose}
+    >
+      <p>{`This disables the rule. It raises no alerts until someone enables it again${cleared}`}</p>
+      {alerts > 0 && (
+        <p className="skar-muted">
+          To acknowledge or silence the alert instead, use the alert console.
+        </p>
+      )}
+      <div className="skar-sheet-field">
+        <label htmlFor={noteId} className="skar-label">
+          Why? <span className="skar-optional">(optional)</span>
+        </label>
+        <input
+          id={noteId}
+          className="skar-input"
+          placeholder="e.g. paddlewheel fouled"
+          maxLength={MAX_NOTE_LENGTH}
+          value={note}
+          onChange={(e) => {
+            setNote(e.target.value)
+          }}
+        />
+      </div>
+    </ConfirmSheet>
+  )
+}
+
+/** Enables at once: enabling raises nothing that disabling had not held back. */
+function EnableButton({ enable }: { enable: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | undefined>(undefined)
+  const button = useRef<HTMLButtonElement | null>(null)
+  const wasBusy = useRef(false)
+
+  // A browser drops focus to the page from a button as it is disabled. The
+  // button can take it back only after the render that enables it, and only
+  // if the operator has not moved on meanwhile.
+  useEffect(() => {
+    if (wasBusy.current && !busy && document.activeElement === document.body) {
+      button.current?.focus()
+    }
+    wasBusy.current = busy
+  }, [busy])
+
+  const run = async () => {
+    setBusy(true)
+    setError(undefined)
+    try {
+      await enable()
+    } catch (err) {
+      setError(failureMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <button
+        ref={button}
+        type="button"
+        className="skar-btn skar-btn-primary skar-btn-wide"
+        disabled={busy}
+        onClick={() => void run()}
+      >
+        <PowerIcon />
+        Enable rule
+      </button>
+      {error !== undefined && (
+        <div className="skar-sheet-error" role="alert">
+          {error}
+        </div>
+      )}
+    </>
+  )
+}
+
+function SheetTrigger({
+  confirmation,
+  className,
+  children
+}: {
+  confirmation: Confirmation
+  className: string
+  children: ReactNode
+}) {
+  return (
+    <button
+      ref={confirmation.trigger}
+      type="button"
+      className={`skar-btn ${className}`}
+      disabled={confirmation.open}
+      onClick={confirmation.show}
+    >
+      {children}
+    </button>
+  )
+}
+
+/** The rule's own controls, each present only for a level that can use it. */
+function Controls({
+  entry,
+  display,
+  edit,
+  disable,
+  enable,
+  remove,
+  reset
+}: Pick<RuleDetailProps, 'entry' | 'edit' | 'disable' | 'enable' | 'remove' | 'reset'> & {
+  display: RuleDisplay
+}) {
+  const headingId = useId()
+  const disabling = useConfirmation()
+  const deleting = useConfirmation()
+  const resetting = useConfirmation()
+  const { rule } = entry
+  const disabled = entry.disabled !== undefined
+  const canReset = reset !== undefined && rule.detector.type === 'accumulator'
+
+  const editButton = edit !== undefined && (
+    <button key="edit" type="button" className="skar-btn skar-btn-ghost" onClick={edit}>
+      <EditIcon />
+      Edit
+    </button>
+  )
+  const disableButton = !disabled && disable !== undefined && (
+    <SheetTrigger key="disable" confirmation={disabling} className="skar-btn-ghost">
+      <PowerIcon />
+      Disable
+    </SheetTrigger>
+  )
+  const deleteButton = remove !== undefined && (
+    <SheetTrigger key="delete" confirmation={deleting} className="skar-btn-danger-ghost">
+      Delete
+    </SheetTrigger>
+  )
+  const grid = [editButton, disableButton, deleteButton].filter((b) => b !== false)
+  const enableButton = disabled && enable !== undefined
+  if (grid.length === 0 && !enableButton && !canReset) return null
+
+  return (
+    <div
+      role="group"
+      className="skar-controls"
+      {...(disabled ? { 'aria-label': 'Rule' } : { 'aria-labelledby': headingId })}
+    >
+      {!disabled && (
+        <h3 id={headingId} className="skar-group-title">
+          Rule
+        </h3>
+      )}
+      {enableButton && <EnableButton enable={enable} />}
+      {grid.length > 0 && (
+        <div
+          className="skar-control-grid"
+          style={{ gridTemplateColumns: `repeat(${String(grid.length)}, minmax(0, 1fr))` }}
+        >
+          {grid}
+        </div>
+      )}
+      {canReset && (
+        <SheetTrigger confirmation={resetting} className="skar-btn-ghost">
+          Reset total…
+        </SheetTrigger>
+      )}
+      {disabling.open && disable !== undefined && (
+        <DisableSheet entry={entry} disable={disable} onClose={disabling.close} />
+      )}
+      {deleting.open && remove !== undefined && (
+        <ConfirmSheet
+          title={`Delete the rule “${rule.name}”?`}
+          confirmLabel="Delete rule"
+          tone="danger"
+          onConfirm={remove}
+          onCancel={deleting.close}
+        >
+          <p>This deletes the rule and clears its alerts. It cannot be undone.</p>
+        </ConfirmSheet>
+      )}
+      {resetting.open && reset !== undefined && (
+        <ConfirmSheet
+          title={`Reset the total of “${rule.name}”?`}
+          confirmLabel="Reset total"
+          tone="danger"
+          onConfirm={async () => {
+            await reset()
+            resetting.close()
+          }}
+          onCancel={resetting.close}
+        >
+          <DiscardedTotals entry={entry} display={display} />
+          <p>
+            The rule clears its active alerts and counts again from zero. This cannot be undone.
+          </p>
+        </ConfirmSheet>
+      )}
+    </div>
+  )
+}
+
+/**
+ * One rule: its state in a sentence, its steps, instances and facts, and the
+ * controls the caller's level allows. The target of an alert's link.
+ */
+export function RuleDetail({
+  entry,
+  backHref,
+  now,
+  headingRef,
+  units = NO_UNITS,
+  instance,
+  instanceRef,
+  history,
+  ...controls
+}: RuleDetailProps) {
+  const errorsId = useId()
+  const { rule, status } = entry
+  const display = ruleDisplay(rule, units)
+  const chip = chipOf(entry)
+  const wildcard = isWildcard(rule) || status.instances.length > 1
+
+  return (
+    <div className="skar-detail">
+      <a className="skar-back" href={backHref}>
+        <BackIcon />
+        Alert rules
+      </a>
+      <div className="skar-detail-head">
+        <h2 ref={headingRef} tabIndex={-1} className="skar-title">
+          {rule.name}
+        </h2>
+        <div role="group" aria-label="State" className="skar-state">
+          <StateChip kind={chip} />
+          {chip === 'alerting' && status.priority !== undefined && (
+            <PriorityBadge priority={status.priority} />
+          )}
+        </div>
+      </div>
+      <Explanation sentence={explain(entry, units, now)} />
+      <DisabledBy entry={entry} now={now} />
+      {status.errors.length > 0 && (
+        <section className="skar-card" aria-labelledby={errorsId}>
+          <h3 id={errorsId} className="skar-card-title">
+            Errors
+          </h3>
+          <ul aria-labelledby={errorsId} className="skar-plain-list">
+            {status.errors.map((e) => (
+              <li key={e}>{e}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {status.issues.length > 0 && (
+        <ul className="skar-plain-list skar-muted">
+          {status.issues.map((issue) => (
+            <li key={issue}>{issue}</li>
+          ))}
+        </ul>
+      )}
+      {instance !== undefined && !status.instances.some((i) => isLinked(i, instance)) && (
+        <div className="skar-banner" role="status">
+          <span>
+            This rule has no instance {instance} now. It may not have reported since the plugin
+            started, or it no longer reports.
+          </span>
+        </div>
+      )}
+      <Steps entry={entry} display={display} />
+      {history}
+      {wildcard && (
+        <Instances
+          instances={status.instances}
+          rule={rule}
+          display={display}
+          now={now}
+          linked={instance}
+          linkedRef={instanceRef}
+        />
+      )}
+      <Facts entry={entry} display={display} />
+      {display.si && <p className="skar-hint">Values are in SI units.</p>}
+      <Controls entry={entry} display={display} {...controls} />
+      {chip === 'alerting' && <p className="skar-hint">{ALERT_CONSOLE_HINT}</p>}
+    </div>
+  )
+}

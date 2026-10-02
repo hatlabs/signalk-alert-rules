@@ -4,12 +4,14 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Value } from '@signalk/server-api'
 import { serverDeps } from '../../src/alerts/server'
+import { UNAUTHENTICATED } from '../../src/api/routes'
 import { Application } from '../../src/application'
 import {
   isInvalid,
   parseRuleEntry,
   parseRules,
   parseState,
+  UNAUTHENTICATED_ACTOR,
   type RuleEntry
 } from '../../src/panel/api'
 import { byAttention, chipOf, summary } from '../../src/panel/list/attention'
@@ -125,6 +127,10 @@ function parsedRules(application: Application): Map<string, RuleEntry> {
 }
 
 describe('panel parsers against the Application', () => {
+  it('know the actor the routes record for a request without a login', () => {
+    expect(UNAUTHENTICATED_ACTOR).toBe(UNAUTHENTICATED)
+  })
+
   it('read every rule entry the Application answers, the invalid stored rule last', () => {
     const slugs = parseRules(wire(running().rules())).map((entry) => entry.slug)
     expect(slugs.at(-1)).toBe('broken')

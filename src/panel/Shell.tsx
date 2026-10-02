@@ -22,7 +22,7 @@ import { RuleList } from './list/RuleList'
 import { withRefusals } from './refusal'
 import type { PathSource } from './paths/selfPaths'
 import { hashWithRoute, parseRoute, type Route } from './route'
-import { RuleDetail } from './rules/RuleDetail'
+import { RuleDetail } from './detail/RuleDetail'
 import {
   pollDelay,
   probe,
@@ -338,10 +338,16 @@ interface ViewsProps {
 }
 
 function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
-  const { rules, issues, permissions, readAt } = view
+  const { issues, permissions, readAt } = view
   const { units } = useUnits(paths)
   // Shown until the list, refreshed after the save, has the rule.
   const [justSaved, setJustSaved] = useState<RuleEntry | undefined>(undefined)
+  // Hidden until the list, refreshed after the delete, no longer has the rule.
+  const [justDeleted, setJustDeleted] = useState<string | undefined>(undefined)
+  if (justDeleted !== undefined && !view.rules.some((r) => r.slug === justDeleted)) {
+    setJustDeleted(undefined)
+  }
+  const rules = view.rules.filter((r) => r.slug !== justDeleted)
   const hash = useLocationHash()
   const route = parseRoute(hash)
   const routeHref = (to: Route) => hashWithRoute(hash, to)
@@ -358,7 +364,7 @@ function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
   const heading = useRef<HTMLHeadingElement | null>(null)
   // An instance link focuses the instance's row instead, when the rule has it,
   // and a link to a rule that is not there the notice saying so.
-  const instanceRow = useRef<HTMLTableRowElement | null>(null)
+  const instanceRow = useRef<HTMLLIElement | null>(null)
   const notFound = useRef<HTMLDivElement | null>(null)
   const viewKey = JSON.stringify(route)
   const focusedKey = useRef(viewKey)
@@ -410,8 +416,10 @@ function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
   // is not listed shows the list, saying so.
   const ruleRoute = route.kind === 'rule' || (route.kind === 'edit' && admin) ? route : undefined
   const entry = ruleRoute && find(ruleRoute.slug)
-  const missing = ruleRoute !== undefined && entry === undefined ? ruleRoute.slug : undefined
-  const showsList = route.kind === 'list' || missing !== undefined
+  const gone = ruleRoute !== undefined && entry === undefined
+  // A rule just deleted is gone, not missing, while the list moves away from it.
+  const missing = gone && ruleRoute.slug !== justDeleted ? ruleRoute.slug : undefined
+  const showsList = route.kind === 'list' || gone
   // Adding and editing say so themselves to anyone below an administrator.
   const shownRefusal = admin || route.kind === 'rule' ? refusal : undefined
 
@@ -446,6 +454,7 @@ function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
           <RuleDetail
             entry={entry}
             backHref={listHref}
+            now={readAt}
             headingRef={heading}
             units={units}
             instance={route.instance}
@@ -458,6 +467,12 @@ function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
                   reset: async () => {
                     await api.resetAccumulator(entry.slug)
                     refresh()
+                  },
+                  remove: async () => {
+                    await api.deleteRule(entry.slug)
+                    setJustDeleted(entry.slug)
+                    refresh()
+                    go({ kind: 'list' })
                   }
                 }
               : {})}

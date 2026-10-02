@@ -2,11 +2,8 @@ import { ruleName, type ListedRule } from '../api'
 import type { UnitLookup } from '../signalUnits'
 import { chipOf } from './attention'
 import { currentFact } from './fact'
+import { PriorityBadge } from './PriorityBadge'
 import { StateChip } from './StateChip'
-
-function capitalised(word: string): string {
-  return word.charAt(0).toUpperCase() + word.slice(1)
-}
 
 export interface RuleRowProps {
   entry: ListedRule
@@ -28,11 +25,7 @@ export function RuleRow({ entry, href, units, now }: RuleRowProps) {
         </span>
         <span className="skar-row-state">
           <StateChip kind={chip} />
-          {chip === 'alerting' && priority !== undefined && (
-            <span className={`skar-priority skar-priority-${priority}`}>
-              {capitalised(priority)}
-            </span>
-          )}
+          {chip === 'alerting' && priority !== undefined && <PriorityBadge priority={priority} />}
         </span>
       </a>
     </li>

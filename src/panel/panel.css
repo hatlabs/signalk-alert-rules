@@ -16,6 +16,7 @@
   --skar-control-border: #a4b7c1;
   --skar-surface: #fff;
   --skar-hover: #f6f8f9;
+  --skar-danger: #a3201f;
   /* Solid, so it reads on white, the page ground and the banner alike. */
   --skar-focus: 2px solid #003399;
 
@@ -34,6 +35,14 @@
    * less on phones, where the admin UI's 2 px would leave it flush.
    */
   padding: 30px;
+}
+
+/* The admin UI's Bootstrap sizes boxes this way; the panel does not rely on it. */
+.skar-panel,
+.skar-panel *,
+.skar-panel *::before,
+.skar-panel *::after {
+  box-sizing: border-box;
 }
 
 @media (max-width: 767px) {
@@ -298,6 +307,47 @@
   color: var(--skar-primary);
 }
 
+.skar-btn-dark {
+  background: #29363d;
+  color: #fff;
+}
+
+.skar-btn-dark:hover {
+  background: var(--skar-text);
+  color: #fff;
+}
+
+/* Solid, for the confirm of an action that cannot be undone. */
+.skar-btn-danger {
+  background: var(--skar-danger);
+  color: #fff;
+}
+
+.skar-btn-danger:hover {
+  background: #7f1918;
+  color: #fff;
+}
+
+.skar-btn-danger-ghost {
+  background: var(--skar-surface);
+  border-color: #e3a9a8;
+  color: var(--skar-danger);
+}
+
+.skar-btn-danger-ghost:hover {
+  background: #fdf1f1;
+  color: var(--skar-danger);
+}
+
+.skar-btn-wide {
+  width: 100%;
+}
+
+.skar-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 /* Banners over the list: reconnecting, an expired login, a rule not found. */
 
 .skar-banner {
@@ -395,20 +445,6 @@
   overflow-wrap: anywhere;
 }
 
-.skar-instance-summary {
-  font-size: 0.85em;
-}
-
-.skar-facts {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 0.25rem 1rem;
-}
-
-.skar-facts dd {
-  margin: 0;
-}
-
 /* Section headings otherwise look and sit like the field labels below them,
    and the form reads as one run of fields. */
 .skar-form-section + .skar-form-section {
@@ -437,4 +473,352 @@ details:not([open]) > .skar-section-heading {
 .skar-actions,
 .skar-confirm {
   margin-top: 1rem;
+}
+
+/* A rule's detail: cards stacked in one column, the controls at the bottom. */
+
+.skar-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 44rem;
+}
+
+.skar-back {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  color: var(--skar-primary);
+  text-decoration: none;
+}
+
+.skar-back:hover {
+  color: var(--skar-primary-hover);
+}
+
+.skar-back:focus-visible {
+  outline: var(--skar-focus);
+  outline-offset: 2px;
+}
+
+.skar-detail-head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skar-detail-head .skar-title {
+  overflow-wrap: anywhere;
+}
+
+.skar-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.skar-card {
+  margin: 0;
+  padding: 14px;
+  background: var(--skar-surface);
+  border: 1px solid var(--skar-border);
+  border-radius: 6px;
+}
+
+.skar-card-flush {
+  padding: 0;
+}
+
+.skar-card-flush > .skar-card-title {
+  padding: 14px 14px 0;
+}
+
+.skar-card-title {
+  margin: 0 0 4px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--skar-text);
+}
+
+.skar-explain {
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.skar-card-dark {
+  background: #29363d;
+  border-color: #29363d;
+  color: #fff;
+}
+
+.skar-disabled-by {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--skar-border);
+}
+
+.skar-disabled-note {
+  margin: 4px 0 0;
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.skar-facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 8px 12px;
+  font-size: 0.875rem;
+}
+
+.skar-facts dt {
+  font-weight: 400;
+  color: var(--skar-muted);
+}
+
+.skar-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.skar-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8125rem;
+  color: var(--skar-muted-on-ground);
+  overflow-wrap: anywhere;
+}
+
+.skar-hint {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--skar-muted-on-ground);
+}
+
+.skar-card .skar-hint {
+  color: var(--skar-muted);
+}
+
+.skar-plain-list {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+/* The step ladder: one rung per step, the one reached in bold with a check. */
+
+.skar-ladder {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.skar-rung {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--skar-divider);
+}
+
+.skar-rung:first-child {
+  border-top: none;
+}
+
+.skar-rung-reached {
+  font-weight: 650;
+}
+
+.skar-rung-condition {
+  flex-grow: 1;
+  min-width: 0;
+}
+
+.skar-rung-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8125rem;
+  color: var(--skar-muted);
+}
+
+.skar-rung-mark-reached {
+  color: var(--skar-danger);
+}
+
+/* A wildcard rule's instances, laid out like the list's rows. */
+
+.skar-instances {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.skar-instance {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 12px 14px;
+}
+
+.skar-instances > li + li {
+  border-top: 1px solid var(--skar-divider);
+}
+
+.skar-instance-linked {
+  background: #e8eefb;
+}
+
+.skar-instance-linked:last-child {
+  border-radius: 0 0 6px 6px;
+}
+
+.skar-instance:focus-visible {
+  outline: var(--skar-focus);
+  outline-offset: -2px;
+}
+
+.skar-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.skar-controls > .skar-group-title {
+  margin-bottom: -2px;
+}
+
+.skar-control-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.skar-control-grid > .skar-btn {
+  padding: 0 8px;
+}
+
+/*
+ * A confirmation sheet: from the bottom on a phone, where the thumb is, and
+ * centred over the page on a wider screen.
+ */
+
+.skar-sheet-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1050;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.skar-sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(21, 27, 30, 0.55);
+}
+
+.skar-sheet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  max-width: 36rem;
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 20px 16px calc(28px + env(safe-area-inset-bottom, 0px));
+  background: var(--skar-surface);
+  border-radius: 14px 14px 0 0;
+  color: var(--skar-text);
+  animation: skar-sheet-in 180ms ease-out;
+}
+
+@media (min-width: 768px) {
+  .skar-sheet-layer {
+    align-items: center;
+  }
+
+  .skar-sheet {
+    padding: 24px;
+    border-radius: 14px;
+  }
+}
+
+@keyframes skar-sheet-in {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skar-sheet {
+    animation: none;
+  }
+}
+
+.skar-sheet-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.skar-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.skar-sheet-body p,
+.skar-sheet-body ul {
+  margin: 0;
+}
+
+.skar-sheet-error {
+  padding: 10px 12px;
+  border: 1px solid #e3a9a8;
+  border-radius: 6px;
+  background: #fde8e8;
+  color: var(--skar-danger);
+}
+
+.skar-sheet-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.skar-sheet-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.skar-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.skar-optional {
+  font-weight: 400;
+  color: var(--skar-muted);
+}
+
+/* 16 px keeps a phone from zooming in on focus. */
+.skar-input {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--skar-control-border);
+  border-radius: 6px;
+  background: var(--skar-surface);
+  font-family: inherit;
+  font-size: 1rem;
+  color: var(--skar-text);
+}
+
+.skar-input:focus-visible {
+  outline: var(--skar-focus);
+  outline-offset: 1px;
 }

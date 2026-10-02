@@ -157,6 +157,9 @@ export interface RuleInfo {
   gates: { paths: string[] }[]
 }
 
+/** The actor the server records for a request without a login, as it is with security off. */
+export const UNAUTHENTICATED_ACTOR = 'unauthenticated'
+
 /** Who disabled a rule, when, and why. */
 export interface RuleDisabled {
   since: string

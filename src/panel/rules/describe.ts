@@ -35,20 +35,9 @@ export function discardedTotals(
   )
 }
 
-export function describeDetector(d: RuleInfo['detector']): string {
-  if (d.type === 'accumulator' && d.measure !== undefined) return `accumulator (${d.measure})`
-  return d.direction === undefined ? d.type : `${d.type} ${d.direction}`
-}
-
 export function describeInput(s: RuleInfo['signal']): string {
   const paths = s.paths.join(', ')
   return s.combinator === undefined ? paths : `${s.combinator} of ${paths}`
-}
-
-/** A zone-limited rule takes its priority from the zone level it holds. */
-export function describePriority(rule: RuleInfo): string {
-  if (rule.priority !== undefined) return rule.priority
-  return rule.detector.zoneLevel === undefined ? '' : `zone ${rule.detector.zoneLevel}`
 }
 
 export function isWildcard(rule: RuleInfo): boolean {
