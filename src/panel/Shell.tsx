@@ -22,7 +22,7 @@ import { RuleList } from './list/RuleList'
 import { withRefusals } from './refusal'
 import type { PathSource } from './paths/selfPaths'
 import { hashWithRoute, parseRoute, type Route } from './route'
-import { RuleDetail } from './rules/RuleDetail'
+import { RuleDetail } from './detail/RuleDetail'
 import {
   pollDelay,
   probe,
@@ -338,12 +338,22 @@ interface ViewsProps {
 }
 
 function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
-  const { rules, issues, permissions, readAt } = view
+  const { issues, permissions, readAt } = view
   const { units } = useUnits(paths)
   // Shown until the list, refreshed after the save, has the rule.
   const [justSaved, setJustSaved] = useState<RuleEntry | undefined>(undefined)
+  // Marked as the delete is sent, as a read answering before it may already
+  // lack the rule, which is then gone rather than missing. Once the delete
+  // answers, the rule is hidden until the view has moved off it and the
+  // list no longer has it.
+  const [deleted, setDeleted] = useState<{ slug: string; answered: boolean } | undefined>(undefined)
   const hash = useLocationHash()
   const route = parseRoute(hash)
+  const onDeleted = 'slug' in route && route.slug === deleted?.slug
+  if (deleted?.answered && !onDeleted && !view.rules.some((r) => r.slug === deleted.slug)) {
+    setDeleted(undefined)
+  }
+  const rules = deleted?.answered ? view.rules.filter((r) => r.slug !== deleted.slug) : view.rules
   const routeHref = (to: Route) => hashWithRoute(hash, to)
   const go = (to: Route) => {
     window.location.hash = routeHref(to)
@@ -358,7 +368,7 @@ function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
   const heading = useRef<HTMLHeadingElement | null>(null)
   // An instance link focuses the instance's row instead, when the rule has it,
   // and a link to a rule that is not there the notice saying so.
-  const instanceRow = useRef<HTMLTableRowElement | null>(null)
+  const instanceRow = useRef<HTMLLIElement | null>(null)
   const notFound = useRef<HTMLDivElement | null>(null)
   const viewKey = JSON.stringify(route)
   const focusedKey = useRef(viewKey)
@@ -410,8 +420,10 @@ function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
   // is not listed shows the list, saying so.
   const ruleRoute = route.kind === 'rule' || (route.kind === 'edit' && admin) ? route : undefined
   const entry = ruleRoute && find(ruleRoute.slug)
-  const missing = ruleRoute !== undefined && entry === undefined ? ruleRoute.slug : undefined
-  const showsList = route.kind === 'list' || missing !== undefined
+  const gone = ruleRoute !== undefined && entry === undefined
+  // A rule just deleted is gone, not missing, while the list moves away from it.
+  const missing = gone && ruleRoute.slug !== deleted?.slug ? ruleRoute.slug : undefined
+  const showsList = route.kind === 'list' || gone
   // Adding and editing say so themselves to anyone below an administrator.
   const shownRefusal = admin || route.kind === 'rule' ? refusal : undefined
 
@@ -446,6 +458,7 @@ function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
           <RuleDetail
             entry={entry}
             backHref={listHref}
+            now={readAt}
             headingRef={heading}
             units={units}
             instance={route.instance}
@@ -458,6 +471,18 @@ function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
                   reset: async () => {
                     await api.resetAccumulator(entry.slug)
                     refresh()
+                  },
+                  remove: async () => {
+                    setDeleted({ slug: entry.slug, answered: false })
+                    try {
+                      await api.deleteRule(entry.slug)
+                    } catch (err) {
+                      setDeleted(undefined)
+                      throw err
+                    }
+                    setDeleted({ slug: entry.slug, answered: true })
+                    refresh()
+                    go({ kind: 'list' })
                   }
                 }
               : {})}

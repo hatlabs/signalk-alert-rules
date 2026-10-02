@@ -35,6 +35,7 @@ export function withRefusals(
     updateRule: (slug, rule) => refusal(() => api.updateRule(slug, rule)),
     previewRule: (slug, rule) => refusal(() => api.previewRule(slug, rule)),
     disableRule: (slug, note) => refusal(() => api.disableRule(slug, note)),
-    enableRule: (slug) => refusal(() => api.enableRule(slug))
+    enableRule: (slug) => refusal(() => api.enableRule(slug)),
+    deleteRule: (slug) => refusal(() => api.deleteRule(slug))
   }
 }

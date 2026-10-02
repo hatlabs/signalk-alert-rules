@@ -58,6 +58,8 @@ export interface GateStatus {
 export interface ConditionFacts {
   /** The priority an alert has reached. */
   priority?: string
+  /** The furthest step an alert has reached, an index into the rule's steps. */
+  step?: number
   /** The zone level an alert has reached, or the one a path lacks. */
   level?: string
   /** The alert's input has stopped reporting, so the alert is not repeated. */
@@ -111,6 +113,17 @@ export interface RuleStatus extends ConditionFacts, LiveFacts {
   instances: InstanceStatus[]
 }
 
+/**
+ * One step of a rule's climb: its priority and the limit the detector takes,
+ * a `limit` for most, a match's `value`, an absence's `within`, in SI units.
+ */
+export interface RuleStep {
+  priority: string
+  limit?: number
+  value?: string | number | boolean
+  within?: number
+}
+
 /** The parts of a rule the rule list and detail view show. */
 export interface RuleInfo {
   name: string
@@ -121,11 +134,31 @@ export interface RuleInfo {
   alertPath: string
   /** The first step's priority; absent for a zone limit, whose levels set the priority. */
   priority?: string
-  detector: { type: string; direction?: string; measure?: string; zoneLevel?: string }
+  /** The steps the alert climbs; empty for a zone limit, whose steps are the path's zones. */
+  steps: RuleStep[]
+  /** How long, in seconds, a step's condition must hold before the alert reaches it. */
+  duration?: number
+  /** The message as stored, its placeholders not filled in. */
+  message: string
+  detector: {
+    type: string
+    direction?: string
+    measure?: string
+    zoneLevel?: string
+    /** A match's comparison. */
+    op?: string
+  }
   /** The paths the signal reads; several, with the combinator, for a combined signal. */
   signal: { paths: string[]; combinator?: string }
+  /** The source a single-path signal is pinned to; absent for the preferred source. */
+  source?: string
+  /** The template the rule was made from, as information only. */
+  template?: { set: string; id: string }
   gates: { paths: string[] }[]
 }
+
+/** The actor the server records for a request without a login, as it is with security off. */
+export const UNAUTHENTICATED_ACTOR = 'unauthenticated'
 
 /** Who disabled a rule, when, and why. */
 export interface RuleDisabled {
@@ -186,6 +219,8 @@ export interface PanelApi {
   disableRule(slug: string, note: string): Promise<RuleEntry>
   /** Enabling raises an alert at once if the rule's condition holds. */
   enableRule(slug: string): Promise<RuleEntry>
+  /** Deletes a rule, a stored one that does not run included, and clears its alerts. */
+  deleteRule(slug: string): Promise<void>
 }
 
 /** `POST /rules/:slug/preview`, as docs/api.md describes it. */
@@ -307,6 +342,7 @@ const bool = (v: unknown) => (typeof v === 'boolean' ? v : undefined)
 function conditionFacts(v: Record<string, unknown>): ConditionFacts {
   return {
     ...optional('priority', text(v.priority)),
+    ...optional('step', num(v.step)),
     ...optional('level', text(v.level)),
     ...optional('awaitingInput', bool(v.awaitingInput)),
     ...optional('message', text(v.message)),
@@ -337,9 +373,28 @@ function liveFacts(v: Record<string, unknown>): LiveFacts {
   }
 }
 
-function firstStepPriority(steps: unknown): string | undefined {
-  const first: unknown = Array.isArray(steps) ? steps[0] : undefined
-  return isRecord(first) ? text(first.priority) : undefined
+function stepValue(v: unknown): RuleStep['value'] {
+  return typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' ? v : undefined
+}
+
+function stepsOf(steps: unknown): RuleStep[] {
+  return (Array.isArray(steps) ? steps : []).flatMap((step: unknown) => {
+    if (!isRecord(step) || typeof step.priority !== 'string') return []
+    return [
+      {
+        priority: step.priority,
+        ...optional('limit', num(step.limit)),
+        ...optional('value', stepValue(step.value)),
+        ...optional('within', num(step.within))
+      }
+    ]
+  })
+}
+
+function templateOf(v: unknown): RuleInfo['template'] {
+  return isRecord(v) && typeof v.set === 'string' && typeof v.id === 'string'
+    ? { set: v.set, id: v.id }
+    : undefined
 }
 
 function ruleDisabled(v: unknown): RuleDisabled | undefined {
@@ -413,17 +468,25 @@ export function parseListedRule(body: unknown, what: string): ListedRule {
     const v = record(r)
     const d = record(v.detector)
     const zoneLevel = isRecord(d.limit) && d.limit.kind === 'zone' ? text(d.limit.level) : undefined
+    const steps = stepsOf(d.steps)
+    const input = record(v.signal)
     return {
       name: string(v.name),
       alertPath,
-      ...optional('priority', firstStepPriority(d.steps)),
+      ...optional('priority', steps.at(0)?.priority),
+      steps,
+      ...optional('duration', num(d.duration)),
+      message: string(v.message),
       detector: {
         type: string(d.type),
         ...optional('direction', text(d.direction)),
         ...optional('measure', text(d.measure)),
-        ...optional('zoneLevel', zoneLevel)
+        ...optional('zoneLevel', zoneLevel),
+        ...optional('op', text(d.op))
       },
-      signal: signal(v.signal),
+      signal: signal(input),
+      ...optional('source', text(input.source)),
+      ...optional('template', templateOf(v.template)),
       gates: (Array.isArray(v.gates) ? v.gates : []).map((g) => ({
         paths: signal(record(g).signal).paths
       }))
@@ -620,6 +683,9 @@ export function httpApi(fetchFn: typeof fetch = (input, init) => fetch(input, in
     enableRule: async (slug) => {
       const path = `${ruleRoute(slug)}/enable`
       return parseRuleEntry(await send('POST', path), path)
+    },
+    deleteRule: async (slug) => {
+      await send('DELETE', ruleRoute(slug))
     }
   }
 }

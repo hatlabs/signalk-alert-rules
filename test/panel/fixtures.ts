@@ -14,9 +14,10 @@ export const noAuthoring: Pick<
 }
 
 /** The control routes of a fake API, for tests that never use them. */
-export const noControls: Pick<PanelApi, 'disableRule' | 'enableRule'> = {
+export const noControls: Pick<PanelApi, 'disableRule' | 'enableRule' | 'deleteRule'> = {
   disableRule: notExpected,
-  enableRule: notExpected
+  enableRule: notExpected,
+  deleteRule: notExpected
 }
 
 /** A normal instance with a value, to override per test. */
@@ -45,6 +46,8 @@ export function ruleEntry(overrides: EntryOverrides = {}): RuleEntry {
       name: 'Oil pressure low',
       alertPath: 'propulsion.port.oilPressureLow',
       priority: 'alarm',
+      steps: [{ limit: 100000, priority: 'alarm' }],
+      message: 'Oil pressure low',
       detector: { type: 'sustained', direction: 'below' },
       signal: { paths: ['propulsion.port.oilPressure'] },
       gates: [],

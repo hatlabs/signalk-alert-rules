@@ -1,9 +1,9 @@
 import { isInvalid, type ListedRule, type RuleInfo, type RuleStatus } from '../api'
-import { isWildcard, ruleDisplay, type RuleDisplay } from '../rules/describe'
+import { hasInstances, ruleDisplay, type RuleDisplay } from '../rules/describe'
 import type { UnitLookup } from '../signalUnits'
 
 const SECOND = 1000
-const MINUTE = 60 * SECOND
+export const MINUTE = 60 * SECOND
 const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
 
@@ -15,7 +15,9 @@ export function elapsed(ms: number): string {
   return `${String(Math.max(0, Math.round(ms / SECOND)))} s`
 }
 
-const TIMEOUT_CAUSES: Readonly<Partial<Record<string, (status: RuleStatus) => string>>> = {
+const TIMEOUT_CAUSES: Readonly<
+  Partial<Record<string, (status: Pick<RuleStatus, 'contract'>) => string>>
+> = {
   booleanPath: () => 'An on/off value cannot time out',
   stringPath: () => 'A text value cannot time out',
   notEnforced: () => 'The server does not enforce timeouts',
@@ -25,7 +27,13 @@ const TIMEOUT_CAUSES: Readonly<Partial<Record<string, (status: RuleStatus) => st
   noTimeout: () => 'The path has no timeout and the server sets none'
 }
 
-function problem(status: RuleStatus): string {
+/** A problem's sentence, without a closing full stop. */
+export function problem(
+  status: Pick<
+    RuleStatus,
+    'reason' | 'side' | 'level' | 'gate' | 'cause' | 'contract' | 'path' | 'units'
+  >
+): string {
   switch (status.reason) {
     case 'missingZone': {
       const zone = `${status.side === undefined ? '' : `${status.side} `}${status.level ?? ''} zone`
@@ -50,7 +58,8 @@ function problem(status: RuleStatus): string {
 
 const NEVER_REPORTED = 'No value since the plugin started'
 
-function noData(status: RuleStatus, now: number): string {
+/** Why there is no value, without a closing full stop. */
+export function noData(status: Pick<RuleStatus, 'reason' | 'lastSeen'>, now: number): string {
   if (status.reason === 'notEvaluated') return 'Not evaluated yet'
   if (status.reason === 'inputUnavailable' && status.lastSeen !== undefined) {
     return `No value for ${elapsed(now - Date.parse(status.lastSeen))}`
@@ -59,7 +68,10 @@ function noData(status: RuleStatus, now: number): string {
 }
 
 /** The value, or the count or total toward the limit, as the rule shows it. */
-function reading(status: RuleStatus, display: RuleDisplay): string | undefined {
+export function reading(
+  status: Pick<RuleStatus, 'progress' | 'value'>,
+  display: RuleDisplay
+): string | undefined {
   const { progress } = status
   if (progress?.kind === 'events') {
     return `${String(progress.count)} of ${String(progress.limit)} events`
@@ -156,7 +168,7 @@ export function currentFact(entry: ListedRule, units: UnitLookup, now: number): 
   const { status, rule } = entry
   const display = ruleDisplay(rule, units)
   const disabled = status.ruleState === 'disabled'
-  const wildcard = isWildcard(rule) || status.instances.length > 1
+  const wildcard = hasInstances(entry)
   if (wildcard && status.condition === 'normal' && !disabled) {
     const count = status.instances.length
     return `${String(count)} instance${count === 1 ? '' : 's'}`

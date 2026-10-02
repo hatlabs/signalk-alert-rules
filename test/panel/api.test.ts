@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Rule } from '../../src/model/rule'
 import {
   httpApi,
+  isInvalid,
   REQUEST_TIMEOUT_MS,
   RuleRejectedError,
   SessionExpiredError
@@ -231,6 +232,9 @@ describe('httpApi', () => {
         rule: {
           name: 'House battery low',
           alertPath: 'electrical.batteries.*.voltageLow',
+          message: 'House battery voltage is low',
+          steps: [],
+          duration: 60,
           detector: { type: 'sustained', direction: 'below', zoneLevel: 'warn' },
           signal: { paths: ['electrical.batteries.*.voltage'] },
           gates: [{ paths: ['electrical.chargers.shore.state'] }]
@@ -268,6 +272,8 @@ describe('httpApi', () => {
           name: 'Engine service due',
           alertPath: 'propulsion.revolutionsAccumulated',
           priority: 'caution',
+          message: 'Engine service is due',
+          steps: [{ limit: 360000, priority: 'caution' }],
           detector: { type: 'accumulator', measure: 'time' },
           signal: {
             combinator: 'max',
@@ -292,6 +298,85 @@ describe('httpApi', () => {
           ]
         }
       })
+    })
+
+    it("reads the rule's steps, source and template, and the step an alert reached", async () => {
+      const stepped = {
+        ...ruleEntry,
+        rule: {
+          ...ruleEntry.rule,
+          signal: { path: 'electrical.batteries.house.voltage', source: 'shunt.1' },
+          detector: {
+            type: 'sustained',
+            direction: 'below',
+            steps: [
+              { limit: 12.2, priority: 'warning' },
+              { limit: 11.8, priority: 'alarm' }
+            ],
+            duration: 30
+          },
+          template: {
+            set: 'builtin',
+            id: 'lifepo4-voltage-low',
+            version: '1',
+            pick: { instance: 'house' }
+          }
+        },
+        state: {
+          ...ruleEntry.state,
+          ruleState: 'enabled',
+          condition: 'alerting',
+          reason: 'alertActive',
+          priority: 'alarm',
+          step: 1,
+          awaitingInput: false
+        }
+      }
+      const match = {
+        ...notStartedAccumulator,
+        rule: {
+          ...notStartedAccumulator.rule,
+          detector: {
+            type: 'match',
+            op: 'equals',
+            steps: [
+              { value: 'fault', priority: 'warning' },
+              { value: 'critical', priority: 'alarm' }
+            ]
+          }
+        }
+      }
+      const absence = {
+        ...notStartedAccumulator,
+        rule: {
+          ...notStartedAccumulator.rule,
+          detector: {
+            type: 'absence',
+            event: { op: 'changes' },
+            steps: [{ within: 600, priority: 'warning' }]
+          }
+        }
+      }
+      const api = httpApi(fakeFetch({ [`${BASE}/rules`]: { body: [stepped, match, absence] } }))
+      const [read, matched, absent] = await api.rules()
+      if (isInvalid(read) || isInvalid(matched) || isInvalid(absent)) throw new Error('invalid')
+      expect(read.rule).toMatchObject({
+        priority: 'warning',
+        steps: [
+          { limit: 12.2, priority: 'warning' },
+          { limit: 11.8, priority: 'alarm' }
+        ],
+        duration: 30,
+        source: 'shunt.1',
+        template: { set: 'builtin', id: 'lifepo4-voltage-low' }
+      })
+      expect(read.status).toMatchObject({ priority: 'alarm', step: 1 })
+      expect(matched.rule.detector.op).toBe('equals')
+      expect(matched.rule.steps).toEqual([
+        { value: 'fault', priority: 'warning' },
+        { value: 'critical', priority: 'alarm' }
+      ])
+      expect(absent.rule.steps).toEqual([{ within: 600, priority: 'warning' }])
     })
 
     it('reads the zone level and priority of an active instance', async () => {
@@ -556,6 +641,25 @@ describe('httpApi', () => {
       expect(init?.method).toBe('POST')
       expect(init?.body).toBeUndefined()
       expect(new Headers(init?.headers).get('content-type')).toBe('application/json')
+    })
+
+    it('deletes a rule with a bodiless JSON DELETE on its slug', async () => {
+      const fetchFn = vi.fn<typeof fetch>(() =>
+        Promise.resolve(new Response(null, { status: 204 }))
+      )
+      await httpApi(fetchFn).deleteRule('house battery')
+      const [url, init] = fetchFn.mock.calls[0]
+      expect(url).toBe(`${BASE}/rules/house%20battery`)
+      expect(init?.method).toBe('DELETE')
+      expect(init?.body).toBeUndefined()
+      expect(new Headers(init?.headers).get('content-type')).toBe('application/json')
+    })
+
+    it("fails a delete with the server's message", async () => {
+      const fetchFn = fakeFetch({
+        [`${BASE}/rules/gone`]: { status: 404, body: { error: 'no such rule' } }
+      })
+      await expect(httpApi(fetchFn).deleteRule('gone')).rejects.toThrow('no such rule')
     })
   })
 })
