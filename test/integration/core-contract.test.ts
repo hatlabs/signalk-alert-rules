@@ -431,7 +431,7 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
         updates: [{ values: [{ path: VOLTAGE as never, value }] }]
       })
       await until(
-        () => (runner.status(rule.slug)?.instances[0]?.value === value ? true : undefined),
+        () => (runner.state(rule.slug)?.instances[0]?.value === value ? true : undefined),
         `the rule to read ${String(value)}`
       )
       runner.tick()
@@ -467,7 +467,7 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
       condition: true
     })
     expect(sent.map((value) => value?.priority)).toEqual(['warning', 'alarm'])
-    expect(runner.status(rule.slug)?.instances[0]).toMatchObject({ step: 1, priority: 'alarm' })
+    expect(runner.state(rule.slug)?.instances[0]).toMatchObject({ step: 1, priority: 'alarm' })
     runner.stop()
   })
 

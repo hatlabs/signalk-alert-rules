@@ -1,7 +1,7 @@
-import { BADGES, SUB_LABELS, type Badge, type SubLabel } from '../alerts/badge'
+import { CONDITIONS, type Condition } from '../alerts/state'
 import type { Rule } from '../model/rule'
 
-export { BADGES, SUB_LABELS, type Badge, type SubLabel }
+export { CONDITIONS, type Condition }
 
 /** The plugin id, which is also the path segment of its routes. */
 export const PLUGIN_ID = 'signalk-alert-rules'
@@ -37,38 +37,35 @@ export interface Position {
 /** A signal's value in SI units. */
 export type SignalValue = number | string | boolean | Position
 
+/** A total or an event count toward the limit; the server reports no timers. */
 export type Progress =
-  | { kind: 'timer'; toward: 'set' | 'clear'; elapsed: number; target: number }
-  | { kind: 'events'; count: number; limit: number }
-  | { kind: 'total'; total: number; limit: number }
+  { kind: 'events'; count: number; limit: number } | { kind: 'total'; total: number; limit: number }
 
 export interface GateStatus {
   holds: boolean
   input: InputState
 }
 
-/** One instance's status, as docs/rules.md "Status" describes it. */
+/** One instance's state, as docs/rules.md "State" describes it. */
 export interface InstanceStatus {
   /** For a wildcard rule; a rule that is not evaluated keeps only the segment. */
   instance?: { name?: string; segment: string }
-  badge: Badge
-  reason?: string
-  subLabels: SubLabel[]
-  /** Absent on the rows of a rule that is not evaluated. */
-  active?: boolean
-  input?: InputState
+  condition: Condition
+  /** The reason code the condition comes with. */
+  reason: string
   value?: SignalValue
   limit?: number
   progress?: Progress
   gates: GateStatus[]
+  /** The zone level and priority an alerting instance has reached. */
   level?: string
   priority?: string
 }
 
+/** A rule's state, `state` in a rule entry: its condition and its instances'. */
 export interface RuleStatus {
-  badge: Badge
-  reason?: string
-  subLabels: SubLabel[]
+  condition: Condition
+  reason: string
   errors: string[]
   issues: string[]
   instances: InstanceStatus[]
@@ -213,15 +210,9 @@ function signalValue(v: unknown): SignalValue | undefined {
 
 function progressOf(v: unknown): Progress | undefined {
   if (!isRecord(v)) return undefined
-  const elapsed = num(v.elapsed)
-  const target = num(v.target)
   const count = num(v.count)
   const limit = num(v.limit)
   const total = num(v.total)
-  const toward = v.toward === 'set' || v.toward === 'clear' ? v.toward : undefined
-  if (v.kind === 'timer' && toward && elapsed !== undefined && target !== undefined) {
-    return { kind: 'timer', toward, elapsed, target }
-  }
   if (v.kind === 'events' && count !== undefined && limit !== undefined) {
     return { kind: 'events', count, limit }
   }
@@ -260,13 +251,8 @@ export function parseRuleEntry(body: unknown, what: string): RuleEntry {
     if (!Array.isArray(v)) throw malformed(what)
     return v.map(string)
   }
-  const badge = (v: unknown): Badge => {
-    const found = BADGES.find((b) => b === v)
-    if (found === undefined) throw malformed(what)
-    return found
-  }
-  const subLabel = (v: unknown): SubLabel => {
-    const found = SUB_LABELS.find((l) => l === v)
+  const condition = (v: unknown): Condition => {
+    const found = CONDITIONS.find((c) => c === v)
     if (found === undefined) throw malformed(what)
     return found
   }
@@ -278,9 +264,8 @@ export function parseRuleEntry(body: unknown, what: string): RuleEntry {
       return { holds: gate.holds, input }
     })
   const verdict = (v: Record<string, unknown>) => ({
-    badge: badge(v.badge),
-    ...optional('reason', text(v.reason)),
-    subLabels: (Array.isArray(v.subLabels) ? v.subLabels : []).map(subLabel)
+    condition: condition(v.condition),
+    reason: string(v.reason)
   })
   const instanceStatus = (i: unknown): InstanceStatus => {
     const v = record(i)
@@ -291,8 +276,6 @@ export function parseRuleEntry(body: unknown, what: string): RuleEntry {
     return {
       ...optional('instance', instance),
       ...verdict(v),
-      ...optional('active', typeof v.active === 'boolean' ? v.active : undefined),
-      ...optional('input', inputState(v.input)),
       ...optional('value', signalValue(v.value)),
       ...optional('limit', num(v.limit)),
       ...optional('progress', progressOf(v.progress)),
@@ -344,7 +327,7 @@ export function parseRuleEntry(body: unknown, what: string): RuleEntry {
     slug: string(entry.slug),
     rule: rule(entry.rule, string(entry.alertPath)),
     ...optional('disabled', ruleDisabled(entry.disabled)),
-    status: status(entry.status)
+    status: status(entry.state)
   }
 }
 

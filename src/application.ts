@@ -1,13 +1,7 @@
-import type { Verdict } from './alerts/badge.js'
 import { alertPathsOverlap } from './alerts/paths.js'
 import { ruleAlertPath } from './model/alertPath.js'
-import {
-  RuleRunner,
-  type Accumulated,
-  type RunnerDeps,
-  type RunnerRuleStatus
-} from './alerts/runner.js'
-import type { Progress } from './engine/detectors/index.js'
+import { RuleRunner, type Accumulated, type RunnerDeps } from './alerts/runner.js'
+import { stateReport, type RuleStateReport } from './alerts/state.js'
 import { carriesTotals, measureOf, structuralChanges } from './engine/evaluator.js'
 import { asGiven, canonicalSources } from './engine/sourceRefs.js'
 import { MAX_RULES, type Rule } from './model/rule.js'
@@ -37,26 +31,6 @@ export const LOG_LIMIT = 200
 const TOTALS = 'the accumulator totals'
 const SETTINGS = 'the operator settings'
 
-export type NotEvaluatedReason = 'not started'
-
-/** A row of a rule that is not evaluated: one per accumulator total it keeps. */
-export interface NotEvaluatedInstance extends Verdict {
-  /** For a wildcard rule; the name is not kept with the total. */
-  instance?: { segment: string }
-  progress: Progress
-}
-
-/** The status of a rule while the runner is not started. */
-export interface NotEvaluatedStatus extends Verdict {
-  badge: 'inactive'
-  reason: NotEvaluatedReason
-  issues: string[]
-  errors: string[]
-  instances: NotEvaluatedInstance[]
-}
-
-export type RuleStatus = RunnerRuleStatus | NotEvaluatedStatus
-
 /** A rule with the operator's controls and its status. */
 export interface RuleEntry {
   slug: string
@@ -69,7 +43,7 @@ export interface RuleEntry {
   alertPath: string
   /** Present while the rule is disabled. */
   disabled?: Disabled
-  status: RuleStatus
+  state: RuleStateReport
 }
 
 export type ControlOutcome = 'ok' | 'notFound'
@@ -137,12 +111,18 @@ function without<T>(record: Record<string, T>, key: string): Record<string, T> {
   return Object.fromEntries(Object.entries(record).filter(([k]) => k !== key))
 }
 
+/**
+ * The state of a rule while the runner is not started: one row per
+ * accumulator total it keeps, which names a wildcard instance by its segment
+ * only, as the total is kept without the name.
+ */
 function notStarted(
   rule: Rule,
-  totals: ReadonlyMap<string, number> | undefined
-): NotEvaluatedStatus {
-  const badge = 'inactive' as const
-  const reason = 'not started' as const
+  totals: ReadonlyMap<string, number> | undefined,
+  disabled: boolean,
+  since: string
+): RuleStateReport {
+  const condition = { condition: 'noData', reason: 'notEvaluated' } as const
   const d = rule.detector
   // A total's progress runs toward the first step, which raises the alert.
   const limit = d.type === 'accumulator' ? d.steps[0]?.limit : undefined
@@ -151,12 +131,11 @@ function notStarted(
       ? []
       : [...(totals ?? [])].map(([segment, total]) => ({
           ...(segment === '' ? {} : { instance: { segment } }),
-          badge,
-          reason,
-          subLabels: [],
-          progress: { kind: 'total' as const, total, limit }
+          ...condition,
+          progress: { kind: 'total' as const, total, limit },
+          gates: []
         }))
-  return { badge, reason, subLabels: [], issues: [], errors: [], instances }
+  return stateReport(disabled, condition, since, { instances })
 }
 
 /**
@@ -192,6 +171,8 @@ export class Application {
   private controls: Controls
   /** Set while starting: a failed write is then an issue, not a failed start. */
   private starting = false
+  /** When the stored rules were loaded, as an ISO time: the state of a rule not evaluated dates from it. */
+  private readonly loadedAt: string
   private readonly isDisabled = (slug: string): boolean => this.control(slug).disabled !== undefined
 
   /**
@@ -204,6 +185,7 @@ export class Application {
     private readonly discover: () => DiscoveryResult = () => NO_TEMPLATES
   ) {
     const contents = store.load()
+    this.loadedAt = this.now()
     this.issues = [...contents.issues]
     this.actions = contents.log
     this.controls = contents.controls
@@ -476,8 +458,8 @@ export class Application {
       current === undefined
         ? []
         : structuralChanges(this.withCanonicalSources(current), checked.value)
-    const status = this.runner?.status(slug)
-    const activeAlerts = status?.instances.filter((i) => i.active).length ?? 0
+    const state = this.runner?.state(slug)
+    const activeAlerts = state?.instances.filter((i) => i.condition === 'alerting').length ?? 0
     const restarts = changes.length > 0 || this.runner?.failedToStart(slug) === true
     return {
       ok: true,
@@ -558,9 +540,12 @@ export class Application {
   }
 
   /**
-   * Enables a disabled rule; one whose condition holds raises a new alert at
-   * once. Enabling an enabled rule does nothing. Throws when the store
-   * cannot write.
+   * Enables a disabled rule. One whose condition is present, having held for
+   * its duration, raises a new alert at once. One whose detector is still
+   * timing raises when the duration has run, and one whose condition held
+   * when its gate last closed raises once the restarted detector sets.
+   * Enabling an enabled rule does nothing. Throws when the store cannot
+   * write.
    */
   enableRule(slug: string, actor: string): ControlOutcome {
     if (!this.rulesBySlug.has(slug)) return 'notFound'
@@ -639,8 +624,14 @@ export class Application {
       rule,
       alertPath: ruleAlertPath(rule),
       ...(disabled === undefined ? {} : { disabled }),
-      status:
-        this.runner?.status(rule.slug) ?? notStarted(rule, this.retained.get(rule.slug)?.totals)
+      state:
+        this.runner?.state(rule.slug) ??
+        notStarted(
+          rule,
+          this.retained.get(rule.slug)?.totals,
+          disabled !== undefined,
+          this.loadedAt
+        )
     }
   }
 

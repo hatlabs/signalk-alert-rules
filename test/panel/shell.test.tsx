@@ -248,11 +248,12 @@ describe('Shell rules', () => {
     slug: 'engine-hours',
     rule: { name: 'Engine hours', detector: { type: 'accumulator', measure: 'time' } },
     status: {
+      condition: 'alerting',
+      reason: 'alertActive',
       instances: [
         {
-          badge: 'alertActive',
-          active: true,
-          subLabels: [],
+          condition: 'alerting',
+          reason: 'alertActive',
           gates: [],
           progress: { kind: 'total', total: 7200, limit: 3600 }
         }
@@ -394,7 +395,10 @@ describe('Shell rules', () => {
     window.history.replaceState(null, '', '/#rule=engine-hours')
     const server: Server = { state: running, rules: [hours] }
     const api = await renderShell(server)
-    const after = { ...hours, status: { ...hours.status, badge: 'idle' as const, instances: [] } }
+    const after = {
+      ...hours,
+      status: { ...hours.status, condition: 'normal' as const, instances: [] }
+    }
     api.resetAccumulator.mockImplementation(() => {
       server.rules = [after]
       return Promise.resolve(after)
@@ -405,7 +409,7 @@ describe('Shell rules', () => {
     expect(api.resetAccumulator).toHaveBeenCalledWith('engine-hours')
     expect(api.rules).toHaveBeenCalledTimes(2)
     expect(screen.queryByRole('alertdialog')).toBeNull()
-    expect(screen.getByText('Idle')).toBeTruthy()
+    expect(screen.getByText('Normal')).toBeTruthy()
   })
 
   it('disables a rule and shows it as the server answers after', async () => {
@@ -414,7 +418,7 @@ describe('Shell rules', () => {
     const api = await renderShell(server)
     const disabled = ruleEntry({
       disabled: { since: '2026-09-30T12:00:00.000Z', actor: 'skipper', note: 'fouled' },
-      status: { badge: 'disabled' }
+      status: { condition: 'present', reason: 'conditionPresent' }
     })
     const disableRule = vi.fn(() => {
       server.rules = [disabled]

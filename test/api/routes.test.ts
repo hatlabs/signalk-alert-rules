@@ -264,27 +264,35 @@ describe('REST API', () => {
     expect(reply.status).toBe(200)
     const entry = reply.body as {
       rule: unknown
-      status: { instances: { instance: { name: string } }[] }
+      state: { instances: { instance: { name: string } }[] }
     }
     expect(entry).toMatchObject({
       slug: 'coolant-high',
       rule: coolant,
-      status: { badge: 'alertActive', subLabels: [], errors: [], issues: [] }
+      state: {
+        ruleState: 'enabled',
+        condition: 'alerting',
+        reason: 'alertActive',
+        instance: { name: 'port' },
+        changedAt: expect.any(String) as unknown,
+        errors: [],
+        issues: []
+      }
     })
-    const byName = new Map(entry.status.instances.map((i) => [i.instance.name, i]))
+    const byName = new Map(entry.state.instances.map((i) => [i.instance.name, i]))
     expect(byName.get('port')).toMatchObject({
-      badge: 'alertActive',
-      subLabels: [],
-      active: true,
+      condition: 'alerting',
+      priority: 'alarm',
+      step: 0,
       value: 370,
       limit: 368,
-      gates: [{ holds: true, input: 'value' }]
+      gates: [{ path: 'propulsion.port.revolutions', value: 30, holds: true, input: 'value' }]
     })
     expect(byName.get('starboard')).toMatchObject({
-      badge: 'gatedOff',
-      active: false,
+      condition: 'normal',
+      reason: 'outsideGate',
       value: 371,
-      gates: [{ holds: false, input: 'value' }]
+      gates: [{ path: 'propulsion.starboard.revolutions', value: 0, holds: false, input: 'value' }]
     })
   })
 
@@ -299,9 +307,9 @@ describe('REST API', () => {
     const reply = await h.call('POST', '/rules/engine-hours/reset')
     expect(reply.status).toBe(200)
     expect(reply.body).toMatchObject({
-      status: {
-        badge: 'idle',
-        instances: [{ active: false, progress: { kind: 'total', total: 0 } }]
+      state: {
+        condition: 'normal',
+        instances: [{ condition: 'normal', progress: { kind: 'total', total: 0 } }]
       }
     })
     expect(core(h).getByPath('propulsion.main.revolutionsAccumulated')?.condition).toBe(false)
@@ -588,7 +596,7 @@ describe('rule controls API', () => {
     expect(off.status).toBe(200)
     expect(off.body).toMatchObject({
       disabled: { actor: 'admin', note: 'paddlewheel fouled' },
-      status: { badge: 'disabled', instances: [{ conditionPresent: true }] }
+      state: { ruleState: 'disabled', condition: 'present', instances: [{ condition: 'present' }] }
     })
     expect(core(h).getByPath(OIL_ALERT)?.condition).toBe(false)
 
@@ -892,7 +900,7 @@ describe('templates API', () => {
     const entry = (await h.call('GET', '/rules/voltage-low-house')).body
     expect(entry).toMatchObject({
       rule: { signal: { path: HOUSE }, template: { set: 'batteries' } },
-      status: { badge: 'neverSeen' }
+      state: { condition: 'noData', reason: 'neverReported' }
     })
     h.mock.subscriptionmanager.publish(HOUSE, 'can0.12', 11)
     expect(core(h).getByPath('electrical.batteries.house.voltageLow')?.condition).toBe(true)

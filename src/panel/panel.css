@@ -61,18 +61,7 @@
   white-space: normal;
 }
 
-.skar-status-detail,
 .skar-instance-summary {
-  font-size: 0.85em;
-}
-
-.skar-sublabels {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 0.75rem;
-  margin: 0.25rem 0 0;
-  padding: 0;
-  list-style: none;
   font-size: 0.85em;
 }
 

@@ -58,12 +58,9 @@ function run(rule: unknown, scenario: Scenario): { steps: AlertStep[]; problems:
     }
     runner.tick()
   }
-  const status = runner.status(validated.value.slug)
+  const status = runner.state(validated.value.slug)
   if (status === undefined) throw new Error('the rule has no status')
-  const problems = [
-    ...status.issues,
-    ...status.instances.flatMap((i) => (i.inactive === undefined ? [] : [i.inactive]))
-  ]
+  const problems = [...status.issues, ...status.instances.filter((i) => i.condition === 'problem')]
   return { steps, problems }
 }
 

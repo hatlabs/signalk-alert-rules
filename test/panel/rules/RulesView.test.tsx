@@ -16,15 +16,14 @@ const batteries = ruleEntry({
     signal: { paths: ['electrical.batteries.*.voltage'] }
   },
   status: {
-    badge: 'alertActive',
-    subLabels: ['waitingForClear'],
+    condition: 'alerting',
+    reason: 'alertActive',
     instances: [
       instance({ instance: { name: 'house', segment: 'house' } }),
       instance({
         instance: { name: 'start', segment: 'start' },
-        badge: 'alertActive',
-        active: true,
-        subLabels: ['waitingForClear']
+        condition: 'alerting',
+        reason: 'alertActive'
       }),
       instance({ instance: { name: 'bow', segment: 'bow' } })
     ]
@@ -42,7 +41,7 @@ const engineHours = ruleEntry({
       paths: ['propulsion.port.revolutions', 'propulsion.stbd.revolutions']
     }
   },
-  status: { badge: 'inactive', reason: 'not started', instances: [] }
+  status: { condition: 'noData', reason: 'notEvaluated', instances: [] }
 })
 
 function renderView(rules: RuleEntry[]) {
@@ -74,7 +73,7 @@ describe('RulesView', () => {
       .map((c) => c.textContent)
     expect(cells).toEqual([
       'Oil pressure low',
-      '✓ Idle',
+      '✓ Normal',
       'sustained below',
       'propulsion.port.oilPressure',
       'alarm'
@@ -96,11 +95,9 @@ describe('RulesView', () => {
     expect(rowOf('Battery low').textContent).toContain('zone warn')
   })
 
-  it('summarises the instances of a wildcard rule by precedence', () => {
+  it('summarises the instances of a wildcard rule worst first', () => {
     renderView([batteries])
-    const row = rowOf('Battery low')
-    expect(row.textContent).toContain('3 instances: 1 alert active, 2 idle')
-    expect(row.textContent).toContain('waiting for clear')
+    expect(rowOf('Battery low').textContent).toContain('3 instances: 1 alerting, 2 normal')
   })
 
   it('says when a wildcard rule has no instance yet', () => {
@@ -122,10 +119,20 @@ describe('RulesView', () => {
   it('filters by the rule status', () => {
     renderView([oil, batteries, engineHours])
     const status = screen.getByRole('combobox', { name: /status/i })
-    fireEvent.change(status, { target: { value: 'alertActive' } })
+    fireEvent.change(status, { target: { value: 'alerting' } })
     expect(names()).toEqual(['Battery low'])
     fireEvent.change(status, { target: { value: '' } })
     expect(names()).toHaveLength(3)
+  })
+
+  it('shows a disabled rule as disabled, whatever its condition', () => {
+    const disabled = { ...oil, disabled: { since: '2026-10-01T08:00:00Z', actor: 'admin' } }
+    renderView([disabled, batteries])
+    expect(rowOf('Oil pressure low').textContent).toContain('Disabled')
+    fireEvent.change(screen.getByRole('combobox', { name: /status/i }), {
+      target: { value: 'disabled' }
+    })
+    expect(names()).toEqual(['Oil pressure low'])
   })
 
   it('says when no rule matches the filters', () => {

@@ -1,5 +1,5 @@
 import {
-  BADGES,
+  CONDITIONS,
   type InstanceStatus,
   type RuleEntry,
   type RuleInfo,
@@ -7,7 +7,7 @@ import {
 } from '../api'
 import { signalMeasure, type Measure, type UnitLookup } from '../signalUnits'
 import { fromSI } from '../units'
-import { BADGE_LOOK } from './StatusBadge'
+import { BADGE_LOOK, type BadgeKind } from './StatusBadge'
 
 /** The longest note the server accepts with a disable. */
 export const MAX_NOTE_LENGTH = 500
@@ -16,9 +16,14 @@ export function plural(count: number, noun: string): string {
   return `${String(count)} ${noun}${count === 1 ? '' : 's'}`
 }
 
-/** The alerts a rule holds now, as its status reports them. */
+/** The alerts a rule holds now, as its state reports them. */
 export function activeCount(entry: RuleEntry): number {
-  return entry.status.instances.filter((i) => i.active === true).length
+  return entry.status.instances.filter((i) => i.condition === 'alerting').length
+}
+
+/** A rule's badge: Disabled while it is disabled, otherwise its condition. */
+export function ruleBadge(entry: RuleEntry): BadgeKind {
+  return entry.disabled === undefined ? entry.status.condition : 'disabled'
 }
 
 export function instanceName(i: InstanceStatus): string {
@@ -61,12 +66,12 @@ export function isWildcard(rule: RuleInfo): boolean {
   return rule.signal.paths.some((path) => path.split('.').includes('*'))
 }
 
-/** How many instances have each badge, most important first. */
+/** How many instances have each condition, worst first. */
 export function instanceSummary(entry: RuleEntry): string {
   const { instances } = entry.status
   if (instances.length === 0) return 'no instances yet'
-  const counts = BADGES.map(
-    (badge) => [badge, instances.filter((i) => i.badge === badge).length] as const
+  const counts = CONDITIONS.map(
+    (condition) => [condition, instances.filter((i) => i.condition === condition).length] as const
   ).filter(([, count]) => count > 0)
   const parts = counts.map(([badge, count]) => `${String(count)} ${BADGE_LOOK[badge].label}`)
   const noun = instances.length === 1 ? 'instance' : 'instances'

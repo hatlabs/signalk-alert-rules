@@ -110,6 +110,10 @@ export type Problem =
   | { reason: 'alertPathInvalid' }
 
 export interface GateStatus {
+  /** The path the gate reads for this instance; absent for a combined signal. */
+  path?: string
+  /** The gate input's value in SI units, while it has one. */
+  value?: SignalValue
   /** Whether the gate holds for this instance, as the rule reads it. */
   holds: boolean
   input: InputState
@@ -117,9 +121,7 @@ export interface GateStatus {
 
 export interface InstanceStatus {
   instance?: Instance
-  active: boolean
   inUse: boolean
-  input: InputState
   /** The signal's current value in SI units, while it has one; a combined signal's combined value. */
   value?: SignalValue
   /**
@@ -131,16 +133,6 @@ export interface InstanceStatus {
   progress?: Progress
   /** One entry per gate of the rule, in its order. */
   gates: GateStatus[]
-  /** The alert was adopted from core at start and has not cleared since. */
-  adopted: boolean
-  /** The furthest step an active alert has reached, an index into the rule's steps. */
-  step?: number
-  /** The zone level of that step, for a zone-limit rule. */
-  level?: ZoneLevel
-  /** The priority an active alert has now: the most severe it has reached. */
-  priority?: Priority
-  /** Why the rule cannot evaluate this instance. */
-  inactive?: Problem
   /**
    * Whether the condition holds, as last judged. While the rule is out of use
    * or unable to evaluate the last judged value is kept, and back in use it
@@ -154,6 +146,44 @@ export interface InstanceStatus {
    * detector waits out its duration.
    */
   clearedFor?: number
+  /**
+   * The condition is present only because an adopted alert seeded it: the
+   * input has not reported since start, and the rule's condition is not the
+   * input's silence.
+   */
+  conditionAssumed: boolean
+  /** Seconds since the input last had a value; absent when it has had none since start. */
+  sinceValue?: number
+  /** What its condition is judged from, as {@link RuleEvaluator.judge} reports it. */
+  judgement: Judgement
+}
+
+/**
+ * What an instance's condition is judged from, the one derivation both the
+ * timing of a change and the reported state read.
+ */
+export interface Judgement {
+  instance?: Instance
+  /** Why the rule cannot evaluate the instance. */
+  problem?: Problem
+  /** The active alert: the furthest step it reached, with the priority and zone level it has. */
+  alert?: { step: number; priority: Priority; level?: ZoneLevel }
+  gatesHold: boolean
+  /** The condition holds, judged in this run rather than assumed from an adopted alert. */
+  present: boolean
+  /**
+   * The condition held when the gate last closed, and the restarted detector
+   * has not decided since: it is neither present nor known to have cleared.
+   */
+  undecided: boolean
+  input: InputState
+}
+
+/** What an instance's input evidence depends on. */
+export interface Evidence {
+  input: InputState
+  /** The alert was adopted from core at start and has not cleared since. */
+  adopted: boolean
 }
 
 export interface RuleStatus {
@@ -161,6 +191,8 @@ export interface RuleStatus {
   issues: string[]
   /** Subscription failures, which leave the rule without its input. */
   errors: string[]
+  /** Seconds since the rule last started, at plugin start or on an edit that restarts it. */
+  runningFor: number
   instances: InstanceStatus[]
 }
 
@@ -175,6 +207,8 @@ interface Unit {
   last?: Reading
   /** The last value the input had, which outlives an unavailable reading. */
   lastValue?: SignalValue
+  /** When the input last had a value. */
+  lastValueAt?: number
   /** One detector per step, the first step's first. */
   tracks: Track[]
   /** The steps as last resolved; empty while they cannot be. */
@@ -311,6 +345,7 @@ export class RuleEvaluator {
   private adopted: Map<string, Priority | undefined>
   private carried = new Map<string, number>()
   private running = false
+  private startedAt = 0
 
   constructor(
     private rule: Rule,
@@ -328,6 +363,7 @@ export class RuleEvaluator {
   start(): void {
     const now = this.ctx.clock()
     this.running = true
+    this.startedAt = now
     const gates = this.rule.gates ?? []
     this.gates = gates.map(() => new Map<string, Gate>())
     for (const key of this.adopted.keys()) {
@@ -455,29 +491,61 @@ export class RuleEvaluator {
 
   status(): RuleStatus {
     const now = this.ctx.clock()
+    const silence = judgesSilence(this.rule)
     return {
       issues: [...this.issues],
       errors: [...this.errors],
+      runningFor: now - this.startedAt,
       instances: [...this.units.values()].map((u) => {
-        const step = u.alerting ? (u.step ?? 0) : undefined
         return {
           instance: u.instance,
-          active: u.alerting,
           inUse: u.inUse,
-          input: inputState(u.last),
           value: u.last?.available === true ? u.last.value : undefined,
-          limit: u.steps.at(step ?? 0)?.limit,
+          limit: u.steps.at(u.alerting ? (u.step ?? 0) : 0)?.limit,
           progress: u.tracks.at(0)?.detector?.progress(now),
           gates: this.gateStatus(u),
-          adopted: u.adoptedAlert,
-          step,
-          level: step === undefined ? undefined : this.levelAt(u, step),
-          priority: step === undefined ? undefined : this.reachedAt(u, step),
-          inactive: u.inactive,
           conditionPresent: u.present,
-          clearedFor: u.present || u.clearedAt === undefined ? undefined : now - u.clearedAt
+          clearedFor: u.present || u.clearedAt === undefined ? undefined : now - u.clearedAt,
+          conditionAssumed: assumed(u, silence),
+          sinceValue: u.lastValueAt === undefined ? undefined : now - u.lastValueAt,
+          judgement: this.judgeUnit(u, silence)
         }
       })
+    }
+  }
+
+  /**
+   * What each instance's condition is judged from, read without building the
+   * status: the runner judges every rule at every evaluation. `errors` are
+   * the rule's subscription failures, as in the status.
+   */
+  judge(): { errors: number; units: Judgement[] } {
+    const silence = judgesSilence(this.rule)
+    return {
+      errors: this.errors.size,
+      units: [...this.units.values()].map((u) => this.judgeUnit(u, silence))
+    }
+  }
+
+  private judgeUnit(u: Unit, silence: boolean): Judgement {
+    const step = u.step ?? 0
+    const level = u.alerting ? this.levelAt(u, step) : undefined
+    return {
+      instance: u.instance,
+      ...(u.inactive === undefined ? {} : { problem: u.inactive }),
+      ...(u.alerting
+        ? {
+            alert: {
+              step,
+              priority: this.reachedAt(u, step),
+              ...(level === undefined ? {} : { level })
+            }
+          }
+        : {}),
+      gatesHold: (this.rule.gates ?? []).every((_, i) => this.holds(this.gateOf(u, i), u)),
+      present: u.present && !u.resuming && !assumed(u, silence),
+      undecided: u.resuming,
+      input: inputState(u.last)
     }
   }
 
@@ -485,7 +553,7 @@ export class RuleEvaluator {
    * What an instance's input evidence depends on, read without building the
    * status: the heartbeat asks for it for every active alert.
    */
-  evidence(segment: string): Pick<InstanceStatus, 'input' | 'adopted'> | undefined {
+  evidence(segment: string): Evidence | undefined {
     const unit = this.units.get(segment)
     return unit === undefined
       ? undefined
@@ -539,7 +607,10 @@ export class RuleEvaluator {
   private onSignal(sample: Sample): void {
     const unit = this.unit(sample.instance?.segment ?? '', sample.instance)
     unit.last = sample.reading
-    if (sample.reading.available) unit.lastValue = sample.reading.value
+    if (sample.reading.available) {
+      unit.lastValue = sample.reading.value
+      unit.lastValueAt = this.ctx.clock()
+    }
     this.step(unit, this.ctx.clock(), sample)
   }
 
@@ -576,15 +647,29 @@ export class RuleEvaluator {
   /** The gates as the unit reads them, without creating any. */
   private gateStatus(unit: Unit): GateStatus[] {
     return (this.rule.gates ?? []).map((model, i) => {
-      const gate = this.gates[i]?.get(isWildcard(model.signal) ? unit.key : '')
-      return gate === undefined
-        ? { holds: unit.adoptedAlert, input: 'neverSeen' }
-        : { holds: this.holds(gate, unit), input: gate.input }
+      const gate = this.gateOf(unit, i)
+      const path =
+        'combinator' in model.signal ? {} : { path: bindPath(model.signal.path, unit.instance) }
+      if (gate === undefined) return { ...path, holds: unit.adoptedAlert, input: 'neverSeen' }
+      const value = gate.value
+      return {
+        ...path,
+        ...(value === undefined ? {} : { value }),
+        holds: this.holds(gate, unit),
+        input: gate.input
+      }
     })
   }
 
-  private holds(gate: Gate, unit: Unit): boolean {
-    return gate.seen ? gate.holdsFor(unit.adoptedAlert) : unit.adoptedAlert
+  /** The unit's gate `i`, without creating it. */
+  private gateOf(unit: Unit, i: number): Gate | undefined {
+    const model = (this.rule.gates ?? [])[i]
+    return this.gates[i]?.get(isWildcard(model.signal) ? unit.key : '')
+  }
+
+  /** Whether the gate holds for the unit; one not seen holds only for an adopted alert. */
+  private holds(gate: Gate | undefined, unit: Unit): boolean {
+    return gate?.seen === true ? gate.holdsFor(unit.adoptedAlert) : unit.adoptedAlert
   }
 
   private zones(limit: Limit, signal: Signal, instance: Instance | undefined) {
@@ -859,6 +944,20 @@ function gateProblem(gates: readonly Gate[]): Problem | undefined {
 
 function limitProblem(resolved: Resolved): Problem | undefined {
   return resolved.ok ? undefined : { reason: 'missingZone', ...resolved.missing }
+}
+
+/**
+ * Whether only an adopted alert makes the condition present: the input has
+ * not reported since start, and the condition is not the silence itself.
+ */
+function assumed(unit: Unit, silence: boolean): boolean {
+  return unit.present && unit.last === undefined && !silence
+}
+
+/** Whether the rule's condition is its input's silence: an absence or a timeout rule. */
+function judgesSilence(rule: Rule): boolean {
+  const d = rule.detector
+  return d.type === 'absence' || (d.type === 'match' && d.op === 'timedOut')
 }
 
 /** The total of an accumulator rule's first step, which every step shares. */

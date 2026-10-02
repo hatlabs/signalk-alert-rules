@@ -4,17 +4,27 @@ import {
   RuleEvaluator,
   type Adopted,
   type EvaluatorContext,
+  type Evidence,
   type InstanceStatus,
+  type Judgement,
   type RuleEvent
 } from '../engine/evaluator.js'
 import { firstPriority, severityOf, type Priority, type Rule } from '../model/rule.js'
-import { statusBadge, type Verdict } from './badge.js'
+import {
+  conditionOf,
+  instanceState,
+  ruleCondition,
+  ruleStateOf,
+  stateReport,
+  type Condition,
+  type InstanceFacts,
+  type RuleStateReport
+} from './state.js'
 import { ruleAlertPath } from '../model/alertPath.js'
 import { instanceAlertPath } from './paths.js'
 import {
   AlertEmitter,
   type AlertHeader,
-  type AlertStatus,
   type AlertValue,
   type AlertsReader,
   type EmitterDeps
@@ -25,22 +35,24 @@ import { errorMessage } from '../util.js'
 
 const INVALID_PATH = { reason: 'alertPathInvalid' } as const
 
+type InstancePath = ReturnType<typeof instanceAlertPath>
+
+/** A rule's alert path, and its instances' by segment. */
+interface AlertPaths {
+  rule: string
+  instances: Map<string, InstancePath>
+}
+
+/** What a change of state is: a change of either axis. */
+const stateKey = (disabled: boolean, condition: Condition) =>
+  `${ruleStateOf(disabled)} ${condition}`
+
 export interface RunnerDeps extends EvaluatorContext, EmitterDeps {
   pluginId: string
   /** Read once at start, to adopt or clear the alerts SKAR already has in core. */
   alerts: AlertsReader
-  /** Wall time, only for the raise timestamp in alert data. */
+  /** Wall time, for the raise timestamp in alert data and the times in rule states. */
   wallClock: () => Date
-}
-
-export type RunnerInstanceStatus = InstanceStatus & Partial<AlertStatus> & Verdict
-
-export interface RunnerRuleStatus extends Verdict {
-  /** Conditions that do not stop the rule, such as a rejected wildcard instance. */
-  issues: string[]
-  /** Failures that make the rule errored, such as an evaluation that threw. */
-  errors: string[]
-  instances: RunnerInstanceStatus[]
 }
 
 /** A rule's accumulator totals by instance segment, with the measure they were built under. */
@@ -72,6 +84,14 @@ export class RuleRunner {
   private readonly errors = new Map<string, Set<string>>()
   /** Rules whose evaluator threw at start; an edit starts them again. */
   private readonly failed = new Set<string>()
+  /** Each rule's state as last observed, and when it took it. */
+  private readonly changes = new Map<string, { state: string; at: string }>()
+  /**
+   * Alert paths by rule id. Every evaluation judges each instance's path,
+   * which depends only on the rule and the instance, so they are computed
+   * once and renewed when the rule changes.
+   */
+  private readonly paths = new Map<string, AlertPaths>()
 
   /**
    * @param accumulated accumulator totals restored from the store, by rule id
@@ -106,6 +126,7 @@ export class RuleRunner {
       const first = firstPriority(rule)
       const priority = severityOf(alert.priority) > severityOf(first) ? alert.priority : first
       this.emitter.adopt(alert, header(rule, name, priority), this.evidence(id, segment ?? ''), now)
+      this.seedChangedAt(id, alert.data?.raisedAt)
     }
     for (const [id, rule] of this.entries) {
       this.startRule(id, rule, activeByRule.get(id), this.accumulated.get(id))
@@ -122,6 +143,13 @@ export class RuleRunner {
       }
     }
     this.emitter.beat(this.deps.clock())
+    // Judged every tick, so a change is timed when it happens, not when
+    // someone next looks; judging skips the facts the full state builds.
+    const now = this.deps.wallClock().toISOString()
+    for (const [id, evaluator] of this.evaluators) {
+      const rule = this.entries.get(id)
+      if (rule !== undefined) this.changedAt(id, this.judge(id, rule, evaluator), now)
+    }
   }
 
   /**
@@ -156,7 +184,8 @@ export class RuleRunner {
     const previous = this.entries.get(id)
     this.errors.delete(id)
     const evaluator = this.evaluators.get(id)
-    const moved = previous !== undefined && ruleAlertPath(previous) !== ruleAlertPath(rule)
+    const moved =
+      previous !== undefined && this.alertPaths(id, previous).rule !== ruleAlertPath(rule)
     if (evaluator === undefined || this.failed.has(id) || moved) {
       this.failed.delete(id)
       let carried = evaluator === undefined ? accumulated : undefined
@@ -169,15 +198,17 @@ export class RuleRunner {
       // heartbeated with nothing to clear them.
       evaluator?.remove()
       this.entries.set(id, rule)
+      this.paths.delete(id)
       this.startRule(id, rule, undefined, carried)
       return
     }
     this.entries.set(id, rule)
+    this.paths.delete(id)
     evaluator.update(rule)
     // An edit that restarts the rule has cleared and re-raised already; any
     // other edit reaches core with the next heartbeat of each active alert.
     for (const { instance, priority, limit } of evaluator.revisions()) {
-      const path = instanceAlertPath(ruleAlertPath(rule), instance?.segment)
+      const path = this.instancePath(id, rule, instance?.segment)
       if (path.ok) this.emitter.revise(path.value, header(rule, instance?.name, priority), limit)
     }
   }
@@ -194,6 +225,8 @@ export class RuleRunner {
     this.entries.delete(id)
     this.errors.delete(id)
     this.failed.delete(id)
+    this.changes.delete(id)
+    this.paths.delete(id)
   }
 
   has(id: string): boolean {
@@ -217,28 +250,117 @@ export class RuleRunner {
     return accumulated
   }
 
-  status(id: string): RunnerRuleStatus | undefined {
+  state(id: string): RuleStateReport | undefined {
     const rule = this.entries.get(id)
     const evaluator = this.evaluators.get(id)
     if (rule === undefined || evaluator === undefined) return undefined
     const status = evaluator.status()
     const errors = [...status.errors, ...(this.errors.get(id) ?? [])]
-    const instances = status.instances.map((instance) => {
-      const path = instanceAlertPath(ruleAlertPath(rule), instance.instance?.segment)
-      if (!path.ok) return { ...instance, inactive: instance.inactive ?? INVALID_PATH }
-      const alert = this.emitter.status(path.value)
-      return alert === undefined
-        ? instance
-        : { ...instance, ...alert, awaitingInput: !this.hasEvidence(rule, instance) }
-    })
-    const verdict = statusBadge(errors, instances, this.disabled(id))
-    return {
-      badge: verdict.badge,
-      ...(verdict.reason === undefined ? {} : { reason: verdict.reason }),
-      subLabels: verdict.subLabels,
+    const wall = this.deps.wallClock().getTime()
+    const ago = (seconds: number) => new Date(wall - seconds * 1000).toISOString()
+    const disabled = this.disabled(id)
+    const started = ago(status.runningFor)
+    const instances = status.instances.map((instance) =>
+      instanceState(this.facts(id, rule, instance, ago), disabled, started)
+    )
+    const condition = ruleCondition(this.failing(id, status.errors.length), instances)
+    const changedAt = this.changedAt(id, stateKey(disabled, condition.condition), ago(0))
+    return stateReport(disabled, condition, changedAt, {
       issues: status.issues,
       errors,
-      instances: instances.map((instance, i) => ({ ...instance, ...verdict.instances[i] }))
+      instances
+    })
+  }
+
+  /** The rule's state as {@link state} reports it, judged without its facts. */
+  private judge(id: string, rule: Rule, evaluator: RuleEvaluator): string {
+    const disabled = this.disabled(id)
+    const { errors, units } = evaluator.judge()
+    const conditions = units.map((u) => ({
+      condition: conditionOf(this.judged(id, rule, u), disabled)
+    }))
+    const { condition } = ruleCondition(this.failing(id, errors), conditions)
+    return stateKey(disabled, condition)
+  }
+
+  /** Whether the rule's evaluation fails, with `evaluatorErrors` the evaluator's own. */
+  private failing(id: string, evaluatorErrors: number): boolean {
+    return evaluatorErrors + (this.errors.get(id)?.size ?? 0) > 0
+  }
+
+  /**
+   * The judgement, with an instance whose alert path core would not accept
+   * as a problem: its alert is never emitted.
+   */
+  private judged(id: string, rule: Rule, judgement: Judgement): Judgement {
+    if (judgement.problem !== undefined) return judgement
+    const path = this.instancePath(id, rule, judgement.instance?.segment)
+    return path.ok ? judgement : { ...judgement, problem: INVALID_PATH }
+  }
+
+  /**
+   * Dates an enabled rule's alerting state from an adopted alert's raise, the
+   * earliest of its alerts': the times kept in memory start over at every
+   * plugin start, but the raise time survives in core. A rule the first
+   * evaluation judges otherwise is timed from that evaluation.
+   */
+  private seedChangedAt(id: string, raisedAt: unknown): void {
+    if (typeof raisedAt !== 'string') return
+    const time = Date.parse(raisedAt)
+    if (Number.isNaN(time)) return
+    const at = new Date(time).toISOString()
+    const state = stateKey(false, 'alerting')
+    const seeded = this.changes.get(id)
+    if (seeded === undefined || at < seeded.at) this.changes.set(id, { state, at })
+  }
+
+  /** The rule's alert path and its instances' as far as computed, kept until the rule changes. */
+  private alertPaths(id: string, rule: Rule): AlertPaths {
+    let paths = this.paths.get(id)
+    if (paths === undefined) {
+      paths = { rule: ruleAlertPath(rule), instances: new Map() }
+      this.paths.set(id, paths)
+    }
+    return paths
+  }
+
+  /** An instance's alert path, or that core would not accept it. */
+  private instancePath(id: string, rule: Rule, segment: string | undefined): InstancePath {
+    const paths = this.alertPaths(id, rule)
+    const key = segment ?? ''
+    let path = paths.instances.get(key)
+    if (path === undefined) {
+      path = instanceAlertPath(paths.rule, segment)
+      paths.instances.set(key, path)
+    }
+    return path
+  }
+
+  /** When the rule took the state it has now: `now` when it differs from the one last observed. */
+  private changedAt(id: string, state: string, now: string): string {
+    const last = this.changes.get(id)
+    if (last?.state === state) return last.at
+    this.changes.set(id, { state, at: now })
+    return now
+  }
+
+  private facts(
+    id: string,
+    rule: Rule,
+    instance: InstanceStatus,
+    ago: (seconds: number) => string
+  ): InstanceFacts {
+    const path = this.instancePath(id, rule, instance.instance?.segment)
+    return {
+      ...(instance.instance === undefined ? {} : { instance: instance.instance }),
+      judgement: this.judged(id, rule, instance.judgement),
+      gates: instance.gates,
+      value: instance.value,
+      limit: instance.limit,
+      progress: instance.progress,
+      ...(instance.clearedFor === undefined ? {} : { clearedAt: ago(instance.clearedFor) }),
+      ...(instance.sinceValue === undefined ? {} : { lastSeen: ago(instance.sinceValue) }),
+      awaitingInput: path.ok && this.emitter.status(path.value)?.awaitingInput === true
     }
   }
 
@@ -294,7 +416,7 @@ export class RuleRunner {
     const now = this.deps.clock()
     const segment = event.instance?.segment
     // An instance whose alert path is invalid shows as inactive in status.
-    const path = instanceAlertPath(ruleAlertPath(rule), segment)
+    const path = this.instancePath(id, rule, segment)
     if (!path.ok) return
     switch (event.type) {
       case 'raise':
@@ -356,7 +478,7 @@ export class RuleRunner {
    * so an absence rule has evidence unless its input is unavailable and a
    * timeout rule always has it.
    */
-  private hasEvidence(rule: Rule, instance: Pick<InstanceStatus, 'input' | 'adopted'>): boolean {
+  private hasEvidence(rule: Rule, instance: Evidence): boolean {
     const d = rule.detector
     if (d.type === 'match' && d.op === 'timedOut') return true
     if (instance.adopted && d.type !== 'absence') return instance.input === 'value'

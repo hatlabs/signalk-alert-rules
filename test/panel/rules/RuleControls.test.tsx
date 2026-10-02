@@ -7,14 +7,15 @@ import { instance, ruleEntry } from '../fixtures'
 
 const active = ruleEntry({
   status: {
-    badge: 'alertActive',
-    instances: [instance({ badge: 'alertActive', active: true, priority: 'alarm' })]
+    condition: 'alerting',
+    reason: 'alertActive',
+    instances: [instance({ condition: 'alerting', reason: 'alertActive', priority: 'alarm' })]
   }
 })
 
 const disabled = ruleEntry({
   disabled: { since: '2026-09-30T12:00:00.000Z', actor: 'admin' },
-  status: { badge: 'disabled' }
+  status: { condition: 'present', reason: 'conditionPresent' }
 })
 
 function renderControls(entry: RuleEntry) {

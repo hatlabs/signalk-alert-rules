@@ -50,7 +50,7 @@ SKAR serves its rules, their status and its operator actions under the plugin's 
   "enabled": true,
   "note": "Monitor replaced in spring",
   "suppression": { "since": "2026-09-30T12:00:00.000Z", "actor": "admin", "autoEndAfter": 600 },
-  "status": { ... }
+  "state": { ... }
 }
 ```
 
@@ -58,8 +58,8 @@ SKAR serves its rules, their status and its operator actions under the plugin's 
 - `ruleset`: for a ruleset rule only, the ruleset's name and version and, for one from a package, the package's name and version.
 - `rule`: for a ruleset rule, the rule as the ruleset's parameter values resolve it.
 - `alertPath`: the rule's alert path without the `alerts.` prefix, its condition name under the parent its input gives, as [Alert paths](rules.md#alert-paths) describes. It is derived, not part of the rule; a wildcard rule's has a `*` where each instance's segment goes.
-- `enabled`, `note` and `suppression`: the rule's [controls](#rule-controls); `note` and `suppression` are absent when the rule has none. `suppression` is the rule's own; an input suppression shows in `status` only.
-- `status`: the rule's status with its badge, sub-labels and per-instance rows, as described in [Status](rules.md#status). A rule that is not evaluated has the `disabled` badge with the reason `disabled` or `ruleset is disabled`. A ruleset rule whose paths the server has not had has the `inactive` badge with the reason `ruleset path missing` and one issue per missing path; once they have all appeared, until the next evaluation tick starts it, the reason is `starts at the next tick` with no issues. Either way its accumulator totals are instance rows with `progress`.
+- `enabled`, `note` and `suppression`: the rule's [controls](#rule-controls); `note` and `suppression` are absent when the rule has none. `suppression` is the rule's own; an input suppression shows in `state` only.
+- `state`: the rule's state: `ruleState` (`enabled` or `disabled`), its `condition` with a `reason` code and that reason's facts, `changedAt`, the time either last changed since the plugin started (an adopted alert keeps its raise time), `issues` and `errors`, and one row per instance, as described in [State](rules.md#state). While the plugin has not started evaluating, the condition is `noData` with the reason `notEvaluated`, and the rule's accumulator totals are instance rows with `progress`.
 
 ### Edit preview
 
@@ -85,7 +85,7 @@ The preview uses the same comparison the engine applies when the edit is saved.
 
 The rule behaviour behind these routes is in [Enable and suppression](rules.md#enable-and-suppression). Controls and suppressions persist in the data directory and survive restarts.
 
-- Disabling a rule clears its alerts and stops evaluating it; enabling it starts it as a new rule. Setting the current value changes nothing and is not logged.
+- Disabling a rule clears its alerts and raises nothing while it keeps evaluating; enabling it raises at once when its state shows the condition `present`, and otherwise once its condition has held for its duration. Setting the current value changes nothing and is not logged.
 - A note is at most 500 characters. Setting the note a rule already has changes nothing and is not logged.
 - A suppression request body is an object with optional fields: `note`, at most 500 characters, and `autoEndAfter`, seconds above 0 and at most 86400. Without `autoEndAfter` the suppression ends only through `DELETE`. Other fields are refused.
 - Suppressing clears the active alerts it suppresses; ending it raises an alert whose condition still holds as a new alert. Ending a suppression that is not in force, such as one that has just ended by itself, changes nothing, is not logged and answers 204.

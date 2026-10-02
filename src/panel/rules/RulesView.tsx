@@ -1,13 +1,17 @@
 import { Fragment, useId, useState } from 'react'
-import { BADGES, type Badge, type RuleEntry } from '../api'
+import type { RuleEntry } from '../api'
 import {
   describeDetector,
   describeInput,
   describePriority,
   instanceSummary,
-  isWildcard
+  isWildcard,
+  ruleBadge
 } from './describe'
-import { BADGE_LOOK, StatusBadge } from './StatusBadge'
+import { BADGE_LOOK, StatusBadge, type BadgeKind } from './StatusBadge'
+
+/** The badges a rule can have; `present` belongs to the instances of a disabled rule. */
+const RULE_BADGES: readonly BadgeKind[] = ['alerting', 'problem', 'noData', 'normal', 'disabled']
 
 export interface RulesViewProps {
   rules: RuleEntry[]
@@ -17,8 +21,8 @@ export interface RulesViewProps {
   onNew?: () => void
 }
 
-function matches(entry: RuleEntry, text: string, badge: Badge | ''): boolean {
-  if (badge !== '' && entry.status.badge !== badge) return false
+function matches(entry: RuleEntry, text: string, badge: BadgeKind | ''): boolean {
+  if (badge !== '' && ruleBadge(entry) !== badge) return false
   const needle = text.trim().toLowerCase()
   if (needle === '') return true
   return [entry.rule.name, entry.slug, ...entry.rule.signal.paths].some((field) =>
@@ -47,7 +51,7 @@ function RuleRow({ entry, href }: { entry: RuleEntry; href: string }) {
         <a href={href}>{entry.rule.name}</a>
       </td>
       <td>
-        <StatusBadge status={entry.status} />
+        <StatusBadge kind={ruleBadge(entry)} />
         {isWildcard(entry.rule) && (
           <div className="skar-instance-summary">{instanceSummary(entry)}</div>
         )}
@@ -87,7 +91,7 @@ function RuleTable({ rules, ruleHref }: Omit<RulesViewProps, 'onNew'>) {
 /** The rule list: filters, then the rules. */
 export function RulesView({ rules, ruleHref, onNew }: RulesViewProps) {
   const [text, setText] = useState('')
-  const [badge, setBadge] = useState<Badge | ''>('')
+  const [badge, setBadge] = useState<BadgeKind | ''>('')
   const filterId = useId()
   const statusId = useId()
   const shown = rules.filter((entry) => matches(entry, text, badge))
@@ -119,11 +123,11 @@ export function RulesView({ rules, ruleHref, onNew }: RulesViewProps) {
             className="form-select form-select-sm"
             value={badge}
             onChange={(e) => {
-              setBadge(BADGES.find((b) => b === e.target.value) ?? '')
+              setBadge(RULE_BADGES.find((b) => b === e.target.value) ?? '')
             }}
           >
             <option value="">Any status</option>
-            {BADGES.map((b) => (
+            {RULE_BADGES.map((b) => (
               <option key={b} value={b}>
                 {BADGE_LOOK[b].label}
               </option>

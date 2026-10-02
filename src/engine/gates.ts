@@ -1,7 +1,7 @@
 import type { Gate as GateModel } from '../model/rule.js'
 import { createDetector, type Detector } from './detectors/index.js'
 import { resolveLimit, type MissingZone, type Zone } from './limits.js'
-import { inputState, type InputState, type Reading } from './signals.js'
+import { inputState, type InputState, type Reading, type SignalValue } from './signals.js'
 
 /**
  * Whether a rule is in use, as a sustained comparison on the gate's own
@@ -38,6 +38,11 @@ export class Gate {
 
   get input(): InputState {
     return inputState(this.last)
+  }
+
+  /** The gate input's value, while it has one. */
+  get value(): SignalValue | undefined {
+    return this.last?.available === true ? this.last.value : undefined
   }
 
   /** The zone level the gate's limit names and its path lacks, so the gate cannot hold. */

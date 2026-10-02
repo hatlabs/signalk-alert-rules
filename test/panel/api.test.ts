@@ -61,25 +61,25 @@ const ruleEntry = {
     actor: 'admin',
     note: 'Sender replaced in spring'
   },
-  status: {
-    badge: 'disabled',
-    subLabels: ['waitingForClear', 'gateInputUnavailable'],
+  state: {
+    ruleState: 'disabled',
+    condition: 'present',
+    reason: 'conditionPresent',
+    instance: { name: 'house', segment: 'house' },
+    value: 12.1,
+    limit: 12.2,
+    gates: [{ path: 'electrical.chargers.shore.state', holds: true, input: 'unavailable' }],
+    changedAt: '2026-09-30T12:00:00.000Z',
     issues: ['instance x.y was not admitted'],
     errors: [],
     instances: [
       {
         instance: { name: 'house', segment: 'house' },
-        active: false,
-        inUse: true,
-        input: 'value',
+        condition: 'present',
+        reason: 'conditionPresent',
         value: 12.1,
         limit: 12.2,
-        progress: { kind: 'timer', toward: 'set', elapsed: 20, target: 60 },
-        gates: [{ holds: true, input: 'unavailable' }],
-        adopted: false,
-        conditionPresent: true,
-        badge: 'disabled',
-        subLabels: ['waitingForClear', 'gateInputUnavailable']
+        gates: [{ path: 'electrical.chargers.shore.state', holds: true, input: 'unavailable' }]
       }
     ]
   }
@@ -103,18 +103,19 @@ const notStartedAccumulator = {
       steps: [{ limit: 360000, priority: 'caution' }]
     }
   },
-  status: {
-    badge: 'inactive',
-    reason: 'not started',
-    subLabels: [],
+  state: {
+    ruleState: 'enabled',
+    condition: 'noData',
+    reason: 'notEvaluated',
+    changedAt: '2026-09-30T12:00:00.000Z',
     issues: [],
     errors: [],
     instances: [
       {
-        badge: 'inactive',
-        reason: 'not started',
-        subLabels: [],
-        progress: { kind: 'total', total: 7200, limit: 360000 }
+        condition: 'noData',
+        reason: 'notEvaluated',
+        progress: { kind: 'total', total: 7200, limit: 360000 },
+        gates: []
       }
     ]
   }
@@ -222,20 +223,17 @@ describe('httpApi', () => {
           note: 'Sender replaced in spring'
         },
         status: {
-          badge: 'disabled',
-          subLabels: ['waitingForClear', 'gateInputUnavailable'],
+          condition: 'present',
+          reason: 'conditionPresent',
           issues: ['instance x.y was not admitted'],
           errors: [],
           instances: [
             {
               instance: { name: 'house', segment: 'house' },
-              badge: 'disabled',
-              subLabels: ['waitingForClear', 'gateInputUnavailable'],
-              active: false,
-              input: 'value',
+              condition: 'present',
+              reason: 'conditionPresent',
               value: 12.1,
               limit: 12.2,
-              progress: { kind: 'timer', toward: 'set', elapsed: 20, target: 60 },
               gates: [{ holds: true, input: 'unavailable' }]
             }
           ]
@@ -255,16 +253,14 @@ describe('httpApi', () => {
           gates: []
         },
         status: {
-          badge: 'inactive',
-          reason: 'not started',
-          subLabels: [],
+          condition: 'noData',
+          reason: 'notEvaluated',
           issues: [],
           errors: [],
           instances: [
             {
-              badge: 'inactive',
-              reason: 'not started',
-              subLabels: [],
+              condition: 'noData',
+              reason: 'notEvaluated',
               progress: { kind: 'total', total: 7200, limit: 360000 },
               gates: []
             }
@@ -274,19 +270,20 @@ describe('httpApi', () => {
     })
 
     it('reads the zone level and priority of an active instance', async () => {
-      const entry = {
-        ...ruleEntry,
-        status: {
-          ...ruleEntry.status,
-          instances: [
-            { ...ruleEntry.status.instances[0], active: true, level: 'alarm', priority: 'alarm' }
-          ]
-        }
+      const alerting = {
+        ...ruleEntry.state.instances[0],
+        condition: 'alerting',
+        reason: 'alertActive',
+        step: 1,
+        level: 'alarm',
+        priority: 'alarm',
+        awaitingInput: false
       }
+      const entry = { ...ruleEntry, state: { ...ruleEntry.state, instances: [alerting] } }
       const api = httpApi(fakeFetch({ [`${BASE}/rules`]: { body: [entry] } }))
       const [read] = await api.rules()
       expect(read.status.instances[0]).toMatchObject({
-        active: true,
+        condition: 'alerting',
         level: 'alarm',
         priority: 'alarm'
       })
@@ -296,9 +293,9 @@ describe('httpApi', () => {
       const position = { latitude: 60.1, longitude: 24.9 }
       const entry = {
         ...ruleEntry,
-        status: {
-          ...ruleEntry.status,
-          instances: [{ ...ruleEntry.status.instances[0], value: position }]
+        state: {
+          ...ruleEntry.state,
+          instances: [{ ...ruleEntry.state.instances[0], value: position }]
         }
       }
       const api = httpApi(fakeFetch({ [`${BASE}/rules`]: { body: [entry] } }))
@@ -311,8 +308,8 @@ describe('httpApi', () => {
       await expect(api.rules()).rejects.toThrow(/unexpected response from \/rules/)
     })
 
-    it('rejects a badge the panel does not know', async () => {
-      const entry = { ...ruleEntry, status: { ...ruleEntry.status, badge: 'ok' } }
+    it('rejects a condition the panel does not know', async () => {
+      const entry = { ...ruleEntry, state: { ...ruleEntry.state, condition: 'ok' } }
       const api = httpApi(fakeFetch({ [`${BASE}/rules`]: { body: [entry] } }))
       await expect(api.rules()).rejects.toThrow(/unexpected response from \/rules/)
     })

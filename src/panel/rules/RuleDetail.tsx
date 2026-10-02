@@ -8,6 +8,7 @@ import {
   describePriority,
   discardedTotals,
   formatTime,
+  ruleBadge,
   ruleDisplay,
   type RuleDisplay
 } from './describe'
@@ -96,7 +97,7 @@ export function RuleDetail({
         {rule.name}
       </h3>
       <p className="skar-path">{entry.slug}</p>
-      <StatusBadge status={status} />
+      <StatusBadge kind={ruleBadge(entry)} />
       {status.errors.length > 0 && (
         <>
           <h4 id={errorsId} className="h6 mt-3">

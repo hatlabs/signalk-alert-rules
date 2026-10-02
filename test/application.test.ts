@@ -428,9 +428,25 @@ describe('application operator actions', () => {
     stored(oil)
     const server = new MockServerAPI(true, dir, new FakeAlertsCore())
     const application = new Application(serverDeps(server.asServerAPI(), PLUGIN), new Store(dir))
-    expect(application.rule(oil.slug)?.status).toMatchObject({
-      badge: 'inactive',
-      reason: 'not started'
+    expect(application.rule(oil.slug)?.state).toMatchObject({
+      ruleState: 'enabled',
+      condition: 'noData',
+      reason: 'notEvaluated',
+      changedAt: expect.any(String) as unknown
+    })
+  })
+
+  it('a disabled rule before start reports its rule state disabled', () => {
+    stored(oil)
+    new Store(dir).saveControls({
+      rules: { [oil.slug]: { disabled: { since: '2026-09-30T12:00:00.000Z', actor: 'admin' } } }
+    })
+    const server = new MockServerAPI(true, dir, new FakeAlertsCore())
+    const application = new Application(serverDeps(server.asServerAPI(), PLUGIN), new Store(dir))
+    expect(application.rule(oil.slug)?.state).toMatchObject({
+      ruleState: 'disabled',
+      condition: 'noData',
+      reason: 'notEvaluated'
     })
   })
 
@@ -709,7 +725,7 @@ describe('application operator actions', () => {
     const { application } = setup(undefined, core, () => {
       throw new Error('meta unreadable')
     })
-    expect(application.rule(battery.slug)?.status.badge).toBe('errored')
+    expect(application.rule(battery.slug)?.state.condition).toBe('problem')
 
     const reworded = { ...battery, message: 'Check the battery' }
     expect(application.previewRule(battery.slug, reworded)).toEqual({
@@ -759,8 +775,8 @@ describe('application operator actions', () => {
     at(5)
     const [entry] = application.rules()
     expect(entry).toMatchObject({ slug: 'oil-pressure-low', rule: oil })
-    expect(entry.status.badge).toBe('alertActive')
-    expect(application.rule('oil-pressure-low')?.status.badge).toBe('alertActive')
+    expect(entry.state.condition).toBe('alerting')
+    expect(application.rule('oil-pressure-low')?.state.condition).toBe('alerting')
     expect(application.rule('missing')).toBeUndefined()
   })
 })
@@ -875,7 +891,7 @@ describe('application accumulator totals across edits', () => {
 
     const { application } = setup()
 
-    expect(application.rule(hours.slug)?.status.instances).toMatchObject([
+    expect(application.rule(hours.slug)?.state.instances).toMatchObject([
       { progress: { total: 0 } }
     ])
     application.checkpoint()
@@ -996,7 +1012,7 @@ describe('disable and enable', () => {
     expect(alerts()).toEqual([[OIL_ALERT, false]])
     expect(application.rule(oil.slug)).toMatchObject({
       disabled: disabledAt('paddlewheel fouled'),
-      status: { badge: 'disabled' }
+      state: { ruleState: 'disabled' }
     })
     expect(new Store(dir).load().controls.rules).toEqual({
       [ID]: { disabled: disabledAt('paddlewheel fouled') }
@@ -1013,15 +1029,19 @@ describe('disable and enable', () => {
     at(0, OIL, 0)
     at(100)
     expect(alerts()).toEqual([])
-    expect(application.rule(oil.slug)?.status.instances[0]).toMatchObject({
-      badge: 'disabled',
-      conditionPresent: true
+    expect(application.rule(oil.slug)?.state).toMatchObject({
+      ruleState: 'disabled',
+      condition: 'present',
+      reason: 'conditionPresent'
     })
     at(110, OIL, 200000)
     at(170)
-    expect(application.rule(oil.slug)?.status.instances[0]).toMatchObject({
-      conditionPresent: false,
-      clearedFor: 60
+    // The test's wall clock stands still while the evaluation clock runs.
+    expect(application.rule(oil.slug)?.state).toMatchObject({
+      ruleState: 'disabled',
+      condition: 'normal',
+      reason: 'withinLimits',
+      clearedAt: new Date(Date.parse(WALL) - 60_000).toISOString()
     })
   })
 
@@ -1095,7 +1115,7 @@ describe('disable and enable', () => {
     expect(first.server.core.alertings).toBe(1)
     expect(second.application.rule(oil.slug)).toMatchObject({
       disabled: disabledAt('paddlewheel fouled'),
-      status: { badge: 'disabled', instances: [{ conditionPresent: true }] }
+      state: { ruleState: 'disabled', condition: 'present', instances: [{ condition: 'present' }] }
     })
   })
 
@@ -1110,7 +1130,7 @@ describe('disable and enable', () => {
     expect(alerts()).toEqual([])
     expect(application.rule(oil.slug)).toMatchObject({
       disabled: disabledAt('paddlewheel fouled'),
-      status: { badge: 'disabled', instances: [{ conditionPresent: true }] }
+      state: { ruleState: 'disabled', condition: 'present', instances: [{ condition: 'present' }] }
     })
   })
 
@@ -1197,7 +1217,10 @@ describe('pinned sources', () => {
     s.server.subscriptionmanager.publish(COOLANT, 'can0.11', 390)
     s.at(3)
     expect(s.alerts()).toEqual([])
-    expect(s.application.rule(coolant.slug)?.status.badge).toBe('neverSeen')
+    expect(s.application.rule(coolant.slug)?.state).toMatchObject({
+      condition: 'noData',
+      reason: 'neverReported'
+    })
   })
 
   it('an edit of a rule stored in address form is not structural for the change of form alone', () => {
