@@ -1413,7 +1413,7 @@ describe('templates', () => {
     })
   })
 
-  it('dismissing marks the current templates seen, for good; an update makes only its additions new', () => {
+  it('dismissing marks the templates shown seen, for good; an update makes only its additions new', () => {
     const found: { current: DiscoveryResult } = {
       current: {
         sets: [{ source: 'built-in', set: set('builtin', '1', ['a', 'b']) }],
@@ -1421,7 +1421,9 @@ describe('templates', () => {
       }
     }
     const application = withSets(found)
-    expect(application.dismissTemplates().sets.map((s) => s.new)).toEqual([[]])
+    expect(application.dismissTemplates({ builtin: ['a', 'b'] }).sets.map((s) => s.new)).toEqual([
+      []
+    ])
     found.current = {
       sets: [{ source: 'built-in', set: set('builtin', '2', ['a', 'b', 'c']) }],
       problems: []
@@ -1433,14 +1435,66 @@ describe('templates', () => {
     ).toEqual([['c']])
   })
 
+  it('a template installed after the notice was drawn stays new when it is dismissed', () => {
+    const found: { current: DiscoveryResult } = {
+      current: {
+        sets: [{ source: 'built-in', set: set('builtin', '1', ['a', 'b']) }],
+        problems: []
+      }
+    }
+    const application = withSets(found)
+    const shown = { builtin: application.templates().sets[0]?.new ?? [] }
+    found.current = {
+      sets: [
+        { source: 'built-in', set: set('builtin', '2', ['a', 'b', 'c']) },
+        { source: 'file extra.yaml', set: set('extra', '1', ['d']) }
+      ],
+      problems: []
+    }
+    expect(application.dismissTemplates(shown).sets.map((s) => s.new)).toEqual([['c'], ['d']])
+  })
+
+  it('dismissing again after an update adds to the templates already seen', () => {
+    const found: { current: DiscoveryResult } = {
+      current: {
+        sets: [{ source: 'built-in', set: set('builtin', '1', ['a', 'b']) }],
+        problems: []
+      }
+    }
+    const application = withSets(found)
+    application.dismissTemplates({ builtin: ['a', 'b'] })
+    found.current = {
+      sets: [{ source: 'built-in', set: set('builtin', '2', ['a', 'b', 'c']) }],
+      problems: []
+    }
+    application.dismissTemplates({ builtin: ['c'] })
+    expect(application.templates().sets.map((s) => s.new)).toEqual([[]])
+  })
+
+  it('dismissing ignores templates and sets that are not installed', () => {
+    const found: { current: DiscoveryResult } = {
+      current: { sets: [{ source: 'built-in', set: set('builtin', '1', ['a']) }], problems: [] }
+    }
+    const application = withSets(found)
+    application.dismissTemplates({ builtin: ['a', 'gone'], removed: ['x'] })
+    found.current = {
+      sets: [
+        { source: 'built-in', set: set('builtin', '2', ['a', 'gone']) },
+        { source: 'file removed.yaml', set: set('removed', '1', ['x']) }
+      ],
+      problems: []
+    }
+    expect(application.templates().sets.map((s) => s.new)).toEqual([['gone'], ['x']])
+  })
+
   it('a set that does not load while dismissing keeps its templates seen', () => {
     const found: { current: DiscoveryResult } = {
       current: { sets: [{ source: 'built-in', set: set('builtin', '1', ['a']) }], problems: [] }
     }
     const application = withSets(found)
-    application.dismissTemplates()
+    application.dismissTemplates({ builtin: ['a'] })
     found.current = { sets: [], problems: [problem] }
-    application.dismissTemplates()
+    application.dismissTemplates({ builtin: ['a'] })
     found.current = {
       sets: [{ source: 'built-in', set: set('builtin', '1', ['a']) }],
       problems: []
@@ -1451,7 +1505,7 @@ describe('templates', () => {
   it('dismissing with nothing new writes nothing', () => {
     const found: { current: DiscoveryResult } = { current: { sets: [], problems: [] } }
     const application = withSets(found)
-    application.dismissTemplates()
+    application.dismissTemplates({ builtin: ['a'] })
     expect(existsSync(join(dir, 'controls.json'))).toBe(false)
   })
 

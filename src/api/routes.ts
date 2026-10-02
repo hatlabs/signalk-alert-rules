@@ -257,8 +257,13 @@ export function registerRoutes(
   router.post(
     '/templates/dismiss',
     requireJson,
-    running((skar, _req, res) => {
-      res.json(skar.dismissTemplates())
+    running((skar, req, res) => {
+      const request = dismissRequest(req.body)
+      if (!request.ok) {
+        invalid(res, request.errors)
+        return
+      }
+      res.json(skar.dismissTemplates(request.templates))
     })
   )
   return opensLevels
@@ -294,6 +299,35 @@ function disableRequest(
   if (note !== undefined && !isNote(note)) errors.push(NOTE_ERROR)
   if (errors.length > 0) return { ok: false, errors }
   return typeof note === 'string' ? { ok: true, note } : { ok: true }
+}
+
+const DISMISS_FIELDS: readonly string[] = ['templates']
+
+/**
+ * A dismissal's body: the ids of the templates the notice showed, by set id,
+ * so a template installed after the notice was drawn is not marked seen.
+ */
+function dismissRequest(
+  body: unknown
+): { ok: true; templates: Record<string, string[]> } | { ok: false; errors: ValidationError[] } {
+  if (!isRecord(body)) return { ok: false, errors: notAnObject }
+  const errors = Object.keys(body)
+    .filter((key) => !DISMISS_FIELDS.includes(key))
+    .map((key) => ({ path: `/${escapePointer(key)}`, message: 'is not a known field' }))
+  const { templates } = body
+  if (!isRecord(templates)) {
+    errors.push({ path: '/templates', message: 'must be an object of template ids by set id' })
+    return { ok: false, errors }
+  }
+  for (const [set, ids] of Object.entries(templates)) {
+    if (!Array.isArray(ids) || !ids.every((id) => typeof id === 'string'))
+      errors.push({
+        path: `/templates/${escapePointer(set)}`,
+        message: 'must be a list of template ids'
+      })
+  }
+  if (errors.length > 0) return { ok: false, errors }
+  return { ok: true, templates: templates as Record<string, string[]> }
 }
 
 function editRefused(res: Response, outcome: Exclude<SaveOutcome, { ok: true }>): void {

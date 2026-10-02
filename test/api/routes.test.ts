@@ -959,10 +959,11 @@ describe('templates API', () => {
     expect(core(h).getByPath('electrical.batteries.house.voltageLow')?.condition).toBe(true)
   })
 
-  it('dismissing marks the current templates seen for everyone; an update makes only its additions new', async () => {
+  it('dismissing marks the templates shown seen for everyone; an update makes only its additions new', async () => {
     installSet('1.0.0')
     const h = await serve()
-    const dismissed = await h.call('POST', '/templates/dismiss')
+    const shown = Object.fromEntries((await listing(h)).sets.map((s) => [s.id, s.new]))
+    const dismissed = await h.call('POST', '/templates/dismiss', { templates: shown })
     expect(dismissed.status).toBe(200)
     expect((dismissed.body as TemplateListing).sets.map((s) => s.new)).toEqual([[], []])
 
@@ -993,6 +994,23 @@ describe('templates API', () => {
     ])
   })
 
+  it('refuses a dismissal that does not name the templates shown', async () => {
+    const h = await serve()
+    const replies = await Promise.all(
+      [
+        undefined,
+        {},
+        { templates: [] },
+        { templates: { builtin: [1] } },
+        { templates: {}, x: 1 }
+      ].map((body) => h.call('POST', '/templates/dismiss', body))
+    )
+    expect(replies.map((r) => r.status)).toEqual([400, 400, 400, 400, 400])
+    expect(replies[3]?.body).toMatchObject({ errors: [{ path: '/templates/builtin' }] })
+    expect(replies[4]?.body).toMatchObject({ errors: [{ path: '/x' }] })
+    expect(existsSync(join(dir, 'controls.json'))).toBe(false)
+  })
+
   it('takes dismissing only as a JSON request, and answers 503 while not running', async () => {
     const h = await serve()
     const form = { 'content-type': 'application/x-www-form-urlencoded' }
@@ -1001,7 +1019,7 @@ describe('templates API', () => {
     const stopped = await serve({ withAlerts: false })
     const replies = await Promise.all([
       stopped.call('GET', '/templates'),
-      stopped.call('POST', '/templates/dismiss')
+      stopped.call('POST', '/templates/dismiss', { templates: {} })
     ])
     expect(replies.map((r) => r.status)).toEqual([503, 503])
   })
@@ -1027,7 +1045,7 @@ describe('access by role', () => {
     ['POST', `${RULE}/preview`, oil],
     ['DELETE', RULE, undefined],
     ['POST', `${RULE}/reset`, undefined],
-    ['POST', '/templates/dismiss', undefined]
+    ['POST', '/templates/dismiss', { templates: {} }]
   ]
   const reads = ['/state', '/rules', RULE, '/log', '/templates']
   const controls: [string, string, unknown][] = [
@@ -1117,7 +1135,7 @@ describe('access by role', () => {
       await statuses(h, [
         ['GET', '/rules', undefined],
         ...controls,
-        ['POST', '/templates/dismiss', undefined]
+        ['POST', '/templates/dismiss', { templates: {} }]
       ])
     ).toEqual([200, 200, 200, 200])
   })

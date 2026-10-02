@@ -26,7 +26,7 @@ SKAR serves its rules, their status and its operator actions under the plugin's 
 | `POST /rules/:slug/enable` | read/write | enables a rule; answers its entry |
 | `GET /log` | read-only | the operator action log, newest first |
 | `GET /templates` | read-only | the template sets installed now, each with its templates and the ids of those whose notice nobody has dismissed, and the sets that failed to load |
-| `POST /templates/dismiss` | admin | dismisses the notice of every template installed now; answers as `GET /templates` |
+| `POST /templates/dismiss` | admin | dismisses the notice of the templates the body names, `{ "templates": { "<set id>": ["<template id>", …] } }`: those the notice showed, of the ones installed now; answers as `GET /templates` |
 
 The level is the lowest access level a route admits while server security is enabled.
 
