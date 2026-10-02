@@ -10,6 +10,11 @@ export function plural(count: number, noun: string): string {
   return `${String(count)} ${noun}${count === 1 ? '' : 's'}`
 }
 
+/** "a" or "an", for the priority names. */
+export function article(word: string): string {
+  return /^[aeiou]/.test(word) ? 'an' : 'a'
+}
+
 /** The alerts a rule holds now, as its state reports them. */
 export function activeCount(entry: RuleEntry): number {
   return entry.status.instances.filter((i) => i.condition === 'alerting').length
@@ -42,6 +47,11 @@ export function describeInput(s: RuleInfo['signal']): string {
 
 export function isWildcard(rule: RuleInfo): boolean {
   return rule.signal.paths.some((path) => path.split('.').includes('*'))
+}
+
+/** Whether a rule is told per instance: a wildcard, or one reporting several. */
+export function hasInstances(entry: RuleEntry): boolean {
+  return isWildcard(entry.rule) || entry.status.instances.length > 1
 }
 
 function withUnit(shown: string, unit: string): string {

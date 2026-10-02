@@ -1,9 +1,9 @@
 import { isInvalid, type ListedRule, type RuleInfo, type RuleStatus } from '../api'
-import { isWildcard, ruleDisplay, type RuleDisplay } from '../rules/describe'
+import { hasInstances, ruleDisplay, type RuleDisplay } from '../rules/describe'
 import type { UnitLookup } from '../signalUnits'
 
 const SECOND = 1000
-const MINUTE = 60 * SECOND
+export const MINUTE = 60 * SECOND
 const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
 
@@ -58,7 +58,8 @@ export function problem(
 
 const NEVER_REPORTED = 'No value since the plugin started'
 
-function noData(status: RuleStatus, now: number): string {
+/** Why there is no value, without a closing full stop. */
+export function noData(status: Pick<RuleStatus, 'reason' | 'lastSeen'>, now: number): string {
   if (status.reason === 'notEvaluated') return 'Not evaluated yet'
   if (status.reason === 'inputUnavailable' && status.lastSeen !== undefined) {
     return `No value for ${elapsed(now - Date.parse(status.lastSeen))}`
@@ -86,7 +87,7 @@ export function reading(
  * a state, a rate of change (the limit is per second), or a value projected
  * to pass the limit later.
  */
-export const NO_READING: ReadonlySet<string> = new Set([
+const NO_READING: ReadonlySet<string> = new Set([
   'match',
   'count',
   'absence',
@@ -167,7 +168,7 @@ export function currentFact(entry: ListedRule, units: UnitLookup, now: number): 
   const { status, rule } = entry
   const display = ruleDisplay(rule, units)
   const disabled = status.ruleState === 'disabled'
-  const wildcard = isWildcard(rule) || status.instances.length > 1
+  const wildcard = hasInstances(entry)
   if (wildcard && status.condition === 'normal' && !disabled) {
     const count = status.instances.length
     return `${String(count)} instance${count === 1 ? '' : 's'}`

@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode, type Ref, type RefO
 import { UNAUTHENTICATED_ACTOR, type RuleEntry } from '../api'
 import { failureMessage } from '../failure'
 import { chipOf } from '../list/attention'
-import { elapsed } from '../list/fact'
+import { elapsed, MINUTE } from '../list/fact'
 import { capitalised, PriorityBadge } from '../list/PriorityBadge'
 import { StateChip } from '../list/StateChip'
 import { ConfirmSheet, useConfirmation, type Confirmation } from '../rules/Confirm'
@@ -12,7 +12,7 @@ import {
   describeInput,
   discardedTotals,
   formatTime,
-  isWildcard,
+  hasInstances,
   MAX_NOTE_LENGTH,
   plural,
   ruleDisplay,
@@ -38,8 +38,6 @@ export interface RuleDetailProps {
   instance?: string
   /** The linked instance's row, which takes focus when the operator follows the link. */
   instanceRef?: Ref<HTMLLIElement>
-  /** The rule's history over time, shown under its steps. */
-  history?: ReactNode
   /** Opens the rule in the editor; absent where the rule cannot be edited. */
   edit?: () => void
   /** Disables the rule with a note, an empty one meaning none; absent where it cannot be changed. */
@@ -51,8 +49,6 @@ export interface RuleDetailProps {
   /** Resets an accumulator's totals; absent where they cannot be reset. */
   reset?: () => Promise<void>
 }
-
-const MINUTE = 60_000
 
 /** How long ago, "just now" while the seconds would only count up. */
 function ageOf(ms: number): string {
@@ -439,14 +435,13 @@ export function RuleDetail({
   units = NO_UNITS,
   instance,
   instanceRef,
-  history,
   ...controls
 }: RuleDetailProps) {
   const errorsId = useId()
   const { rule, status } = entry
   const display = ruleDisplay(rule, units)
   const chip = chipOf(entry)
-  const wildcard = isWildcard(rule) || status.instances.length > 1
+  const wildcard = hasInstances(entry)
 
   return (
     <div className="skar-detail">
@@ -495,7 +490,6 @@ export function RuleDetail({
         </div>
       )}
       <Steps entry={entry} display={display} />
-      {history}
       {wildcard && (
         <Instances
           instances={status.instances}

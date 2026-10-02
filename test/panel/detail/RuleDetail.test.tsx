@@ -182,11 +182,6 @@ describe('RuleDetail', () => {
         screen.getByText('To acknowledge or silence the alert itself, use the alert console.')
       ).toBeTruthy()
     })
-
-    it('leaves a place for the history chart', () => {
-      renderDetail(houseLow, { history: <div>history here</div> })
-      expect(screen.getByText('history here')).toBeTruthy()
-    })
   })
 
   describe('steps', () => {

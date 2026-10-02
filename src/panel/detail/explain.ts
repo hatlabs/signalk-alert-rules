@@ -1,6 +1,7 @@
 import type { InstanceStatus, RuleEntry, RuleInfo, RuleStatus } from '../api'
-import { elapsed, problem, reading } from '../list/fact'
-import { isWildcard, plural, ruleDisplay, type RuleDisplay } from '../rules/describe'
+import { elapsed, MINUTE, noData, problem, reading } from '../list/fact'
+import { capitalised } from '../list/PriorityBadge'
+import { article, hasInstances, plural, ruleDisplay, type RuleDisplay } from '../rules/describe'
 import { instanceSegment, type UnitLookup } from '../signalUnits'
 
 /** A piece of an explanation; the emphasised pieces carry what the operator scans for. */
@@ -9,24 +10,13 @@ export type Sentence = Part[]
 
 const strong = (text: string): Part => ({ strong: text })
 
-const MINUTE = 60_000
-
 export function sentenceText(sentence: Sentence): string {
   return sentence.map((p) => (typeof p === 'string' ? p : p.strong)).join('')
-}
-
-function capitalised(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
 /** `coolantTemperature` as "coolant temperature". */
 function words(segment: string): string {
   return segment.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase()
-}
-
-/** "a" or "an", for the priority names. */
-function article(word: string): string {
-  return /^[aeiou]/.test(word) ? 'an' : 'a'
 }
 
 /**
@@ -165,7 +155,7 @@ function withinLimits(facts: Facts, display: RuleDisplay, disabled: boolean, now
   return ['Waiting for a reading to tell whether the condition is present.']
 }
 
-function noData(facts: Facts, subject: string, now: number): Sentence {
+function notReported(facts: Facts, subject: string, now: number): Sentence {
   if (facts.reason === 'notEvaluated') return ['Not evaluated yet: the plugin is starting.']
   if (facts.reason === 'inputUnavailable' && facts.lastSeen !== undefined) {
     return [
@@ -187,7 +177,7 @@ export function explain(entry: RuleEntry, units: UnitLookup, now: number): Sente
   const { rule, status } = entry
   const display = ruleDisplay(rule, units)
   const disabled = status.ruleState === 'disabled'
-  const wildcard = isWildcard(rule) || status.instances.length > 1
+  const wildcard = hasInstances(entry)
   const allWell = status.condition === 'normal' && status.reason === 'withinLimits'
   if (wildcard && !disabled && allWell) {
     const count = status.instances.length
@@ -209,7 +199,7 @@ export function explain(entry: RuleEntry, units: UnitLookup, now: number): Sente
     case 'problem':
       return [`${problem(status)}.`]
     case 'noData':
-      return noData(status, subject, now)
+      return notReported(status, subject, now)
     case 'normal':
       if (status.reason === 'outsideGate') return ['Not watching now: a gate is closed.']
       return withinLimits(status, display, disabled, now)
@@ -227,11 +217,7 @@ export function instanceFact(
     case 'problem':
       return problem(i)
     case 'noData':
-      if (i.reason === 'notEvaluated') return 'Not evaluated yet'
-      if (i.reason === 'inputUnavailable' && i.lastSeen !== undefined) {
-        return `No value for ${elapsed(now - Date.parse(i.lastSeen))}`
-      }
-      return 'No value since the plugin started'
+      return noData(i, now)
     default: {
       if (i.reason === 'outsideGate') return 'Not watching: a gate is closed'
       const value = reading(i, display)

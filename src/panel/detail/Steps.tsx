@@ -1,6 +1,6 @@
 import { useId } from 'react'
 import type { RuleEntry } from '../api'
-import { stepCondition, type RuleDisplay } from '../rules/describe'
+import { article, stepCondition, type RuleDisplay } from '../rules/describe'
 import { CheckIcon } from './icons'
 import { PriorityBadge } from '../list/PriorityBadge'
 
@@ -15,11 +15,9 @@ function clearHint(entry: RuleEntry, display: RuleDisplay, reached: string | und
     rule.detector.type === 'sustained' && back !== undefined && first.limit !== undefined
       ? `Clears when the value is back ${back} ${display.value(first.limit)}.`
       : 'Clears when the first step no longer holds.'
-  return reached === undefined ? clears : `${clears} It stays ${article(reached)} until then.`
-}
-
-function article(word: string): string {
-  return `${/^[aeiou]/.test(word) ? 'an' : 'a'} ${word}`
+  return reached === undefined
+    ? clears
+    : `${clears} It stays ${article(reached)} ${reached} until then.`
 }
 
 /**
