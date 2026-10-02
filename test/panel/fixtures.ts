@@ -19,13 +19,11 @@ export const noControls: Pick<PanelApi, 'disableRule' | 'enableRule'> = {
   enableRule: notExpected
 }
 
-/** An idle instance with a value, to override per test. */
+/** A normal instance with a value, to override per test. */
 export function instance(overrides: Partial<InstanceStatus> = {}): InstanceStatus {
   return {
-    badge: 'idle',
-    subLabels: [],
-    active: false,
-    input: 'value',
+    condition: 'normal',
+    reason: 'withinLimits',
     value: 12.6,
     gates: [],
     ...overrides
@@ -37,7 +35,7 @@ type EntryOverrides = Omit<Partial<RuleEntry>, 'rule' | 'status'> & {
   status?: Partial<RuleEntry['status']>
 }
 
-/** An idle, enabled single-path rule, to override per test. */
+/** A normal, enabled single-path rule, to override per test. */
 export function ruleEntry(overrides: EntryOverrides = {}): RuleEntry {
   const { rule, status, ...rest } = overrides
   return {
@@ -53,8 +51,8 @@ export function ruleEntry(overrides: EntryOverrides = {}): RuleEntry {
       ...rule
     },
     status: {
-      badge: 'idle',
-      subLabels: [],
+      condition: 'normal',
+      reason: 'withinLimits',
       errors: [],
       issues: [],
       instances: [instance()],

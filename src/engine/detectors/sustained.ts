@@ -39,6 +39,8 @@ export class SustainedDetector extends ConditionDetector<SustainedSpec> {
   }
 
   private follow(value: number, now: number): Transition | undefined {
+    // A value inside the recovery margin is no evidence either way.
+    if (this.cleared(value)) this.refuted = true
     const toward = this.active ? this.cleared(value) : this.beyond(value)
     if (!toward) {
       this.timer.reset()

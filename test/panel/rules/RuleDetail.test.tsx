@@ -16,23 +16,20 @@ const batteries = ruleEntry({
     gates: [{ paths: ['electrical.chargers.shore.state'] }]
   },
   status: {
-    badge: 'timerRunning',
-    subLabels: ['gateInputUnavailable'],
+    condition: 'noData',
+    reason: 'inputUnavailable',
     issues: ['instance a.b was not admitted'],
     instances: [
       instance({
         instance: { name: 'house', segment: 'house' },
-        badge: 'timerRunning',
         value: 12.1,
         limit: 12.2,
-        progress: { kind: 'timer', toward: 'set', elapsed: 20, target: 60 },
-        gates: [{ holds: true, input: 'unavailable' }],
-        subLabels: ['gateInputUnavailable']
+        gates: [{ holds: true, input: 'unavailable' }]
       }),
       instance({
         instance: { name: 'start', segment: 'start' },
-        badge: 'inputUnavailable',
-        input: 'unavailable',
+        condition: 'noData',
+        reason: 'inputUnavailable',
         value: undefined,
         limit: 12.2,
         gates: [{ holds: true, input: 'value' }]
@@ -49,7 +46,6 @@ const engineHours = ruleEntry({
     signal: { paths: ['propulsion.*.revolutions'] }
   },
   status: {
-    badge: 'idle',
     instances: [
       instance({
         instance: { name: 'port', segment: 'port' },
@@ -102,24 +98,21 @@ describe('RuleDetail', () => {
     expect(screen.getByText('instance a.b was not admitted')).toBeTruthy()
   })
 
-  it('shows each instance with its value, limit, timer progress and gate state', () => {
+  it('shows each instance with its condition, value, limit and gate state', () => {
     renderDetail(batteries)
     const house = rowOf('house')
-    expect(house.textContent).toContain('Timer running')
+    expect(house.textContent).toContain('Normal')
     expect(cell(house, 'Value').textContent).toBe('12.1')
     expect(cell(house, 'Limit').textContent).toBe('12.2')
-    const timer = within(house).getByRole('progressbar')
-    expect(timer.getAttribute('value')).toBe('20')
-    expect(timer.getAttribute('max')).toBe('60')
-    expect(house.textContent).toContain('20 s of 60 s toward set')
     expect(house.textContent).toMatch(/gate 1: holds, input unavailable/i)
 
     const start = rowOf('start')
+    expect(start.textContent).toContain('No data')
     expect(cell(start, 'Value').textContent).toBe('unavailable')
     expect(start.textContent).toMatch(/gate 1: holds/i)
   })
 
-  it('shows the priority an active instance is at, and none for an inactive one', () => {
+  it('shows the priority an alerting instance is at, and none for another', () => {
     renderDetail({
       ...batteries,
       status: {
@@ -127,8 +120,8 @@ describe('RuleDetail', () => {
         instances: [
           instance({
             instance: { name: 'house', segment: 'house' },
-            badge: 'alertActive',
-            active: true,
+            condition: 'alerting',
+            reason: 'alertActive',
             level: 'alarm',
             priority: 'alarm'
           }),
@@ -161,9 +154,10 @@ describe('RuleDetail', () => {
           actor: 'skipper',
           note: 'sender being replaced'
         },
-        status: { badge: 'disabled' }
+        status: { condition: 'present', reason: 'conditionPresent' }
       })
     )
+    expect(screen.getAllByText('Disabled').length).toBeGreaterThan(0)
     const since = '2026-09-30T12:00:00.000Z'
     const fact = screen.getByRole('definition', { name: /disabled/i })
     expect(fact.textContent).toBe(
@@ -179,12 +173,12 @@ describe('RuleDetail', () => {
     expect(screen.getByText(/values are in SI units/i)).toBeTruthy()
   })
 
-  it('shows the errors of an errored rule', () => {
+  it('shows the errors of a rule whose evaluation fails', () => {
     renderDetail(
       ruleEntry({
         status: {
-          badge: 'errored',
-          reason: 'evaluation threw',
+          condition: 'problem',
+          reason: 'evaluationError',
           errors: ['evaluation threw', 'subscription refused']
         }
       })

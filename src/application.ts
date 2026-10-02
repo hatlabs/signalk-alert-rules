@@ -1,13 +1,7 @@
-import type { Verdict } from './alerts/badge.js'
 import { alertPathsOverlap } from './alerts/paths.js'
 import { ruleAlertPath } from './model/alertPath.js'
-import {
-  RuleRunner,
-  type Accumulated,
-  type RunnerDeps,
-  type RunnerRuleStatus
-} from './alerts/runner.js'
-import type { Progress } from './engine/detectors/index.js'
+import { RuleRunner, type Accumulated, type RunnerDeps } from './alerts/runner.js'
+import { stateReport, type RuleStateReport } from './alerts/state.js'
 import { carriesTotals, measureOf, structuralChanges } from './engine/evaluator.js'
 import { asGiven, canonicalSources } from './engine/sourceRefs.js'
 import { MAX_RULES, type Rule } from './model/rule.js'
@@ -37,26 +31,6 @@ export const LOG_LIMIT = 200
 const TOTALS = 'the accumulator totals'
 const SETTINGS = 'the operator settings'
 
-export type NotEvaluatedReason = 'not started'
-
-/** A row of a rule that is not evaluated: one per accumulator total it keeps. */
-export interface NotEvaluatedInstance extends Verdict {
-  /** For a wildcard rule; the name is not kept with the total. */
-  instance?: { segment: string }
-  progress: Progress
-}
-
-/** The status of a rule while the runner is not started. */
-export interface NotEvaluatedStatus extends Verdict {
-  badge: 'inactive'
-  reason: NotEvaluatedReason
-  issues: string[]
-  errors: string[]
-  instances: NotEvaluatedInstance[]
-}
-
-export type RuleStatus = RunnerRuleStatus | NotEvaluatedStatus
-
 /** A rule with the operator's controls and its status. */
 export interface RuleEntry {
   slug: string
@@ -69,7 +43,32 @@ export interface RuleEntry {
   alertPath: string
   /** Present while the rule is disabled. */
   disabled?: Disabled
-  status: RuleStatus
+  state: RuleStateReport
+}
+
+/** A stored rule file that does not run: why, and what it holds, so it can be repaired. */
+export interface InvalidRule {
+  errors: ValidationError[]
+  body: unknown
+}
+
+/** A stored rule that does not run, listed so it can be fetched, replaced or deleted. */
+export interface InvalidRuleEntry {
+  slug: string
+  invalid: InvalidRule
+  /** Present while the rule is disabled. */
+  disabled?: Disabled
+  state: RuleStateReport
+}
+
+export type ListedRule = RuleEntry | InvalidRuleEntry
+
+/** The error for a rule whose alert path overlaps rule `holder`'s. */
+export function alertPathOverlap(holder: string): ValidationError {
+  return {
+    path: '/condition',
+    message: `makes an alert path overlapping that of rule ${holder}; each rule needs its own`
+  }
 }
 
 export type ControlOutcome = 'ok' | 'notFound'
@@ -137,12 +136,18 @@ function without<T>(record: Record<string, T>, key: string): Record<string, T> {
   return Object.fromEntries(Object.entries(record).filter(([k]) => k !== key))
 }
 
+/**
+ * The state of a rule while the runner is not started: one row per
+ * accumulator total it keeps, which names a wildcard instance by its segment
+ * only, as the total is kept without the name.
+ */
 function notStarted(
   rule: Rule,
-  totals: ReadonlyMap<string, number> | undefined
-): NotEvaluatedStatus {
-  const badge = 'inactive' as const
-  const reason = 'not started' as const
+  totals: ReadonlyMap<string, number> | undefined,
+  disabled: boolean,
+  since: string
+): RuleStateReport {
+  const condition = { condition: 'noData', reason: 'notEvaluated' } as const
   const d = rule.detector
   // A total's progress runs toward the first step, which raises the alert.
   const limit = d.type === 'accumulator' ? d.steps[0]?.limit : undefined
@@ -151,12 +156,11 @@ function notStarted(
       ? []
       : [...(totals ?? [])].map(([segment, total]) => ({
           ...(segment === '' ? {} : { instance: { segment } }),
-          badge,
-          reason,
-          subLabels: [],
-          progress: { kind: 'total' as const, total, limit }
+          ...condition,
+          progress: { kind: 'total' as const, total, limit },
+          gates: []
         }))
-  return { badge, reason, subLabels: [], issues: [], errors: [], instances }
+  return stateReport(disabled, condition, since, { instances })
 }
 
 /**
@@ -171,6 +175,8 @@ export class Application {
   readonly issues: string[]
   private runner: RuleRunner | undefined
   private readonly rulesBySlug = new Map<string, Rule>()
+  /** Stored rule files that were read but do not run, by slug. */
+  private readonly invalid = new Map<string, InvalidRule>()
   /** Slugs of stored rule files, loaded or not, so a skipped one can be deleted. */
   private readonly stored: Set<string>
   /** Slugs of stored rule files that could not be read, which say nothing about their measure. */
@@ -192,6 +198,8 @@ export class Application {
   private controls: Controls
   /** Set while starting: a failed write is then an issue, not a failed start. */
   private starting = false
+  /** When the stored rules were loaded, as an ISO time: the state of a rule not evaluated dates from it. */
+  private readonly loadedAt: string
   private readonly isDisabled = (slug: string): boolean => this.control(slug).disabled !== undefined
 
   /**
@@ -204,6 +212,7 @@ export class Application {
     private readonly discover: () => DiscoveryResult = () => NO_TEMPLATES
   ) {
     const contents = store.load()
+    this.loadedAt = this.now()
     this.issues = [...contents.issues]
     this.actions = contents.log
     this.controls = contents.controls
@@ -211,11 +220,11 @@ export class Application {
     this.stored = new Set([...contents.rules.map((r) => r.slug), ...contents.unreadableRules])
     for (const { slug, value } of contents.rules) {
       const loaded = this.loadStored(slug, value)
-      if (typeof loaded !== 'string') {
+      if (!Array.isArray(loaded)) {
         this.rulesBySlug.set(slug, loaded)
         continue
       }
-      this.issues.push(loaded)
+      this.invalid.set(slug, { errors: loaded, body: value })
       const detector = isRecord(value) && isRecord(value.detector) ? value.detector : undefined
       if (detector?.type === 'accumulator' && typeof detector.measure === 'string') {
         this.unloadedMeasures.set(slug, detector.measure)
@@ -225,18 +234,14 @@ export class Application {
     this.unreadable = new Set(contents.unreadableRules)
   }
 
-  /** A stored rule file as the rule it loads as, or the issue saying why it does not run. */
-  private loadStored(slug: string, value: unknown): Rule | string {
+  /** A stored rule file as the rule it loads as, or the errors that keep it from running. */
+  private loadStored(slug: string, value: unknown): Rule | ValidationError[] {
     const result = validateRule(value)
-    if (!result.ok) {
-      const errors = result.errors.map((e) => `${e.path || '/'} ${e.message}`).join('; ')
-      return `stored rule ${slug} is not valid and does not run: ${errors}`
-    }
+    if (!result.ok) return result.errors
     if (result.value.slug !== slug)
-      return `stored rule ${slug} has the slug ${result.value.slug} and does not run`
+      return [{ path: '/slug', message: `must equal the slug it is stored under, ${slug}` }]
     const holder = this.alertPathHolder(result.value)
-    if (holder !== undefined)
-      return `stored rule ${slug} has an alert path overlapping that of ${holder} and does not run`
+    if (holder !== undefined) return [alertPathOverlap(holder)]
     return result.value
   }
 
@@ -293,13 +298,32 @@ export class Application {
     return [...this.rulesBySlug.values()]
   }
 
-  rules(): RuleEntry[] {
-    return this.allRules().map((rule) => this.entry(rule))
+  /**
+   * The load issues and the stored rules that do not run, as text for the
+   * server's plugin status and log, where an operator who never opens the
+   * webapp sees them.
+   */
+  statusNotes(): string[] {
+    const invalid = [...this.invalid].map(([slug, { errors }]) => {
+      const why = errors.map((e) => `${e.path || '/'} ${e.message}`).join('; ')
+      return `stored rule ${slug} does not run: ${why}`
+    })
+    return [...this.issues, ...invalid]
   }
 
-  rule(slug: string): RuleEntry | undefined {
+  /** The rules that run, then the stored rules that do not. */
+  rules(): ListedRule[] {
+    return [
+      ...this.allRules().map((rule) => this.entry(rule)),
+      ...[...this.invalid].map(([slug, invalid]) => this.invalidEntry(slug, invalid))
+    ]
+  }
+
+  rule(slug: string): ListedRule | undefined {
     const rule = this.rulesBySlug.get(slug)
-    return rule === undefined ? undefined : this.entry(rule)
+    if (rule !== undefined) return this.entry(rule)
+    const invalid = this.invalid.get(slug)
+    return invalid === undefined ? undefined : this.invalidEntry(slug, invalid)
   }
 
   /** The operator action log, newest first. */
@@ -405,6 +429,7 @@ export class Application {
     const drops = this.hasTotal(slug) && !carries
     this.store.saveRule(rule)
     this.stored.add(slug)
+    this.invalid.delete(slug)
     this.unloadedMeasures.delete(slug)
     // While a rule is not evaluated an edit keeps the total, as the runner would.
     if (!carries) this.retained.delete(slug)
@@ -476,8 +501,8 @@ export class Application {
       current === undefined
         ? []
         : structuralChanges(this.withCanonicalSources(current), checked.value)
-    const status = this.runner?.status(slug)
-    const activeAlerts = status?.instances.filter((i) => i.active).length ?? 0
+    const state = this.runner?.state(slug)
+    const activeAlerts = state?.instances.filter((i) => i.condition === 'alerting').length ?? 0
     const restarts = changes.length > 0 || this.runner?.failedToStart(slug) === true
     return {
       ok: true,
@@ -500,6 +525,7 @@ export class Application {
     const drops = this.hasTotal(slug)
     this.store.deleteRule(slug)
     this.stored.delete(slug)
+    this.invalid.delete(slug)
     this.unloadedMeasures.delete(slug)
     this.retained.delete(slug)
     if (this.rulesBySlug.delete(slug)) this.runner?.remove(slug)
@@ -558,9 +584,12 @@ export class Application {
   }
 
   /**
-   * Enables a disabled rule; one whose condition holds raises a new alert at
-   * once. Enabling an enabled rule does nothing. Throws when the store
-   * cannot write.
+   * Enables a disabled rule. One whose condition is present, having held for
+   * its duration, raises a new alert at once. One whose detector is still
+   * timing raises when the duration has run, and one whose condition held
+   * when its gate last closed raises once the restarted detector sets.
+   * Enabling an enabled rule does nothing. Throws when the store cannot
+   * write.
    */
   enableRule(slug: string, actor: string): ControlOutcome {
     if (!this.rulesBySlug.has(slug)) return 'notFound'
@@ -639,8 +668,28 @@ export class Application {
       rule,
       alertPath: ruleAlertPath(rule),
       ...(disabled === undefined ? {} : { disabled }),
-      status:
-        this.runner?.status(rule.slug) ?? notStarted(rule, this.retained.get(rule.slug)?.totals)
+      state:
+        this.runner?.state(rule.slug) ??
+        notStarted(
+          rule,
+          this.retained.get(rule.slug)?.totals,
+          disabled !== undefined,
+          this.loadedAt
+        )
+    }
+  }
+
+  private invalidEntry(slug: string, invalid: InvalidRule): InvalidRuleEntry {
+    const { disabled } = this.control(slug)
+    return {
+      slug,
+      invalid,
+      ...(disabled === undefined ? {} : { disabled }),
+      state: stateReport(
+        disabled !== undefined,
+        { condition: 'problem', reason: 'invalidRule' },
+        this.loadedAt
+      )
     }
   }
 

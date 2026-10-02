@@ -485,7 +485,11 @@ describe('RuleEditor, editing', () => {
   const active = ruleEntry({
     slug: battery.slug,
     rule: { name: battery.name },
-    status: { badge: 'alertActive', instances: [instance({ badge: 'alertActive', active: true })] }
+    status: {
+      condition: 'alerting',
+      reason: 'alertActive',
+      instances: [instance({ condition: 'alerting', reason: 'alertActive' })]
+    }
   })
 
   it('opens fully expanded, with the slug read-only and the alert path editable', async () => {

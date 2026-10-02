@@ -45,7 +45,7 @@ describe('resolveLimit', () => {
   it('a level with no zone of its own is missing, even when a more severe one exists', () => {
     const result = resolveLimit({ kind: 'zone', level: 'alert' }, 'above', coolant)
     expect(result.ok).toBe(false)
-    expect(!result.ok && result.reason).toMatch(/no alert zone/)
+    expect(result).toEqual({ ok: false, missing: { level: 'alert' } })
   })
 
   it('no zones at all is missing', () => {
@@ -57,7 +57,7 @@ describe('resolveLimit', () => {
   it('a level whose zones are all on the other side is missing on the rule side', () => {
     const result = resolveLimit({ kind: 'zone', level: 'alarm' }, 'below', coolant)
     expect(result.ok).toBe(false)
-    expect(!result.ok && result.reason).toMatch(/no alarm zone on the low side/)
+    expect(result).toEqual({ ok: false, missing: { level: 'alarm', side: 'low' } })
   })
 
   describe('on a path with zones on both sides', () => {
@@ -114,7 +114,7 @@ describe('resolveLimit', () => {
       ]
       const result = resolveLimit({ kind: 'zone', level: 'warn' }, 'below', highWarn)
       expect(result.ok).toBe(false)
-      expect(!result.ok && result.reason).toMatch(/no warn zone on the low side/)
+      expect(result).toEqual({ ok: false, missing: { level: 'warn', side: 'low' } })
     })
 
     it('a low side lacking the level fails even when the high side is bounded', () => {
@@ -124,7 +124,7 @@ describe('resolveLimit', () => {
       ]
       const result = resolveLimit({ kind: 'zone', level: 'warn' }, 'below', zones)
       expect(result.ok).toBe(false)
-      expect(!result.ok && result.reason).toMatch(/no warn zone on the low side/)
+      expect(result).toEqual({ ok: false, missing: { level: 'warn', side: 'low' } })
     })
   })
 
@@ -167,7 +167,7 @@ describe('resolveLimit', () => {
       for (const zones of [rpm, [{ lower: 0, upper: 3200, state: 'normal' }, ...rpm]]) {
         const result = resolveLimit({ kind: 'zone', level: 'warn' }, 'below', zones)
         expect(result.ok).toBe(false)
-        expect(!result.ok && result.reason).toMatch(/no warn zone on the low side/)
+        expect(result).toEqual({ ok: false, missing: { level: 'warn', side: 'low' } })
       }
     })
 
@@ -178,7 +178,7 @@ describe('resolveLimit', () => {
       ]
       const result = resolveLimit({ kind: 'zone', level: 'warn' }, 'above', depth)
       expect(result.ok).toBe(false)
-      expect(!result.ok && result.reason).toMatch(/no warn zone on the high side/)
+      expect(result).toEqual({ ok: false, missing: { level: 'warn', side: 'high' } })
     })
 
     it('a more severe band nested at the far end keeps the far edge from the rule', () => {
@@ -188,7 +188,7 @@ describe('resolveLimit', () => {
       ]
       const low = resolveLimit({ kind: 'zone', level: 'warn' }, 'below', tank)
       expect(low.ok).toBe(false)
-      expect(!low.ok && low.reason).toMatch(/no warn zone on the low side/)
+      expect(low).toEqual({ ok: false, missing: { level: 'warn', side: 'low' } })
       expect(resolveLimit({ kind: 'zone', level: 'warn' }, 'above', tank)).toEqual({
         ok: true,
         value: 0.8
@@ -215,7 +215,7 @@ describe('resolveLimit', () => {
       ]
       const low = resolveLimit({ kind: 'zone', level: 'warn' }, 'below', waste)
       expect(low.ok).toBe(false)
-      expect(!low.ok && low.reason).toMatch(/no warn zone on the low side/)
+      expect(low).toEqual({ ok: false, missing: { level: 'warn', side: 'low' } })
       expect(resolveLimit({ kind: 'zone', level: 'warn' }, 'above', waste)).toEqual({
         ok: true,
         value: 0.8
@@ -232,7 +232,7 @@ describe('resolveLimit', () => {
       ]
       const result = resolveLimit({ kind: 'zone', level: 'warn' }, 'above', gapped)
       expect(result.ok).toBe(false)
-      expect(!result.ok && result.reason).toMatch(/no warn zone on the high side/)
+      expect(result).toEqual({ ok: false, missing: { level: 'warn', side: 'high' } })
     })
   })
 
@@ -264,7 +264,7 @@ describe('resolveLimit', () => {
     const zones: Zone[] = [...battery, { lower: null, upper: null, state: 'alarm' }]
     const result = resolveLimit({ kind: 'zone', level: 'warn' }, 'below', zones)
     expect(result.ok).toBe(false)
-    expect(!result.ok && result.reason).toMatch(/no warn zone on the low side/)
+    expect(result).toEqual({ ok: false, missing: { level: 'warn', side: 'low' } })
   })
 
   it('takes a null bound as missing', () => {

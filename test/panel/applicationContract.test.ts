@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Value } from '@signalk/server-api'
 import { serverDeps } from '../../src/alerts/server'
 import { Application } from '../../src/application'
-import { parseRuleEntry, parseState, type RuleEntry } from '../../src/panel/api'
+import { parseRuleEntry, parseRules, parseState, type RuleEntry } from '../../src/panel/api'
 import { Store } from '../../src/store/store'
 import { MockServerAPI } from '../helpers/MockServerAPI'
 
@@ -108,18 +108,11 @@ function running() {
 const wire = (value: unknown): unknown => JSON.parse(JSON.stringify(value))
 
 function parsedRules(application: Application): Map<string, RuleEntry> {
-  const body = wire(application.rules())
-  if (!Array.isArray(body)) throw new Error('rules() is not a list')
-  return new Map(
-    body.map((entry) => {
-      const parsed = parseRuleEntry(entry, '/rules')
-      return [parsed.slug, parsed]
-    })
-  )
+  return new Map(parseRules(wire(application.rules())).map((entry) => [entry.slug, entry]))
 }
 
 describe('panel parsers against the Application', () => {
-  it('read every rule entry the Application answers', () => {
+  it('read every rule entry the Application answers, leaving out the invalid stored rule', () => {
     const rules = parsedRules(running())
     expect([...rules.keys()].sort()).toEqual([
       'battery-low',
@@ -134,10 +127,10 @@ describe('panel parsers against the Application', () => {
     expect(entry?.disabled).toBeUndefined()
     expect(entry).toMatchObject({
       rule: { name: oil.name, priority: 'alarm', detector: { type: 'sustained' } },
-      status: { badge: 'alertActive' }
+      status: { condition: 'alerting', reason: 'alertActive' }
     })
     expect(entry?.status.instances).toEqual([
-      expect.objectContaining({ active: true, input: 'value', value: 0, priority: 'alarm' })
+      expect.objectContaining({ condition: 'alerting', value: 0, priority: 'alarm' })
     ])
   })
 
@@ -146,19 +139,19 @@ describe('panel parsers against the Application', () => {
     expect(entry).toMatchObject({
       disabled: { since: '2026-09-30T12:00:00.000Z', actor: 'admin' },
       rule: { detector: { type: 'accumulator', measure: 'time' } },
-      status: { badge: 'disabled' }
+      status: { condition: 'normal', reason: 'withinLimits' }
     })
     expect(entry?.status.instances).toEqual([
-      expect.objectContaining({ badge: 'disabled', active: false, ...progress(20) })
+      expect.objectContaining({ condition: 'normal', ...progress(20) })
     ])
   })
 
   it('read the instances of a wildcard rule', () => {
     const entry = parsedRules(running()).get(batteries.slug)
-    const instances = entry?.status.instances.map((i) => [i.instance?.segment, i.badge])
+    const instances = entry?.status.instances.map((i) => [i.instance?.segment, i.condition])
     expect(instances?.sort()).toEqual([
-      ['house', 'idle'],
-      ['start', 'alertActive']
+      ['house', 'normal'],
+      ['start', 'alerting']
     ])
     expect(entry?.rule.alertPath).toBe('electrical.batteries.*.voltageLow')
   })
@@ -173,7 +166,7 @@ describe('panel parsers against the Application', () => {
         gates: [{ paths: [COOLANT] }]
       },
       disabled: { actor: 'skipper', note: 'sender loose' },
-      status: { badge: 'disabled' }
+      status: { condition: 'present', reason: 'conditionPresent' }
     })
     expect(entry?.status.instances[0]?.gates).toEqual([{ holds: true, input: 'value' }])
   })
@@ -184,6 +177,7 @@ describe('panel parsers against the Application', () => {
   })
 
   it('read the load issues in the state', () => {
+    writeFileSync(join(dir, 'rules', 'garbled.json'), '{')
     const application = running()
     // Built as src/api/routes.ts builds GET /state from the Application.
     const state = parseState(
@@ -193,7 +187,7 @@ describe('panel parsers against the Application', () => {
         issues: application.issues
       })
     )
-    expect(state.issues).toEqual([expect.stringMatching(/stored rule broken is not valid/)])
+    expect(state.issues).toEqual([expect.stringMatching(/garbled\.json could not be read/)])
   })
 })
 

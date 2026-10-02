@@ -189,7 +189,7 @@ function detectorFor(kind: Kind, i: number): unknown {
       return {
         type: 'sustained',
         direction: 'above',
-        limit: { kind: 'fixed', value: 85 },
+        steps: [{ limit: 85, priority: 'warning' }],
         duration: 5 + (i % 30),
         hysteresis: 2,
         clearDuration: 10
@@ -204,34 +204,53 @@ function detectorFor(kind: Kind, i: number): unknown {
         clearDuration: 10
       }
     case 'slope':
-      return { type: 'slope', direction: 'rising', window: TREND_WINDOW_S, limit: 0.15 }
+      return {
+        type: 'slope',
+        direction: 'rising',
+        window: TREND_WINDOW_S,
+        steps: [{ limit: 0.15, priority: 'warning' }]
+      }
     case 'projection':
       return {
         type: 'projection',
         direction: 'rising',
-        limit: { kind: 'fixed', value: 95 },
+        steps: [{ limit: 95, priority: 'warning' }],
         window: TREND_WINDOW_S,
         horizon: 600
       }
     case 'accumulator':
       return i % 2 === 0
-        ? { type: 'accumulator', measure: 'time', while: { op: 'above', value: 50 }, limit: 3600 }
-        : { type: 'accumulator', measure: 'integral', limit: 1e7 }
+        ? {
+            type: 'accumulator',
+            measure: 'time',
+            while: { op: 'above', value: 50 },
+            steps: [{ limit: 3600, priority: 'warning' }]
+          }
+        : { type: 'accumulator', measure: 'integral', steps: [{ limit: 1e7, priority: 'warning' }] }
     case 'count':
       return {
         type: 'count',
         event: { op: 'changesTo', value: true },
         window: TREND_WINDOW_S,
-        limit: 4
+        steps: [{ limit: 4, priority: 'warning' }]
       }
     case 'absence':
-      return { type: 'absence', event: { op: 'changes' }, within: 20 + (i % 40) }
+      return {
+        type: 'absence',
+        event: { op: 'changes' },
+        steps: [{ within: 20 + (i % 40), priority: 'warning' }]
+      }
     case 'match':
       return i % 2 === 0
-        ? { type: 'match', op: 'equals', value: 'fault', duration: 5 }
-        : { type: 'match', op: 'changesTo', value: 'fault' }
+        ? {
+            type: 'match',
+            op: 'equals',
+            steps: [{ value: 'fault', priority: 'warning' }],
+            duration: 5
+          }
+        : { type: 'match', op: 'changesTo', steps: [{ value: 'fault', priority: 'warning' }] }
     case 'timedOut':
-      return { type: 'match', op: 'timedOut', duration: 30 }
+      return { type: 'match', op: 'timedOut', steps: [{ priority: 'warning' }], duration: 30 }
   }
 }
 
@@ -302,13 +321,18 @@ class Builder {
     return this.ratesHz[i % this.ratesHz.length]
   }
 
-  private rule(kind: Kind, signal: unknown, gates: unknown[] | undefined): void {
+  private rule(
+    kind: Kind,
+    signal: unknown,
+    gates: unknown[] | undefined,
+    condition?: string
+  ): void {
     const i = this.n++
     this.rules.push({
       name: `Bench ${String(i)}`,
       slug: `bench-${String(i)}`,
       message: 'Bench rule {instance}',
-      ...(kind === 'zone' ? {} : { priority: 'warning' }),
+      ...(condition === undefined ? {} : { condition }),
       signal,
       detector: detectorFor(kind, i),
       ...(gates === undefined ? {} : { gates })
@@ -359,7 +383,9 @@ class Builder {
     this.rule(
       'sustained',
       { combinator, inputs: paths.map((path) => ({ path })) },
-      this.sharedGate()
+      this.sharedGate(),
+      // A combined signal has no path to name its alert after.
+      `benchCombined${String(n)}`
     )
   }
 
@@ -554,7 +580,7 @@ function run(scenario: Scenario): Result {
   let units = 0
   let issues = 0
   for (const rule of rules) {
-    const status = runner.status(rule.slug)
+    const status = runner.state(rule.slug)
     units += status?.instances.length ?? 0
     if ((status?.issues.length ?? 0) + (status?.errors.length ?? 0) > 0) issues++
   }

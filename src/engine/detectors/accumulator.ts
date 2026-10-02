@@ -60,6 +60,12 @@ export class AccumulatorDetector extends ConditionDetector<AccumulatorSpec> {
       spec.resetOn === undefined ? undefined : new EventWatcher(spec.resetOn, false)
   }
 
+  // The total carries over from the detector it replaces, so its state is
+  // always a judgement.
+  override get decided(): boolean {
+    return true
+  }
+
   /**
    * The total in seconds, or in the signal's unit times seconds for an
    * integral, as of the last sample or tick.

@@ -106,6 +106,8 @@ const OIL_ALERT = 'propulsion.main.oilPressureLow'
 const PORT_ALERT = 'propulsion.port.coolantTemperatureHigh'
 const PUMP_ALERT = 'electrical.switches.bilgePump.stateFrequent'
 
+const WALL_START = Date.parse('2026-09-29T12:00:00Z')
+
 function setup(
   rules: Rule[],
   options: {
@@ -117,6 +119,8 @@ function setup(
     accumulated?: Map<string, Map<string, number>>
     disabled?: (id: string) => boolean
     subscriptions?: FakeSubscriptionManager
+    /** Wall time advances with the clock; otherwise it stays at its start. */
+    wall?: boolean
   } = {}
 ) {
   const sm = options.subscriptions ?? new FakeSubscriptionManager()
@@ -130,7 +134,7 @@ function setup(
       meta: (path) => options.meta?.[path],
       timeoutSettings: () => ({ enforce: true, useDefaults: true }),
       clock: () => now,
-      wallClock: () => new Date('2026-09-29T12:00:00Z'),
+      wallClock: () => new Date(WALL_START + (options.wall === true ? now * 1000 : 0)),
       alerts: core,
       send: (path, value) => {
         sent.push([path, value])
@@ -304,14 +308,14 @@ describe('rule runner', () => {
       priority: 'alarm',
       state: 'unacknowledged'
     })
-    expect(runner.status('house-battery-low')?.instances[0]).toMatchObject({
+    expect(runner.state('house-battery-low')?.instances[0]).toMatchObject({
       level: 'alarm',
       priority: 'alarm'
     })
     at(12, VOLTAGE, 11.8)
     run(13, 17)
     expect(sent).toHaveLength(2)
-    expect(runner.status('house-battery-low')?.instances[0]).toMatchObject({
+    expect(runner.state('house-battery-low')?.instances[0]).toMatchObject({
       level: 'alarm',
       priority: 'alarm'
     })
@@ -375,7 +379,7 @@ describe('rule runner', () => {
       const { run, sent, runner } = climbed()
       runner.update(edited([{ limit: 12.2, priority: 'warning' }]))
       run(6, 5 + HEARTBEAT_S)
-      expect(runner.status('house-battery-low')?.instances[0]).toMatchObject({
+      expect(runner.state('house-battery-low')?.instances[0]).toMatchObject({
         step: 0,
         priority: 'alarm'
       })
@@ -396,7 +400,7 @@ describe('rule runner', () => {
       expect(sent.at(-1)?.[1]?.priority).toBe('alarm')
       runner.update(steppedBattery)
       run(6 + HEARTBEAT_S, 5 + 2 * HEARTBEAT_S)
-      expect(runner.status('house-battery-low')?.instances[0]).toMatchObject({
+      expect(runner.state('house-battery-low')?.instances[0]).toMatchObject({
         step: 0,
         priority: 'alarm'
       })
@@ -416,7 +420,7 @@ describe('rule runner', () => {
         ])
       )
       run(7, 7 + 2 * HEARTBEAT_S)
-      expect(runner.status('house-battery-low')?.instances[0]).toMatchObject({
+      expect(runner.state('house-battery-low')?.instances[0]).toMatchObject({
         step: 1,
         priority: 'alarm'
       })
@@ -433,7 +437,7 @@ describe('rule runner', () => {
         ])
       )
       run(6, 5 + HEARTBEAT_S)
-      expect(runner.status('house-battery-low')?.instances[0]).toMatchObject({
+      expect(runner.state('house-battery-low')?.instances[0]).toMatchObject({
         step: 1,
         priority: 'alarm'
       })
@@ -482,8 +486,8 @@ describe('rule runner', () => {
       const alertings = core.alertings
       at(0, VOLTAGE, 12)
       run(1, 2 * HEARTBEAT_S)
-      expect(runner.status('house-battery-low')?.instances[0]).toMatchObject({
-        active: true,
+      expect(runner.state('house-battery-low')?.instances[0]).toMatchObject({
+        condition: 'alerting',
         step: 0,
         priority: 'alarm'
       })
@@ -504,7 +508,7 @@ describe('rule runner', () => {
       run(1, 5)
       at(6, VOLTAGE, 11.7)
       run(7, 11)
-      expect(runner.status('house-battery-low')?.instances[0]).toMatchObject({
+      expect(runner.state('house-battery-low')?.instances[0]).toMatchObject({
         step: 1,
         priority: 'alarm',
         limit: 11.8
@@ -538,7 +542,7 @@ describe('rule runner', () => {
     it('stays at the first step when core holds a priority beyond every step', () => {
       const { at, sent, runner } = adoptedAt('emergency')
       at(0, VOLTAGE, 12)
-      expect(runner.status('house-battery-low')?.instances[0]).toMatchObject({
+      expect(runner.state('house-battery-low')?.instances[0]).toMatchObject({
         step: 0,
         priority: 'emergency'
       })
@@ -548,7 +552,7 @@ describe('rule runner', () => {
     it("heartbeats at the first step's priority when core holds less than it", () => {
       const { at, sent, runner } = adoptedAt('caution')
       at(0, VOLTAGE, 12)
-      expect(runner.status('house-battery-low')?.instances[0]).toMatchObject({
+      expect(runner.state('house-battery-low')?.instances[0]).toMatchObject({
         step: 0,
         priority: 'warning'
       })
@@ -708,7 +712,10 @@ describe('rule runner', () => {
     run(0, 200)
     expect(sent).toHaveLength(1)
     expect(core.getByPath(OIL_ALERT)?.condition).toBe(true)
-    expect(runner.status('oil-pressure-low')?.instances[0]?.awaitingInput).toBe(true)
+    expect(runner.state('oil-pressure-low')?.instances[0]).toMatchObject({
+      condition: 'alerting',
+      awaitingInput: true
+    })
   })
 
   it('an absence alert raised while its input has never been seen keeps heartbeating', () => {
@@ -726,7 +733,10 @@ describe('rule runner', () => {
     const { run, sent, runner } = setup([watch])
     run(0, 900 + 2 * HEARTBEAT_S)
     expect(sent).toHaveLength(3)
-    expect(runner.status('watch-not-acknowledged')?.instances[0]?.awaitingInput).toBe(false)
+    expect(runner.state('watch-not-acknowledged')?.instances[0]).toMatchObject({
+      condition: 'alerting',
+      awaitingInput: false
+    })
   })
 
   it('an adopted absence alert keeps heartbeating while its input stays silent', () => {
@@ -806,9 +816,8 @@ describe('rule runner', () => {
     at(0, PUMP, false)
     run(1, 3 * HEARTBEAT_S)
     expect(sent).toEqual([])
-    expect(runner.status('bilge-pump-cycling')?.instances[0]).toMatchObject({
-      active: false,
-      adopted: false
+    expect(runner.state('bilge-pump-cycling')?.instances[0]).toMatchObject({
+      condition: 'normal'
     })
     expect(core.getByPath(PUMP_ALERT)).toMatchObject({ condition: false, state: 'unacknowledged' })
   })
@@ -866,7 +875,7 @@ describe('rule runner', () => {
     at(0, OIL, 0)
     run(1, 5)
     expect(sent).toHaveLength(1)
-    expect(runner.status('oil-pressure-low')).toBeDefined()
+    expect(runner.state('oil-pressure-low')).toBeDefined()
   })
 
   it('restores accumulator totals per rule and reports them for checkpoints', () => {
@@ -949,9 +958,15 @@ describe('rule runner', () => {
     const { at, sent, runner } = setup([rule])
     at(0, `tanks.fuel.${'x'.repeat(260)}.currentLevel`, 0.05)
     expect(sent).toEqual([])
-    expect(runner.status('tank-low')).toMatchObject({ badge: 'inactive', errors: [] })
-    expect(runner.status('tank-low')?.reason).toMatch(/longer than/)
-    expect(runner.status('tank-low')?.instances[0]?.inactive).toMatch(/longer than/)
+    expect(runner.state('tank-low')).toMatchObject({
+      condition: 'problem',
+      reason: 'alertPathInvalid',
+      errors: []
+    })
+    expect(runner.state('tank-low')?.instances[0]).toMatchObject({
+      condition: 'problem',
+      reason: 'alertPathInvalid'
+    })
   })
 })
 
@@ -974,52 +989,55 @@ describe('rule status', () => {
     at(0, 'propulsion.starboard.revolutions', 0)
     at(1, 'propulsion.port.coolantTemperature', 370)
     at(1, 'propulsion.starboard.coolantTemperature', 371)
-    const status = runner.status('coolant-high')
-    expect(status).toMatchObject({ badge: 'alertActive', subLabels: [], errors: [], issues: [] })
-    const byName = new Map(status?.instances.map((i) => [i.instance?.name, i]))
+    const state = runner.state('coolant-high')
+    expect(state).toMatchObject({
+      ruleState: 'enabled',
+      condition: 'alerting',
+      reason: 'alertActive',
+      instance: { name: 'port' },
+      priority: 'alarm',
+      step: 0,
+      errors: [],
+      issues: []
+    })
+    const byName = new Map(state?.instances.map((i) => [i.instance?.name, i]))
     expect(byName.get('port')).toMatchObject({
-      badge: 'alertActive',
-      subLabels: [],
-      active: true,
+      condition: 'alerting',
+      reason: 'alertActive',
       value: 370,
       limit: 368,
-      gates: [{ holds: true, input: 'value' }],
+      gates: [{ path: 'propulsion.port.revolutions', value: 30, holds: true, input: 'value' }],
       awaitingInput: false
     })
     expect(byName.get('starboard')).toMatchObject({
-      badge: 'gatedOff',
-      active: false,
+      condition: 'normal',
+      reason: 'outsideGate',
       value: 371,
       limit: 368,
-      gates: [{ holds: false, input: 'value' }]
+      gates: [{ path: 'propulsion.starboard.revolutions', value: 0, holds: false, input: 'value' }]
     })
   })
 
   type Step = (s: ReturnType<typeof setup>) => void
-  it.each<[string, Rule, Step]>([
+  it.each<[string, string, Rule, Step]>([
     [
-      'idle',
+      'normal',
+      'withinLimits',
       oil,
       ({ at }) => {
         at(0, OIL, 300000)
       }
     ],
     [
-      'timerRunning',
-      oil,
-      ({ at }) => {
-        at(0, OIL, 0)
-        at(2)
-      }
-    ],
-    [
-      'neverSeen',
+      'noData',
+      'neverReported',
       oil,
       ({ at }) => {
         at(2)
       }
     ],
     [
+      'noData',
       'inputUnavailable',
       oil,
       ({ at }) => {
@@ -1027,7 +1045,8 @@ describe('rule status', () => {
       }
     ],
     [
-      'gatedOff',
+      'normal',
+      'outsideGate',
       gatedOil,
       ({ at }) => {
         at(0, RPM, 0)
@@ -1035,6 +1054,7 @@ describe('rule status', () => {
       }
     ],
     [
+      'alerting',
       'alertActive',
       oil,
       ({ at, run }) => {
@@ -1042,21 +1062,29 @@ describe('rule status', () => {
         run(1, 5)
       }
     ]
-  ])('reports %s', (badge, rule, step) => {
+  ])('reports %s with the reason %s', (condition, reason, rule, step) => {
     const s = setup([rule])
     step(s)
-    expect(s.runner.status(OIL_ID)).toMatchObject({ badge, subLabels: [] })
-    expect(s.runner.status(OIL_ID)?.reason).toBeUndefined()
+    expect(s.runner.state(OIL_ID)).toMatchObject({ ruleState: 'enabled', condition, reason })
   })
 
-  it('reports inactive with the reason', () => {
+  it('reports a rule waiting out its duration as normal, without the timer', () => {
+    const { at, runner } = setup([oil])
+    at(0, OIL, 0)
+    at(2)
+    expect(runner.state(OIL_ID)).toMatchObject({ condition: 'normal', reason: 'withinLimits' })
+    expect(runner.state(OIL_ID)?.instances[0]?.progress).toBeUndefined()
+  })
+
+  it('reports a missing zone as a problem with its facts', () => {
     const { at, runner } = setup([batteryLow], {
       meta: { [VOLTAGE]: { zones: [{ upper: 11.5, state: 'alarm' }] } }
     })
     at(0, VOLTAGE, 12.6)
-    expect(runner.status('house-battery-low')).toMatchObject({
-      badge: 'inactive',
-      reason: 'the path has no warn zone'
+    expect(runner.state('house-battery-low')).toMatchObject({
+      condition: 'problem',
+      reason: 'missingZone',
+      level: 'warn'
     })
   })
 
@@ -1072,17 +1100,17 @@ describe('rule status', () => {
     at(0, VOLTAGE, 12.6)
     broken = true
     at(1)
-    expect(runner.status('house-battery-low')).toMatchObject({
-      badge: 'errored',
-      reason: 'evaluation failed: meta unreadable',
+    expect(runner.state('house-battery-low')).toMatchObject({
+      condition: 'problem',
+      reason: 'evaluationError',
       errors: ['evaluation failed: meta unreadable']
     })
     broken = false
     runner.update(batteryLow)
-    expect(runner.status('house-battery-low')).toMatchObject({ badge: 'idle', errors: [] })
+    expect(runner.state('house-battery-low')).toMatchObject({ condition: 'normal', errors: [] })
   })
 
-  it('a rule that throws at start is errored while the others run, until it is edited', () => {
+  it('a rule that throws at start is a problem while the others run, until it is edited', () => {
     let broken = true
     const meta = {
       get [VOLTAGE](): PathMeta {
@@ -1091,9 +1119,10 @@ describe('rule status', () => {
       }
     }
     const { at, run, runner, sent } = setup([batteryLow, oil], { meta })
-    expect(runner.status('house-battery-low')).toMatchObject({
-      badge: 'errored',
-      reason: 'failed to start: meta unreadable'
+    expect(runner.state('house-battery-low')).toMatchObject({
+      condition: 'problem',
+      reason: 'evaluationError',
+      errors: ['failed to start: meta unreadable']
     })
     at(0, OIL, 0)
     at(0, VOLTAGE, 11.8)
@@ -1102,7 +1131,7 @@ describe('rule status', () => {
 
     broken = false
     runner.update(batteryLow)
-    expect(runner.status('house-battery-low')).toMatchObject({ errors: [] })
+    expect(runner.state('house-battery-low')).toMatchObject({ errors: [] })
     at(7, VOLTAGE, 11.8)
     run(8, 12)
     expect(sent.map(([path]) => path)).toEqual([OIL_ALERT, BATTERY_ALERT])
@@ -1185,7 +1214,7 @@ describe('rule status', () => {
 
     it('keeps the total for the checkpoint', () => {
       const runner = failing()
-      expect(runner.status(HOURS_ID)?.badge).toBe('errored')
+      expect(runner.state(HOURS_ID)?.condition).toBe('problem')
       expect(runner.accumulators()).toEqual(
         new Map([[HOURS_ID, { measure: 'time', totals: new Map([['', 42]]) }]])
       )
@@ -1212,34 +1241,27 @@ describe('rule status', () => {
     })
   })
 
-  it('reports gate input unavailable on a gate that keeps holding', () => {
+  it('reports a gate whose input went unavailable while it keeps holding', () => {
     const { at, runner } = setup([gatedOil])
     at(0, RPM, 30)
     at(0, OIL, 300000)
     at(10)
     at(11, RPM, null)
-    expect(runner.status(OIL_ID)).toMatchObject({
-      badge: 'idle',
-      subLabels: ['gateInputUnavailable']
+    expect(runner.state(OIL_ID)).toMatchObject({
+      condition: 'normal',
+      reason: 'withinLimits',
+      gates: [{ holds: true, input: 'unavailable' }]
     })
   })
 
-  it('reports waiting for clear while an active alert times its clear duration', () => {
+  it('reports an alert timing its clear duration as alerting, without the timer', () => {
     const { at, run, runner } = setup([oil])
     at(0, OIL, 0)
     run(1, 5)
     at(6, OIL, 200000)
     at(8)
-    expect(runner.status(OIL_ID)).toMatchObject({
-      badge: 'alertActive',
-      subLabels: ['waitingForClear']
-    })
-    expect(runner.status(OIL_ID)?.instances[0]?.progress).toEqual({
-      kind: 'timer',
-      toward: 'clear',
-      elapsed: 2,
-      target: 10
-    })
+    expect(runner.state(OIL_ID)).toMatchObject({ condition: 'alerting', value: 200000 })
+    expect(runner.state(OIL_ID)?.progress).toBeUndefined()
   })
 
   it('reports awaiting input for an active alert whose input went unavailable', () => {
@@ -1247,15 +1269,287 @@ describe('rule status', () => {
     at(0, OIL, 0)
     run(1, 5)
     at(6, OIL, null)
-    expect(runner.status(OIL_ID)).toMatchObject({
-      badge: 'alertActive',
-      subLabels: ['awaitingInput']
+    expect(runner.state(OIL_ID)).toMatchObject({ condition: 'alerting', awaitingInput: true })
+  })
+
+  it('reports when an unavailable input last had a value', () => {
+    const { at, runner } = setup([oil], { wall: true })
+    at(10, OIL, 300000)
+    at(30, OIL, null)
+    at(90)
+    expect(runner.state(OIL_ID)).toMatchObject({
+      condition: 'noData',
+      reason: 'inputUnavailable',
+      lastSeen: '2026-09-29T12:00:10.000Z'
+    })
+  })
+
+  it('moves the time of the last change only when the condition changes', () => {
+    const { at, run, runner } = setup([oil], { wall: true })
+    at(0, OIL, 300000)
+    run(1, 10)
+    // A sample changes the state between ticks; the next tick observes it.
+    expect(runner.state(OIL_ID)?.changedAt).toBe('2026-09-29T12:00:01.000Z')
+    at(20, OIL, 0)
+    run(21, 30)
+    // Timed at the tick it became alerting, though nobody asked until later.
+    expect(runner.state(OIL_ID)).toMatchObject({
+      condition: 'alerting',
+      changedAt: '2026-09-29T12:00:25.000Z'
+    })
+    at(31, OIL, 50000)
+    run(32, 40)
+    expect(runner.state(OIL_ID)?.changedAt).toBe('2026-09-29T12:00:25.000Z')
+  })
+
+  it('times a disable as a change, and keeps that time while the condition stays present', () => {
+    const disabled = new Set<string>()
+    const { at, run, runner } = setup([gatedOil], {
+      wall: true,
+      disabled: (id) => disabled.has(id)
+    })
+    at(0, RPM, 30)
+    at(0, OIL, 0)
+    run(1, 20)
+    disabled.add(OIL_ID)
+    runner.refresh(OIL_ID)
+    run(21, 30)
+    expect(runner.state(OIL_ID)).toMatchObject({
+      ruleState: 'disabled',
+      condition: 'present',
+      changedAt: '2026-09-29T12:00:21.000Z'
+    })
+    run(31, 40)
+    expect(runner.state(OIL_ID)?.changedAt).toBe('2026-09-29T12:00:21.000Z')
+  })
+
+  it('reads a disabled condition held across a gate cycle as normal, timed from the gate closing', () => {
+    const { at, run, runner } = setup([gatedOil], { wall: true, disabled: () => true })
+    at(0, RPM, 30)
+    at(0, OIL, 0)
+    run(1, 20)
+    expect(runner.state(OIL_ID)).toMatchObject({ condition: 'present' })
+    at(21, RPM, 0)
+    run(22, 30)
+    const closed = runner.state(OIL_ID)
+    expect(closed).toMatchObject({ condition: 'normal', reason: 'outsideGate' })
+    // Inside the recovery margin, so the restarted detector stays undecided.
+    at(31, OIL, 120000)
+    at(40, RPM, 30)
+    run(41, 60)
+    const reopened = runner.state(OIL_ID)
+    expect(reopened).toMatchObject({
+      condition: 'normal',
+      reason: 'withinLimits',
+      changedAt: closed?.changedAt
+    })
+    expect(reopened?.instances).toHaveLength(1)
+    expect(reopened?.instances[0]).toMatchObject({ condition: 'normal', reason: 'withinLimits' })
+    expect(reopened?.instances[0]).not.toHaveProperty('clearSince')
+    expect(reopened?.instances[0]).not.toHaveProperty('clearedAt')
+  })
+
+  // Each tick and each read judge the condition; were the two to disagree,
+  // the time of the last change would move on every read.
+  it.each<
+    [
+      string,
+      () => { runner: RuleRunner; id: string; run: (from: number, to: number) => void },
+      object
+    ]
+  >([
+    [
+      'noData, never reported',
+      () => ({ ...setup([oil], { wall: true }), id: OIL_ID }),
+      { condition: 'noData', reason: 'neverReported' }
+    ],
+    [
+      'noData, input unavailable',
+      () => {
+        const s = setup([oil], { wall: true })
+        s.at(0, OIL, 300000)
+        s.at(0, OIL, null)
+        return { ...s, id: OIL_ID }
+      },
+      { condition: 'noData', reason: 'inputUnavailable' }
+    ],
+    [
+      'problem, missing zone',
+      () => {
+        const meta = { [VOLTAGE]: { zones: [{ upper: 11.5, state: 'alarm' as const }] } }
+        const s = setup([batteryLow], { wall: true, meta })
+        s.at(0, VOLTAGE, 12.5)
+        return { ...s, id: 'house-battery-low' }
+      },
+      { condition: 'problem', reason: 'missingZone' }
+    ],
+    [
+      'problem, alert path invalid',
+      () => {
+        const s = setup([coolant], { wall: true })
+        s.at(0, 'propulsion.__proto__.coolantTemperature', 300)
+        return { ...s, id: 'coolant-high' }
+      },
+      { condition: 'problem', reason: 'alertPathInvalid' }
+    ],
+    [
+      'problem, evaluation error',
+      () => {
+        const meta = {
+          get [VOLTAGE](): PathMeta {
+            throw new Error('meta unreadable')
+          }
+        }
+        return { ...setup([batteryLow], { wall: true, meta }), id: 'house-battery-low' }
+      },
+      { condition: 'problem', reason: 'evaluationError' }
+    ],
+    [
+      'normal, outside the gate',
+      () => {
+        const s = setup([gatedOil], { wall: true })
+        s.at(0, RPM, 0)
+        s.at(0, OIL, 300000)
+        return { ...s, id: OIL_ID }
+      },
+      { condition: 'normal', reason: 'outsideGate' }
+    ],
+    [
+      'noData, an adopted alert of a disabled rule',
+      () => ({
+        ...setup([oil], { wall: true, core: coreWith(OIL_ALERT), disabled: () => true }),
+        id: OIL_ID
+      }),
+      { ruleState: 'disabled', condition: 'noData', reason: 'neverReported' }
+    ]
+  ])('keeps the time of the last change across reads: %s', (_, scenario, expected) => {
+    const { runner, id, run } = scenario()
+    run(1, 5)
+    const first = runner.state(id)
+    expect(first).toMatchObject({ ...expected, changedAt: '2026-09-29T12:00:01.000Z' })
+    run(6, 10)
+    expect(runner.state(id)).toMatchObject({ ...expected, changedAt: first?.changedAt })
+    run(11, 15)
+    expect(runner.state(id)?.changedAt).toBe(first?.changedAt)
+  })
+
+  it('times an adopted alert from when it was raised, and anything else from plugin start', () => {
+    const core = new FakeAlertsCore()
+    const raised = (instance: string, raisedAt: unknown) => {
+      core.ingest(PLUGIN, `propulsion.${instance}.coolantTemperatureHigh`, {
+        priority: 'alarm',
+        message: `Coolant high on ${instance}`,
+        latching: false,
+        data: { rule: 'coolant-high', instance, limit: 368, raisedAt }
+      })
+    }
+    raised('port', '2026-09-28T08:00:00.000Z')
+    raised('starboard', '2026-09-27T20:00:00.000Z')
+    core.ingest(PLUGIN, OIL_ALERT, {
+      priority: 'alarm',
+      message: 'Engine oil pressure is low',
+      latching: false,
+      data: { rule: 'oil-pressure-low', limit: 100000, raisedAt: 'not a time' }
+    })
+    core.alertings = 0
+    const { run, runner } = setup([coolant, oil], { wall: true, core })
+    run(1, 5)
+    // The rule has alerted since its first instance did.
+    expect(runner.state('coolant-high')).toMatchObject({
+      condition: 'alerting',
+      changedAt: '2026-09-27T20:00:00.000Z'
+    })
+    expect(runner.state(OIL_ID)).toMatchObject({
+      condition: 'alerting',
+      changedAt: '2026-09-29T12:00:01.000Z'
+    })
+  })
+
+  it('raises at the alert path of a rule added again under its slug with another condition', () => {
+    const { at, run, runner, sent } = setup([oil])
+    at(0, OIL, 300000)
+    run(1, 2)
+    runner.remove(OIL_ID)
+    runner.update(valid({ ...oil, condition: 'oilPressureLost' }))
+    at(3, OIL, 0)
+    run(4, 9)
+    expect(sent.map(([path]) => path)).toEqual(['propulsion.main.oilPressureLost'])
+  })
+
+  it('times a rule removed and added again from its new start', () => {
+    const { run, runner } = setup([oil], { wall: true })
+    run(1, 5)
+    expect(runner.state(OIL_ID)?.changedAt).toBe('2026-09-29T12:00:01.000Z')
+    runner.remove(OIL_ID)
+    run(6, 19)
+    runner.update(oil)
+    run(20, 25)
+    expect(runner.state(OIL_ID)).toMatchObject({
+      condition: 'noData',
+      changedAt: '2026-09-29T12:00:20.000Z'
+    })
+  })
+
+  it('does not move the time of the last change on a change of reason alone', () => {
+    const { at, run, runner } = setup([gatedOil], { wall: true })
+    at(0, RPM, 30)
+    at(0, OIL, 300000)
+    run(1, 20)
+    expect(runner.state(OIL_ID)).toMatchObject({
+      condition: 'normal',
+      reason: 'withinLimits',
+      changedAt: '2026-09-29T12:00:01.000Z'
+    })
+    at(21, RPM, 0)
+    run(22, 30)
+    expect(runner.state(OIL_ID)).toMatchObject({
+      condition: 'normal',
+      reason: 'outsideGate',
+      changedAt: '2026-09-29T12:00:01.000Z'
     })
   })
 })
 
 describe('disabled rules', () => {
   const OIL_ID = 'oil-pressure-low'
+
+  it('an adopted alert of a rule disabled before its input reports is no data, then present once it does', () => {
+    const disabled = new Set<string>()
+    const { at, run, runner } = setup([oil], {
+      core: coreWith(OIL_ALERT),
+      disabled: (id) => disabled.has(id)
+    })
+    run(1, 3)
+    expect(runner.state(OIL_ID)).toMatchObject({ ruleState: 'enabled', condition: 'alerting' })
+    disabled.add(OIL_ID)
+    runner.refresh(OIL_ID)
+    run(4, 6)
+    expect(runner.state(OIL_ID)).toMatchObject({
+      ruleState: 'disabled',
+      condition: 'noData',
+      reason: 'neverReported',
+      instances: [{ condition: 'noData', reason: 'neverReported' }]
+    })
+    at(7, OIL, 0)
+    run(8, 9)
+    expect(runner.state(OIL_ID)).toMatchObject({
+      ruleState: 'disabled',
+      condition: 'present',
+      reason: 'conditionPresent',
+      instances: [{ condition: 'present' }]
+    })
+  })
+
+  it('a disabled rule clear since the plugin started is clear since that start', () => {
+    const { at, run, runner } = setup([oil], { wall: true, disabled: () => true })
+    at(0, OIL, 300000)
+    run(1, 10)
+    expect(runner.state(OIL_ID)).toMatchObject({
+      condition: 'normal',
+      reason: 'withinLimits',
+      clearSince: '2026-09-29T12:00:00.000Z'
+    })
+  })
 
   it('disabling a rule clears its alert in core, stops its heartbeat and shows it disabled', () => {
     const disabled = new Set<string>()
@@ -1269,9 +1563,9 @@ describe('disabled rules', () => {
     const count = sent.length
     run(6, 100)
     expect(sent).toHaveLength(count)
-    const status = runner.status(OIL_ID)
-    expect(status).toMatchObject({ badge: 'disabled' })
-    expect(status?.instances[0]).toMatchObject({ badge: 'disabled', conditionPresent: true })
+    const state = runner.state(OIL_ID)
+    expect(state).toMatchObject({ ruleState: 'disabled', condition: 'present' })
+    expect(state?.instances[0]).toMatchObject({ condition: 'present', reason: 'conditionPresent' })
   })
 
   it('applying a disable to a rule whose evaluation throws records the error', () => {
@@ -1288,7 +1582,7 @@ describe('disabled rules', () => {
     expect(() => {
       runner.refresh('house-battery-low')
     }).not.toThrow()
-    expect(runner.status('house-battery-low')?.errors).toEqual([
+    expect(runner.state('house-battery-low')?.errors).toEqual([
       'evaluation failed: meta unreadable'
     ])
   })

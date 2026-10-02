@@ -1,4 +1,4 @@
-import type { Badge, SubLabel } from '../api'
+import type { Condition } from '../api'
 
 interface BadgeLook {
   label: string
@@ -8,51 +8,31 @@ interface BadgeLook {
   tone: string
 }
 
-export const BADGE_LOOK: Readonly<Record<Badge, BadgeLook>> = {
-  disabled: { label: 'Disabled', icon: '⊘', tone: 'secondary' },
-  errored: { label: 'Errored', icon: '✕', tone: 'danger' },
-  inactive: { label: 'Inactive', icon: '⚠', tone: 'warning' },
-  alertActive: { label: 'Alert active', icon: '▲', tone: 'danger' },
-  gatedOff: { label: 'Gated off', icon: '∥', tone: 'light' },
-  inputUnavailable: { label: 'Input unavailable', icon: '∅', tone: 'warning' },
-  neverSeen: { label: 'Never seen', icon: '○', tone: 'light' },
-  timerRunning: { label: 'Timer running', icon: '◔', tone: 'info' },
-  idle: { label: 'Idle', icon: '✓', tone: 'success' }
-}
+/** What a badge shows: a condition, or a disabled rule. */
+export type BadgeKind = Condition | 'disabled'
 
-export const SUB_LABEL_TEXT: Readonly<Record<SubLabel, string>> = {
-  gateInputUnavailable: 'gate input unavailable',
-  waitingForClear: 'waiting for clear',
-  awaitingInput: 'awaiting input'
-}
-
-export interface Verdict {
-  badge: Badge
-  reason?: string
-  subLabels: SubLabel[]
+export const BADGE_LOOK: Readonly<Record<BadgeKind, BadgeLook>> = {
+  alerting: { label: 'Alerting', icon: '▲', tone: 'danger' },
+  present: { label: 'Condition present', icon: '◆', tone: 'secondary' },
+  problem: { label: 'Problem', icon: '⚠', tone: 'warning' },
+  noData: { label: 'No data', icon: '∅', tone: 'light' },
+  normal: { label: 'Normal', icon: '✓', tone: 'success' },
+  disabled: { label: 'Disabled', icon: '⊘', tone: 'secondary' }
 }
 
 /**
- * A status badge with its one-line reason and its sub-labels.
- * It is deliberately not a live region: the list polls every few seconds and
- * a screen reader would otherwise announce every row each time.
+ * A rule's or an instance's badge: Disabled for a disabled rule, otherwise
+ * its condition. It is deliberately not a live region: the list polls every
+ * few seconds and a screen reader would otherwise announce every row each
+ * time.
  */
-export function StatusBadge({ status }: { status: Verdict }) {
-  const look = BADGE_LOOK[status.badge]
-  const detail = status.reason
+export function StatusBadge({ kind }: { kind: BadgeKind }) {
+  const look = BADGE_LOOK[kind]
   return (
     <div className="skar-status">
       <span className={`badge text-bg-${look.tone}`}>
         <span aria-hidden="true">{look.icon}</span> {look.label}
       </span>
-      {detail !== undefined && <span className="skar-status-detail"> {detail}</span>}
-      {status.subLabels.length > 0 && (
-        <ul className="skar-sublabels" aria-label="Also">
-          {status.subLabels.map((label) => (
-            <li key={label}>{SUB_LABEL_TEXT[label]}</li>
-          ))}
-        </ul>
-      )}
     </div>
   )
 }

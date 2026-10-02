@@ -24,10 +24,12 @@ export class CountDetector extends ConditionDetector<CountSpec> {
   private times: number[] = []
   private readonly events: EventWatcher
   private readonly holdUntil: number
+  private readonly start: number
 
   constructor(spec: CountSpec, options: DetectorOptions) {
     super(spec, options)
     this.events = new EventWatcher(spec.event, true)
+    this.start = options.start
     this.holdUntil = this.active ? options.start + spec.window : -Infinity
   }
 
@@ -54,6 +56,9 @@ export class CountDetector extends ConditionDetector<CountSpec> {
   private evaluate(now: number): Transition | undefined {
     this.times = this.times.filter((t) => t > now - this.spec.window)
     const over = this.times.length > this.spec.limit
+    // The events before it was created are unknown, so only a full window
+    // since then shows the count below the limit.
+    if (!over && now >= this.start + this.spec.window) this.refuted = true
     if (!over && now < this.holdUntil) return undefined
     return this.change(over)
   }

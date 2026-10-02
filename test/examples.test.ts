@@ -12,7 +12,7 @@ import { FakeSubscriptionManager } from './helpers/FakeSubscriptionManager.js'
  * an alert not active, a changed priority of one that is, and a clear) and
  * the rule's issues and inactive reasons at the end.
  */
-function run(rule: unknown, scenario: Scenario): { steps: AlertStep[]; problems: string[] } {
+function run(rule: unknown, scenario: Scenario): { steps: AlertStep[]; problems: unknown[] } {
   const validated = validateRule(rule)
   if (!validated.ok) throw new Error(JSON.stringify(validated.errors))
   const sm = new FakeSubscriptionManager(scenario.ranking)
@@ -58,12 +58,9 @@ function run(rule: unknown, scenario: Scenario): { steps: AlertStep[]; problems:
     }
     runner.tick()
   }
-  const status = runner.status(validated.value.slug)
+  const status = runner.state(validated.value.slug)
   if (status === undefined) throw new Error('the rule has no status')
-  const problems = [
-    ...status.issues,
-    ...status.instances.flatMap((i) => (i.inactive === undefined ? [] : [i.inactive]))
-  ]
+  const problems = [...status.issues, ...status.instances.filter((i) => i.condition === 'problem')]
   return { steps, problems }
 }
 

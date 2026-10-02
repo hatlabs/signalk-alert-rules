@@ -36,6 +36,7 @@ export class AbsenceDetector extends ConditionDetector<AbsenceSpec> {
       return undefined
     }
     if (event) {
+      this.refuted = true
       this.timer.reset()
       this.timer.start(now)
       return this.change(false)

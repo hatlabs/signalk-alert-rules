@@ -40,8 +40,7 @@ const coolant = ruleEntry({
       instance({
         instance: { name: 'port', segment: 'port' },
         value: 368.15,
-        limit: 373.15,
-        progress: { kind: 'timer', toward: 'set', elapsed: 150, target: 300 }
+        limit: 373.15
       })
     ]
   }
@@ -56,11 +55,6 @@ describe('RuleDetail in display units', () => {
     expect(row?.textContent).toContain('95 °C')
     expect(row?.textContent).toContain('100 °C')
     expect(screen.queryByText(/values are in SI units/i)).toBeNull()
-  })
-
-  it('shows timers in minutes once they run past two minutes', () => {
-    renderDetail(coolant)
-    expect(screen.getByText('2.5 min of 5 min toward set')).toBeTruthy()
   })
 
   it('shows a difference through the linear part of the unit', () => {

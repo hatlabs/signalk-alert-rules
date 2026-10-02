@@ -230,15 +230,9 @@ export function matchAlertPath(pattern: string, path: string): { segment?: strin
 export function instanceAlertPath(
   alertPath: string,
   instance?: string
-): { ok: true; value: string } | { ok: false; message: string } {
+): { ok: true; value: string } | { ok: false } {
   const path = instance === undefined ? alertPath : fillWildcard(alertPath, instance)
-  if (acceptedByCore(path)) return { ok: true, value: path }
-  const bad = path.split('.').find((s) => !segmentAccepted(s))
-  const message =
-    bad === undefined
-      ? `alert path is longer than ${String(MAX_ALERT_PATH_LENGTH)} characters`
-      : `"${bad}" is not a valid alert path segment`
-  return { ok: false, message }
+  return acceptedByCore(path) ? { ok: true, value: path } : { ok: false }
 }
 
 /** The delta path that raises or clears the alert at a core alert path. */

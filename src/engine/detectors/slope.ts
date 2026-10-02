@@ -46,9 +46,16 @@ abstract class TrendDetector<S extends TrendSpec> extends ConditionDetector<S> {
 
   protected abstract condition(trend: Trend): boolean
 
+  /** Whether the trend shows the condition does not hold, whatever state the detector is in. */
+  protected refutes(trend: Trend): boolean {
+    return !this.condition(trend)
+  }
+
   private evaluate(now: number): Transition | undefined {
     const trend = this.samples.trend(now)
-    return trend === undefined ? undefined : this.change(this.condition(trend))
+    if (trend === undefined) return undefined
+    if (this.refutes(trend)) this.refuted = true
+    return this.change(this.condition(trend))
   }
 }
 
@@ -67,11 +74,25 @@ export class SlopeDetector extends TrendDetector<Extract<TrendSpec, { type: 'slo
  * the fitted slope.
  */
 export class ProjectionDetector extends TrendDetector<Extract<TrendSpec, { type: 'projection' }>> {
-  protected condition({ slope, latest }: Trend): boolean {
-    const projected = latest + slope * this.spec.horizon
+  protected condition(trend: Trend): boolean {
+    const { slope } = trend
     const rising = this.spec.direction === 'rising'
-    const reaches = rising ? projected >= this.spec.limit : projected <= this.spec.limit
+    const reaches = this.reaches(trend)
     const toward = rising ? slope > 0 : slope < 0
     return reaches && (toward || this.active)
+  }
+
+  // A restarted detector has not set, so its condition would reject a flat
+  // value past the limit that the condition holding before still covers:
+  // only a projected value back on the safe side is evidence of a clear.
+  protected override refutes(trend: Trend): boolean {
+    return !this.reaches(trend)
+  }
+
+  private reaches({ slope, latest }: Trend): boolean {
+    const projected = latest + slope * this.spec.horizon
+    return this.spec.direction === 'rising'
+      ? projected >= this.spec.limit
+      : projected <= this.spec.limit
   }
 }

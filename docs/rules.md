@@ -65,7 +65,7 @@ A signal is a single path or a combination of paths on `vessels.self`.
 
 - `path` is relative to `vessels.self`; a path starting with `vessels.` is rejected. It is at most 255 characters.
 - `source` is optional. Without it the rule reads the preferred source, as the server ranks sources. With it the rule reads only that `$source`, whatever its rank.
-- A path may contain one wildcard segment, `*`, which matches exactly one path segment. Each matching path is an instance of the rule with its own detector and its own alert. The instance name is the segment the wildcard matched. At most 64 instances per rule are admitted; later ones are ignored and reported in the rule's status.
+- A path may contain one wildcard segment, `*`, which matches exactly one path segment. Each matching path is an instance of the rule with its own detector and its own alert. The instance name is the segment the wildcard matched. At most 64 instances per rule are admitted; later ones are ignored and reported in the rule's issues.
 - A wildcard elsewhere in the rule, in a gate's signal or a zone limit's `path`, binds to the rule signal's instance, so it is allowed only when the rule signal has a wildcard. `propulsion.*.revolutions` in a gate of a rule on `propulsion.*.coolantTemperature` is the port engine's revolutions for the port instance.
 
 A reading is a number, a string, a boolean or a position (`latitude`, `longitude`). A `null` value, a non-finite number or any other value is *unavailable*; `null` with `state.timedOut` is the server's timed-out marker, which is also unavailable except to timeout rules. A signal that has produced nothing since the rule started is *never seen*.
@@ -98,7 +98,7 @@ Each input subscribes through the server's subscription manager, which replays t
 
 - Combinators do not nest, and their inputs have no wildcard.
 - `distance` and `positionSpread` take only paths whose last segment is `position`, and positions combine only through them.
-- `angular: true` is accepted on `difference`, `absDifference`, `spread` and `mean`, and makes them treat values as angles in radians: a difference wraps to [-π, π), so 358° and 3° are 5° apart; `mean` is the circular mean, unavailable when the inputs cancel out; `spread` is the smallest arc holding every angle. When the rule is validated with the server's path information and the server knows an input's units, anything but `rad` is rejected. A rule saved before its inputs report is checked again whenever it evaluates: once an input's `meta.units` is anything but `rad`, the rule is inactive with the reason "`<path>`: angular combination needs radians, the path is in `<units>`", and an active alert is cleared.
+- `angular: true` is accepted on `difference`, `absDifference`, `spread` and `mean`, and makes them treat values as angles in radians: a difference wraps to [-π, π), so 358° and 3° are 5° apart; `mean` is the circular mean, unavailable when the inputs cancel out; `spread` is the smallest arc holding every angle. When the rule is validated with the server's path information and the server knows an input's units, anything but `rad` is rejected. A rule saved before its inputs report is checked again whenever it evaluates: once an input's `meta.units` is anything but `rad`, the rule is a problem with the reason `unitsNotRadians`, naming the `path` and its `units`, and an active alert is cleared.
 - The combined value exists once every input has reported, and is recomputed whenever any input reports. It is unavailable while any input is unavailable, and timed out when any unavailable input is timed out.
 
 ## Detectors
@@ -127,7 +127,7 @@ A replayed value only sets the baseline. An unavailable reading leaves the basel
 
 - `equals`, `notEquals` (step `value` required): active once the value has matched for `duration` (default 0). A non-matching value resets the timer; an unavailable input pauses it.
 - `changesTo` (step `value` required), `decreases`: a momentary condition at the event, with no duration. A device reporting for the first time after start raises nothing, since there is no previous value.
-- `timedOut` (no step `value`, `duration` required and above 0): a *timeout rule*. Active once the input has carried core's timed-out marker for `duration`, or has not been seen at all for `duration` since the rule came into use (core marks only paths it has seen). Any value ends it. A timeout rule watches a single path, not a combined signal, and is rejected on a path the server reports as boolean or string, when the rule is validated with the server's path information. A rule saved before its path reports is checked when a value arrives: once the path has reported a boolean or a string, the rule is inactive with the reason "core never times out boolean paths" (or string paths). It is also inactive, with the reason in its status, when the server does not enforce data timeouts, when the path declares an update contract other than `periodic`, when its `meta.timeout` is 0 or less, or when it has no `meta.timeout` and the server's default timeouts are off.
+- `timedOut` (no step `value`, `duration` required and above 0): a *timeout rule*. Active once the input has carried core's timed-out marker for `duration`, or has not been seen at all for `duration` since the rule came into use (core marks only paths it has seen). Any value ends it. A timeout rule watches a single path, not a combined signal, and is rejected on a path the server reports as boolean or string, when the rule is validated with the server's path information. A rule saved before its path reports is checked when a value arrives: once the path has reported a boolean or a string, the rule is a problem with the reason `timeoutNotPossible` and the cause `booleanPath` (or `stringPath`). It is also a problem with that reason when the server does not enforce data timeouts, when the path declares an update contract other than `periodic`, when its `meta.timeout` is 0 or less, or when it has no `meta.timeout` and the server's default timeouts are off; [State](#conditions-and-reasons) lists the causes.
 
 ### sustained
 
@@ -174,7 +174,7 @@ A gate puts a rule in use only while a condition on another signal holds, such a
 - A gate whose input path is [suppressed](#input-suppression) is frozen: it ignores time and keeps the state it had when the suppression started until the suppression ends. It holds back the input's latest value and evaluates it when the suppression ends, so an input sent only on change is not left stale.
 - A gate whose input has not been seen since start does not hold, except for an alert adopted at restart (see [Restart](#restart-reconciliation)), which is kept until the gate input reports. For such an alert the gate starts as holding and does not wait out its `duration`.
 - A gate with a wildcard signal is evaluated per instance; a gate without one is shared by every instance.
-- A gate's limit can be a zone limit, resolved like any other; a zone level missing from the path makes the rule inactive with that reason. A gate's zone level does not affect the rule's priority.
+- A gate's limit can be a zone limit, resolved like any other; a zone level missing from the path makes the rule a problem with the reason `missingZone` and the gate's index. A gate's zone level does not affect the rule's priority.
 
 ## Limits
 
@@ -200,7 +200,7 @@ A path can have zones on both sides of its range, such as a battery voltage with
 - For `below`, the lowest run. The threshold is its upper edge.
 - For `above`, the highest run. The threshold is its lower edge.
 
-That edge must be a bound, not open, and only zones of the named level may supply it: a zone supplies the edge when its upper bound is the edge for `below`, its lower bound for `above`. A run graded from the named level outward has the named level alone at its inner edge and the more severe levels beyond it. On a path zoned on one side only, the outermost run on the unzoned side is the other side's run, with a more severe level at the edge the rule would take, whether that level's zone is adjacent to the named level's or nested inside it and sharing its outer bound (`{ lower: 0.8, upper: 1, state: 'warn' }` with `{ lower: 0.9, upper: 1, state: 'alarm' }`). Taking that edge would put the whole range past the threshold and the rule would alert permanently, so the rule is inactive instead.
+That edge must be a bound, not open, and only zones of the named level may supply it: a zone supplies the edge when its upper bound is the edge for `below`, its lower bound for `above`. A run graded from the named level outward has the named level alone at its inner edge and the more severe levels beyond it. On a path zoned on one side only, the outermost run on the unzoned side is the other side's run, with a more severe level at the edge the rule would take, whether that level's zone is adjacent to the named level's or nested inside it and sharing its outer bound (`{ lower: 0.8, upper: 1, state: 'warn' }` with `{ lower: 0.9, upper: 1, state: 'alarm' }`). Taking that edge would put the whole range past the threshold and the rule would alert permanently, so the rule is a problem instead.
 
 For example, with zones `{ upper: 11.5, state: 'alarm' }`, `{ lower: 11.5, upper: 12, state: 'warn' }`, `{ lower: 12, upper: 14.4, state: 'normal' }` and `{ lower: 14.8, state: 'alarm' }`, a `below` rule naming `warn` has threshold 12 and an `above` rule naming `alarm` has threshold 14.8. A path zoned on one side only resolves the same way whether or not its zones are open-ended: engine revolutions zoned `{ lower: 3200, upper: 3600, state: 'warn' }` and `{ lower: 3600, upper: 4000, state: 'alarm' }` give an `above` rule naming `warn` the threshold 3200, while a `below` rule naming `warn` on the same zones does not resolve, because the upper edge of the only run, 4000, comes from the alarm zone.
 
@@ -212,15 +212,15 @@ A more severe level that does not resolve is left out of escalation too.
 
 #### When a zone limit does not resolve
 
-The rule is inactive, with one of these reasons, when:
+The rule is a `problem` with the reason `missingZone` (see [State](#conditions-and-reasons)) when:
 
-- the path has no zone of the named level at all: "the path has no `<level>` zone". A more severe zone does not stand in for a missing named level.
-- the edge of the outermost run on the rule's side is open, or no zone of the named level supplies it: "the path has no `<level>` zone on the `<low|high>` side". This covers a named level defined only on the other side, a rule pointing at the unzoned side of a path zoned on one side only, and a zone at or above the named level with neither bound, which merges everything into one run open at both ends.
+- the path has no zone of the named level at all: the facts name the `level`. A more severe zone does not stand in for a missing named level.
+- the edge of the outermost run on the rule's side is open, or no zone of the named level supplies it: the facts name the `level` and the `side`, `low` or `high`. This covers a named level defined only on the other side, a rule pointing at the unzoned side of a path zoned on one side only, and a zone at or above the named level with neither bound, which merges everything into one run open at both ends.
 
 #### Known limitations
 
-- Zones on the same side separated by a gap make the rule inactive. With `{ lower: 3200, upper: 3600, state: 'warn' }` and `{ lower: 3800, upper: 4000, state: 'alarm' }`, the highest run is the alarm zone alone, so an `above` rule naming `warn` reports "the path has no warn zone on the high side". Make the zones touch for the rule to resolve.
-- A side lacking the named level makes the rule inactive, even when the other side's zones of that level are bounded on both sides and could be read as lying on the rule's side. With `{ upper: 11.5, state: 'alarm' }` and `{ lower: 14.8, upper: 20, state: 'warn' }`, a `below` rule naming `warn` reports "the path has no warn zone on the low side".
+- Zones on the same side separated by a gap make the rule a problem. With `{ lower: 3200, upper: 3600, state: 'warn' }` and `{ lower: 3800, upper: 4000, state: 'alarm' }`, the highest run is the alarm zone alone, so an `above` rule naming `warn` reports the `warn` level missing on the `high` side. Make the zones touch for the rule to resolve.
+- A side lacking the named level makes the rule a problem, even when the other side's zones of that level are bounded on both sides and could be read as lying on the rule's side. With `{ upper: 11.5, state: 'alarm' }` and `{ lower: 14.8, upper: 20, state: 'warn' }`, a `below` rule naming `warn` reports the `warn` level missing on the `low` side.
 - A path with a single bounded zone, or with bounded zones all of one level, resolves in either direction, since zones of the named level supply the edges on both sides. With `{ lower: 0, upper: 5, state: 'alarm' }`, a `below` rule naming `alarm` has threshold 5 and an `above` rule naming `alarm` has threshold 0. A rule pointing the wrong way on such a path alerts permanently.
 
 ## Steps and escalation
@@ -280,7 +280,7 @@ Only the condition name is the rule's to choose, in its optional `condition` fie
 
 A wildcard rule's alert path keeps the `*`, and each instance's alert fills it with the instance's segment: `alerts.propulsion.port.coolantTemperatureHigh`. No two rules may have alert paths that could name the same alert, a wildcard overlapping every segment it could take: a create or edit that would is refused (409 on `/condition`), and a stored rule that would does not run. An edit that changes the alert path clears the rule's alerts at the old path and raises at the new one once the condition holds.
 
-Parent segments and the instance segment are the path's or instance name's with every character other than `A-Z`, `a-z`, `0-9`, `_` and `-` replaced by `_`. Two instance names that map to the same segment cannot both be admitted; the later one is reported in the rule's status. A path under `alerts.` longer than 255 characters, or with a segment of `__proto__`, `constructor` or `prototype`, is not emitted and is reported in status.
+Parent segments and the instance segment are the path's or instance name's with every character other than `A-Z`, `a-z`, `0-9`, `_` and `-` replaced by `_`. Two instance names that map to the same segment cannot both be admitted; the later one is reported in the rule's issues. A path under `alerts.` longer than 255 characters, or with a segment of `__proto__`, `constructor` or `prototype`, is not emitted, and the instance is a problem with the reason `alertPathInvalid`.
 
 ### What SKAR sends
 
@@ -317,13 +317,13 @@ The keys of `data`, written at each raise:
 | `valueAtRaise` | when the input had a value | the signal's value at the raise: a number, string, boolean or position |
 | `raisedAt` | always | the wall-clock time of the raise, ISO 8601 |
 
-Data holds only what changes rarely, so repeats of the alert cause no store writes. Core replaces an alert's data whole, so a climb resends the data with the reached step's `limit` and the rest unchanged. The step reached, the current priority, the live value and timer progress are in SKAR's rule status (see [Status](#status)), not in the alert. The message is the same at every step; it names no limit.
+Data holds only what changes rarely, so repeats of the alert cause no store writes. Core replaces an alert's data whole, so a climb resends the data with the reached step's `limit` and the rest unchanged. The step reached, the current priority and the live value are in SKAR's rule state (see [State](#state)), not in the alert. The message is the same at every step; it names no limit.
 
 ### Heartbeat and input evidence
 
 Core marks an alert stale when its source has not repeated it for 60 s. SKAR repeats every active non-latching alert every 10 s with the same value, `references` and data included; an adopted alert's repeats omit both, so core keeps what it stored. A priority change is sent at once, and a message or priority edit goes out with the next repeat. Core treats a repeat at or below the alert's priority as a refresh, updating a changed message without re-alerting, and escalates on a higher priority.
 
-SKAR repeats an alert only while it has input evidence for it, and otherwise lets core mark it stale rather than clearing it; the rule's status shows the alert as awaiting input. An instance has evidence:
+SKAR repeats an alert only while it has input evidence for it, and otherwise lets core mark it stale rather than clearing it; the rule's state shows the alert as awaiting input. An instance has evidence:
 
 - for a timeout rule, always, since the input's silence is the condition;
 - for an alert adopted at restart, other than an absence rule's, while its input has a value;
@@ -336,7 +336,7 @@ The evidence gate stands until core's staleness behaviour is specified (SignalK/
 At start SKAR reads core's alerts once and sorts those whose `$source` is SKAR and whose condition is active, matching each to the rule whose [alert path](#alert-paths) is the alert's, a wildcard rule's with an instance segment in place of its `*`:
 
 - An alert that matches no rule, because its rule no longer exists, is disabled or now has another alert path, or that matches a rule now latching, is cleared.
-- Every other such alert is adopted. SKAR sends it once at once, with the rule's current message, the more severe of core's priority and its first step's (for a zone-limit rule, its named level's), and no data, so core keeps the data it stored, unless core already marks it stale; an edit made while SKAR was down reaches core this way. The instance's detector starts in the active state at the first step, with core's priority as the most severe it has reached. Core's priority names no step, because it is not evidence of which step's condition held. Status reports step 0 at that priority, and the following repeats carry it.
+- Every other such alert is adopted. SKAR sends it once at once, with the rule's current message, the more severe of core's priority and its first step's (for a zone-limit rule, its named level's), and no data, so core keeps the data it stored, unless core already marks it stale; an edit made while SKAR was down reaches core this way. The instance's detector starts in the active state at the first step, with core's priority as the most severe it has reached. Core's priority names no step, because it is not evidence of which step's condition held. The rule's state reports step 0 at that priority, and the following repeats carry it.
 
 Alerts whose condition has ended, latching alerts among them, are core's until acknowledged and are left alone, as are other sources' alerts. Alert paths are shared with every other source, and core keeps one alert per path, attributed to the source that raised it last: an alert at a rule's path that another source raised last is that source's, so SKAR neither adopts nor clears it. While both run, they share that one alert.
 
@@ -371,7 +371,7 @@ Each rule has operator controls, set through the [REST API](api.md#rule-controls
 
 ### Disabled rules
 
-A disabled rule is not evaluated. Disabling it clears its active alerts, as a delete does. Enabling it starts it as a new rule: nothing is adopted, and it raises again once its condition holds. An accumulator keeps its total while disabled, and the rule can still be edited, reset and deleted.
+A disabled rule keeps evaluating, so its [state](#state) shows whether its condition holds, but it raises nothing. Disabling it clears its active alerts, as a delete does. Enabling it raises at once when its state shows the condition `present`, as it has held for its duration. A rule enabled while its detector is still timing raises when the duration has run, and one whose condition held when its gate last closed raises once the restarted detector sets (see [State](#state)). An accumulator keeps its total while disabled, and the rule can still be edited, reset and deleted.
 
 ### Rule suppression
 
@@ -407,70 +407,53 @@ An input suppression ends by itself once every rule instance it suppresses direc
 | ruleset parameters | 32 |
 | ruleset file | 1 MiB; YAML alias expansion capped at 100 |
 
-## Status
+## State
 
-For each rule SKAR keeps a status. An error in one rule is recorded in its status and does not stop the others. Values are in SI units; converting them to display units is the reader's job.
+For each rule SKAR reports its state on two separate axes: the rule is `enabled` or `disabled`, and its condition is one of the conditions below. Each condition comes with a reason code and the facts an explanation is worded from; SKAR sends no prose, so the reader words the explanation. An error in one rule is recorded in its state and does not stop the others. Values are in SI units and times are ISO 8601; converting values to display units is the reader's job.
 
 Per rule:
 
-- `badge`, with `reason` when it is `disabled`, `errored` or `inactive`, `suppression` when it is `suppressed`, and `subLabels` (below).
-- `errors`: what makes the rule errored, such as an evaluation that threw, a start that threw, or a subscription the server refused. An evaluation or start error stays until the rule is edited, a subscription error until an edit restarts the rule. A rule that fails to start does not evaluate; the other rules start as usual.
-- `issues`: conditions that do not stop the rule, such as a wildcard instance that was not admitted.
-- `instances`: one entry per instance, a single one for a rule without a wildcard.
+- `ruleState`: `enabled` or `disabled`; `disabled` on the entry records who disabled the rule, when and why.
+- `condition`, `reason` and the reason's facts: an evaluation error makes the rule a `problem` with the reason `evaluationError`, whatever its instances report, as none of them is current then. Otherwise they are those of its worst instance, in the order `alerting` (or `present`), `problem`, `noData`, `normal`, the first of equal ones, with that instance's row fields (`instance` names it for a wildcard rule). A wildcard rule with no instance yet is `noData` with the reason `neverReported`.
+- `changedAt`: when the rule state or the condition last changed, as judged at each evaluation; an evaluation that changes neither does not move it, nor does a change of reason within one condition. It is kept in memory, so at every plugin start, which every configuration save causes, it starts over at the first evaluation; only an enabled rule alerting through an alert adopted at the start keeps the `raisedAt` of its earliest such alert.
+- `errors`: diagnostic text for what makes the rule a problem, such as an evaluation that threw, a start that threw, or a subscription the server refused. An evaluation or start error stays until the rule is edited, a subscription error until an edit restarts the rule. A rule that fails to start does not evaluate; the other rules start as usual.
+- `issues`: diagnostic text for conditions that do not stop the rule, such as a wildcard instance that was not admitted.
+- `instances`: one row per instance, a single one for a rule without a wildcard.
 
-Per instance:
+Per instance, its `condition`, `reason` and the reason's facts, and:
 
 | Field | Meaning |
 |---|---|
 | `instance` | `name` and `segment`, for a wildcard rule |
-| `badge`, `reason`, `subLabels` | the instance's own status |
-| `active` | the alert is active |
-| `inUse` | every gate holds and the rule can evaluate |
-| `input` | `value`, `unavailable` or `neverSeen` |
 | `value` | the signal's current value, while it has one; a combined signal's combined value |
 | `limit` | a sustained or projection rule's limit in force: the reached step's while the alert is active, else the first step's; for a zone limit, the matching level's threshold |
-| `progress` | how far the detector is toward its next transition (below) |
-| `gates` | per gate, in the rule's order: `holds`, and `input` as above |
-| `adopted` | the alert was adopted at restart and has not cleared since |
-| `step`, `priority` | the index of the furthest step an active alert has reached, from 0, and the most severe priority it has reached, which an edit does not lower |
-| `level` | the zone level of the step an active zone-limit alert has reached |
-| `awaitingInput` | an alert without input evidence, whose heartbeat has stopped |
-| `inactive` | why the rule cannot evaluate this instance |
-| `suppression` | the instance is suppressed: `{ "scope": "rule" }` or `{ "scope": "input", "path" }`, with `autoEndAfter` when it ends by itself |
-| `clearFor` | seconds the condition has stayed clear, as [auto-end](#rule-suppression) measures it: time out of use because a gate does not hold is not counted; absent while it is not clear |
+| `progress` | `{ "kind": "events", "count", "limit" }`, a count's events in its window, which sets when `count` exceeds the first step's `limit`; or `{ "kind": "total", "total", "limit" }`, an accumulator's total and its first step's limit. Absent for other detectors: timers toward a transition are not reported |
+| `gates` | per gate, in the rule's order: `path` (the path it reads for this instance; absent for a combined signal), `value` while it has one, `holds`, and `input` (`value`, `unavailable` or `neverSeen`). An unavailable gate input keeps the gate's last state |
 
-`progress` is one of:
+### Conditions and reasons
 
-- `{ "kind": "timer", "toward": "set" | "clear", "elapsed", "target" }`: seconds of a duration timer, pauses excluded. Sustained times `duration` toward set and `clearDuration` toward clear; a match with a `duration`, a timeout rule, and absence (toward `within`) time toward set. It is absent while no timer runs.
-- `{ "kind": "events", "count", "limit" }`: a count's events in its window; it sets when `count` exceeds the first step's `limit`.
-- `{ "kind": "total", "total", "limit" }`: an accumulator's total and its first step's limit.
+An instance's condition is the first of these that applies:
 
-Slope and projection report no progress.
+| Condition | Reason | When | Facts |
+|---|---|---|---|
+| `problem` | `missingZone` | a zone level the limit names is missing from the path, or from a gate's path | `level`, `side` (`low` or `high`) when the level exists only on the other side, `gate` (index) for a gate's |
+| `problem` | `timeoutNotPossible` | a timeout rule whose path the server can never time out | `cause`: `booleanPath`, `stringPath`, `notEnforced` (the server does not enforce timeouts), `updateContract` (with `contract`, the path's update contract other than `periodic`), `timeoutOff` (`meta.timeout` of 0 or less), `noTimeout` (no `meta.timeout` and the server's default timeouts off) |
+| `problem` | `unitsNotRadians` | an angular combination of an input the server reports in other units | `path`, `units` |
+| `problem` | `alertPathInvalid` | the instance's alert path is one core would not accept | |
+| `alerting` | `alertActive` | the alert is active; never for a disabled rule | `priority` and `step` reached (an index from 0; an edit does not lower the priority), `level` for a zone limit, `awaitingInput` when the input has no evidence and the alert is not repeated (see [Heartbeat and input evidence](#heartbeat-and-input-evidence)) |
+| `normal` | `outsideGate` | a gate does not hold | the gate facts in `gates` |
+| `present` | `conditionPresent` | a disabled rule's condition holds | |
+| `noData` | `inputUnavailable` | the input is unavailable | `lastSeen`, when it last had a value since start |
+| `noData` | `neverReported` | the input has not reported since start | |
+| `normal` | `withinLimits` | none of the above, a rule waiting out its duration included | `clearedAt`, when the condition last stopped holding; for a disabled rule whose condition has not held since the rule started evaluating, `clearSince`, that start time |
 
-### Badge
+A rule waiting out its duration is `normal`: the timer is not exposed.
 
-The badge is the first of these that applies, most important first:
+A disabled rule's condition is `present` when it holds, judged in this run: an alert adopted at restart makes the condition present only once the input reports, so until then the rule has `noData`, unless its condition is the input's silence (an absence or timeout rule). A gate closing and reopening is not the condition clearing: outside its gate a rule is `normal` with the reason `outsideGate`, and a condition that held when the gate closed is undecided once the gate reopens, until the restarted detector has decided: it sets, or shows the condition gone with a reading past a sustained rule's recovery margin, a full window of a slope, a projected value back on the safe side of the limit for a projection, a full window since the reopening for a count, a non-matching reading for a match or an event for an absence rule. An unavailable input decides nothing. While undecided the condition is neither present nor cleared, whether the rule is enabled or disabled: the rule is `normal` with the reason `withinLimits` and no clear time, and it raises nothing until the detector sets. When the condition last stopped holding is kept in memory only, so after a restart a disabled rule whose condition is clear reports `clearSince`, the start time, instead of `clearedAt`.
 
-| Badge | When |
-|---|---|
-| `disabled` | the rule is not evaluated; `reason` is `disabled` or `ruleset is disabled` |
-| `suppressed` | the rule, or the instance's input path, is suppressed; `suppression` gives the scope |
-| `errored` | the rule has an error (rule level only) |
-| `inactive` | the rule cannot evaluate the instance: a ruleset rule whose paths the server has not had (rule level, reason `ruleset path missing`, or `starts at the next tick` once they have appeared), a zone level missing, a timeout rule the server can never time out, a timeout rule on a boolean or string path, an angular combination of an input not in radians, an alert path that would be invalid |
-| `alertActive` | the alert is active |
-| `gatedOff` | a gate does not hold |
-| `inputUnavailable` | the input is unavailable |
-| `neverSeen` | the input has not been seen since start |
-| `timerRunning` | a duration timer runs toward setting the condition |
-| `idle` | none of the above |
+A rule that is not evaluated, because the plugin has not started evaluating, has the condition `noData` with the reason `notEvaluated`, no errors or issues, and one instance row per accumulator total it keeps, with `progress` and, for a wildcard rule, `instance` with the `segment` only.
 
-A rule's badge is `suppressed` when the rule itself is suppressed, else `errored` when it has an error, else the most important of its instances' badges, with the reason or suppression of the one chosen. At rule level an instance suppressed through its input path ranks just below `alertActive`, so a suppressed faulty sender on one instance does not hide another instance's alert, or an inactive instance. A wildcard rule with no instance yet is `neverSeen` unless the rule itself is suppressed. A rule's sub-labels are those of any of its instances:
-
-- `gateInputUnavailable`: a gate's input is unavailable; the gate keeps its last state.
-- `waitingForClear`: an active alert whose condition is timing its `clearDuration`, or a suppression that ends by itself once the condition has stayed clear.
-- `awaitingInput`: an active alert without input evidence (see [Heartbeat and input evidence](#heartbeat-and-input-evidence)).
-
-A rule that is not evaluated, because it or its ruleset is disabled, has the `disabled` badge with its reason, no errors or issues, and one instance row per accumulator total it keeps: `badge`, `reason`, `subLabels`, `progress` as `{ "kind": "total", "total", "limit" }`, and for a wildcard rule `instance` with the `segment` only. A ruleset rule waiting for its paths is not evaluated either: it has the `inactive` badge with the reason `ruleset path missing`, one issue per missing path, and the same rows. Between its paths appearing and the next evaluation tick the reason is `starts at the next tick`, with no issues.
+A stored rule that does not run, because it does not validate, names another slug than its file, or overlaps the alert path of a rule loaded before it, is a `problem` with the reason `invalidRule` and no instances; its validation errors and stored body come with it, as [the API](api.md#invalid-rule-entry) describes.
 
 ## Worked examples
 

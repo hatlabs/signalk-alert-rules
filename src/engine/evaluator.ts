@@ -12,7 +12,6 @@ import {
   type ZoneLevel
 } from '../model/rule.js'
 import { ruleAlertPath } from '../model/alertPath.js'
-import { angularUnitsMessage, timeoutValueTypeMessage } from '../model/validate.js'
 import type { Clock } from './clock.js'
 import {
   AccumulatorDetector,
@@ -23,7 +22,7 @@ import {
   type Progress
 } from './detectors/index.js'
 import { Gate } from './gates.js'
-import { resolveLimit, severerLevels, type Zone } from './limits.js'
+import { resolveLimit, severerLevels, type MissingZone, type Zone } from './limits.js'
 import {
   bindPath,
   inputState,
@@ -93,7 +92,28 @@ export type RuleEvent =
   | { type: 'priority'; instance?: Instance; priority: Priority; limit?: number }
   | { type: 'clear'; instance?: Instance }
 
+/** Why the server can never time a timeout rule's path out. */
+export type TimeoutCause =
+  'booleanPath' | 'stringPath' | 'notEnforced' | 'updateContract' | 'timeoutOff' | 'noTimeout'
+
+/**
+ * Why a rule cannot evaluate an instance, as a reason code and its facts: a
+ * zone level missing from the path its limit or a gate's (`gate`, by index)
+ * reads, a timeout rule's path the server never times out, an angular
+ * combination of an input in other units than radians, or an alert path core
+ * would not accept.
+ */
+export type Problem =
+  | ({ reason: 'missingZone'; gate?: number } & MissingZone)
+  | { reason: 'timeoutNotPossible'; cause: TimeoutCause; contract?: string }
+  | { reason: 'unitsNotRadians'; path: string; units: string }
+  | { reason: 'alertPathInvalid' }
+
 export interface GateStatus {
+  /** The path the gate reads for this instance; absent for a combined signal. */
+  path?: string
+  /** The gate input's value in SI units, while it has one. */
+  value?: SignalValue
   /** Whether the gate holds for this instance, as the rule reads it. */
   holds: boolean
   input: InputState
@@ -101,9 +121,7 @@ export interface GateStatus {
 
 export interface InstanceStatus {
   instance?: Instance
-  active: boolean
   inUse: boolean
-  input: InputState
   /** The signal's current value in SI units, while it has one; a combined signal's combined value. */
   value?: SignalValue
   /**
@@ -115,28 +133,57 @@ export interface InstanceStatus {
   progress?: Progress
   /** One entry per gate of the rule, in its order. */
   gates: GateStatus[]
-  /** The alert was adopted from core at start and has not cleared since. */
-  adopted: boolean
-  /** The furthest step an active alert has reached, an index into the rule's steps. */
-  step?: number
-  /** The zone level of that step, for a zone-limit rule. */
-  level?: ZoneLevel
-  /** The priority an active alert has now: the most severe it has reached. */
-  priority?: Priority
-  /** Why the rule cannot evaluate this instance. */
-  inactive?: string
   /**
-   * Whether the condition holds: the alert would be active were the rule
-   * enabled. While the rule is out of use or unable to evaluate, the last
-   * judged value is kept.
+   * Whether the condition holds, as last judged. While the rule is out of use
+   * or unable to evaluate the last judged value is kept, and back in use it
+   * is kept until the restarted detector has decided.
    */
   conditionPresent: boolean
   /**
    * Seconds since the condition last stopped holding; absent while it holds
    * or when it has not held since start. Being out of use neither starts nor
-   * stops it.
+   * stops it, and coming back into use is no clear while the restarted
+   * detector waits out its duration.
    */
   clearedFor?: number
+  /**
+   * The condition is present only because an adopted alert seeded it: the
+   * input has not reported since start, and the rule's condition is not the
+   * input's silence.
+   */
+  conditionAssumed: boolean
+  /** Seconds since the input last had a value; absent when it has had none since start. */
+  sinceValue?: number
+  /** What its condition is judged from, as {@link RuleEvaluator.judge} reports it. */
+  judgement: Judgement
+}
+
+/**
+ * What an instance's condition is judged from, the one derivation both the
+ * timing of a change and the reported state read.
+ */
+export interface Judgement {
+  instance?: Instance
+  /** Why the rule cannot evaluate the instance. */
+  problem?: Problem
+  /** The active alert: the furthest step it reached, with the priority and zone level it has. */
+  alert?: { step: number; priority: Priority; level?: ZoneLevel }
+  gatesHold: boolean
+  /** The condition holds, judged in this run rather than assumed from an adopted alert. */
+  present: boolean
+  /**
+   * The condition held when the gate last closed, and the restarted detector
+   * has not decided since: it is neither present nor known to have cleared.
+   */
+  undecided: boolean
+  input: InputState
+}
+
+/** What an instance's input evidence depends on. */
+export interface Evidence {
+  input: InputState
+  /** The alert was adopted from core at start and has not cleared since. */
+  adopted: boolean
 }
 
 export interface RuleStatus {
@@ -144,6 +191,8 @@ export interface RuleStatus {
   issues: string[]
   /** Subscription failures, which leave the rule without its input. */
   errors: string[]
+  /** Seconds since the rule last started, at plugin start or on an edit that restarts it. */
+  runningFor: number
   instances: InstanceStatus[]
 }
 
@@ -158,6 +207,8 @@ interface Unit {
   last?: Reading
   /** The last value the input had, which outlives an unavailable reading. */
   lastValue?: SignalValue
+  /** When the input last had a value. */
+  lastValueAt?: number
   /** One detector per step, the first step's first. */
   tracks: Track[]
   /** The steps as last resolved; empty while they cannot be. */
@@ -179,8 +230,13 @@ interface Unit {
   adoptedAlert: boolean
   alerting: boolean
   inUse: boolean
-  inactive?: string
+  inactive?: Problem
   present: boolean
+  /**
+   * The detectors restarted while the condition was present, so until the
+   * first step's detector has decided its state is no evidence of a clear.
+   */
+  resuming: boolean
   /** When the condition last stopped holding. */
   clearedAt?: number
 }
@@ -195,7 +251,7 @@ interface ResolvedStep {
   level?: ZoneLevel
 }
 
-type Resolved = { ok: true; steps: ResolvedStep[] } | { ok: false; reason: string }
+type Resolved = { ok: true; steps: ResolvedStep[] } | { ok: false; missing: MissingZone }
 
 // Rule fields whose change clears and restarts the rule; every other detector
 // field is re-evaluated in place. Latching is one of them because a latching
@@ -289,6 +345,7 @@ export class RuleEvaluator {
   private adopted: Map<string, Priority | undefined>
   private carried = new Map<string, number>()
   private running = false
+  private startedAt = 0
 
   constructor(
     private rule: Rule,
@@ -306,6 +363,7 @@ export class RuleEvaluator {
   start(): void {
     const now = this.ctx.clock()
     this.running = true
+    this.startedAt = now
     const gates = this.rule.gates ?? []
     this.gates = gates.map(() => new Map<string, Gate>())
     for (const key of this.adopted.keys()) {
@@ -433,29 +491,61 @@ export class RuleEvaluator {
 
   status(): RuleStatus {
     const now = this.ctx.clock()
+    const silence = judgesSilence(this.rule)
     return {
       issues: [...this.issues],
       errors: [...this.errors],
+      runningFor: now - this.startedAt,
       instances: [...this.units.values()].map((u) => {
-        const step = u.alerting ? (u.step ?? 0) : undefined
         return {
           instance: u.instance,
-          active: u.alerting,
           inUse: u.inUse,
-          input: inputState(u.last),
           value: u.last?.available === true ? u.last.value : undefined,
-          limit: u.steps.at(step ?? 0)?.limit,
+          limit: u.steps.at(u.alerting ? (u.step ?? 0) : 0)?.limit,
           progress: u.tracks.at(0)?.detector?.progress(now),
           gates: this.gateStatus(u),
-          adopted: u.adoptedAlert,
-          step,
-          level: step === undefined ? undefined : this.levelAt(u, step),
-          priority: step === undefined ? undefined : this.reachedAt(u, step),
-          inactive: u.inactive,
           conditionPresent: u.present,
-          clearedFor: u.present || u.clearedAt === undefined ? undefined : now - u.clearedAt
+          clearedFor: u.present || u.clearedAt === undefined ? undefined : now - u.clearedAt,
+          conditionAssumed: assumed(u, silence),
+          sinceValue: u.lastValueAt === undefined ? undefined : now - u.lastValueAt,
+          judgement: this.judgeUnit(u, silence)
         }
       })
+    }
+  }
+
+  /**
+   * What each instance's condition is judged from, read without building the
+   * status: the runner judges every rule at every evaluation. `errors` are
+   * the rule's subscription failures, as in the status.
+   */
+  judge(): { errors: number; units: Judgement[] } {
+    const silence = judgesSilence(this.rule)
+    return {
+      errors: this.errors.size,
+      units: [...this.units.values()].map((u) => this.judgeUnit(u, silence))
+    }
+  }
+
+  private judgeUnit(u: Unit, silence: boolean): Judgement {
+    const step = u.step ?? 0
+    const level = u.alerting ? this.levelAt(u, step) : undefined
+    return {
+      instance: u.instance,
+      ...(u.inactive === undefined ? {} : { problem: u.inactive }),
+      ...(u.alerting
+        ? {
+            alert: {
+              step,
+              priority: this.reachedAt(u, step),
+              ...(level === undefined ? {} : { level })
+            }
+          }
+        : {}),
+      gatesHold: (this.rule.gates ?? []).every((_, i) => this.holds(this.gateOf(u, i), u)),
+      present: u.present && !u.resuming && !assumed(u, silence),
+      undecided: u.resuming,
+      input: inputState(u.last)
     }
   }
 
@@ -463,7 +553,7 @@ export class RuleEvaluator {
    * What an instance's input evidence depends on, read without building the
    * status: the heartbeat asks for it for every active alert.
    */
-  evidence(segment: string): Pick<InstanceStatus, 'input' | 'adopted'> | undefined {
+  evidence(segment: string): Evidence | undefined {
     const unit = this.units.get(segment)
     return unit === undefined
       ? undefined
@@ -504,7 +594,8 @@ export class RuleEvaluator {
         reached: this.adopted.get(key),
         alerting: adopted,
         inUse: false,
-        present: adopted
+        present: adopted,
+        resuming: false
       }
       this.units.set(key, unit)
     } else if (instance !== undefined) {
@@ -516,7 +607,10 @@ export class RuleEvaluator {
   private onSignal(sample: Sample): void {
     const unit = this.unit(sample.instance?.segment ?? '', sample.instance)
     unit.last = sample.reading
-    if (sample.reading.available) unit.lastValue = sample.reading.value
+    if (sample.reading.available) {
+      unit.lastValue = sample.reading.value
+      unit.lastValueAt = this.ctx.clock()
+    }
     this.step(unit, this.ctx.clock(), sample)
   }
 
@@ -553,15 +647,29 @@ export class RuleEvaluator {
   /** The gates as the unit reads them, without creating any. */
   private gateStatus(unit: Unit): GateStatus[] {
     return (this.rule.gates ?? []).map((model, i) => {
-      const gate = this.gates[i]?.get(isWildcard(model.signal) ? unit.key : '')
-      return gate === undefined
-        ? { holds: unit.adoptedAlert, input: 'neverSeen' }
-        : { holds: this.holds(gate, unit), input: gate.input }
+      const gate = this.gateOf(unit, i)
+      const path =
+        'combinator' in model.signal ? {} : { path: bindPath(model.signal.path, unit.instance) }
+      if (gate === undefined) return { ...path, holds: unit.adoptedAlert, input: 'neverSeen' }
+      const value = gate.value
+      return {
+        ...path,
+        ...(value === undefined ? {} : { value }),
+        holds: this.holds(gate, unit),
+        input: gate.input
+      }
     })
   }
 
-  private holds(gate: Gate, unit: Unit): boolean {
-    return gate.seen ? gate.holdsFor(unit.adoptedAlert) : unit.adoptedAlert
+  /** The unit's gate `i`, without creating it. */
+  private gateOf(unit: Unit, i: number): Gate | undefined {
+    const model = (this.rule.gates ?? [])[i]
+    return this.gates[i]?.get(isWildcard(model.signal) ? unit.key : '')
+  }
+
+  /** Whether the gate holds for the unit; one not seen holds only for an adopted alert. */
+  private holds(gate: Gate | undefined, unit: Unit): boolean {
+    return gate?.seen === true ? gate.holdsFor(unit.adoptedAlert) : unit.adoptedAlert
   }
 
   private zones(limit: Limit, signal: Signal, instance: Instance | undefined) {
@@ -607,42 +715,42 @@ export class RuleEvaluator {
   }
 
   /** An angular combination of an input the server reports in units other than radians. */
-  private unitsProblem(): string | undefined {
+  private unitsProblem(): Problem | undefined {
     const signal = this.rule.signal
     if (!('combinator' in signal) || signal.angular !== true) return undefined
     for (const input of signal.inputs) {
       const units = this.ctx.meta(input.path)?.units
       if (units !== undefined && units !== 'rad') {
-        return `${input.path}: ${angularUnitsMessage(units)}`
+        return { reason: 'unitsNotRadians', path: input.path, units }
       }
     }
     return undefined
   }
 
-  private timeoutProblem(unit: Unit): string | undefined {
+  private timeoutProblem(unit: Unit): Problem | undefined {
     const d = this.rule.detector
     if (d.type !== 'match' || d.op !== 'timedOut' || 'combinator' in this.rule.signal) {
       return undefined
     }
-    if (typeof unit.lastValue === 'boolean') return timeoutValueTypeMessage('boolean')
-    if (typeof unit.lastValue === 'string') return timeoutValueTypeMessage('string')
+    const problem = (cause: TimeoutCause, contract?: string): Problem => ({
+      reason: 'timeoutNotPossible',
+      cause,
+      ...(contract === undefined ? {} : { contract })
+    })
+    if (typeof unit.lastValue === 'boolean') return problem('booleanPath')
+    if (typeof unit.lastValue === 'string') return problem('stringPath')
     const settings = this.ctx.timeoutSettings()
-    if (settings !== undefined && !settings.enforce) {
-      return 'the server does not enforce data timeouts'
-    }
+    if (settings !== undefined && !settings.enforce) return problem('notEnforced')
     // Meta exists only once the path has a value; a path never seen since
     // start is the dead-at-boot case, which fires without a marker.
     if (unit.last === undefined) return undefined
     const meta = this.ctx.meta(bindPath(this.rule.signal.path, unit.instance))
     const contract = meta?.updateContract
-    if (contract !== undefined && contract !== 'periodic') {
-      return `the path's update contract is ${contract}, so the server never times it out`
-    }
-    if (typeof meta?.timeout === 'number' && meta.timeout <= 0) {
-      return "the path's meta.timeout turns timing out off"
-    }
+    if (contract !== undefined && contract !== 'periodic')
+      return problem('updateContract', contract)
+    if (typeof meta?.timeout === 'number' && meta.timeout <= 0) return problem('timeoutOff')
     if (settings !== undefined && !settings.useDefaults && meta?.timeout === undefined) {
-      return "the path has no timeout and the server's default timeouts are off"
+      return problem('noTimeout')
     }
     return undefined
   }
@@ -657,8 +765,8 @@ export class RuleEvaluator {
     const problem =
       this.timeoutProblem(unit) ??
       this.unitsProblem() ??
-      gates.find((g) => g.seen && g.issue !== undefined)?.issue ??
-      (resolved.ok ? undefined : resolved.reason)
+      gateProblem(gates) ??
+      limitProblem(resolved)
     unit.inactive = problem
     unit.steps = resolved.ok ? resolved.steps : []
     // A step an edit or a zone change removed is no longer reached; the
@@ -682,6 +790,7 @@ export class RuleEvaluator {
       return
     }
     unit.inUse = true
+    if (unit.tracks.length === 0 && unit.present) unit.resuming = true
     const transitions = this.drive(unit, resolved.steps, now, feed)
     const pulsed = transitions.lastIndexOf('pulse')
     if (pulsed >= 0) {
@@ -696,7 +805,8 @@ export class RuleEvaluator {
     }
     const furthest = unit.tracks.map((t) => t.detector?.active === true).lastIndexOf(true)
     const active = furthest >= 0
-    this.recordCondition(unit, active, now)
+    if (active || unit.tracks.at(0)?.detector?.decided !== false) unit.resuming = false
+    if (!unit.resuming) this.recordCondition(unit, active, now)
     if (disabled) return
     if (active && !unit.alerting) this.raise(unit, furthest)
     else if (!active && unit.alerting) this.clear(unit)
@@ -824,6 +934,30 @@ export class RuleEvaluator {
   private totals(next: Rule): Map<string, number> {
     return carriesTotals(this.rule, next) ? this.accumulators() : new Map<string, number>()
   }
+}
+
+function gateProblem(gates: readonly Gate[]): Problem | undefined {
+  const at = gates.findIndex((g) => g.seen && g.issue !== undefined)
+  const missing = gates[at]?.issue
+  return missing === undefined ? undefined : { reason: 'missingZone', ...missing, gate: at }
+}
+
+function limitProblem(resolved: Resolved): Problem | undefined {
+  return resolved.ok ? undefined : { reason: 'missingZone', ...resolved.missing }
+}
+
+/**
+ * Whether only an adopted alert makes the condition present: the input has
+ * not reported since start, and the condition is not the silence itself.
+ */
+function assumed(unit: Unit, silence: boolean): boolean {
+  return unit.present && unit.last === undefined && !silence
+}
+
+/** Whether the rule's condition is its input's silence: an absence or a timeout rule. */
+function judgesSilence(rule: Rule): boolean {
+  const d = rule.detector
+  return d.type === 'absence' || (d.type === 'match' && d.op === 'timedOut')
 }
 
 /** The total of an accumulator rule's first step, which every step shares. */

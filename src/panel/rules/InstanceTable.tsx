@@ -1,6 +1,6 @@
 import type { Ref } from 'react'
 import type { GateStatus, InputState, InstanceStatus, Progress } from '../api'
-import { formatDuration, instanceName, type RuleDisplay } from './describe'
+import { instanceName, type RuleDisplay } from './describe'
 import { StatusBadge } from './StatusBadge'
 
 const INPUT_TEXT: Readonly<Record<InputState, string>> = {
@@ -11,27 +11,13 @@ const INPUT_TEXT: Readonly<Record<InputState, string>> = {
 
 function valueText(i: InstanceStatus, display: RuleDisplay): string {
   if (i.value !== undefined) return display.value(i.value)
-  return i.input === undefined ? '' : INPUT_TEXT[i.input]
+  if (i.reason === 'inputUnavailable') return INPUT_TEXT.unavailable
+  return i.reason === 'neverReported' ? INPUT_TEXT.neverSeen : ''
 }
 
 function ProgressCell({ progress, display }: { progress?: Progress; display: RuleDisplay }) {
   if (progress === undefined) return null
   switch (progress.kind) {
-    case 'timer': {
-      const text = `${formatDuration(progress.elapsed)} of ${formatDuration(progress.target)} toward ${progress.toward}`
-      return (
-        // Beside the bar the text wraps mid-phrase in a narrow table; under it, it stays whole.
-        <>
-          <progress
-            className="d-block w-100"
-            value={progress.elapsed}
-            max={progress.target}
-            aria-label={text}
-          />
-          <span className="small text-nowrap">{text}</span>
-        </>
-      )
-    }
     case 'events':
       return (
         <span>
@@ -98,8 +84,8 @@ export function InstanceTable({ instances, display, linked, linkedRef }: Instanc
             >
               {named && <th scope="row">{instanceName(i)}</th>}
               <td>
-                <StatusBadge status={i} />
-                {i.active === true && i.priority !== undefined && (
+                <StatusBadge kind={i.condition} />
+                {i.condition === 'alerting' && i.priority !== undefined && (
                   <div className="skar-instance-summary">at {i.priority}</div>
                 )}
               </td>

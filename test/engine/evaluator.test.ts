@@ -117,28 +117,32 @@ describe('zone limits', () => {
   it("an adopted alert keeps core's priority at its named level until the value enters a severer one", () => {
     const { at, events, meta, evaluator } = setup(escalating, { adopted: [{ priority: 'alarm' }] })
     at(0)
-    expect(evaluator.status().instances[0]).toMatchObject({ step: 0, priority: 'alarm' })
+    expect(evaluator.status().instances[0]).toMatchObject({
+      judgement: { alert: { step: 0, priority: 'alarm' } }
+    })
     meta.set(VOLTAGE, { zones: batteryZones })
     at(1, VOLTAGE, 11.7)
     expect(events).toEqual([])
     expect(evaluator.status().instances[0]).toMatchObject({
-      step: 0,
-      level: 'warn',
-      priority: 'alarm'
+      judgement: { alert: { step: 0, level: 'warn', priority: 'alarm' } }
     })
     at(2, VOLTAGE, 11.4)
     at(32)
     expect(events).toEqual([
       { type: 'priority', instance: undefined, priority: 'alarm', limit: 11.5 }
     ])
-    expect(evaluator.status().instances[0]).toMatchObject({ step: 1, level: 'alarm' })
+    expect(evaluator.status().instances[0]).toMatchObject({
+      judgement: { alert: { step: 1, level: 'alarm' } }
+    })
   })
 
   it('entering warn raises at warning, and entering alarm while active escalates the same alert', () => {
     const { at, log, events, evaluator } = setup(escalating, zoned)
     at(0, VOLTAGE, 11.8)
     at(30)
-    expect(evaluator.status().instances[0]).toMatchObject({ level: 'warn', priority: 'warning' })
+    expect(evaluator.status().instances[0]).toMatchObject({
+      judgement: { alert: { level: 'warn', priority: 'warning' } }
+    })
     at(40, VOLTAGE, 11.3)
     at(69)
     at(70)
@@ -147,7 +151,9 @@ describe('zone limits', () => {
       [70, 'priority', '', 'alarm']
     ])
     expect(events.at(-1)?.instance).toBeUndefined()
-    expect(evaluator.status().instances[0]).toMatchObject({ level: 'alarm', priority: 'alarm' })
+    expect(evaluator.status().instances[0]).toMatchObject({
+      judgement: { alert: { level: 'alarm', priority: 'alarm' } }
+    })
   })
 
   it('falling from alarm back to warn stays at alarm, and the condition ends only when warn clears', () => {
@@ -159,9 +165,7 @@ describe('zone limits', () => {
     at(110, VOLTAGE, 11.8)
     at(120)
     expect(evaluator.status().instances[0]).toMatchObject({
-      active: true,
-      level: 'alarm',
-      priority: 'alarm'
+      judgement: { alert: { level: 'alarm', priority: 'alarm' } }
     })
     at(130, VOLTAGE, 12.05)
     at(200)
@@ -171,9 +175,7 @@ describe('zone limits', () => {
       [30, 'raise', '', 'alarm'],
       [220, 'clear', '']
     ])
-    expect(evaluator.status().instances[0]).toMatchObject({ active: false })
-    expect(evaluator.status().instances[0]?.level).toBeUndefined()
-    expect(evaluator.status().instances[0]?.priority).toBeUndefined()
+    expect(evaluator.status().instances[0]?.judgement.alert).toBeUndefined()
   })
 
   it('an excursion into alarm shorter than the duration does not escalate', () => {
@@ -193,20 +195,26 @@ describe('zone limits', () => {
     at(40, VOLTAGE, 10)
     at(200)
     expect(log).toEqual([[30, 'raise', '', 'alarm']])
-    expect(evaluator.status().instances[0]).toMatchObject({ level: 'alarm', priority: 'alarm' })
+    expect(evaluator.status().instances[0]).toMatchObject({
+      judgement: { alert: { level: 'alarm', priority: 'alarm' } }
+    })
   })
 
   it('a fixed-limit rule reports its own priority and no level', () => {
     const { at, evaluator } = setup({ ...oilPressure, gates: undefined })
     at(0, OIL, 0)
     at(5)
-    expect(evaluator.status().instances[0]).toMatchObject({ active: true, priority: 'alarm' })
-    expect(evaluator.status().instances[0]?.level).toBeUndefined()
+    expect(evaluator.status().instances[0]).toMatchObject({
+      judgement: { alert: { priority: 'alarm' } }
+    })
+    expect(evaluator.status().instances[0]?.judgement.alert?.level).toBeUndefined()
   })
 
   it('an adopted zone-limit alert holds its named level until a more severe one is entered', () => {
     const { at, log, evaluator } = setup(escalating, { ...zoned, adopted: [{}] })
-    expect(evaluator.status().instances[0]).toMatchObject({ active: true, level: 'warn' })
+    expect(evaluator.status().instances[0]).toMatchObject({
+      judgement: { alert: { level: 'warn' } }
+    })
     at(0, VOLTAGE, 11.3)
     at(30)
     expect(log).toEqual([[30, 'priority', '', 'alarm']])
@@ -243,7 +251,9 @@ describe('zone limits', () => {
     meta.set(VOLTAGE, { zones: [{ upper: 12, state: 'warn' }] })
     at(31)
     expect(log).toEqual([[30, 'raise', '', 'alarm']])
-    expect(evaluator.status().instances[0]).toMatchObject({ level: 'warn', priority: 'alarm' })
+    expect(evaluator.status().instances[0]).toMatchObject({
+      judgement: { alert: { level: 'warn', priority: 'alarm' } }
+    })
   })
 
   describe('an edit of the named level clears and restarts', () => {
@@ -281,7 +291,10 @@ describe('zone limits', () => {
         [30, 'raise', '', 'caution'],
         [40, 'clear', '']
       ])
-      expect(evaluator.status().instances[0]).toMatchObject({ active: false, limit: 12 })
+      expect(evaluator.status().instances[0]).toMatchObject({
+        limit: 12,
+        judgement: expect.not.objectContaining({ alert: expect.anything() as unknown }) as unknown
+      })
     })
 
     it('and a value in the new level raises at it once the duration has run again', () => {
@@ -334,7 +347,10 @@ describe('zone limits', () => {
       [30, 'raise', '', 'warning'],
       [31, 'clear', '']
     ])
-    expect(evaluator.status().instances[0]?.inactive).toMatch(/no warn zone/)
+    expect(evaluator.status().instances[0]?.judgement.problem).toEqual({
+      reason: 'missingZone',
+      level: 'warn'
+    })
   })
 
   it('on a path zoned on both sides, a below rule raises and escalates on the low-side zones only', () => {
@@ -357,7 +373,9 @@ describe('zone limits', () => {
       [140, 'raise', '', 'warning'],
       [180, 'priority', '', 'alarm']
     ])
-    expect(evaluator.status().instances[0]).toMatchObject({ level: 'alarm', priority: 'alarm' })
+    expect(evaluator.status().instances[0]).toMatchObject({
+      judgement: { alert: { level: 'alarm', priority: 'alarm' } }
+    })
   })
 
   it('a projection against a zone limit alerts at its named level and does not escalate', () => {
@@ -384,7 +402,9 @@ describe('zone limits', () => {
     const { at, log, evaluator } = setup(rule, { meta: { [LEVEL]: { zones } } })
     for (let t = 0; t <= 2400; t += 10) at(t, LEVEL, 0.3 - t / 6000)
     expect(log).toEqual([[600, 'raise', '', 'caution']])
-    expect(evaluator.status().instances[0]).toMatchObject({ level: 'alert', priority: 'caution' })
+    expect(evaluator.status().instances[0]).toMatchObject({
+      judgement: { alert: { level: 'alert', priority: 'caution' } }
+    })
   })
 
   it('a projection with typed steps raises at the furthest step the trend reaches', () => {
@@ -408,7 +428,10 @@ describe('zone limits', () => {
     const { at, log, evaluator } = setup(rule)
     for (let t = 0; t <= 1200; t += 10) at(t, LEVEL, 0.3 - t / 6000)
     expect(log).toEqual([[600, 'raise', '', 'alarm']])
-    expect(evaluator.status().instances[0]).toMatchObject({ step: 1, limit: 0.1 })
+    expect(evaluator.status().instances[0]).toMatchObject({
+      limit: 0.1,
+      judgement: { alert: { step: 1 } }
+    })
   })
 })
 
@@ -437,9 +460,7 @@ describe('escalation steps', () => {
     at(60)
     expect(events).toEqual([])
     expect(evaluator.status().instances[0]).toMatchObject({
-      active: true,
-      step: 0,
-      priority: 'alarm'
+      judgement: { alert: { step: 0, priority: 'alarm' } }
     })
     expect(evaluator.revisions()).toEqual([{ instance: undefined, priority: 'alarm' }])
     at(70, VOLTAGE, 11.7)
@@ -447,7 +468,10 @@ describe('escalation steps', () => {
     expect(events).toEqual([
       { type: 'priority', instance: undefined, priority: 'alarm', limit: 11.8 }
     ])
-    expect(evaluator.status().instances[0]).toMatchObject({ step: 1, limit: 11.8 })
+    expect(evaluator.status().instances[0]).toMatchObject({
+      limit: 11.8,
+      judgement: { alert: { step: 1 } }
+    })
   })
 
   it('raises at the first step, escalates at the second, keeps alarm between them and clears past the first', () => {
@@ -456,23 +480,19 @@ describe('escalation steps', () => {
     at(10, VOLTAGE, 12)
     at(40)
     expect(evaluator.status().instances[0]).toMatchObject({
-      step: 0,
-      priority: 'warning',
-      limit: 12.2
+      limit: 12.2,
+      judgement: { alert: { step: 0, priority: 'warning' } }
     })
     at(50, VOLTAGE, 11.7)
     at(80)
     expect(evaluator.status().instances[0]).toMatchObject({
-      step: 1,
-      priority: 'alarm',
-      limit: 11.8
+      limit: 11.8,
+      judgement: { alert: { step: 1, priority: 'alarm' } }
     })
     at(90, VOLTAGE, 12)
     at(200)
     expect(evaluator.status().instances[0]).toMatchObject({
-      active: true,
-      step: 1,
-      priority: 'alarm'
+      judgement: { alert: { step: 1, priority: 'alarm' } }
     })
     at(210, VOLTAGE, 12.25)
     at(300)
@@ -483,7 +503,7 @@ describe('escalation steps', () => {
       [80, 'priority', '', 'alarm'],
       [320, 'clear', '']
     ])
-    expect(evaluator.status().instances[0]?.step).toBeUndefined()
+    expect(evaluator.status().instances[0]?.judgement.alert?.step).toBeUndefined()
   })
 
   it('a dip past the second step shorter than the duration does not escalate', () => {
@@ -507,7 +527,7 @@ describe('escalation steps', () => {
 
   it('an adopted alert holds the first step until a further one has been reached', () => {
     const { at, log, evaluator } = setup(voltageLow, { adopted: [{}] })
-    expect(evaluator.status().instances[0]).toMatchObject({ active: true, step: 0 })
+    expect(evaluator.status().instances[0]).toMatchObject({ judgement: { alert: { step: 0 } } })
     at(0, VOLTAGE, 11.5)
     at(30)
     expect(log).toEqual([[30, 'priority', '', 'alarm']])
@@ -567,7 +587,9 @@ describe('escalation steps', () => {
       at(10, STATE, 'fault')
       at(20, STATE, 'critical')
       at(30, STATE, 'fault')
-      expect(evaluator.status().instances[0]).toMatchObject({ step: 1, priority: 'alarm' })
+      expect(evaluator.status().instances[0]).toMatchObject({
+        judgement: { alert: { step: 1, priority: 'alarm' } }
+      })
       at(40, STATE, 'ok')
       expect(log).toEqual([
         [10, 'raise', '', 'warning'],
@@ -694,9 +716,7 @@ describe('escalation steps', () => {
       at(40)
       expect(log).toEqual([[30, 'raise', '', 'alarm']])
       expect(evaluator.status().instances[0]).toMatchObject({
-        active: true,
-        step: 0,
-        priority: 'alarm'
+        judgement: { alert: { step: 0, priority: 'alarm' } }
       })
     })
   })
@@ -802,7 +822,9 @@ describe('gates', () => {
     at(30, OIL, 0)
     at(35)
     expect(log).toEqual([[35, 'raise', '', 'alarm']])
-    expect(evaluator.status().instances[0]?.gates).toEqual([{ holds: true, input: 'unavailable' }])
+    expect(evaluator.status().instances[0]?.gates).toEqual([
+      { path: RPM, holds: true, input: 'unavailable' }
+    ])
   })
 
   it('a gate input never seen since start does not hold', () => {
@@ -886,9 +908,11 @@ describe('checks when a path reports', () => {
     at(0, HDG_A, 0.1)
     at(0, HDG_B, 90)
     expect(log).toEqual([])
-    expect(evaluator.status().instances[0]?.inactive).toBe(
-      `${HDG_B}: angular combination needs radians, the path is in deg`
-    )
+    expect(evaluator.status().instances[0]?.judgement.problem).toEqual({
+      reason: 'unitsNotRadians',
+      path: HDG_B,
+      units: 'deg'
+    })
   })
 
   it('units that arrive after the values make an active angular rule inactive and clear it', () => {
@@ -902,7 +926,9 @@ describe('checks when a path reports', () => {
       [0, 'raise', '', 'caution'],
       [1, 'clear', '']
     ])
-    expect(evaluator.status().instances[0]?.inactive).toMatch(/needs radians/)
+    expect(evaluator.status().instances[0]?.judgement.problem).toMatchObject({
+      reason: 'unitsNotRadians'
+    })
   })
 
   it('an angular combination in radians evaluates', () => {
@@ -912,19 +938,22 @@ describe('checks when a path reports', () => {
     at(0, HDG_A, 0.1)
     at(0, HDG_B, 1.5)
     expect(log).toEqual([[0, 'raise', '', 'caution']])
-    expect(evaluator.status().instances[0]?.inactive).toBeUndefined()
+    expect(evaluator.status().instances[0]?.judgement.problem).toBeUndefined()
   })
 
   it.each([
-    ['boolean', true],
-    ['string', 'ok']
+    ['boolean', true, 'booleanPath'],
+    ['string', 'ok', 'stringPath']
   ])(
     'a timeout rule whose path reports a %s value is inactive, and its adopted alert clears',
-    (type, value) => {
+    (_type, value, cause) => {
       const { at, log, evaluator } = setup(depthTimeout, { adopted: [{}] })
       at(5, DEPTH, value)
       expect(log).toEqual([[5, 'clear', '']])
-      expect(evaluator.status().instances[0]?.inactive).toBe(`core never times out ${type} paths`)
+      expect(evaluator.status().instances[0]?.judgement.problem).toEqual({
+        reason: 'timeoutNotPossible',
+        cause
+      })
       at(100, DEPTH, null, TIMED_OUT)
       expect(log).toHaveLength(1)
     }
@@ -933,7 +962,7 @@ describe('checks when a path reports', () => {
   it('a timeout rule on a numeric path evaluates', () => {
     const { at, evaluator } = setup(depthTimeout)
     at(0, DEPTH, 7.3)
-    expect(evaluator.status().instances[0]?.inactive).toBeUndefined()
+    expect(evaluator.status().instances[0]?.judgement.problem).toBeUndefined()
   })
 })
 
@@ -961,14 +990,10 @@ describe('timeout rules', () => {
   })
 
   it.each([
-    [{ enforce: false, useDefaults: true }, {}, /does not enforce data timeouts/],
-    [
-      { enforce: true, useDefaults: false },
-      {},
-      /no timeout and the server's default timeouts are off/
-    ],
-    [ENFORCED, { updateContract: 'event' }, /update contract is event/],
-    [ENFORCED, { timeout: 0 }, /meta.timeout/]
+    [{ enforce: false, useDefaults: true }, {}, { cause: 'notEnforced' }],
+    [{ enforce: true, useDefaults: false }, {}, { cause: 'noTimeout' }],
+    [ENFORCED, { updateContract: 'event' }, { cause: 'updateContract', contract: 'event' }],
+    [ENFORCED, { timeout: 0 }, { cause: 'timeoutOff' }]
   ])(
     'are inactive when the server can never time the path out (%o, %o)',
     (settings, meta, reason) => {
@@ -976,7 +1001,10 @@ describe('timeout rules', () => {
       at(0, DEPTH, 7.3)
       at(1000)
       expect(log).toEqual([])
-      expect(evaluator.status().instances[0]?.inactive).toMatch(reason)
+      expect(evaluator.status().instances[0]?.judgement.problem).toEqual({
+        reason: 'timeoutNotPossible',
+        ...reason
+      })
     }
   )
 
@@ -1232,8 +1260,11 @@ describe('adopted alerts', () => {
     expect(log).toEqual([])
     const instances = evaluator.status().instances
     const of = (segment: string) => instances.find((i) => i.instance?.segment === segment)
-    expect(of('port')).toMatchObject({ active: true, inUse: true })
-    expect(of('starboard')).toMatchObject({ active: false, inUse: false })
+    expect(of('port')).toMatchObject({ inUse: true })
+    expect(of('starboard')).toMatchObject({
+      inUse: false,
+      judgement: expect.not.objectContaining({ alert: expect.anything() as unknown }) as unknown
+    })
   })
 
   it('a wildcard adopted instance is kept until its own gate input reports', () => {
@@ -1446,7 +1477,11 @@ describe('restarts and status', () => {
     at(0, RPM, 30)
     at(0, OIL, 0)
     expect(evaluator.status().instances[0]).toMatchObject({ inUse: false })
-    expect(evaluator.status().instances[0]?.inactive).toMatch(/no alarm zone/)
+    expect(evaluator.status().instances[0]?.judgement.problem).toEqual({
+      reason: 'missingZone',
+      level: 'alarm',
+      gate: 0
+    })
   })
 
   it('an edit to a stopped evaluator does not clear its alerts', () => {
@@ -1473,7 +1508,7 @@ describe('zone changes and adopted gates', () => {
     at(1, VOLTAGE, 12.7)
     at(100)
     expect(log).toEqual([])
-    expect(evaluator.status().instances[0]?.active).toBe(false)
+    expect(evaluator.status().instances[0]?.judgement.alert).toBeUndefined()
   })
 
   it('a gate reporting after its adopted alert cleared still waits for its duration', () => {
@@ -1536,9 +1571,9 @@ describe('zone changes and adopted gates', () => {
     at(5, IGNITION, 1)
     for (let t = 6; t <= 70; t++) at(t)
     expect(log).toEqual([[65, 'raise', 'starboard', 'warning']])
-    expect(evaluator.status().instances.find((i) => i.instance?.segment === 'port')?.active).toBe(
-      true
-    )
+    expect(
+      evaluator.status().instances.find((i) => i.instance?.segment === 'port')?.judgement.alert
+    ).toBeDefined()
   })
 })
 
@@ -1555,7 +1590,7 @@ describe('live status', () => {
     expect(evaluator.status().instances[0]).toMatchObject({
       value: 300000,
       limit: 100000,
-      gates: [{ holds: true, input: 'value' }]
+      gates: [{ path: RPM, value: 30, holds: true, input: 'value' }]
     })
     expect(evaluator.status().instances[0]?.progress).toBeUndefined()
     at(12, OIL, 90000)
@@ -1570,7 +1605,6 @@ describe('live status', () => {
     at(20, OIL, 200000)
     at(24)
     expect(evaluator.status().instances[0]).toMatchObject({
-      active: true,
       value: 200000,
       progress: { kind: 'timer', toward: 'clear', elapsed: 4, target: 10 }
     })
@@ -1579,11 +1613,15 @@ describe('live status', () => {
   it('a gate input never seen does not hold, and one gone unavailable keeps its state', () => {
     const { at, evaluator } = setup(oilPressure)
     at(0, OIL, 300000)
-    expect(evaluator.status().instances[0]?.gates).toEqual([{ holds: false, input: 'neverSeen' }])
+    expect(evaluator.status().instances[0]?.gates).toEqual([
+      { path: RPM, holds: false, input: 'neverSeen' }
+    ])
     at(1, RPM, 30)
     at(11)
     at(12, RPM, null)
-    expect(evaluator.status().instances[0]?.gates).toEqual([{ holds: true, input: 'unavailable' }])
+    expect(evaluator.status().instances[0]?.gates).toEqual([
+      { path: RPM, holds: true, input: 'unavailable' }
+    ])
   })
 
   it('reports the zone limit resolved to its threshold', () => {
@@ -1592,12 +1630,49 @@ describe('live status', () => {
     expect(evaluator.status().instances[0]).toMatchObject({ value: 12.6, limit: 12 })
   })
 
-  it('an unavailable input reports no value', () => {
+  it('an unavailable input reports no value, and how long ago it had one', () => {
     const { at, evaluator } = setup(batteryLow, { meta: { [VOLTAGE]: { zones: batteryZones } } })
+    expect(evaluator.status().instances[0]?.sinceValue).toBeUndefined()
     at(0, VOLTAGE, 12.6)
     at(1, VOLTAGE, null)
-    expect(evaluator.status().instances[0]).toMatchObject({ input: 'unavailable' })
+    at(31)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      sinceValue: 31,
+      judgement: { input: 'unavailable' }
+    })
     expect(evaluator.status().instances[0]?.value).toBeUndefined()
+  })
+
+  it('reports each gate bound to the instance of a wildcard rule', () => {
+    const rule = valid({
+      ...oilPressure,
+      signal: { path: 'propulsion.*.oilPressure' },
+      gates: [
+        {
+          signal: { path: 'propulsion.*.revolutions' },
+          direction: 'above',
+          limit: { kind: 'fixed', value: 8 }
+        }
+      ]
+    })
+    const { at, evaluator } = setup(rule)
+    at(0, 'propulsion.port.revolutions', 0)
+    at(0, 'propulsion.port.oilPressure', 300000)
+    expect(evaluator.status().instances[0]?.gates).toEqual([
+      { path: 'propulsion.port.revolutions', value: 0, holds: false, input: 'value' }
+    ])
+  })
+
+  it('reports how long the rule has evaluated since it last started', () => {
+    const { at, evaluator } = setup(oilPressure)
+    at(40)
+    expect(evaluator.status().runningFor).toBe(40)
+    evaluator.update({ ...oilPressure, signal: { path: 'x.y' } })
+    at(50)
+    expect(evaluator.status().runningFor).toBe(10)
+    evaluator.update({ ...oilPressure, signal: { path: 'x.y' }, message: 'Check the oil' })
+    at(60)
+    expect(evaluator.status().runningFor).toBe(20)
   })
 
   it('reports an accumulator total while its rule is out of use', () => {
@@ -1658,7 +1733,10 @@ describe('disabled rules', () => {
       [5, 'raise', '', 'alarm'],
       [6, 'clear', '']
     ])
-    expect(evaluator.status().instances[0]).toMatchObject({ active: false, conditionPresent: true })
+    expect(evaluator.status().instances[0]).toMatchObject({
+      conditionPresent: true,
+      judgement: expect.not.objectContaining({ alert: expect.anything() as unknown }) as unknown
+    })
     expect(evaluator.status().instances[0]?.clearedFor).toBeUndefined()
   })
 
@@ -1752,6 +1830,315 @@ describe('disabled rules', () => {
     })
   })
 
+  it('a gate closing and reopening while the condition holds is not a clear', () => {
+    const gated = valid({
+      ...oilPressure,
+      gates: [{ ...oilPressure.gates?.[0], duration: 0 }]
+    })
+    const { at, evaluator } = setup(gated, { disabled: true })
+    at(0, RPM, 30)
+    at(0, OIL, 0)
+    at(5)
+    at(10, RPM, 0)
+    at(100, RPM, 30)
+    // Back in use, the detector waits out its duration again.
+    at(102)
+    expect(evaluator.status().instances[0]).toMatchObject({ inUse: true, conditionPresent: true })
+    expect(evaluator.status().instances[0]?.clearedFor).toBeUndefined()
+    at(110)
+    expect(evaluator.status().instances[0]).toMatchObject({ conditionPresent: true })
+    expect(evaluator.status().instances[0]?.clearedFor).toBeUndefined()
+  })
+
+  it('a gate cycle while a slope condition holds is not a clear while the window refills', () => {
+    const VOLTS = 'electrical.batteries.house.voltage'
+    const rising = valid({
+      name: 'Voltage rising',
+      slug: 'voltage-rising',
+      message: 'Voltage is rising fast',
+      signal: { path: VOLTS },
+      detector: {
+        type: 'slope',
+        direction: 'rising',
+        window: 60,
+        steps: [{ limit: 0.005, priority: 'warning' }]
+      },
+      gates: [{ signal: { path: RPM }, direction: 'above', limit: { kind: 'fixed', value: 8 } }]
+    })
+    const { at, evaluator } = setup(rising, { disabled: true })
+    const volts = (t: number) => 12 + t * 0.01
+    at(0, RPM, 30)
+    for (let t = 0; t <= 120; t += 10) at(t, VOLTS, volts(t))
+    expect(evaluator.status().instances[0]).toMatchObject({ conditionPresent: true })
+    at(130, RPM, 0)
+    at(200, RPM, 30)
+    for (let t = 210; t <= 240; t += 10) at(t, VOLTS, volts(t))
+    expect(evaluator.status().instances[0]).toMatchObject({ inUse: true, conditionPresent: true })
+    expect(evaluator.status().instances[0]?.clearedFor).toBeUndefined()
+    for (let t = 250; t <= 300; t += 10) at(t, VOLTS, volts(t))
+    expect(evaluator.status().instances[0]).toMatchObject({ conditionPresent: true })
+    expect(evaluator.status().instances[0]?.clearedFor).toBeUndefined()
+  })
+
+  it('a gate cycle while a projection holds with a level flat past its limit is not a clear', () => {
+    const TEMP = 'propulsion.main.coolantTemperature'
+    const rising = valid({
+      name: 'Coolant heading high',
+      slug: 'coolant-heading-high',
+      message: 'Coolant is heading high',
+      signal: { path: TEMP },
+      detector: {
+        type: 'projection',
+        direction: 'rising',
+        window: 60,
+        horizon: 600,
+        steps: [{ limit: 95, priority: 'warning' }]
+      },
+      gates: [{ signal: { path: RPM }, direction: 'above', limit: { kind: 'fixed', value: 8 } }]
+    })
+    const { at, evaluator } = setup(rising, { disabled: true })
+    at(0, RPM, 30)
+    for (let t = 0; t <= 60; t += 10) at(t, TEMP, 80 + t * 0.1)
+    for (let t = 70; t <= 190; t += 10) at(t, TEMP, 100)
+    expect(evaluator.status().instances[0]).toMatchObject({ conditionPresent: true })
+    at(200, RPM, 0)
+    at(300, RPM, 30)
+    for (let t = 300; t <= 450; t += 10) at(t, TEMP, 100)
+    expect(evaluator.status().instances[0]).toMatchObject({ inUse: true, conditionPresent: true })
+    expect(evaluator.status().instances[0]?.clearedFor).toBeUndefined()
+  })
+
+  it('a gate cycle while a match condition holds is not a clear until a reading does not match', () => {
+    const STATE = 'propulsion.main.state'
+    const fault = valid({
+      name: 'Engine fault',
+      slug: 'engine-fault',
+      message: 'Engine reports a fault',
+      signal: { path: STATE },
+      detector: {
+        type: 'match',
+        op: 'equals',
+        steps: [{ value: 'fault', priority: 'alarm' }],
+        duration: 5
+      },
+      gates: [{ signal: { path: RPM }, direction: 'above', limit: { kind: 'fixed', value: 8 } }]
+    })
+    const { at, evaluator } = setup(fault, { disabled: true })
+    at(0, RPM, 30)
+    at(0, STATE, 'fault')
+    at(10)
+    expect(evaluator.status().instances[0]).toMatchObject({ conditionPresent: true })
+    at(20, RPM, 0)
+    at(100, RPM, 30)
+    at(102)
+    expect(evaluator.status().instances[0]).toMatchObject({ inUse: true, conditionPresent: true })
+    expect(evaluator.status().instances[0]?.clearedFor).toBeUndefined()
+    at(103, STATE, 'running')
+    at(110)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      conditionPresent: false,
+      clearedFor: 7
+    })
+  })
+
+  it('a gate cycle while an absence condition holds is not a clear until an event arrives', () => {
+    const ACK = 'navigation.watch.acknowledged'
+    const watch = valid({
+      name: 'Watch not acknowledged',
+      slug: 'watch-not-acknowledged',
+      message: 'Watch not acknowledged',
+      signal: { path: ACK },
+      detector: {
+        type: 'absence',
+        event: { op: 'changes' },
+        steps: [{ within: 60, priority: 'alarm' }]
+      },
+      gates: [{ signal: { path: RPM }, direction: 'above', limit: { kind: 'fixed', value: 8 } }]
+    })
+    const { at, evaluator } = setup(watch, { disabled: true })
+    at(0, RPM, 30)
+    at(0, ACK, 1)
+    at(61)
+    expect(evaluator.status().instances[0]).toMatchObject({ conditionPresent: true })
+    at(70, RPM, 0)
+    at(100, RPM, 30)
+    at(120)
+    expect(evaluator.status().instances[0]).toMatchObject({ inUse: true, conditionPresent: true })
+    expect(evaluator.status().instances[0]?.clearedFor).toBeUndefined()
+    at(130, ACK, 2)
+    at(140)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      conditionPresent: false,
+      clearedFor: 10
+    })
+  })
+
+  it('a gate cycle while a count condition holds is not a clear until a full window has passed', () => {
+    const PUMP = 'electrical.switches.bilgePump.state'
+    const cycling = valid({
+      name: 'Bilge pump cycling',
+      slug: 'bilge-pump-cycling',
+      message: 'Bilge pump is cycling',
+      signal: { path: PUMP },
+      detector: {
+        type: 'count',
+        event: { op: 'changesTo', value: true },
+        window: 600,
+        steps: [{ limit: 1, priority: 'alarm' }]
+      },
+      gates: [{ signal: { path: RPM }, direction: 'above', limit: { kind: 'fixed', value: 8 } }]
+    })
+    const { at, evaluator } = setup(cycling, { disabled: true })
+    at(0, RPM, 30)
+    at(0, PUMP, true)
+    at(1, PUMP, false)
+    at(2, PUMP, true)
+    expect(evaluator.status().instances[0]).toMatchObject({ conditionPresent: true })
+    at(10, RPM, 0)
+    at(100, RPM, 30)
+    at(110)
+    expect(evaluator.status().instances[0]).toMatchObject({ inUse: true, conditionPresent: true })
+    expect(evaluator.status().instances[0]?.clearedFor).toBeUndefined()
+    // A full window after the restart without events is evidence the condition is gone.
+    at(700)
+    at(720)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      conditionPresent: false,
+      clearedFor: 20
+    })
+  })
+
+  it('a gate cycle while a sustained condition holds is not a clear while the input is unavailable', () => {
+    const gated = valid({
+      ...oilPressure,
+      gates: [{ ...oilPressure.gates?.[0], duration: 0 }]
+    })
+    const { at, evaluator } = setup(gated, { disabled: true })
+    at(0, RPM, 30)
+    at(0, OIL, 0)
+    at(5)
+    at(10, RPM, 0)
+    at(50, OIL, null)
+    at(100, RPM, 30)
+    at(110)
+    expect(evaluator.status().instances[0]).toMatchObject({ inUse: true, conditionPresent: true })
+    expect(evaluator.status().instances[0]?.clearedFor).toBeUndefined()
+  })
+
+  it('a gate cycle while a sustained condition holds is not a clear on a reading inside its recovery margin', () => {
+    const gated = valid({
+      ...oilPressure,
+      detector: { ...oilPressure.detector, hysteresis: 10000 },
+      gates: [{ ...oilPressure.gates?.[0], duration: 0 }]
+    })
+    const { at, evaluator } = setup(gated, { disabled: true })
+    at(0, RPM, 30)
+    at(0, OIL, 0)
+    at(5)
+    at(10, RPM, 0)
+    at(50, OIL, 105000)
+    at(100, RPM, 30)
+    at(110)
+    expect(evaluator.status().instances[0]).toMatchObject({ inUse: true, conditionPresent: true })
+    expect(evaluator.status().instances[0]?.clearedFor).toBeUndefined()
+    // Neither present nor clear: the disabled view reads as an enabled rule's.
+    expect(evaluator.status().instances[0]?.judgement).toMatchObject({
+      present: false,
+      undecided: true
+    })
+    at(120, OIL, 115000)
+    at(130)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      conditionPresent: false,
+      clearedFor: 10,
+      judgement: { present: false, undecided: false }
+    })
+  })
+
+  it('toggling a rule whose condition held across a gate cycle changes nothing, inside the recovery margin', () => {
+    const gated = valid({
+      ...oilPressure,
+      detector: { ...oilPressure.detector, hysteresis: 10000 },
+      gates: [{ ...oilPressure.gates?.[0], duration: 0 }]
+    })
+    const run = (toggle: boolean) => {
+      const { at, log, setDisabled } = setup(gated)
+      at(0, RPM, 30)
+      at(0, OIL, 0)
+      at(5)
+      at(10, RPM, 0)
+      at(50, OIL, 105000)
+      at(100, RPM, 30)
+      at(110)
+      if (toggle) {
+        setDisabled(111, true)
+        setDisabled(111, false)
+      }
+      at(120)
+      return log
+    }
+    const untouched = run(false)
+    expect(untouched).toEqual([
+      [5, 'raise', '', 'alarm'],
+      [10, 'clear', '']
+    ])
+    expect(run(true)).toEqual(untouched)
+  })
+
+  it('toggling a rule whose condition held across a gate cycle changes nothing while a trend window refills', () => {
+    const VOLTS = 'electrical.batteries.house.voltage'
+    const rising = valid({
+      name: 'Voltage rising',
+      slug: 'voltage-rising',
+      message: 'Voltage is rising fast',
+      signal: { path: VOLTS },
+      detector: {
+        type: 'slope',
+        direction: 'rising',
+        window: 60,
+        steps: [{ limit: 0.005, priority: 'warning' }]
+      },
+      gates: [{ signal: { path: RPM }, direction: 'above', limit: { kind: 'fixed', value: 8 } }]
+    })
+    const volts = (t: number) => 12 + t * 0.01
+    const run = (toggle: boolean) => {
+      const { at, log, setDisabled } = setup(rising)
+      at(0, RPM, 30)
+      for (let t = 0; t <= 120; t += 10) at(t, VOLTS, volts(t))
+      at(130, RPM, 0)
+      at(200, RPM, 30)
+      at(210, VOLTS, volts(210))
+      if (toggle) {
+        setDisabled(215, true)
+        setDisabled(215, false)
+      }
+      for (let t = 220; t <= 300; t += 10) at(t, VOLTS, volts(t))
+      return log
+    }
+    const untouched = run(false)
+    expect(untouched.at(-1)).toEqual([260, 'raise', '', 'warning'])
+    expect(run(true)).toEqual(untouched)
+  })
+
+  it('a condition that clears while its gate reopens is cleared from then', () => {
+    const gated = valid({
+      ...oilPressure,
+      gates: [{ ...oilPressure.gates?.[0], duration: 0 }]
+    })
+    const { at, evaluator } = setup(gated, { disabled: true })
+    at(0, RPM, 30)
+    at(0, OIL, 0)
+    at(5)
+    at(10, RPM, 0)
+    at(100, RPM, 30)
+    at(102, OIL, 300000)
+    at(110)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      conditionPresent: false,
+      clearedFor: 8
+    })
+  })
+
   it('a condition never present since start has no clear time', () => {
     const { at, evaluator } = setup(portOil, { disabled: true })
     at(0, OIL, 300000)
@@ -1794,6 +2181,31 @@ describe('disabled rules', () => {
   it('clears an alert adopted at start rather than keep it', () => {
     const { log } = setup(portOil, { disabled: true, adopted: [{}] })
     expect(log).toEqual([[0, 'clear', '']])
+  })
+
+  it('an adopted condition is assumed until its input reports', () => {
+    const { at, evaluator, setDisabled } = setup(portOil, { adopted: [{}] })
+    at(50)
+    setDisabled(100, true)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      conditionPresent: true,
+      conditionAssumed: true
+    })
+    at(110, OIL, 0)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      conditionPresent: true,
+      conditionAssumed: false
+    })
+  })
+
+  it("a timeout rule's adopted condition is judged from its input's silence", () => {
+    const { at, evaluator, setDisabled } = setup(depthTimeout, { adopted: [{}] })
+    at(50)
+    setDisabled(100, true)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      conditionPresent: true,
+      conditionAssumed: false
+    })
   })
 
   it('an edit of a disabled rule, in place or structural, raises nothing', () => {
