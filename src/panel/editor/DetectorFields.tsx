@@ -1,7 +1,8 @@
 import { PathPicker } from '../paths/PathPicker'
 import type { PathList, Zone } from '../paths/selfPaths'
 import type { Step } from '../../model/rule'
-import { formatDuration, formatNumber, formatValue } from '../rules/describe'
+import { formatDuration, formatNumber } from '../../format'
+import { formatValue } from '../rules/describe'
 import type { Measure, UnitLookup } from '../signalUnits'
 import { fromSI, unitLabel } from '../units'
 import {

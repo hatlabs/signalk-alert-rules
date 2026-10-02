@@ -3,7 +3,7 @@ import type { PathValueState, Value } from '@signalk/server-api'
 import { HEARTBEAT_S, type AlertValue } from '../../src/alerts/emitter.js'
 import { RuleRunner } from '../../src/alerts/runner.js'
 import type { PathMeta } from '../../src/engine/evaluator.js'
-import type { Rule } from '../../src/model/rule.js'
+import type { Priority, Rule } from '../../src/model/rule.js'
 import { validateRule } from '../../src/model/validate.js'
 import { FakeAlertsCore } from '../helpers/FakeAlertsCore.js'
 import { FakeSubscriptionManager } from '../helpers/FakeSubscriptionManager.js'
@@ -1641,5 +1641,318 @@ describe('disabled rules', () => {
     runner.refresh(OIL_ID)
     expect(core.getByPath(OIL_ALERT)?.condition).toBe(true)
     expect(core.alertings).toBe(1)
+  })
+})
+
+describe('message placeholders', () => {
+  const HOUSE = 'electrical.batteries.house.voltage'
+  const units = { [HOUSE]: { units: 'V' } }
+  const bank = valid({
+    name: 'Battery low',
+    slug: 'battery-low',
+    message: '{instance} below {limit} for {duration}: {value}',
+    signal: { path: 'electrical.batteries.*.voltage' },
+    detector: {
+      type: 'sustained',
+      direction: 'below',
+      steps: [
+        { limit: 12.2, priority: 'warning' },
+        { limit: 11.8, priority: 'alarm' }
+      ],
+      duration: 5
+    }
+  })
+  const BANK_ALERT = 'electrical.batteries.house.voltageLow'
+  const messages = (sent: [string, AlertValue | null][]) => sent.map(([, v]) => v?.message)
+
+  function raised() {
+    const setupResult = setup([bank], { meta: units })
+    setupResult.at(0, HOUSE, 12)
+    setupResult.run(1, 5)
+    return setupResult
+  }
+
+  it('a raise renders the limit, duration, value and instance, and the status carries it', () => {
+    const { sent, runner } = raised()
+    expect(sent).toHaveLength(1)
+    expect(sent[0]).toEqual([
+      BANK_ALERT,
+      expect.objectContaining({ priority: 'warning', message: 'house below 12.2 V for 5 s: 12 V' })
+    ])
+    const state = runner.state('battery-low')
+    expect(state).toMatchObject({ message: 'house below 12.2 V for 5 s: 12 V' })
+    expect(state?.instances[0]).toMatchObject({ message: 'house below 12.2 V for 5 s: 12 V' })
+  })
+
+  it("a climb renders the new step's limit at once", () => {
+    const { at, run, sent, runner } = raised()
+    at(6, HOUSE, 11.7)
+    run(7, 11)
+    expect(sent.at(-1)?.[1]).toMatchObject({
+      priority: 'alarm',
+      message: 'house below 11.8 V for 5 s: 11.7 V'
+    })
+    expect(runner.state('battery-low')?.instances[0]).toMatchObject({
+      message: 'house below 11.8 V for 5 s: 11.7 V'
+    })
+  })
+
+  it('a value change while alerting is sent with the next heartbeat, at the same priority and with the data of the raise', () => {
+    const { at, run, sent, runner } = raised()
+    at(6, HOUSE, 12.1)
+    expect(sent).toHaveLength(1)
+    run(7, 5 + HEARTBEAT_S)
+    expect(sent).toEqual([
+      [BANK_ALERT, expect.objectContaining({ message: 'house below 12.2 V for 5 s: 12 V' })],
+      [
+        BANK_ALERT,
+        {
+          ...sent[0]?.[1],
+          message: 'house below 12.2 V for 5 s: 12.1 V'
+        }
+      ]
+    ])
+    expect(runner.state('battery-low')).toMatchObject({
+      message: 'house below 12.2 V for 5 s: 12.1 V'
+    })
+  })
+
+  it('a burst of value changes is sent with the heartbeat alone', () => {
+    const { at, run, sent } = raised()
+    for (let i = 0; i < 100; i++) at(5 + (i + 1) * 0.09, HOUSE, 12 + (i % 10) / 100)
+    run(15, 5 + 3 * HEARTBEAT_S)
+    expect(sent).toHaveLength(4)
+  })
+
+  it('a message without placeholders is sent unchanged in every emission', () => {
+    const plain = valid({ ...bank, message: 'House bank low' })
+    const { at, run, sent } = setup([plain], { meta: units })
+    at(0, HOUSE, 12)
+    run(1, 5)
+    at(6, HOUSE, 12.1)
+    run(7, 5 + 2 * HEARTBEAT_S)
+    expect(sent).toHaveLength(3)
+    expect(sent[1]).toEqual(sent[0])
+    expect(sent[2]).toEqual(sent[0])
+  })
+
+  it('an edit to the message is sent with the next heartbeat, and the status shows what was sent', () => {
+    const { run, sent, runner } = raised()
+    runner.update(valid({ ...bank, message: '{value} on {instance}' }))
+    expect(sent).toHaveLength(1)
+    expect(runner.state('battery-low')).toMatchObject({
+      message: 'house below 12.2 V for 5 s: 12 V'
+    })
+    run(6, 5 + HEARTBEAT_S)
+    expect(sent).toHaveLength(2)
+    expect(sent.at(-1)?.[1]?.message).toBe('12 V on house')
+    expect(runner.state('battery-low')).toMatchObject({ message: '12 V on house' })
+  })
+
+  it('renders the threshold of a zone limit', () => {
+    const zoned = valid({ ...batteryLow, message: 'below {limit}' })
+    const { at, run, sent } = setup([zoned], {
+      meta: { [VOLTAGE]: { ...batteryZones, units: 'V' } }
+    })
+    at(0, VOLTAGE, 11.8)
+    run(1, 5)
+    expect(messages(sent)).toEqual(['below 12 V'])
+  })
+
+  function coreHolding(priority: Priority, data: Record<string, unknown>): FakeAlertsCore {
+    const core = new FakeAlertsCore()
+    core.ingest(PLUGIN, BANK_ALERT, {
+      priority,
+      message: 'as raised',
+      latching: false,
+      data: { rule: 'battery-low', instance: 'house', ...data }
+    })
+    return core
+  }
+
+  it("an adopted alert's one emission at start is a heartbeat without data naming the value its input replayed", () => {
+    const core = coreHolding('warning', { limit: 12.2 })
+    const { sent } = setup([bank], { core, meta: units, cached: [[HOUSE, 11.9]] })
+    expect(sent).toEqual([
+      [
+        BANK_ALERT,
+        { priority: 'warning', latching: false, message: 'house below 12.2 V for 5 s: 11.9 V' }
+      ]
+    ])
+  })
+
+  it.each([11.5, 11.9])(
+    'an alert adopted at alarm names the limit it was sent with, not the first step’s (input %s)',
+    (value) => {
+      const core = coreHolding('alarm', { limit: 11.8 })
+      const short = valid({ ...bank, message: 'below {limit}: {value}' })
+      const { sent, runner } = setup([short], { core, meta: units, cached: [[HOUSE, value]] })
+      expect(sent.map(([, v]) => [v?.priority, v?.message])).toEqual([
+        ['alarm', `below 11.8 V: ${String(value)} V`]
+      ])
+      expect(runner.state('battery-low')).toMatchObject({
+        message: `below 11.8 V: ${String(value)} V`
+      })
+    }
+  )
+
+  it('an edit inserting a step ahead of the reached one keeps naming the limit sent', () => {
+    const short = valid({ ...bank, message: 'below {limit}' })
+    const { at, run, sent, runner } = setup([short], { meta: units })
+    at(0, HOUSE, 11.7)
+    run(1, 5)
+    expect(messages(sent)).toEqual(['below 11.8 V'])
+    runner.update(
+      valid({
+        ...short,
+        detector: {
+          ...bank.detector,
+          steps: [
+            { limit: 12.4, priority: 'caution' },
+            { limit: 12.2, priority: 'warning' },
+            { limit: 11.8, priority: 'alarm' }
+          ]
+        }
+      })
+    )
+    run(6, 5 + HEARTBEAT_S)
+    expect(sent.at(-1)?.[1]).toMatchObject({ priority: 'alarm', message: 'below 11.8 V' })
+  })
+
+  it('a stale adopted alert sends nothing at start, and its state shows the message rendered from the replayed value', () => {
+    const core = coreHolding('warning', { limit: 12.2 })
+    core.markStale(BANK_ALERT)
+    const { sent, runner } = setup([bank], {
+      core,
+      meta: units,
+      cached: [[HOUSE, 11.9]]
+    })
+    expect(sent).toEqual([])
+    expect(runner.state('battery-low')?.instances[0]).toMatchObject({
+      message: 'house below 12.2 V for 5 s: 11.9 V'
+    })
+  })
+
+  it('an adopted alert that climbs while its rule starts is sent once, at the step it reached', () => {
+    const core = coreHolding('warning', { limit: 12.2 })
+    const prompt = valid({
+      ...bank,
+      message: 'below {limit}',
+      detector: { ...bank.detector, duration: undefined }
+    })
+    const { sent } = setup([prompt], { core, meta: units, cached: [[HOUSE, 11.5]] })
+    expect(sent.map(([, v]) => [v?.priority, v?.message])).toEqual([['alarm', 'below 11.8 V']])
+  })
+
+  it('a latching alert carries the message of its raise in the status', () => {
+    const latching = valid({ ...latchingPump, message: 'Pump started over {limit} times' })
+    const { at, sent, runner } = setup([latching])
+    pumpStarts(at, 0)
+    expect(messages(sent)).toEqual(['Pump started over 1 times'])
+    expect(runner.state('bilge-pump-cycling')).toMatchObject({
+      condition: 'alerting',
+      message: 'Pump started over 1 times'
+    })
+  })
+
+  describe('a rule whose alert data names no limit, when no step set its priority', () => {
+    function adoptedAt(rule: Rule, path: string, cached: [string, Value][]) {
+      const core = new FakeAlertsCore()
+      core.ingest(PLUGIN, path, {
+        priority: 'alarm',
+        message: 'as raised',
+        latching: false,
+        data: { rule: rule.slug }
+      })
+      return setup([rule], { core, cached })
+    }
+
+    it('names the limit of the step at the alert’s index for a count', () => {
+      const pumps = valid({
+        ...pumpCycling,
+        message: 'Pump started over {limit} times',
+        detector: {
+          ...pumpCycling.detector,
+          steps: [
+            { limit: 3, priority: 'warning' },
+            { limit: 5, priority: 'alarm' }
+          ]
+        }
+      })
+      const { sent } = adoptedAt(pumps, PUMP_ALERT, [[PUMP, false]])
+      // An adopted alert starts at the first step whatever priority core holds.
+      expect(sent.map(([, v]) => [v?.priority, v?.message])).toEqual([
+        ['alarm', 'Pump started over 3 times']
+      ])
+    })
+
+    it('names the window of the step at the alert’s index for an absence', () => {
+      const quiet = valid({
+        name: 'Pump quiet',
+        slug: 'pump-quiet',
+        condition: 'quiet',
+        message: 'No pump change for {limit}',
+        signal: { path: PUMP },
+        detector: {
+          type: 'absence',
+          event: { op: 'changes' },
+          steps: [
+            { within: 600, priority: 'warning' },
+            { within: 1800, priority: 'alarm' }
+          ]
+        }
+      })
+      const { sent } = adoptedAt(quiet, 'electrical.switches.bilgePump.quiet', [[PUMP, false]])
+      expect(messages(sent)).toEqual(['No pump change for 10 min'])
+    })
+
+    it("names the reached step's limit after an edit lowers that step's priority", () => {
+      const TEMPERATURE = 'propulsion.main.temperature'
+      const rising = valid({
+        name: 'Temperature rising',
+        slug: 'temperature-rising',
+        message: 'Rising faster than {limit}',
+        signal: { path: TEMPERATURE },
+        detector: {
+          type: 'slope',
+          direction: 'rising',
+          window: 10,
+          steps: [
+            { limit: 0.05, priority: 'warning' },
+            { limit: 0.1, priority: 'alarm' }
+          ]
+        }
+      })
+      const { at, sent, runner } = setup([rising], {
+        meta: { [TEMPERATURE]: { units: 'K' } }
+      })
+      for (let t = 0; t <= 15; t++) at(t, TEMPERATURE, 300 + t)
+      expect(sent.at(-1)?.[1]).toMatchObject({
+        priority: 'alarm',
+        message: 'Rising faster than 0.1 K/s'
+      })
+      runner.update(
+        valid({
+          ...rising,
+          detector: {
+            ...rising.detector,
+            steps: [
+              { limit: 0.05, priority: 'caution' },
+              { limit: 0.1, priority: 'warning' }
+            ]
+          }
+        })
+      )
+      const before = sent.length
+      for (let t = 16; t <= 15 + HEARTBEAT_S; t++) {
+        at(t, TEMPERATURE, 300 + t)
+        at(t)
+      }
+      expect(sent.length).toBeGreaterThan(before)
+      expect(sent.at(-1)?.[1]).toMatchObject({
+        priority: 'alarm',
+        message: 'Rising faster than 0.1 K/s'
+      })
+    })
   })
 })
