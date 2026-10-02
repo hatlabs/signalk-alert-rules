@@ -24,13 +24,15 @@ import { ruleAlertPath } from '../model/alertPath.js'
 import { instanceAlertPath } from './paths.js'
 import {
   AlertEmitter,
+  type AlertBody,
   type AlertHeader,
-  type AlertValue,
   type AlertsReader,
-  type EmitterDeps
+  type EmitterDeps,
+  type Render
 } from './emitter.js'
 import { reconcile } from './reconcile.js'
 import { referencesOf } from './references.js'
+import { renderMessage, signalUnits } from './message.js'
 import { errorMessage } from '../util.js'
 
 const INVALID_PATH = { reason: 'alertPathInvalid' } as const
@@ -62,12 +64,8 @@ export interface Accumulated {
 }
 
 /** What the rule says about an instance's alert at a priority. */
-function header(rule: Rule, instance: string | undefined, priority: Priority): AlertHeader {
-  return {
-    priority,
-    message: rule.message.replaceAll('{instance}', instance ?? ''),
-    latching: rule.latching ?? false
-  }
+function header(rule: Rule, priority: Priority): AlertHeader {
+  return { priority, latching: rule.latching ?? false }
 }
 
 /**
@@ -125,12 +123,15 @@ export class RuleRunner {
       // not be able to read yet.
       const first = firstPriority(rule)
       const priority = severityOf(alert.priority) > severityOf(first) ? alert.priority : first
-      this.emitter.adopt(alert, header(rule, name, priority), this.evidence(id, segment ?? ''), now)
+      const render = this.render(id, rule, segment ?? '', name)
+      const evidence = this.evidence(id, segment ?? '')
+      this.emitter.adopt(alert, header(rule, priority), evidence, now, render)
       this.seedChangedAt(id, alert.data?.raisedAt)
     }
     for (const [id, rule] of this.entries) {
       this.startRule(id, rule, activeByRule.get(id), this.accumulated.get(id))
     }
+    this.emitter.sendAdopted()
   }
 
   tick(): void {
@@ -209,7 +210,7 @@ export class RuleRunner {
     // other edit reaches core with the next heartbeat of each active alert.
     for (const { instance, priority, limit } of evaluator.revisions()) {
       const path = this.instancePath(id, rule, instance?.segment)
-      if (path.ok) this.emitter.revise(path.value, header(rule, instance?.name, priority), limit)
+      if (path.ok) this.emitter.revise(path.value, priority, limit)
     }
   }
 
@@ -351,6 +352,7 @@ export class RuleRunner {
     ago: (seconds: number) => string
   ): InstanceFacts {
     const path = this.instancePath(id, rule, instance.instance?.segment)
+    const alert = path.ok ? this.emitter.status(path.value) : undefined
     return {
       ...(instance.instance === undefined ? {} : { instance: instance.instance }),
       judgement: this.judged(id, rule, instance.judgement),
@@ -360,7 +362,8 @@ export class RuleRunner {
       progress: instance.progress,
       ...(instance.clearedFor === undefined ? {} : { clearedAt: ago(instance.clearedFor) }),
       ...(instance.sinceValue === undefined ? {} : { lastSeen: ago(instance.sinceValue) }),
-      awaitingInput: path.ok && this.emitter.status(path.value)?.awaitingInput === true
+      awaitingInput: alert?.awaitingInput === true,
+      ...(alert === undefined ? {} : { message: alert.message })
     }
   }
 
@@ -424,15 +427,12 @@ export class RuleRunner {
           path.value,
           this.describe(id, event),
           this.evidence(id, segment ?? ''),
-          now
+          now,
+          this.render(id, event.rule, segment ?? '', event.instance?.name)
         )
         break
       case 'priority':
-        this.emitter.revise(
-          path.value,
-          header(rule, event.instance?.name, event.priority),
-          event.limit
-        )
+        this.emitter.revise(path.value, event.priority, event.limit)
         this.emitter.repeat(path.value, now)
         break
       case 'clear':
@@ -441,11 +441,12 @@ export class RuleRunner {
   }
 
   /**
-   * The alert's message, references and data, fixed at the raise. Data
-   * carries only what changes rarely, so heartbeats never rewrite it; live
-   * values belong in the rule's status, not in the alert.
+   * The alert's references and data, fixed at the raise; the emitter renders
+   * its message. Data carries only what changes rarely, so heartbeats never
+   * rewrite it; live values belong in the rule's status and the message, not
+   * in data.
    */
-  private describe(id: string, event: Extract<RuleEvent, { type: 'raise' }>): AlertValue {
+  private describe(id: string, event: Extract<RuleEvent, { type: 'raise' }>): AlertBody {
     const { rule, instance, limit, value } = event
     const data: Record<string, unknown> = { rule: id, name: rule.name }
     if (instance !== undefined) data.instance = instance.name
@@ -454,10 +455,47 @@ export class RuleRunner {
     data.raisedAt = this.deps.wallClock().toISOString()
     const references = referencesOf(rule, instance?.name)
     return {
-      ...header(rule, instance?.name, event.priority),
+      ...header(rule, event.priority),
       ...(references.length === 0 ? {} : { references }),
       data
     }
+  }
+
+  /**
+   * Renders an instance's message as it reads now: the rule as it is now,
+   * the input's last value and the limit of the step the alert has reached,
+   * or the limit last sent when no step set the alert's priority, or else
+   * the step at the alert's index. `rule`
+   * stands in for a rule the runner no longer holds.
+   */
+  private render(id: string, rule: Rule, segment: string, name: string | undefined): Render {
+    return (sentLimit) => this.message(id, rule, segment, name, sentLimit)
+  }
+
+  private message(
+    id: string,
+    rule: Rule,
+    segment: string,
+    name: string | undefined,
+    sentLimit: number | undefined
+  ): string {
+    const current = this.entries.get(id) ?? rule
+    const reached = this.evaluators.get(id)?.reached(segment)
+    const instance = name === undefined ? undefined : { name, segment }
+    let units: string | undefined
+    try {
+      units = signalUnits(current.signal, instance, this.deps.meta)
+    } catch {
+      // A meta read that throws already fails the rule's start, which its
+      // state reports; the message then goes without a unit rather than
+      // stopping the heartbeat of every alert.
+    }
+    const limit = reached?.limit ?? sentLimit
+    // Without a step that set the alert's priority or a limit in its data,
+    // the step at the alert's index is the best the rule can name. An adopted
+    // alert whose input has not reported yet has no unit, and starts at 0.
+    const step = reached?.step ?? (limit === undefined ? (reached?.index ?? 0) : undefined)
+    return renderMessage(current, { instance: name, value: reached?.value, step, limit, units })
   }
 
   private evidence(id: string, segment: string): () => boolean {

@@ -30,6 +30,8 @@ export type ConditionState =
       level?: ZoneLevel
       /** The input has stopped reporting, so the alert is not repeated. */
       awaitingInput: boolean
+      /** The alert's message as SKAR last sent it, or as it reads now before its first emission. */
+      message?: string
     }
   | { condition: 'present'; reason: 'conditionPresent' }
   | {
@@ -127,6 +129,8 @@ export interface InstanceFacts {
   clearedAt?: string
   lastSeen?: string
   awaitingInput: boolean
+  /** The active alert's message as last sent, or as it reads now before its first emission. */
+  message?: string
 }
 
 function optional<K extends string, T>(key: K, value: T | undefined): Partial<Record<K, T>> {
@@ -172,7 +176,8 @@ function conditionState(facts: InstanceFacts, disabled: boolean, started: string
         condition: 'alerting',
         reason: 'alertActive',
         ...classified.alert,
-        awaitingInput: facts.awaitingInput
+        awaitingInput: facts.awaitingInput,
+        ...optional('message', facts.message)
       }
     case 'present':
       return { condition: 'present', reason: 'conditionPresent' }

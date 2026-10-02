@@ -561,22 +561,49 @@ export class RuleEvaluator {
   }
 
   /**
+   * What an instance's alert message is filled in from, read without
+   * building the status: the input's last value, which outlives an
+   * unavailable reading, and the step the alert has reached with its SI
+   * limit, the first step's while no alert is active. The step and its limit
+   * are left out when {@link ownStep} finds no step that set the alert's
+   * priority; `index` is the alert's step index either way.
+   */
+  reached(
+    segment: string
+  ): { value?: SignalValue; index: number; step?: number; limit?: number } | undefined {
+    const unit = this.units.get(segment)
+    if (unit === undefined) return undefined
+    const value = unit.lastValue
+    if (!unit.alerting) return { value, index: 0, step: 0, limit: limitOf(unit.steps.at(0)) }
+    const index = unit.step ?? 0
+    const own = this.ownStep(unit, index)
+    return own === undefined ? { value, index } : { value, index, step: index, limit: limitOf(own) }
+  }
+
+  /**
    * What each active alert's emissions say after an edit applied in place:
-   * the reached priority, and the limit of the step at the alert's index only
-   * while that step has that priority. Otherwise it is not the step the alert
-   * reached: an edit inserted one ahead of it or lowered its priority, or core
-   * escalated an adopted alert by itself. Core then keeps the limit it holds
-   * until the next climb, so `data.limit` only names a step that set.
+   * the reached priority, and the limit of the step that set it, as
+   * {@link ownStep} finds it. Without such a step the edit sends no limit,
+   * and core keeps the one it holds.
    */
   revisions(): { instance?: Instance; priority: Priority; limit?: number }[] {
     return [...this.units.values()].flatMap((u) => {
       if (!u.alerting) return []
       const step = u.step ?? 0
       const priority = this.reachedAt(u, step)
-      const own = u.steps.at(step)
-      const limit = own?.priority === priority ? own.limit : undefined
-      return [{ instance: u.instance, priority, limit }]
+      return [{ instance: u.instance, priority, limit: this.ownStep(u, step)?.limit }]
     })
+  }
+
+  /**
+   * The step at an active alert's index while that step has the alert's
+   * reached priority. Otherwise it is not the step that set it: an edit
+   * inserted one ahead of it or lowered its priority, or an adopted alert
+   * came with a priority above the first step's.
+   */
+  private ownStep(unit: Unit, step: number): ResolvedStep | undefined {
+    const own = unit.steps.at(step)
+    return own?.priority === this.reachedAt(unit, step) ? own : undefined
   }
 
   private unit(key: string, instance?: Instance): Unit {
@@ -902,9 +929,8 @@ export class RuleEvaluator {
   }
 
   /**
-   * A latching alert is raised again at the further step: core holds it
-   * without repeats, escalating it while it waits for acknowledgment and
-   * raising a new one after. Any other alert is sent at the step's priority.
+   * A latching alert is raised again at the further step, since SKAR never
+   * repeats a latching alert. Any other alert is sent at the step's priority.
    */
   private escalate(unit: Unit, step: number): void {
     if (this.rule.latching === true) {
@@ -934,6 +960,11 @@ export class RuleEvaluator {
   private totals(next: Rule): Map<string, number> {
     return carriesTotals(this.rule, next) ? this.accumulators() : new Map<string, number>()
   }
+}
+
+/** A step's SI limit, for a detector whose steps have one; a zone limit's is its resolved threshold. */
+function limitOf(step: ResolvedStep | undefined): number | undefined {
+  return step !== undefined && 'limit' in step.spec ? step.spec.limit : undefined
 }
 
 function gateProblem(gates: readonly Gate[]): Problem | undefined {
