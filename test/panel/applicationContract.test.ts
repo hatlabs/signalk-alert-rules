@@ -150,12 +150,20 @@ describe('panel parsers against the Application', () => {
     const entry = parsedRules(running()).get(oil.slug)
     expect(entry?.disabled).toBeUndefined()
     expect(entry).toMatchObject({
-      rule: { name: oil.name, priority: 'alarm', detector: { type: 'sustained' } },
+      rule: {
+        name: oil.name,
+        priority: 'alarm',
+        steps: oil.detector.steps,
+        duration: oil.detector.duration,
+        message: oil.message,
+        detector: { type: 'sustained' }
+      },
       status: {
         ruleState: 'enabled',
         condition: 'alerting',
         reason: 'alertActive',
         priority: 'alarm',
+        step: 0,
         message: oil.message
       }
     })

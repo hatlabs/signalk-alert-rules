@@ -46,6 +46,8 @@ export function ruleEntry(overrides: EntryOverrides = {}): RuleEntry {
       name: 'Oil pressure low',
       alertPath: 'propulsion.port.oilPressureLow',
       priority: 'alarm',
+      steps: [{ limit: 100000, priority: 'alarm' }],
+      message: 'Oil pressure low',
       detector: { type: 'sustained', direction: 'below' },
       signal: { paths: ['propulsion.port.oilPressure'] },
       gates: [],
