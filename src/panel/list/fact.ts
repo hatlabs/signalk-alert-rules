@@ -15,7 +15,9 @@ export function elapsed(ms: number): string {
   return `${String(Math.max(0, Math.round(ms / SECOND)))} s`
 }
 
-const TIMEOUT_CAUSES: Readonly<Partial<Record<string, (status: RuleStatus) => string>>> = {
+const TIMEOUT_CAUSES: Readonly<
+  Partial<Record<string, (status: Pick<RuleStatus, 'contract'>) => string>>
+> = {
   booleanPath: () => 'An on/off value cannot time out',
   stringPath: () => 'A text value cannot time out',
   notEnforced: () => 'The server does not enforce timeouts',
@@ -25,7 +27,13 @@ const TIMEOUT_CAUSES: Readonly<Partial<Record<string, (status: RuleStatus) => st
   noTimeout: () => 'The path has no timeout and the server sets none'
 }
 
-function problem(status: RuleStatus): string {
+/** A problem's sentence, without a closing full stop. */
+export function problem(
+  status: Pick<
+    RuleStatus,
+    'reason' | 'side' | 'level' | 'gate' | 'cause' | 'contract' | 'path' | 'units'
+  >
+): string {
   switch (status.reason) {
     case 'missingZone': {
       const zone = `${status.side === undefined ? '' : `${status.side} `}${status.level ?? ''} zone`
@@ -59,7 +67,10 @@ function noData(status: RuleStatus, now: number): string {
 }
 
 /** The value, or the count or total toward the limit, as the rule shows it. */
-function reading(status: RuleStatus, display: RuleDisplay): string | undefined {
+export function reading(
+  status: Pick<RuleStatus, 'progress' | 'value'>,
+  display: RuleDisplay
+): string | undefined {
   const { progress } = status
   if (progress?.kind === 'events') {
     return `${String(progress.count)} of ${String(progress.limit)} events`
@@ -75,7 +86,7 @@ function reading(status: RuleStatus, display: RuleDisplay): string | undefined {
  * a state, a rate of change (the limit is per second), or a value projected
  * to pass the limit later.
  */
-const NO_READING: ReadonlySet<string> = new Set([
+export const NO_READING: ReadonlySet<string> = new Set([
   'match',
   'count',
   'absence',
