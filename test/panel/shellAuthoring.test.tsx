@@ -13,7 +13,7 @@ import {
 import type { PathSource } from '../../src/panel/paths/selfPaths'
 import { Shell } from '../../src/panel/Shell'
 import { displayUnit } from '../../src/panel/units'
-import { invalidEntry, noControls, ruleEntry } from './fixtures'
+import { invalidEntry, noControls, noTemplates, ruleEntry } from './fixtures'
 
 const EXAMPLES = join(import.meta.dirname, '../../examples/rules')
 const stored = JSON.parse(readFileSync(join(EXAMPLES, 'house-battery-low.json'), 'utf8')) as Rule
@@ -64,7 +64,8 @@ function mockApi(rules: ListedRule[]) {
         discardsTotal: false
       })
     ),
-    ...noControls
+    ...noControls,
+    ...noTemplates
   } satisfies PanelApi
   return api
 }

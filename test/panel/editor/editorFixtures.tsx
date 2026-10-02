@@ -9,7 +9,7 @@ import { RuleEditor, type RuleEditorProps } from '../../../src/panel/editor/Rule
 import type { PathEntry, PathSource } from '../../../src/panel/paths/selfPaths'
 import { unitLookup } from '../../../src/panel/signalUnits'
 import { displayUnit } from '../../../src/panel/units'
-import { noAuthoring, noControls, ruleEntry } from '../fixtures'
+import { noAuthoring, noControls, noTemplates, ruleEntry } from '../fixtures'
 
 const EXAMPLES = join(import.meta.dirname, '../../../examples/rules')
 
@@ -107,6 +107,7 @@ export function fakeApi() {
     resetAccumulator: vi.fn(),
     ...noAuthoring,
     ...noControls,
+    ...noTemplates,
     createRule: vi.fn((rule: Rule) => Promise.resolve(ruleEntry({ slug: rule.slug }))),
     updateRule: vi.fn((slug: string, _rule: Rule) => Promise.resolve(ruleEntry({ slug }))),
     previewRule: vi.fn((_slug: string, _rule: Rule) => Promise.resolve(noChange))

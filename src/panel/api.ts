@@ -1,5 +1,6 @@
 import { CONDITIONS, type Condition } from '../alerts/state'
-import type { Rule } from '../model/rule'
+import type { Rule, TemplatePick } from '../model/rule'
+import type { Template } from '../model/template'
 
 export { CONDITIONS, type Condition }
 
@@ -152,8 +153,8 @@ export interface RuleInfo {
   signal: { paths: string[]; combinator?: string }
   /** The source a single-path signal is pinned to; absent for the preferred source. */
   source?: string
-  /** The template the rule was made from, as information only. */
-  template?: { set: string; id: string }
+  /** The template the rule was made from and what was picked for it, as information only. */
+  template?: { set: string; id: string; pick: TemplatePick }
   gates: { paths: string[] }[]
 }
 
@@ -221,6 +222,29 @@ export interface PanelApi {
   enableRule(slug: string): Promise<RuleEntry>
   /** Deletes a rule, a stored one that does not run included, and clears its alerts. */
   deleteRule(slug: string): Promise<void>
+  /** The template sets installed now. */
+  templates(): Promise<TemplateListing>
+  /** Dismisses the new-templates notice of the templates shown, by set id, for everyone. */
+  dismissTemplates(shown: Record<string, string[]>): Promise<TemplateListing>
+}
+
+/** A template set, as `GET /templates` lists it. */
+export interface TemplateSetEntry {
+  id: string
+  name: string
+  version: string
+  description?: string
+  /** Where it was found: `built-in`, `package some-name` or `file foo.yaml`. */
+  source: string
+  templates: Template[]
+  /** Ids of its templates whose notice nobody has dismissed. */
+  new: string[]
+}
+
+/** `GET /templates`: the sets installed now, and those that could not be loaded. */
+export interface TemplateListing {
+  sets: TemplateSetEntry[]
+  problems: { source: string; message: string }[]
 }
 
 /** `POST /rules/:slug/preview`, as docs/api.md describes it. */
@@ -392,9 +416,13 @@ function stepsOf(steps: unknown): RuleStep[] {
 }
 
 function templateOf(v: unknown): RuleInfo['template'] {
-  return isRecord(v) && typeof v.set === 'string' && typeof v.id === 'string'
-    ? { set: v.set, id: v.id }
-    : undefined
+  if (!isRecord(v) || typeof v.set !== 'string' || typeof v.id !== 'string') return undefined
+  const pick = isRecord(v.pick) ? v.pick : {}
+  return {
+    set: v.set,
+    id: v.id,
+    pick: { ...optional('instance', text(pick.instance)), ...optional('source', text(pick.source)) }
+  }
 }
 
 function ruleDisabled(v: unknown): RuleDisabled | undefined {
@@ -582,6 +610,47 @@ function parseRuleDefinition(body: unknown, what: string): Rule {
   return rule as unknown as Rule
 }
 
+/**
+ * `GET /templates`. The server validated every template it lists, so only
+ * the shape the panel relies on is checked.
+ */
+export function parseTemplates(body: unknown, what: string): TemplateListing {
+  const strings = (v: unknown): v is string[] =>
+    Array.isArray(v) && v.every((s) => typeof s === 'string')
+  const isTemplate = (t: unknown): t is Template =>
+    isRecord(t) && typeof t.id === 'string' && isRecord(t.rule)
+  if (!isRecord(body) || !Array.isArray(body.sets)) throw malformed(what)
+  const sets = body.sets.map((v: unknown): TemplateSetEntry => {
+    if (
+      !isRecord(v) ||
+      typeof v.id !== 'string' ||
+      typeof v.name !== 'string' ||
+      typeof v.version !== 'string' ||
+      typeof v.source !== 'string' ||
+      !Array.isArray(v.templates) ||
+      !v.templates.every(isTemplate) ||
+      !strings(v.new)
+    ) {
+      throw malformed(what)
+    }
+    return {
+      id: v.id,
+      name: v.name,
+      version: v.version,
+      ...optional('description', text(v.description)),
+      source: v.source,
+      templates: v.templates,
+      new: v.new
+    }
+  })
+  const problems = (Array.isArray(body.problems) ? body.problems : []).flatMap((p: unknown) =>
+    isRecord(p) && typeof p.source === 'string' && typeof p.message === 'string'
+      ? [{ source: p.source, message: p.message }]
+      : []
+  )
+  return { sets, problems }
+}
+
 function parsePreview(body: unknown, what: string): EditPreview {
   if (
     !isRecord(body) ||
@@ -686,6 +755,14 @@ export function httpApi(fetchFn: typeof fetch = (input, init) => fetch(input, in
     },
     deleteRule: async (slug) => {
       await send('DELETE', ruleRoute(slug))
+    },
+    templates: async () => {
+      const path = `${PLUGIN_BASE}/templates`
+      return parseTemplates(await request(path), path)
+    },
+    dismissTemplates: async (shown) => {
+      const path = `${PLUGIN_BASE}/templates/dismiss`
+      return parseTemplates(await send('POST', path, { templates: shown }), path)
     }
   }
 }

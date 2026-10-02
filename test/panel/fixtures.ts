@@ -20,6 +20,12 @@ export const noControls: Pick<PanelApi, 'disableRule' | 'enableRule' | 'deleteRu
   deleteRule: notExpected
 }
 
+/** The template routes of a fake API, for tests that never use templates: no sets installed. */
+export const noTemplates: Pick<PanelApi, 'templates' | 'dismissTemplates'> = {
+  templates: () => Promise.resolve({ sets: [], problems: [] }),
+  dismissTemplates: notExpected
+}
+
 /** A normal instance with a value, to override per test. */
 export function instance(overrides: Partial<InstanceStatus> = {}): InstanceStatus {
   return {

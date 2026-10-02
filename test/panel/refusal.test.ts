@@ -6,7 +6,7 @@ import {
   type PluginState
 } from '../../src/panel/api'
 import { withRefusals } from '../../src/panel/refusal'
-import { noAuthoring, ruleEntry } from './fixtures'
+import { noAuthoring, noTemplates, ruleEntry } from './fixtures'
 
 const readonly: PluginState = { running: true, securityEnabled: true, permissions: 'readonly' }
 
@@ -18,7 +18,8 @@ function api(state: () => Promise<PluginState>, disable: PanelApi['disableRule']
     ...noAuthoring,
     disableRule: disable,
     enableRule: () => Promise.resolve(ruleEntry()),
-    deleteRule: () => Promise.reject(new SessionExpiredError())
+    deleteRule: () => Promise.reject(new SessionExpiredError()),
+    ...noTemplates
   }
 }
 

@@ -14,7 +14,7 @@ import {
 import type { PathSource } from '../../src/panel/paths/selfPaths'
 import { Shell } from '../../src/panel/Shell'
 import { POLL_INTERVAL_MS } from '../../src/panel/shellState'
-import { instance, invalidEntry, noAuthoring, noControls, ruleEntry } from './fixtures'
+import { instance, invalidEntry, noAuthoring, noControls, noTemplates, ruleEntry } from './fixtures'
 
 interface Server {
   state: PluginState | Error
@@ -31,7 +31,8 @@ function mockApi(server: Server) {
       Promise.reject(new Error('not expected'))
     ),
     ...noAuthoring,
-    ...noControls
+    ...noControls,
+    ...noTemplates
   } satisfies PanelApi
   return api
 }
