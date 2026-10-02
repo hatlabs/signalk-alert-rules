@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { ServerAPI } from '@signalk/server-api'
-import type { AlertValue, CoreAlert } from '../../src/alerts/emitter.js'
+import { HEARTBEAT_S, type AlertValue, type CoreAlert } from '../../src/alerts/emitter.js'
 import { alertPathOf } from '../../src/alerts/paths.js'
 import { serverDeps } from '../../src/alerts/server.js'
 import { RuleRunner, type RunnerDeps } from '../../src/alerts/runner.js'
@@ -468,6 +468,56 @@ describe.skipIf(SERVER === undefined)('core alerts contract', () => {
     })
     expect(sent.map((value) => value?.priority)).toEqual(['warning', 'alarm'])
     expect(runner.state(rule.slug)?.instances[0]).toMatchObject({ step: 1, priority: 'alarm' })
+    runner.stop()
+  })
+
+  it("a rule's message is sent with its value at the next heartbeat, on the same alert", async () => {
+    const VOLTAGE = 'electrical.batteries.message.voltage'
+    const validated = validateRule({
+      name: 'Message voltage low',
+      slug: 'message-voltage-low',
+      message: 'Voltage below {limit}: {value}',
+      signal: { path: VOLTAGE },
+      detector: {
+        type: 'sustained',
+        direction: 'below',
+        steps: [{ limit: 12.2, priority: 'alarm' }]
+      }
+    })
+    if (!validated.ok) throw new Error(JSON.stringify(validated.errors))
+    const rule = validated.value
+    const path = 'electrical.batteries.message.voltageLow'
+    // The heartbeat is timed by the runner's clock, so the test steps it rather than waiting.
+    let now = 0
+    const runner = new RuleRunner({ ...deps, clock: () => now }, [rule])
+    const measure = async (value: number) => {
+      running().app.handleMessage('contract-sensor', {
+        updates: [{ values: [{ path: VOLTAGE as never, value }] }]
+      })
+      await until(
+        () => (runner.state(rule.slug)?.instances[0]?.value === value ? true : undefined),
+        `the rule to read ${String(value)}`
+      )
+      runner.tick()
+      await alerts().ingressSettled()
+    }
+    runner.start()
+
+    await measure(12)
+    const raised = await until(() => alerts().getByPath(path), 'the raise')
+    expect(raised.message).toBe('Voltage below 12.2 V: 12 V')
+
+    await measure(12.1)
+    expect(alerts().getByPath(path)?.message).toBe('Voltage below 12.2 V: 12 V')
+    now = HEARTBEAT_S
+    runner.tick()
+    await alerts().ingressSettled()
+    expect(alerts().getByPath(path)).toMatchObject({
+      id: raised.id,
+      message: 'Voltage below 12.2 V: 12.1 V',
+      condition: true
+    })
+    expect(runner.state(rule.slug)).toMatchObject({ message: 'Voltage below 12.2 V: 12.1 V' })
     runner.stop()
   })
 
