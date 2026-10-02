@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { discardedTotals, formatDuration } from '../../../src/panel/rules/describe'
+import { formatDuration } from '../../../src/format'
+import { discardedTotals } from '../../../src/panel/rules/describe'
 import { instance, ruleEntry } from '../fixtures'
 
 describe('discardedTotals', () => {
