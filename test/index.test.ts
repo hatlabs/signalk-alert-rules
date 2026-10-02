@@ -35,14 +35,18 @@ function storeRule(rule: Record<string, unknown> & { slug: string }): void {
   writeFileSync(join(dir, 'rules', `${rule.slug}.json`), JSON.stringify(rule))
 }
 
-/** Registers the plugin's routes on a stub router and returns what `GET /state` answers. */
-function stateOf(plugin: Plugin): () => unknown {
+/**
+ * Registers the plugin's routes on a stub router and returns what `GET /state` answers.
+ * Without `access`, the router is an older server's, which has no `access()`.
+ */
+function stateOf(plugin: Plugin, { access = true } = {}): () => unknown {
   const handlers = new Map<string, (req: unknown, res: unknown) => void>()
   const register = (path: string, ...chain: ((req: unknown, res: unknown) => void)[]) => {
     const handler = chain.at(-1)
     if (handler !== undefined) handlers.set(path, handler)
   }
-  const router = { get: register, post: register, put: register, delete: register }
+  const methods = { get: register, post: register, put: register, delete: register }
+  const router = access ? { ...methods, access: () => methods } : methods
   plugin.registerWithRouter?.(router as unknown as PluginRouter)
   return () => {
     let body: unknown
@@ -83,6 +87,51 @@ describe('plugin', () => {
     await plugin.stop()
   })
 
+  it('names the server requirement in its status when the router has no access levels', async () => {
+    const app = new MockServerAPI(true, dir)
+    const plugin = createPlugin(app.asServerAPI())
+    // The server starts a plugin before it hands it the router
+    // (signalk-server src/interfaces/plugins.ts, registerPlugin).
+    plugin.start({}, () => undefined)
+    expect(app.pluginStatus).toBe('Running')
+    const state = stateOf(plugin, { access: false })
+    expect(app.pluginStatus).toMatch(/^Running; .*Signal K server 2\.31/)
+    expect(state()).toMatchObject({ running: true, permissions: 'admin' })
+
+    await plugin.stop()
+    plugin.start({}, () => undefined)
+    expect(app.pluginStatus).toMatch(/Signal K server 2\.31/)
+    await plugin.stop()
+  })
+
+  it('names no server requirement with security disabled, where every route is open', async () => {
+    const app = new MockServerAPI(true, dir)
+    Object.assign(app, { securityStrategy: { isDummy: () => true } })
+    const plugin = createPlugin(app.asServerAPI())
+    plugin.start({}, () => undefined)
+    stateOf(plugin, { access: false })
+    expect(app.pluginStatus).toBe('Running')
+    await plugin.stop()
+  })
+
+  it('reports Running alone when the router has access levels', async () => {
+    const app = new MockServerAPI(true, dir)
+    const plugin = createPlugin(app.asServerAPI())
+    plugin.start({}, () => undefined)
+    stateOf(plugin)
+    expect(app.pluginStatus).toBe('Running')
+    await plugin.stop()
+  })
+
+  it('leaves the status of a plugin that did not start to its error', () => {
+    const app = new MockServerAPI(false, dir)
+    const plugin = createPlugin(app.asServerAPI())
+    plugin.start({}, () => undefined)
+    stateOf(plugin, { access: false })
+    expect(app.pluginError).toMatch(/no alerts API/)
+    expect(app.pluginStatus).toBeUndefined()
+  })
+
   it('makes no alerts API calls when stopped', async () => {
     const app = new MockServerAPI(true, dir)
     const plugin = createPlugin(app.asServerAPI())
@@ -115,7 +164,7 @@ describe('plugin', () => {
     expect((state() as { error?: string }).error).toMatch(/no alerts API/)
     await plugin.stop()
 
-    expect(state()).toEqual({ running: false, securityEnabled: null })
+    expect(state()).toEqual({ running: false, securityEnabled: null, permissions: 'admin' })
   })
 
   it('evaluates stored rules every second and leaves their alerts when stopped', async () => {
@@ -270,6 +319,7 @@ describe('plugin', () => {
     expect(state()).toEqual({
       running: true,
       securityEnabled: null,
+      permissions: 'admin',
       issues: []
     })
     app.subscriptionmanager.publish(RPM, 'src', 30)

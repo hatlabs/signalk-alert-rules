@@ -4,28 +4,31 @@ SKAR serves its rules, their status and its operator actions under the plugin's 
 
 ## Security
 
-- Every route is admin-only while server security is enabled: the server checks admin access for every plugin route a plugin does not open up to other access levels, and SKAR opens none.
+- While server security is enabled, each route admits the access level the routes table gives and every level above it: read-only users read rules, states, templates and the action log, read/write users also disable and enable rules, and everything else is admin-only. A Signal K server older than 2.31 cannot open plugin routes to lower levels; there every route is admin-only, and the plugin status says so.
+- With the server's Allow Readonly Access on, a request without a login is a read-only user: anyone who can reach the server reads every read-only route, including the action log's actors and notes, a disabled rule's actor and note, and the server paths named in template problems and plugin issues.
 - With security disabled, anyone who can reach the server can use every route. `GET /state` reports `securityEnabled: false` so the webapp can show a persistent warning.
 - Every `POST`, `PUT` and `DELETE` must carry `Content-Type: application/json`, including those without a body; anything else is refused with 415. A browser does not send that content type to another site without asking the site first, so a page elsewhere cannot act through an admin's session.
 - Deletes, accumulator resets, enables, disables, notes, suppressions and ruleset changes record the actor: the authenticated user's id, or `unauthenticated` when there is none.
 
 ## Routes
 
-| Route | Does |
-|---|---|
-| `GET /state` | the plugin's state (below); answers while the plugin is not running |
-| `GET /rules` | every rule, as rule entries |
-| `GET /rules/:slug` | one rule entry |
-| `POST /rules` | creates a rule from the body; 201 with its entry |
-| `PUT /rules/:slug` | replaces a rule with the body; the body's `slug` must equal the path's |
-| `POST /rules/:slug/preview` | what replacing the rule with the body would do, without doing it |
-| `DELETE /rules/:slug` | deletes a rule and clears its alerts; 204 |
-| `POST /rules/:slug/reset` | resets an accumulator rule; answers its entry |
-| `POST /rules/:slug/disable` | disables a rule, with an optional `{ "note": "..." }`; answers its entry |
-| `POST /rules/:slug/enable` | enables a rule; answers its entry |
-| `GET /log` | the operator action log, newest first |
-| `GET /templates` | the template sets installed now, each with its templates and the ids of those whose notice nobody has dismissed, and the sets that failed to load |
-| `POST /templates/dismiss` | dismisses the notice of every template installed now; answers as `GET /templates` |
+| Route | Level | Does |
+|---|---|---|
+| `GET /state` | read-only | the plugin's state (below); answers while the plugin is not running |
+| `GET /rules` | read-only | every rule, as rule entries |
+| `GET /rules/:slug` | read-only | one rule entry |
+| `POST /rules` | admin | creates a rule from the body; 201 with its entry |
+| `PUT /rules/:slug` | admin | replaces a rule with the body; the body's `slug` must equal the path's |
+| `POST /rules/:slug/preview` | admin | what replacing the rule with the body would do, without doing it |
+| `DELETE /rules/:slug` | admin | deletes a rule and clears its alerts; 204 |
+| `POST /rules/:slug/reset` | admin | resets an accumulator rule; answers its entry |
+| `POST /rules/:slug/disable` | read/write | disables a rule, with an optional `{ "note": "..." }`; answers its entry |
+| `POST /rules/:slug/enable` | read/write | enables a rule; answers its entry |
+| `GET /log` | read-only | the operator action log, newest first |
+| `GET /templates` | read-only | the template sets installed now, each with its templates and the ids of those whose notice nobody has dismissed, and the sets that failed to load |
+| `POST /templates/dismiss` | admin | dismisses the notice of every template installed now; answers as `GET /templates` |
+
+The level is the lowest access level a route admits while server security is enabled.
 
 Rules are stored in the plugin's data directory, one file per rule as `rules/<slug>.json`, and validated at start; one that does not run is listed as an [invalid rule entry](#invalid-rule-entry) and named in the server's plugin status.
 
@@ -206,6 +209,7 @@ The last 200 actions, newest first, kept in the data directory:
 {
   "running": true,
   "securityEnabled": true,
+  "permissions": "readwrite",
   "issues": []
 }
 ```
@@ -213,6 +217,7 @@ The last 200 actions, newest first, kept in the data directory:
 - `running`: whether the plugin is running. While it is not, every other route answers 503.
 - `error`: why the plugin did not start, such as a server without the alerts API, or accumulator totals or an action log that could not be read from the data directory.
 - `securityEnabled`: whether the server enforces security; `null` when SKAR cannot tell.
+- `permissions`: the caller's access level, `readonly`, `readwrite` or `admin`, which tells the webapp which controls to offer. With security disabled it is `admin`, since every caller can use every route. A level the server reports that SKAR does not know reads as `readonly`.
 - `issues`, while running: the problems found while loading the data directory, such as a stored rule file that cannot be read or parsed. Such a rule is not listed in `GET /rules`; it can be replaced with `PUT` or deleted. A stored rule that is read but does not run is not an issue: it is listed as an [invalid rule entry](#invalid-rule-entry).
 
 ### Rule links
