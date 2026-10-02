@@ -63,14 +63,18 @@ export function unitLookup(paths: readonly PathEntry[], distance: DisplayUnit): 
 /**
  * The reported paths and the units they resolve to, loaded once per source.
  * Until the paths arrive, or when they cannot be read, values are in SI.
+ * With `pollMs` the paths, and their values, are read again that often.
  */
-export function useUnits(source: PathSource): {
+export function useUnits(
+  source: PathSource,
+  pollMs?: number
+): {
   paths: PathList
   units: UnitLookup
   /** Paths and distance unit have both answered, or the paths failed to load. */
   ready: boolean
 } {
-  const paths = useSelfPaths(source)
+  const paths = useSelfPaths(source, pollMs)
   const [distance, setDistance] = useState<DisplayUnit | undefined>(undefined)
   useEffect(() => {
     let cancelled = false

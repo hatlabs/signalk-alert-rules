@@ -14,7 +14,7 @@ export interface PathPickerProps {
 }
 
 /** Every whitespace-separated word occurs in the path or the display name. */
-function matches(entry: PathEntry, query: string): boolean {
+export function matches(entry: PathEntry, query: string): boolean {
   const haystack = `${entry.path} ${entry.displayName ?? ''}`.toLowerCase()
   return query
     .toLowerCase()
@@ -129,13 +129,13 @@ export function PathPicker({ label, value, paths, onChange, errors = [] }: PathP
 
   return (
     <div className="skar-path-picker">
-      <label htmlFor={inputId} className="form-label">
+      <label htmlFor={inputId} className="skar-label">
         {label}
       </label>
       <input
         id={inputId}
         type="text"
-        className="form-control"
+        className={`skar-input${errors.length === 0 ? '' : ' skar-input-invalid'}`}
         role="combobox"
         autoComplete="off"
         spellCheck={false}
@@ -155,7 +155,7 @@ export function PathPicker({ label, value, paths, onChange, errors = [] }: PathP
         onBlur={close}
       />
       {expanded && (
-        <ul id={listboxId} role="listbox" aria-label={label} className="dropdown-menu show">
+        <ul id={listboxId} role="listbox" aria-label={label} className="skar-path-picker-list">
           {options.map((entry, index) => (
             <li
               key={entry.path}
@@ -163,7 +163,7 @@ export function PathPicker({ label, value, paths, onChange, errors = [] }: PathP
               role="option"
               aria-selected={index === active}
               data-path={entry.path}
-              className={`dropdown-item${index === active ? ' active' : ''}`}
+              className={`skar-path-picker-option${index === active ? ' skar-path-picker-active' : ''}`}
               // Keeps focus in the input, which would otherwise blur and close the list first.
               onMouseDown={(event) => {
                 event.preventDefault()
@@ -182,11 +182,11 @@ export function PathPicker({ label, value, paths, onChange, errors = [] }: PathP
         </ul>
       )}
       {/* Rendered even when empty, so screen readers track it as a live region from the start. */}
-      <div id={statusId} role="status" className="form-text skar-path-picker-status">
+      <div id={statusId} role="status" className="skar-hint skar-path-picker-status">
         {status}
       </div>
       {errors.length > 0 && (
-        <div id={errorId} className="invalid-feedback d-block">
+        <div id={errorId} className="skar-error">
           {errors.join('; ')}
         </div>
       )}
