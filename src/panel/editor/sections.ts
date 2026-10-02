@@ -197,6 +197,12 @@ export function fieldLabel(pointer: string, form: RuleForm): string {
 
 /** What Save says stops it: the fields to fill in, and those to fix. */
 export function saveHint(errors: readonly FieldError[], form: RuleForm): string | undefined {
+  const stops = whatStops(errors, form)
+  return stops === undefined ? undefined : capitalised(`${stops} to save.`)
+}
+
+/** The fields to fill in and those to fix, as a phrase: "fill in the limit and fix the name". */
+export function whatStops(errors: readonly FieldError[], form: RuleForm): string | undefined {
   if (errors.length === 0) return undefined
   const labels = (missing: boolean) => [
     ...new Set(
@@ -211,5 +217,5 @@ export function saveHint(errors: readonly FieldError[], form: RuleForm): string 
     ...(fill.length > 0 ? [`fill in ${joined(fill)}`] : []),
     ...(fix.length > 0 ? [`fix ${joined(fix)}`] : [])
   ]
-  return capitalised(`${parts.join(' and ')} to save.`)
+  return parts.join(' and ')
 }
