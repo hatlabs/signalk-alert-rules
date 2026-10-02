@@ -63,7 +63,16 @@ export function serverDeps(app: ServerAPI, pluginId: string): RunnerDeps {
   return {
     pluginId,
     subscriptions: app.subscriptionmanager,
-    meta: (path) => pathMeta(app.getSelfPath(`${path}.meta`)),
+    meta: (path) => {
+      const meta = pathMeta(app.getSelfPath(`${path}.meta`))
+      if (meta?.units !== undefined) return meta
+      // The data tree's meta holds what was set for the path, not the units
+      // the specification gives it; the metadata lookup, keyed by the full
+      // path, has those.
+      const units = app.getMetadata(`vessels.self.${path}`)?.units
+      if (typeof units !== 'string') return meta
+      return { ...meta, units }
+    },
     timeoutSettings: () => timeoutSettings(app),
     // `getPath('sources')` is the server's live tree; '/sources' would rebuild a copy per call.
     canonicalSource: (ref) => canonicalSourceRef(app.getPath('sources'), ref),

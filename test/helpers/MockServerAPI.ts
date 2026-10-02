@@ -53,6 +53,10 @@ export class MockServerAPI {
     return undefined
   }
 
+  getMetadata(): undefined {
+    return undefined
+  }
+
   /** The server's `sources` tree, which tests mutate in place as the server does. */
   readonly sources: Record<string, unknown> = {}
 

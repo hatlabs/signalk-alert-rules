@@ -27,6 +27,7 @@ function app(extra: Record<string, unknown> = {}) {
   const fake = {
     subscriptionmanager: {},
     getSelfPath: (path: string) => selfPaths[path],
+    getMetadata: () => undefined,
     handleMessage: (id: string, delta: unknown) => handled.push({ id, delta }),
     alerts: {
       list: () => [alert]
@@ -91,6 +92,28 @@ describe('server adapter', () => {
   it('reads the units of a path', () => {
     const deps = serverDeps(app({ getSelfPath: () => ({ units: 'rad' }) }).app, 'p')
     expect(deps.meta('x')?.units).toBe('rad')
+  })
+
+  // The data tree's meta holds what was set for the path, not the units the
+  // specification gives it; the server's metadata lookup has those.
+  it("falls back to the specification's units, which the data tree's meta leaves out", () => {
+    const spec: Record<string, unknown> = {
+      'vessels.self.electrical.batteries.house.voltage': { units: 'V' },
+      'vessels.self.environment.depth.belowKeel': { units: 'm' },
+      'vessels.self.x': { units: 'K' }
+    }
+    const deps = serverDeps(app({ getMetadata: (path: string) => spec[path] }).app, 'p')
+    expect(deps.meta('electrical.batteries.house.voltage')).toMatchObject({
+      units: 'V',
+      zones: [{ upper: 11.5, state: 'alarm' }]
+    })
+    expect(deps.meta('environment.depth.belowKeel')?.units).toBe('m')
+    expect(deps.meta('nowhere')).toBeUndefined()
+    const set = serverDeps(
+      app({ getSelfPath: () => ({ units: 'C' }), getMetadata: (path: string) => spec[path] }).app,
+      'p'
+    )
+    expect(set.meta('x')?.units).toBe('C')
   })
 
   it('drops malformed zones and meta fields', () => {
