@@ -219,3 +219,64 @@ templates:
         steps:
           - { limit: 900000, priority: caution }
           - { limit: 990000, priority: warning }
+
+  # Tanks. Levels slosh in a seaway, so each level must hold for a minute.
+  - id: fuel-low
+    description: >-
+      A fuel tank's level stays below 25 % for a minute, a caution, and
+      climbs to a warning below 10 %.
+    open: [instance]
+    condition: levelLow
+    rule:
+      name: Fuel tank ${instance} low
+      message: 'Fuel tank ${instance} below {limit}: {value}'
+      signal:
+        path: tanks.fuel.${instance}.currentLevel
+      detector:
+        type: sustained
+        direction: below
+        steps:
+          - { limit: 0.25, priority: caution }
+          - { limit: 0.1, priority: warning }
+        duration: 60
+        hysteresis: 0.02
+
+  - id: holding-tank-full
+    description: >-
+      A holding tank's level stays above 75 % for a minute, a caution, and
+      climbs to a warning above 90 %.
+    open: [instance]
+    condition: levelHigh
+    rule:
+      name: Holding tank ${instance} full
+      message: 'Holding tank ${instance} above {limit}: {value}'
+      signal:
+        path: tanks.blackWater.${instance}.currentLevel
+      detector:
+        type: sustained
+        direction: above
+        steps:
+          - { limit: 0.75, priority: caution }
+          - { limit: 0.9, priority: warning }
+        duration: 60
+        hysteresis: 0.02
+
+  - id: fresh-water-low
+    description: >-
+      A fresh water tank's level stays below 25 % for a minute, a caution,
+      and climbs to a warning below 10 %.
+    open: [instance]
+    condition: levelLow
+    rule:
+      name: Fresh water tank ${instance} low
+      message: 'Fresh water tank ${instance} below {limit}: {value}'
+      signal:
+        path: tanks.freshWater.${instance}.currentLevel
+      detector:
+        type: sustained
+        direction: below
+        steps:
+          - { limit: 0.25, priority: caution }
+          - { limit: 0.1, priority: warning }
+        duration: 60
+        hysteresis: 0.02
