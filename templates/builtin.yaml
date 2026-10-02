@@ -1,20 +1,28 @@
 # The template set built into Alert Rules. A template is a rule whose
 # instance, written ${instance} in its paths, and the source of its input
 # can be left open; using it makes an ordinary rule with the picks filled in.
+#
+# Limits are typical values for a 12 V cruising boat, in SI units: volts,
+# kelvin, pascal, hertz, seconds, and ratios from 0 to 1. Each one is meant
+# to be adjusted to the boat when the template is used. In messages,
+# {limit}, {duration} and {value} are filled in when the alert is sent.
 name: Alert Rules
 id: builtin
 version: 1.0.0
 description: Templates that ship with Alert Rules.
 templates:
+  # Batteries. Lead-acid and LiFePO4 banks rest at different voltages, so
+  # each has its own voltage templates; both share the condition name, as a
+  # bank has one chemistry.
   - id: battery-voltage-low
     description: >-
-      A battery bank's voltage stays below 12.2 V for a minute, a warning,
-      and climbs to an alarm below 11.8 V.
+      A lead-acid battery bank's voltage stays below 12.2 V for a minute, a
+      warning, and climbs to an alarm below 11.8 V.
     open: [instance]
     condition: voltageLow
     rule:
-      name: Battery ${instance} voltage low
-      message: Battery ${instance} voltage is low
+      name: Battery ${instance} voltage low (lead-acid)
+      message: 'Battery ${instance} voltage below {limit}: {value}'
       signal:
         path: electrical.batteries.${instance}.voltage
       detector:
@@ -24,3 +32,87 @@ templates:
           - { limit: 12.2, priority: warning }
           - { limit: 11.8, priority: alarm }
         duration: 60
+        hysteresis: 0.1
+
+  - id: battery-voltage-low-lifepo4
+    description: >-
+      A LiFePO4 battery bank's voltage stays below 12.8 V for a minute, a
+      warning, and climbs to an alarm below 12.0 V, close to empty.
+    open: [instance]
+    condition: voltageLow
+    rule:
+      name: Battery ${instance} voltage low (LiFePO4)
+      message: 'Battery ${instance} voltage below {limit}: {value}'
+      signal:
+        path: electrical.batteries.${instance}.voltage
+      detector:
+        type: sustained
+        direction: below
+        steps:
+          - { limit: 12.8, priority: warning }
+          - { limit: 12.0, priority: alarm }
+        duration: 60
+        hysteresis: 0.1
+
+  - id: battery-voltage-high
+    description: >-
+      A lead-acid battery bank's voltage stays above 15.0 V for 30 seconds,
+      a warning that the charger may be overcharging it, and climbs to an
+      alarm above 15.5 V.
+    open: [instance]
+    condition: voltageHigh
+    rule:
+      name: Battery ${instance} voltage high (lead-acid)
+      message: 'Battery ${instance} voltage above {limit}: {value}'
+      signal:
+        path: electrical.batteries.${instance}.voltage
+      detector:
+        type: sustained
+        direction: above
+        steps:
+          - { limit: 15.0, priority: warning }
+          - { limit: 15.5, priority: alarm }
+        duration: 30
+        hysteresis: 0.1
+
+  - id: battery-voltage-high-lifepo4
+    description: >-
+      A LiFePO4 battery bank's voltage stays above 14.6 V for 10 seconds, a
+      warning that it is being charged past full, and climbs to an alarm
+      above 14.8 V.
+    open: [instance]
+    condition: voltageHigh
+    rule:
+      name: Battery ${instance} voltage high (LiFePO4)
+      message: 'Battery ${instance} voltage above {limit}: {value}'
+      signal:
+        path: electrical.batteries.${instance}.voltage
+      detector:
+        type: sustained
+        direction: above
+        steps:
+          - { limit: 14.6, priority: warning }
+          - { limit: 14.8, priority: alarm }
+        duration: 10
+        hysteresis: 0.1
+
+  - id: battery-charge-low
+    description: >-
+      A battery bank's state of charge stays below 30 % for a minute, a
+      warning, and climbs to an alarm below 15 %. Needs a battery monitor
+      that reports state of charge.
+    open: [instance]
+    condition: stateOfChargeLow
+    rule:
+      name: Battery ${instance} charge low
+      message: 'Battery ${instance} charge below {limit}: {value}'
+      signal:
+        path: electrical.batteries.${instance}.capacity.stateOfCharge
+      detector:
+        type: sustained
+        direction: below
+        steps:
+          - { limit: 0.3, priority: warning }
+          - { limit: 0.15, priority: alarm }
+        duration: 60
+        hysteresis: 0.02
