@@ -70,6 +70,31 @@ describe('explain', () => {
     )
   })
 
+  it('alertActive at a further zone level: the level reached and its threshold, in display units', () => {
+    const entry = ruleEntry({
+      rule: {
+        name: 'Coolant hot',
+        steps: [],
+        detector: { type: 'sustained', direction: 'above', zoneLevel: 'warn' },
+        signal: { paths: [COOLANT] }
+      },
+      status: {
+        changedAt: ago(4 * MIN),
+        instances: [],
+        condition: 'alerting',
+        reason: 'alertActive',
+        priority: 'alarm',
+        step: 1,
+        level: 'alarm',
+        value: 374.15,
+        limit: 373.15
+      }
+    })
+    expect(text(entry)).toBe(
+      'Port coolant temperature reached the alarm zone at 100 °C. Alerting for 4 min. Now 101 °C.'
+    )
+  })
+
   it('alertActive emphasises the limit, its time and the value', () => {
     const parts = explain(
       coolant({
