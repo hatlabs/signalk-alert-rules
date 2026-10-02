@@ -33,7 +33,7 @@ The rules in [`examples/rules`](../examples/rules) are complete, valid rules; [W
 | `name` | Human-readable name, 1-200 characters. Written into alert data. |
 | `slug` | Lowercase letters and digits separated by single hyphens, at most 64 characters. Fixed when the rule is created. |
 | `condition` | Optional condition name, the last segment of the alert path; see [Alert paths](#alert-paths). Letters, digits, `_` and `-`. Required for a combined signal and for an input path ending in a wildcard. |
-| `message` | The alert message, 1-500 characters. `{instance}` is replaced with the wildcard instance's name. The message is the same at every step. |
+| `message` | The alert message, 1-500 characters: a template whose placeholders, such as `{limit}` and `{value}`, are filled in when the alert is sent; see [Messages](#messages). |
 | `latching` | Optional; see [Latching](#latching). |
 | `signal` | What the rule watches; see [Signals](#signals). |
 | `detector` | The condition, with its steps; see [Detectors](#detectors) and [Steps and escalation](#steps-and-escalation). |
@@ -246,7 +246,7 @@ A step's limit depends on the detector: a `limit` for sustained, projection, slo
 - An `equals` or `changesTo` match takes a different value at each step, such as `fault` at warning and `critical` at alarm. A `notEquals`, `decreases` or `timedOut` match takes one step: an alert left unacknowledged too long is core's to escalate.
 - An absence rule's windows grow, such as no heartbeat for 10 min at warning and for 30 min at alarm.
 
-A step's condition holds at that step or beyond it: a value below 11.7 V is beyond both steps, and a match step holds for its own value and every later step's. Each step must hold for the rule's `duration` before the alert climbs to it, so a momentary dip does not escalate, and a value that passes several steps at once raises at the furthest of them. Reaching a further step sends that step's priority and limit at once; a latching rule sends a latching raise at the new priority. A pulse of a `changesTo` match is raised at the furthest step it reaches.
+A step's condition holds at that step or beyond it: a value below 11.7 V is beyond both steps, and a match step holds for its own value and every later step's. Each step must hold for the rule's `duration` before the alert climbs to it, so a momentary dip does not escalate, and a value that passes several steps at once raises at the furthest of them. Reaching a further step sends that step's priority and limit at once, with the message filled in from that step's limit (see [Messages](#messages)); a latching rule sends a latching raise at the new priority. A pulse of a `changesTo` match is raised at the furthest step it reaches.
 
 Nothing lowers the priority. Between steps the alert keeps the highest priority it reached, because core never lowers one, while its message and value keep updating. An edit that removes the reached step or lowers its priority does not lower it either: SKAR keeps sending and reporting the priority reached until the alert ends. The alert ends only when the condition is back past the first step: for a sustained rule, by its `hysteresis` for its `clearDuration`.
 
@@ -317,11 +317,30 @@ The keys of `data`, written at each raise:
 | `valueAtRaise` | when the input had a value | the signal's value at the raise: a number, string, boolean or position |
 | `raisedAt` | always | the wall-clock time of the raise, ISO 8601 |
 
-Data holds only what changes rarely, so repeats of the alert cause no store writes. Core replaces an alert's data whole, so a climb resends the data with the reached step's `limit` and the rest unchanged. The step reached, the current priority and the live value are in SKAR's rule state (see [State](#state)), not in the alert. The message is the same at every step; it names no limit.
+Data holds only what changes rarely, so repeats of the alert cause no store writes for it. Core replaces an alert's data whole, so a climb resends the data with the reached step's `limit` and the rest unchanged. The step reached and the current priority are in SKAR's rule state (see [State](#state)), not in the alert's data; the live value is in the rule state and, through `{value}`, in the message.
+
+### Messages
+
+A rule's `message` is a template. SKAR fills in its placeholders when it raises the alert, when the alert climbs to a further step, and afresh for every repeat while the alert lasts:
+
+| Placeholder | Filled in with |
+|---|---|
+| `{instance}` | the wildcard instance's name; empty for a rule without a wildcard |
+| `{limit}` | the limit of the step the alert has reached: a sustained or projection step's value (for a zone limit, the level's threshold), a slope's rate per second, a count's number of events, an accumulator's total (a duration for `time`), an absence step's window, or a match step's value. When no step of the rule set the alert's priority, as for an alert adopted at restart above its first step or after an edit inserting a step ahead of the reached one, the `limit` SKAR last sent in the alert's data, or, when the data holds none, the limit of the step at the alert's index |
+| `{duration}` | the rule's `duration`, for a sustained or match rule |
+| `{value}` | the input's last value, a combined signal's combined value |
+
+"House bank voltage below {limit} for {duration}: {value}" reads "House bank voltage below 11.8 V for 30 s: 11.7 V".
+
+Values are in SI, labelled with the unit the input path's `meta.units` names: for a combined signal, its first input's that has one, metres for `distance` and `positionSpread`, and none for `ratio`. A ratio is shown as a percentage. The server's display-unit preferences are resolved per user when the server answers a client and are not readable by a plugin, and a message reads the same for everyone. Durations are in seconds, minutes or hours: 30 s, 5 min, 2 h.
+
+A placeholder with nothing to fill it in reads as a dash, "–": `{duration}` on a rule without one, `{value}` before the input has reported since start, or `{limit}` of a zone limit whose zones have not been read. Any other text in braces stays as written.
+
+A changed value is sent with the next repeat, so the message is at most one heartbeat behind the value, and a burst of changes adds no emissions: SKAR sends a changed message at most once per repeat. A message without placeholders is sent unchanged. The rule state's `message` is the message SKAR last sent for the alert, or, for an alert not sent since start, such as one adopted while already stale, the message as it reads now (see [State](#state)).
 
 ### Heartbeat and input evidence
 
-Core marks an alert stale when its source has not repeated it for 60 s. SKAR repeats every active non-latching alert every 10 s with the same value, `references` and data included; an adopted alert's repeats omit both, so core keeps what it stored. A priority change is sent at once, and a message or priority edit goes out with the next repeat. Core treats a repeat at or below the alert's priority as a refresh, updating a changed message without re-alerting, and escalates on a higher priority.
+Core marks an alert stale when its source has not repeated it for 60 s. SKAR repeats every active non-latching alert every 10 s with the same value, its message rendered afresh, `references` and data included; an adopted alert's repeats omit both, so core keeps what it stored. A priority change is sent at once, and a message or priority edit goes out with the next repeat.
 
 SKAR repeats an alert only while it has input evidence for it, and otherwise lets core mark it stale rather than clearing it; the rule's state shows the alert as awaiting input. An instance has evidence:
 
@@ -336,7 +355,7 @@ The evidence gate stands until core's staleness behaviour is specified (SignalK/
 At start SKAR reads core's alerts once and sorts those whose `$source` is SKAR and whose condition is active, matching each to the rule whose [alert path](#alert-paths) is the alert's, a wildcard rule's with an instance segment in place of its `*`:
 
 - An alert that matches no rule, because its rule no longer exists, is disabled or now has another alert path, or that matches a rule now latching, is cleared.
-- Every other such alert is adopted. SKAR sends it once at once, with the rule's current message, the more severe of core's priority and its first step's (for a zone-limit rule, its named level's), and no data, so core keeps the data it stored, unless core already marks it stale; an edit made while SKAR was down reaches core this way. The instance's detector starts in the active state at the first step, with core's priority as the most severe it has reached. Core's priority names no step, because it is not evidence of which step's condition held. The rule's state reports step 0 at that priority, and the following repeats carry it.
+- Every other such alert is adopted. SKAR sends it once as soon as its rules have started, with the rule's current message filled in from the values the inputs replayed at start, the more severe of core's priority and its first step's (for a zone-limit rule, its named level's), and no data, so core keeps the data it stored, unless core already marks it stale; an edit made while SKAR was down reaches core this way. The instance's detector starts in the active state at the first step, with core's priority as the most severe it has reached. Core's priority names no step, because it is not evidence of which step's condition held. The rule's state reports step 0 at that priority, and the following repeats carry it.
 
 Alerts whose condition has ended, latching alerts among them, are core's until acknowledged and are left alone, as are other sources' alerts. Alert paths are shared with every other source, and core keeps one alert per path, attributed to the source that raised it last: an alert at a rule's path that another source raised last is that source's, so SKAR neither adopts nor clears it. While both run, they share that one alert.
 
@@ -348,7 +367,7 @@ An adopted alert ends by its rule's clear criterion or a gate not holding, like 
 
 ### Stopping
 
-Stopping the plugin never clears alerts. Stop runs on every configuration save, enable, disable and server shutdown, and SKAR cannot tell them apart; clearing would re-alert the operator each time. On a server without the alerts API the plugin reports an error and evaluates nothing. Alerts left in core while the plugin is stopped go stale without its heartbeat, and the next start adopts them as [restart reconciliation](#restart-reconciliation) describes, so each rule keeps or clears its alert. To silence an erroneous alert, [suppress](#enable-and-suppression) its rule or input path.
+Stopping the plugin never clears alerts. Stop runs on every configuration save, enable, disable and server shutdown, and SKAR cannot tell them apart; clearing would end every active alert on each of them, and the next start would raise it again. On a server without the alerts API the plugin reports an error and evaluates nothing. Alerts left in core while the plugin is stopped go stale without its heartbeat, and the next start adopts them as [restart reconciliation](#restart-reconciliation) describes, so each rule keeps or clears its alert. To silence an erroneous alert, [suppress](#enable-and-suppression) its rule or input path.
 
 ## Edits
 
@@ -358,7 +377,7 @@ An edited rule saved through the [REST API](api.md) replaces the running one wit
 |---|---|
 | signal (paths, sources, combinator, `angular`), gates, `latching`, detector `type`; a match's `op` or step values; `direction`; a zone limit's `level`, or a change between steps and a zone limit; an accumulator's `measure`, `while` or `resetOn`; a count's or absence's `event` | cleared, and the rule restarts from nothing; it raises again once its condition holds |
 | step limits and windows, a step added or removed (other than a match's), a zone limit's `path`, `duration`, `clearDuration`, `hysteresis`, `window`, `horizon` | re-evaluated in place; timers and windows are kept, and the current value is checked against the new limits before any timer counts. An added step starts its own detector at the edit and must hold for the duration before the alert climbs to it: a count step counts only events after the edit, an absence step's window starts at the edit, a slope or projection step decides nothing until it has a full window, and an accumulator step starts from the total reached; an alert whose step was removed stays at the furthest step left, at the priority it reached |
-| `message`, step priorities | sent with the next emission; core decides whether it re-alerts. A lowered priority does not lower an active alert's |
+| `message`, step priorities | sent with the next emission. A lowered priority does not lower an active alert's |
 | delete, disable, suppress, accumulator reset, a ruleset disabled or uninstalled, a ruleset upgrade removing the rule | cleared |
 
 A restarted accumulator keeps its total when its `measure` is unchanged, also for a ruleset upgrade installed while the plugin was stopped. An edit or delete that discards a total saves the totals at once, so a restart cannot give the old total to the new rule. Each saved total records the measure it was built under, and a total whose measure differs from its rule's is dropped at start and when its ruleset returns, so a rule never takes over a total of another measure, even when that save failed on a full disk.
@@ -440,7 +459,7 @@ An instance's condition is the first of these that applies:
 | `problem` | `timeoutNotPossible` | a timeout rule whose path the server can never time out | `cause`: `booleanPath`, `stringPath`, `notEnforced` (the server does not enforce timeouts), `updateContract` (with `contract`, the path's update contract other than `periodic`), `timeoutOff` (`meta.timeout` of 0 or less), `noTimeout` (no `meta.timeout` and the server's default timeouts off) |
 | `problem` | `unitsNotRadians` | an angular combination of an input the server reports in other units | `path`, `units` |
 | `problem` | `alertPathInvalid` | the instance's alert path is one core would not accept | |
-| `alerting` | `alertActive` | the alert is active; never for a disabled rule | `priority` and `step` reached (an index from 0; an edit does not lower the priority), `level` for a zone limit, `awaitingInput` when the input has no evidence and the alert is not repeated (see [Heartbeat and input evidence](#heartbeat-and-input-evidence)) |
+| `alerting` | `alertActive` | the alert is active; never for a disabled rule | `priority` and `step` reached (an index from 0; an edit does not lower the priority), `level` for a zone limit, `awaitingInput` when the input has no evidence and the alert is not repeated (see [Heartbeat and input evidence](#heartbeat-and-input-evidence)), `message`, the alert's message with its placeholders filled in as SKAR last sent it, or as it reads now for an alert not sent since start (see [Messages](#messages)) |
 | `normal` | `outsideGate` | a gate does not hold | the gate facts in `gates` |
 | `present` | `conditionPresent` | a disabled rule's condition holds | |
 | `noData` | `inputUnavailable` | the input is unavailable | `lastSeen`, when it last had a value since start |
