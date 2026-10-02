@@ -12,6 +12,9 @@ import {
   parseState,
   type RuleEntry
 } from '../../src/panel/api'
+import { byAttention, chipOf, summary } from '../../src/panel/list/attention'
+import { currentFact } from '../../src/panel/list/fact'
+import { NO_UNITS } from '../../src/panel/signalUnits'
 import { Store } from '../../src/store/store'
 import { MockServerAPI } from '../helpers/MockServerAPI'
 
@@ -217,6 +220,25 @@ describe('panel parsers against the Application', () => {
       })
     )
     expect(state.issues).toEqual([expect.stringMatching(/garbled\.json could not be read/)])
+  })
+})
+
+describe('the rule list over what the Application answers', () => {
+  const NOW = Date.parse('2026-09-30T12:00:00.000Z')
+
+  it('orders, counts and words every rule', () => {
+    const rules = byAttention(parseRules(wire(running().rules())))
+    expect(
+      rules.map((entry) => [entry.slug, chipOf(entry), currentFact(entry, NO_UNITS, NOW)])
+    ).toEqual([
+      // Raised at the same time, so in the order the server lists them.
+      ['battery-low', 'alerting', 'start at 11.5: below 12'],
+      ['oil-pressure-low', 'alerting', '0: below 100000'],
+      ['broken', 'problem', 'The stored rule is not valid'],
+      ['engine-hours', 'disabled', 'Condition clear for at least 20 s'],
+      ['rpm-mismatch', 'disabled', '“sender loose”. Condition still present: 10']
+    ])
+    expect(summary(rules)).toBe('2 alerting · 1 problem · 2 disabled')
   })
 })
 
