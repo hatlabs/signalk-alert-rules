@@ -3,7 +3,6 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RuleEntry } from '../../../src/panel/api'
 import type { PathEntry } from '../../../src/panel/paths/selfPaths'
-import { formatDuration } from '../../../src/panel/rules/describe'
 import { RuleDetail } from '../../../src/panel/rules/RuleDetail'
 import { unitLookup } from '../../../src/panel/signalUnits'
 import { displayUnit } from '../../../src/panel/units'
@@ -104,21 +103,5 @@ describe('RuleDetail in display units', () => {
       })
     )
     expect(screen.getByText('600 rpm·s of 1200 rpm·s')).toBeTruthy()
-  })
-})
-
-describe('formatDuration', () => {
-  it('uses seconds, minutes or hours by size', () => {
-    expect(formatDuration(20)).toBe('20 s')
-    expect(formatDuration(119)).toBe('119 s')
-    expect(formatDuration(150)).toBe('2.5 min')
-    expect(formatDuration(7200)).toBe('2 h')
-    expect(formatDuration(900000)).toBe('250 h')
-  })
-
-  it('shows seconds whole, as a timer has run them', () => {
-    expect(formatDuration(0.0367)).toBe('0 s')
-    expect(formatDuration(43.05)).toBe('43 s')
-    expect(formatDuration(59.6)).toBe('60 s')
   })
 })

@@ -7,6 +7,7 @@ import {
 } from '../api'
 import { signalMeasure, type Measure, type UnitLookup } from '../signalUnits'
 import { fromSI } from '../units'
+import { formatDuration, formatNumber } from '../../format'
 import { BADGE_LOOK, type BadgeKind } from './StatusBadge'
 
 /** The longest note the server accepts with a disable. */
@@ -78,11 +79,6 @@ export function instanceSummary(entry: RuleEntry): string {
   return `${String(instances.length)} ${noun}: ${parts.join(', ').toLowerCase()}`
 }
 
-export function formatNumber(value: number): string {
-  const rounded = Math.abs(value) >= 100 ? value.toFixed(1) : value.toPrecision(4)
-  return Number.isInteger(value) ? String(value) : String(Number(rounded))
-}
-
 function withUnit(shown: string, unit: string): string {
   return unit === '' ? shown : `${shown} ${unit}`
 }
@@ -99,17 +95,6 @@ export function formatValue(value: SignalValue, measure?: Measure): string {
   if (measure === undefined) return formatNumber(value)
   const unit = measure.kind === 'ratio' ? '' : measure.unit.symbol
   return withUnit(formatNumber(fromSI(measure.kind, value, measure.unit)), unit)
-}
-
-const MINUTE = 60
-const HOUR = 3600
-
-/** Seconds in the largest unit that keeps the number readable: timers and running time. */
-export function formatDuration(seconds: number): string {
-  if (Math.abs(seconds) >= 2 * HOUR) return `${formatNumber(seconds / HOUR)} h`
-  if (Math.abs(seconds) >= 2 * MINUTE) return `${formatNumber(seconds / MINUTE)} min`
-  // A timer's elapsed time comes in fractions no operator needs.
-  return `${String(Math.round(seconds))} s`
 }
 
 /** A timestamp from the server, in the operator's local time. */
