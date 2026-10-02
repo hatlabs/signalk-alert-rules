@@ -18,14 +18,19 @@ import {
 import { AddRule } from './add/AddRule'
 import { KindPicker } from './add/KindPicker'
 import { PathSearch } from './add/PathSearch'
+import { TemplateList } from './add/TemplateList'
+import { TemplatePicker } from './add/TemplatePicker'
+import { TemplateRules } from './add/TemplateRules'
+import { setLabel, useTemplates } from './add/templateSets'
 import { EditRule } from './editor/EditRule'
 import { navigationHeld } from './editor/leaveGuard'
 import { RuleEditor } from './editor/RuleEditor'
 import { failureMessage, fieldErrorText, NEEDS_ADMINISTRATOR } from './failure'
 import { RuleList } from './list/RuleList'
+import { TemplatesNotice } from './list/TemplatesNotice'
 import { withRefusals } from './refusal'
 import type { PathSource } from './paths/selfPaths'
-import { hashWithRoute, parseRoute, type Route } from './route'
+import { hashWithRoute, parseRoute, type AddRoute, type Route } from './route'
 import { RuleDetail } from './detail/RuleDetail'
 import {
   pollDelay,
@@ -396,6 +401,8 @@ function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
       }),
     [serverApi, refresh, viewKey]
   )
+  // Only Add rule and its notice use the templates, and both are an administrator's.
+  const [templates, setTemplates] = useTemplates(api, admin, viewKey)
 
   const find = (slug: string) =>
     rules.find((r) => r.slug === slug) ?? (justSaved?.slug === slug ? justSaved : undefined)
@@ -411,6 +418,7 @@ function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
     refresh()
     go({ kind: 'rule', slug: entry.slug })
   }
+  const setHref = (set: string) => routeHref({ kind: 'add', from: 'template', set })
 
   // A rule's own view and its editor both need the rule; a link to one that
   // is not listed shows the list, saying so.
@@ -437,10 +445,116 @@ function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
           {stale}
           {missing !== undefined && <RuleNotFound slug={missing} noticeRef={notFound} />}
           <LoadIssues issues={issues} />
+          {admin && templates.status === 'ready' && (
+            <TemplatesNotice
+              listing={templates.listing}
+              setHref={setHref}
+              addHref={routeHref({ kind: 'add', from: 'template' })}
+              dismiss={async (shown) => {
+                const listing = await api.dismissTemplates(shown)
+                setTemplates(listing)
+                return listing
+              }}
+            />
+          )}
         </>
       }
     />
   )
+
+  /** From a template: a set's templates, a template's picker, then the rules the picks make. */
+  const fromTemplate = (setId: string, route: AddRoute) => {
+    const addHref = routeHref({ kind: 'add', from: 'template' })
+    if (templates.status !== 'ready') {
+      return (
+        <AddRule
+          backHref={listHref}
+          pathHref={routeHref({ kind: 'add', from: 'path' })}
+          templates={templates}
+          setHref={setHref}
+          headingRef={heading}
+        />
+      )
+    }
+    const set = templates.listing.sets.find((s) => s.id === setId)
+    const template = set?.templates.find((t) => t.id === route.template)
+    if (set === undefined || (route.template !== undefined && template === undefined)) {
+      return (
+        <div className="skar-placeholder">
+          <a href={addHref}>
+            <span aria-hidden="true">←</span> Add rule
+          </a>
+          <h2 ref={heading} tabIndex={-1} className="skar-title">
+            Template not found
+          </h2>
+          <p>It may have been removed with its template set.</p>
+        </div>
+      )
+    }
+    if (template === undefined) {
+      return (
+        <TemplateList
+          set={set}
+          backHref={addHref}
+          templateHref={(id) =>
+            routeHref({ kind: 'add', from: 'template', set: set.id, template: id })
+          }
+          headingRef={heading}
+        />
+      )
+    }
+    const pickerRoute: AddRoute = {
+      kind: 'add',
+      from: 'template',
+      set: set.id,
+      template: template.id
+    }
+    if (route.picks !== undefined && route.step === 'edit') {
+      const { picks } = route
+      return (
+        <TemplateRules
+          key={viewKey}
+          api={api}
+          paths={paths}
+          set={set}
+          template={template}
+          picks={picks}
+          rules={rules}
+          back={{ href: routeHref({ ...pickerRoute, picks }), label: 'Choose what it watches' }}
+          ruleName={ruleName}
+          editHref={editHref}
+          onCreated={refresh}
+          onSaved={(entries) => {
+            const one = entries.at(0)
+            if (entries.length === 1 && one !== undefined) {
+              saved(one)
+              return
+            }
+            refresh()
+            go({ kind: 'list' })
+          }}
+          onClose={() => {
+            go({ kind: 'list' })
+          }}
+        />
+      )
+    }
+    return (
+      <TemplatePicker
+        key={viewKey}
+        paths={paths}
+        setId={set.id}
+        template={template}
+        rules={rules}
+        {...(route.picks === undefined ? {} : { picked: route.picks })}
+        back={{ href: setHref(set.id), label: setLabel(set) }}
+        onContinue={(picks) => {
+          go({ ...pickerRoute, picks, step: 'edit' })
+        }}
+        headingRef={heading}
+      />
+    )
+  }
 
   const content = () => {
     if (showsList) return list()
@@ -546,11 +660,16 @@ function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
         if (!admin) {
           return <NeedsAdministrator title="Add rule" backHref={listHref} headingRef={heading} />
         }
+        if (route.from === 'template' && route.set !== undefined) {
+          return fromTemplate(route.set, route)
+        }
         if (route.from !== 'path') {
           return (
             <AddRule
               backHref={listHref}
               pathHref={routeHref({ kind: 'add', from: 'path' })}
+              templates={templates}
+              setHref={setHref}
               headingRef={heading}
             />
           )

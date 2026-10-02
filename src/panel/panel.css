@@ -1285,3 +1285,96 @@ select.skar-input {
   gap: 6px;
   background: var(--skar-hover);
 }
+
+/* From a template: new templates, the picks, and one tab per rule being created. */
+
+.skar-chip-new {
+  background: #e8eefb;
+  color: #0b2a6f;
+}
+
+.skar-pick {
+  cursor: pointer;
+}
+
+.skar-pick:has(input:checked) {
+  background: #eef2fa;
+  box-shadow: inset 3px 0 0 var(--skar-primary);
+}
+
+.skar-pick:has(input:focus-visible) {
+  outline: var(--skar-focus);
+  outline-offset: -2px;
+}
+
+.skar-pick input {
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--skar-primary);
+}
+
+.skar-pick .skar-warning {
+  font-size: 0.8125rem;
+}
+
+.skar-pick > .skar-muted {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.skar-tabs-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  column-gap: 0.75rem;
+  border-bottom: 1px solid var(--skar-control-border);
+}
+
+.skar-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.skar-tab {
+  flex-shrink: 0;
+  min-height: 48px;
+  margin-bottom: -1px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: 6px 6px 0 0;
+  background: transparent;
+  font: inherit;
+  font-weight: 500;
+  color: var(--skar-primary);
+  cursor: pointer;
+}
+
+.skar-tab[aria-selected='true'] {
+  border-color: var(--skar-control-border);
+  border-bottom-color: var(--skar-surface);
+  background: var(--skar-surface);
+  font-weight: 600;
+  color: var(--skar-text);
+}
+
+.skar-tab:focus-visible {
+  outline: var(--skar-focus);
+  outline-offset: -2px;
+}
+
+.skar-tab-note {
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--skar-muted);
+}
+
+.skar-tab-error {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--skar-danger);
+}

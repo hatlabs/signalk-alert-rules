@@ -573,6 +573,14 @@ function fieldErrors(v: unknown): FieldError[] | undefined {
 const SLUG_TAKEN =
   'is taken by another rule. If an earlier attempt to create this rule timed out, it may have saved this rule: check the rule list before renaming.'
 
+/** A create refused because another rule, perhaps a stored one that is not listed, has the slug. */
+export function isSlugTaken(err: unknown): boolean {
+  return (
+    err instanceof RuleRejectedError &&
+    err.errors.some((e) => e.path === '/slug' && e.message === SLUG_TAKEN)
+  )
+}
+
 /**
  * The server's own message from an error body, or the status when it has
  * none. A refused rule carries its field errors; a slug conflict, which the
