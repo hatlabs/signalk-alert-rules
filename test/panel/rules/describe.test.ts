@@ -95,6 +95,22 @@ describe('alertsWhen', () => {
       { type: 'accumulator', measure: 'time' },
       { limit: 7200, priority: 'caution' },
       'a total of 2 h'
+    ],
+    // A rate converts through the unit's scale alone: 0.5 K/s is 0.5 °C/s, not -272.65.
+    [
+      { type: 'slope', direction: 'rising' },
+      { limit: 0.5, priority: 'warning' },
+      'rising faster than 0.5 °C/s'
+    ],
+    [
+      { type: 'projection', direction: 'rising' },
+      { limit: 373.15, priority: 'warning' },
+      'projected above 100 °C'
+    ],
+    [
+      { type: 'projection', direction: 'falling' },
+      { limit: 353.15, priority: 'warning' },
+      'projected below 80 °C'
     ]
   ])('words a %o step', (detector, step, text) => {
     expect(when({ detector, steps: [step] })).toBe(text)
