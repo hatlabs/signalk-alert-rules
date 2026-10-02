@@ -142,15 +142,16 @@ export interface InstanceStatus {
   /** Why the rule cannot evaluate this instance. */
   inactive?: Problem
   /**
-   * Whether the condition holds: the alert would be active were the rule
-   * enabled. While the rule is out of use or unable to evaluate, the last
-   * judged value is kept.
+   * Whether the condition holds, as last judged. While the rule is out of use
+   * or unable to evaluate the last judged value is kept, and back in use it
+   * is kept until the restarted detector has decided.
    */
   conditionPresent: boolean
   /**
    * Seconds since the condition last stopped holding; absent while it holds
    * or when it has not held since start. Being out of use neither starts nor
-   * stops it.
+   * stops it, and coming back into use is no clear while the restarted
+   * detector waits out its duration.
    */
   clearedFor?: number
 }
@@ -197,6 +198,11 @@ interface Unit {
   inUse: boolean
   inactive?: Problem
   present: boolean
+  /**
+   * The detectors restarted while the condition was present, so until the
+   * first step's detector has decided its state is no evidence of a clear.
+   */
+  resuming: boolean
   /** When the condition last stopped holding. */
   clearedAt?: number
 }
@@ -520,7 +526,8 @@ export class RuleEvaluator {
         reached: this.adopted.get(key),
         alerting: adopted,
         inUse: false,
-        present: adopted
+        present: adopted,
+        resuming: false
       }
       this.units.set(key, unit)
     } else if (instance !== undefined) {
@@ -698,6 +705,7 @@ export class RuleEvaluator {
       return
     }
     unit.inUse = true
+    if (unit.tracks.length === 0 && unit.present) unit.resuming = true
     const transitions = this.drive(unit, resolved.steps, now, feed)
     const pulsed = transitions.lastIndexOf('pulse')
     if (pulsed >= 0) {
@@ -712,7 +720,8 @@ export class RuleEvaluator {
     }
     const furthest = unit.tracks.map((t) => t.detector?.active === true).lastIndexOf(true)
     const active = furthest >= 0
-    this.recordCondition(unit, active, now)
+    if (active || unit.tracks.at(0)?.detector?.decided !== false) unit.resuming = false
+    if (!unit.resuming) this.recordCondition(unit, active, now)
     if (disabled) return
     if (active && !unit.alerting) this.raise(unit, furthest)
     else if (!active && unit.alerting) this.clear(unit)

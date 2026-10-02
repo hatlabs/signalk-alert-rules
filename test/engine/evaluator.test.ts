@@ -1763,6 +1763,309 @@ describe('disabled rules', () => {
     })
   })
 
+  it('a gate closing and reopening while the condition holds is not a clear', () => {
+    const gated = valid({
+      ...oilPressure,
+      gates: [{ ...oilPressure.gates?.[0], duration: 0 }]
+    })
+    const { at, evaluator } = setup(gated, { disabled: true })
+    at(0, RPM, 30)
+    at(0, OIL, 0)
+    at(5)
+    at(10, RPM, 0)
+    at(100, RPM, 30)
+    // Back in use, the detector waits out its duration again.
+    at(102)
+    expect(evaluator.status().instances[0]).toMatchObject({ inUse: true, conditionPresent: true })
+    expect(evaluator.status().instances[0]?.clearedFor).toBeUndefined()
+    at(110)
+    expect(evaluator.status().instances[0]).toMatchObject({ conditionPresent: true })
+    expect(evaluator.status().instances[0]?.clearedFor).toBeUndefined()
+  })
+
+  it('a gate cycle while a slope condition holds is not a clear while the window refills', () => {
+    const VOLTS = 'electrical.batteries.house.voltage'
+    const rising = valid({
+      name: 'Voltage rising',
+      slug: 'voltage-rising',
+      message: 'Voltage is rising fast',
+      signal: { path: VOLTS },
+      detector: {
+        type: 'slope',
+        direction: 'rising',
+        window: 60,
+        steps: [{ limit: 0.005, priority: 'warning' }]
+      },
+      gates: [{ signal: { path: RPM }, direction: 'above', limit: { kind: 'fixed', value: 8 } }]
+    })
+    const { at, evaluator } = setup(rising, { disabled: true })
+    const volts = (t: number) => 12 + t * 0.01
+    at(0, RPM, 30)
+    for (let t = 0; t <= 120; t += 10) at(t, VOLTS, volts(t))
+    expect(evaluator.status().instances[0]).toMatchObject({ conditionPresent: true })
+    at(130, RPM, 0)
+    at(200, RPM, 30)
+    for (let t = 210; t <= 240; t += 10) at(t, VOLTS, volts(t))
+    expect(evaluator.status().instances[0]).toMatchObject({ inUse: true, conditionPresent: true })
+    expect(evaluator.status().instances[0]?.clearedFor).toBeUndefined()
+    for (let t = 250; t <= 300; t += 10) at(t, VOLTS, volts(t))
+    expect(evaluator.status().instances[0]).toMatchObject({ conditionPresent: true })
+    expect(evaluator.status().instances[0]?.clearedFor).toBeUndefined()
+  })
+
+  it('a gate cycle while a projection holds with a level flat past its limit is not a clear', () => {
+    const TEMP = 'propulsion.main.coolantTemperature'
+    const rising = valid({
+      name: 'Coolant heading high',
+      slug: 'coolant-heading-high',
+      message: 'Coolant is heading high',
+      signal: { path: TEMP },
+      detector: {
+        type: 'projection',
+        direction: 'rising',
+        window: 60,
+        horizon: 600,
+        steps: [{ limit: 95, priority: 'warning' }]
+      },
+      gates: [{ signal: { path: RPM }, direction: 'above', limit: { kind: 'fixed', value: 8 } }]
+    })
+    const { at, evaluator } = setup(rising, { disabled: true })
+    at(0, RPM, 30)
+    for (let t = 0; t <= 60; t += 10) at(t, TEMP, 80 + t * 0.1)
+    for (let t = 70; t <= 190; t += 10) at(t, TEMP, 100)
+    expect(evaluator.status().instances[0]).toMatchObject({ conditionPresent: true })
+    at(200, RPM, 0)
+    at(300, RPM, 30)
+    for (let t = 300; t <= 450; t += 10) at(t, TEMP, 100)
+    expect(evaluator.status().instances[0]).toMatchObject({ inUse: true, conditionPresent: true })
+    expect(evaluator.status().instances[0]?.clearedFor).toBeUndefined()
+  })
+
+  it('a gate cycle while a match condition holds is not a clear until a reading does not match', () => {
+    const STATE = 'propulsion.main.state'
+    const fault = valid({
+      name: 'Engine fault',
+      slug: 'engine-fault',
+      message: 'Engine reports a fault',
+      signal: { path: STATE },
+      detector: {
+        type: 'match',
+        op: 'equals',
+        steps: [{ value: 'fault', priority: 'alarm' }],
+        duration: 5
+      },
+      gates: [{ signal: { path: RPM }, direction: 'above', limit: { kind: 'fixed', value: 8 } }]
+    })
+    const { at, evaluator } = setup(fault, { disabled: true })
+    at(0, RPM, 30)
+    at(0, STATE, 'fault')
+    at(10)
+    expect(evaluator.status().instances[0]).toMatchObject({ conditionPresent: true })
+    at(20, RPM, 0)
+    at(100, RPM, 30)
+    at(102)
+    expect(evaluator.status().instances[0]).toMatchObject({ inUse: true, conditionPresent: true })
+    expect(evaluator.status().instances[0]?.clearedFor).toBeUndefined()
+    at(103, STATE, 'running')
+    at(110)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      conditionPresent: false,
+      clearedFor: 7
+    })
+  })
+
+  it('a gate cycle while an absence condition holds is not a clear until an event arrives', () => {
+    const ACK = 'navigation.watch.acknowledged'
+    const watch = valid({
+      name: 'Watch not acknowledged',
+      slug: 'watch-not-acknowledged',
+      message: 'Watch not acknowledged',
+      signal: { path: ACK },
+      detector: {
+        type: 'absence',
+        event: { op: 'changes' },
+        steps: [{ within: 60, priority: 'alarm' }]
+      },
+      gates: [{ signal: { path: RPM }, direction: 'above', limit: { kind: 'fixed', value: 8 } }]
+    })
+    const { at, evaluator } = setup(watch, { disabled: true })
+    at(0, RPM, 30)
+    at(0, ACK, 1)
+    at(61)
+    expect(evaluator.status().instances[0]).toMatchObject({ conditionPresent: true })
+    at(70, RPM, 0)
+    at(100, RPM, 30)
+    at(120)
+    expect(evaluator.status().instances[0]).toMatchObject({ inUse: true, conditionPresent: true })
+    expect(evaluator.status().instances[0]?.clearedFor).toBeUndefined()
+    at(130, ACK, 2)
+    at(140)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      conditionPresent: false,
+      clearedFor: 10
+    })
+  })
+
+  it('a gate cycle while a count condition holds is not a clear until a full window has passed', () => {
+    const PUMP = 'electrical.switches.bilgePump.state'
+    const cycling = valid({
+      name: 'Bilge pump cycling',
+      slug: 'bilge-pump-cycling',
+      message: 'Bilge pump is cycling',
+      signal: { path: PUMP },
+      detector: {
+        type: 'count',
+        event: { op: 'changesTo', value: true },
+        window: 600,
+        steps: [{ limit: 1, priority: 'alarm' }]
+      },
+      gates: [{ signal: { path: RPM }, direction: 'above', limit: { kind: 'fixed', value: 8 } }]
+    })
+    const { at, evaluator } = setup(cycling, { disabled: true })
+    at(0, RPM, 30)
+    at(0, PUMP, true)
+    at(1, PUMP, false)
+    at(2, PUMP, true)
+    expect(evaluator.status().instances[0]).toMatchObject({ conditionPresent: true })
+    at(10, RPM, 0)
+    at(100, RPM, 30)
+    at(110)
+    expect(evaluator.status().instances[0]).toMatchObject({ inUse: true, conditionPresent: true })
+    expect(evaluator.status().instances[0]?.clearedFor).toBeUndefined()
+    // A full window after the restart without events is evidence the condition is gone.
+    at(700)
+    at(720)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      conditionPresent: false,
+      clearedFor: 20
+    })
+  })
+
+  it('a gate cycle while a sustained condition holds is not a clear while the input is unavailable', () => {
+    const gated = valid({
+      ...oilPressure,
+      gates: [{ ...oilPressure.gates?.[0], duration: 0 }]
+    })
+    const { at, evaluator } = setup(gated, { disabled: true })
+    at(0, RPM, 30)
+    at(0, OIL, 0)
+    at(5)
+    at(10, RPM, 0)
+    at(50, OIL, null)
+    at(100, RPM, 30)
+    at(110)
+    expect(evaluator.status().instances[0]).toMatchObject({ inUse: true, conditionPresent: true })
+    expect(evaluator.status().instances[0]?.clearedFor).toBeUndefined()
+  })
+
+  it('a gate cycle while a sustained condition holds is not a clear on a reading inside its recovery margin', () => {
+    const gated = valid({
+      ...oilPressure,
+      detector: { ...oilPressure.detector, hysteresis: 10000 },
+      gates: [{ ...oilPressure.gates?.[0], duration: 0 }]
+    })
+    const { at, evaluator } = setup(gated, { disabled: true })
+    at(0, RPM, 30)
+    at(0, OIL, 0)
+    at(5)
+    at(10, RPM, 0)
+    at(50, OIL, 105000)
+    at(100, RPM, 30)
+    at(110)
+    expect(evaluator.status().instances[0]).toMatchObject({ inUse: true, conditionPresent: true })
+    expect(evaluator.status().instances[0]?.clearedFor).toBeUndefined()
+    at(120, OIL, 115000)
+    at(130)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      conditionPresent: false,
+      clearedFor: 10
+    })
+  })
+
+  it('toggling a rule whose condition held across a gate cycle changes nothing, inside the recovery margin', () => {
+    const gated = valid({
+      ...oilPressure,
+      detector: { ...oilPressure.detector, hysteresis: 10000 },
+      gates: [{ ...oilPressure.gates?.[0], duration: 0 }]
+    })
+    const run = (toggle: boolean) => {
+      const { at, log, setDisabled } = setup(gated)
+      at(0, RPM, 30)
+      at(0, OIL, 0)
+      at(5)
+      at(10, RPM, 0)
+      at(50, OIL, 105000)
+      at(100, RPM, 30)
+      at(110)
+      if (toggle) {
+        setDisabled(111, true)
+        setDisabled(111, false)
+      }
+      at(120)
+      return log
+    }
+    const untouched = run(false)
+    expect(untouched).toEqual([
+      [5, 'raise', '', 'alarm'],
+      [10, 'clear', '']
+    ])
+    expect(run(true)).toEqual(untouched)
+  })
+
+  it('toggling a rule whose condition held across a gate cycle changes nothing while a trend window refills', () => {
+    const VOLTS = 'electrical.batteries.house.voltage'
+    const rising = valid({
+      name: 'Voltage rising',
+      slug: 'voltage-rising',
+      message: 'Voltage is rising fast',
+      signal: { path: VOLTS },
+      detector: {
+        type: 'slope',
+        direction: 'rising',
+        window: 60,
+        steps: [{ limit: 0.005, priority: 'warning' }]
+      },
+      gates: [{ signal: { path: RPM }, direction: 'above', limit: { kind: 'fixed', value: 8 } }]
+    })
+    const volts = (t: number) => 12 + t * 0.01
+    const run = (toggle: boolean) => {
+      const { at, log, setDisabled } = setup(rising)
+      at(0, RPM, 30)
+      for (let t = 0; t <= 120; t += 10) at(t, VOLTS, volts(t))
+      at(130, RPM, 0)
+      at(200, RPM, 30)
+      at(210, VOLTS, volts(210))
+      if (toggle) {
+        setDisabled(215, true)
+        setDisabled(215, false)
+      }
+      for (let t = 220; t <= 300; t += 10) at(t, VOLTS, volts(t))
+      return log
+    }
+    const untouched = run(false)
+    expect(untouched.at(-1)).toEqual([260, 'raise', '', 'warning'])
+    expect(run(true)).toEqual(untouched)
+  })
+
+  it('a condition that clears while its gate reopens is cleared from then', () => {
+    const gated = valid({
+      ...oilPressure,
+      gates: [{ ...oilPressure.gates?.[0], duration: 0 }]
+    })
+    const { at, evaluator } = setup(gated, { disabled: true })
+    at(0, RPM, 30)
+    at(0, OIL, 0)
+    at(5)
+    at(10, RPM, 0)
+    at(100, RPM, 30)
+    at(102, OIL, 300000)
+    at(110)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      conditionPresent: false,
+      clearedFor: 8
+    })
+  })
+
   it('a condition never present since start has no clear time', () => {
     const { at, evaluator } = setup(portOil, { disabled: true })
     at(0, OIL, 300000)

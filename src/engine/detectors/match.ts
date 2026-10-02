@@ -42,6 +42,8 @@ export class MatchDetector extends ConditionDetector<MatchSpec> {
     if (this.events !== undefined) {
       const event = this.events.observe(reading, replayed)
       if (!reading.available) return undefined
+      // An event's condition lasts a moment, so any reading shows it gone.
+      this.refuted = true
       if (this.active) return this.change(false)
       return event && (this.spec.op === 'decreases' || this.isStepValue(reading.value))
         ? 'pulse'
@@ -58,6 +60,7 @@ export class MatchDetector extends ConditionDetector<MatchSpec> {
       return undefined
     }
     if (!matching) {
+      this.refuted = true
       this.timer.reset()
       return this.change(false)
     }

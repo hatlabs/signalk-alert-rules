@@ -63,6 +63,12 @@ export interface Detector {
   reconfigure(spec: DetectorSpec, now: number): Transition | undefined
   /** How far it is toward its next transition at `now`, without changing state. */
   progress(now: number): Progress | undefined
+  /**
+   * Whether its state is a judgement: it is set, or since it was created it
+   * has had evidence that the condition does not hold. A detector created
+   * while the condition held says nothing about a clear until then.
+   */
+  readonly decided: boolean
 }
 
 /**
@@ -130,6 +136,8 @@ export class EventWatcher {
 /** Holds a detector's parameters and condition, and reports the transitions of it. */
 export abstract class ConditionDetector<S extends DetectorSpec> implements Detector {
   private isActive: boolean
+  /** Set by a subclass on evidence that the condition does not hold. */
+  protected refuted = false
 
   constructor(
     protected spec: S,
@@ -140,6 +148,10 @@ export abstract class ConditionDetector<S extends DetectorSpec> implements Detec
 
   get active(): boolean {
     return this.isActive
+  }
+
+  get decided(): boolean {
+    return this.isActive || this.refuted
   }
 
   abstract sample(reading: Reading, replayed: boolean, now: number): Transition | undefined
