@@ -3,63 +3,9 @@
 // and the alert sequence SKAR sends to core in response. docs/rules.md
 // summarises these sequences under "Worked examples"; keep the two in sync.
 
-import type { PathValueState, Value } from '@signalk/server-api'
-import type { PathMeta } from '../../src/engine/evaluator.js'
-import type { Priority } from '../../src/model/rule.js'
+import { HOUR, at, every, timedOut, type Scenario } from '../helpers/scenario.js'
 
-export interface Timed {
-  /** Seconds since the plugin started. */
-  t: number
-  path: string
-  source: string
-  value: Value
-  state?: PathValueState
-}
-
-/**
- * One alert emission as core receives it: a raise, a priority change of an
- * active alert, or the report that its condition ended. Heartbeats are left
- * out. The path is under `alerts.`.
- */
-export type AlertStep =
-  | [t: number, event: 'raise' | 'priority', path: string, priority: Priority]
-  | [t: number, event: 'clear', path: string]
-
-export interface Scenario {
-  /** Source ranking for the preferred-source filter, best first. */
-  ranking?: string[]
-  /** Path meta, such as zones, the server holds. */
-  meta?: Record<string, PathMeta>
-  /** Seconds between evaluation ticks; transitions land on a tick or a sample. */
-  tick: number
-  /** Last tick, in seconds since start. */
-  until: number
-  deltas: Timed[]
-  expected: AlertStep[]
-}
-
-const HOUR = 3600
 const DEG = Math.PI / 180
-
-function at(t: number, path: string, value: Value, source = 'sensor'): Timed {
-  return { t, path, source, value }
-}
-
-function timedOut(t: number, path: string, source = 'sensor'): Timed {
-  return { t, path, source, value: null, state: { timedOut: true } }
-}
-
-/** A sample every `step` seconds from `from` up to but not including `to`. */
-function every(
-  step: number,
-  from: number,
-  to: number,
-  sample: (t: number) => Timed | Timed[]
-): Timed[] {
-  const samples: Timed[] = []
-  for (let t = from; t < to; t += step) samples.push(...[sample(t)].flat())
-  return samples
-}
 
 const VOLTAGE = 'electrical.batteries.house.voltage'
 const PUMP = 'electrical.switches.bilgePump.state'
