@@ -86,6 +86,13 @@ describe('alertsWhen', () => {
     ).toBe('below 80 °C')
   })
 
+  it('words a projection to a zone, rising as above it and falling as below it', () => {
+    const zone = (direction: 'rising' | 'falling') =>
+      when({ detector: { type: 'projection', direction, zoneLevel: 'alarm' }, steps: [] })
+    expect(zone('rising')).toBe('projected above the alarm zone')
+    expect(zone('falling')).toBe('projected below the alarm zone')
+  })
+
   it.each([
     [{ type: 'match', op: 'equals' }, { value: 'fault', priority: 'warning' }, 'equals fault'],
     [{ type: 'match', op: 'changesTo' }, { value: 'off', priority: 'warning' }, 'changes to off'],

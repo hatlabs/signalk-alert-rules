@@ -73,6 +73,11 @@ const MATCH_WORDS: Readonly<Partial<Record<string, string>>> = {
   changesTo: 'changes to'
 }
 
+/** A projection's limit is passed on the side its trend heads for. */
+function projectedSide(direction: RuleInfo['detector']['direction']): string {
+  return direction === 'falling' ? 'below' : 'above'
+}
+
 /** The condition one step holds at, as the facts and the step ladder word it. */
 export function stepCondition(step: RuleStep, rule: RuleInfo, display: RuleDisplay): string {
   const { type, direction, op } = rule.detector
@@ -92,10 +97,8 @@ export function stepCondition(step: RuleStep, rule: RuleInfo, display: RuleDispl
       return `a total of ${display.total(limit ?? 0)}`
     case 'slope':
       return `${direction ?? ''} faster than ${display.rate(limit ?? 0)}`
-    case 'projection': {
-      const side = direction === 'falling' ? 'below' : 'above'
-      return `projected ${side} ${display.value(limit ?? 0)}`
-    }
+    case 'projection':
+      return `projected ${projectedSide(direction)} ${display.value(limit ?? 0)}`
     default:
       return `${direction ?? ''} ${display.value(limit ?? 0)}`
   }
@@ -109,7 +112,11 @@ export function alertsWhen(rule: RuleInfo, display: RuleDisplay): string {
   const { steps, duration, detector } = rule
   const held = duration === undefined || duration <= 0 ? '' : formatDuration(duration)
   if (steps.length === 0) {
-    const zone = `${detector.direction ?? 'in'} the ${detector.zoneLevel ?? ''} zone`
+    const side =
+      detector.type === 'projection'
+        ? `projected ${projectedSide(detector.direction)}`
+        : (detector.direction ?? 'in')
+    const zone = `${side} the ${detector.zoneLevel ?? ''} zone`
     return held === '' ? zone : `${zone} for at least ${held}`
   }
   if (steps.length === 1) {
