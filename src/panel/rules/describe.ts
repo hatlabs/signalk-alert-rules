@@ -1,4 +1,4 @@
-import { type InstanceStatus, type RuleEntry, type RuleInfo, type SignalValue } from '../api'
+import type { InstanceStatus, RuleEntry, RuleInfo, RuleStep, SignalValue } from '../api'
 import { signalMeasure, type Measure, type UnitLookup } from '../signalUnits'
 import { fromSI } from '../units'
 import { formatDuration, formatNumber } from '../../format'
@@ -78,10 +78,65 @@ export function formatTime(iso: string): string {
   return new Date(iso).toLocaleString()
 }
 
+const MATCH_WORDS: Readonly<Partial<Record<string, string>>> = {
+  equals: 'equals',
+  notEquals: 'is not',
+  changesTo: 'changes to'
+}
+
+/** The condition one step holds at, as the facts and the step ladder word it. */
+export function stepCondition(step: RuleStep, rule: RuleInfo, display: RuleDisplay): string {
+  const { type, direction, op } = rule.detector
+  const limit = step.limit
+  switch (type) {
+    case 'match': {
+      if (op === 'decreases') return 'decreases'
+      if (op === 'timedOut') return 'times out'
+      const value = step.value === undefined ? '' : ` ${display.value(step.value)}`
+      return `${MATCH_WORDS[op ?? ''] ?? op ?? ''}${value}`
+    }
+    case 'absence':
+      return `no event within ${formatDuration(step.within ?? 0)}`
+    case 'count':
+      return `more than ${plural(limit ?? 0, 'event')}`
+    case 'accumulator':
+      return `a total of ${display.total(limit ?? 0)}`
+    case 'slope':
+      return `${direction ?? ''} faster than ${display.rate(limit ?? 0)}`
+    case 'projection': {
+      const side = direction === 'falling' ? 'below' : 'above'
+      return `projected ${side} ${display.value(limit ?? 0)}`
+    }
+    default:
+      return `${direction ?? ''} ${display.value(limit ?? 0)}`
+  }
+}
+
+/**
+ * When a rule alerts: each step's condition, with its priority when there are
+ * several, and how long a step must hold.
+ */
+export function alertsWhen(rule: RuleInfo, display: RuleDisplay): string {
+  const { steps, duration, detector } = rule
+  const held = duration === undefined || duration <= 0 ? '' : formatDuration(duration)
+  if (steps.length === 0) {
+    const zone = `${detector.direction ?? 'in'} the ${detector.zoneLevel ?? ''} zone`
+    return held === '' ? zone : `${zone} for at least ${held}`
+  }
+  if (steps.length === 1) {
+    const condition = stepCondition(steps[0], rule, display)
+    return held === '' ? condition : `${condition} for at least ${held}`
+  }
+  const each = steps.map((s) => `${stepCondition(s, rule, display)} (${s.priority})`).join(', ')
+  return held === '' ? each : `${each}, each for at least ${held}`
+}
+
 /** How a rule's values, limits and accumulated totals are shown. */
 export interface RuleDisplay {
   value: (value: SignalValue) => string
   total: (total: number) => string
+  /** A rate of change, per second, through the linear part of the unit. */
+  rate: (perSecond: number) => string
   /** No display unit applies to the rule's values, so they are shown in SI. */
   si: boolean
 }
@@ -104,6 +159,8 @@ export function ruleDisplay(rule: RuleInfo, units: UnitLookup): RuleDisplay {
   return {
     value: (v) => formatValue(v, measure),
     total,
+    rate: (v) =>
+      `${withUnit(formatNumber(fromSI('interval', v, measure.unit)), integral)}/s`.trimStart(),
     si: measure.kind !== 'ratio' && measure.unit.si
   }
 }

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { formatDuration } from '../../../src/format'
-import { discardedTotals } from '../../../src/panel/rules/describe'
+import type { RuleInfo } from '../../../src/panel/api'
+import { alertsWhen, discardedTotals, ruleDisplay } from '../../../src/panel/rules/describe'
+import { unitLookup } from '../../../src/panel/signalUnits'
+import { displayUnit } from '../../../src/panel/units'
 import { instance, ruleEntry } from '../fixtures'
 
 describe('discardedTotals', () => {
@@ -24,5 +27,76 @@ describe('discardedTotals', () => {
       status: { instances: [instance({ progress: { kind: 'total', total: 60, limit: 90 } })] }
     })
     expect(discardedTotals(single, formatDuration)).toEqual([{ name: '', total: '60 s' }])
+  })
+})
+
+describe('alertsWhen', () => {
+  const units = unitLookup(
+    [
+      {
+        path: 'propulsion.port.coolantTemperature',
+        units: 'K',
+        unit: displayUnit({
+          units: 'K',
+          displayUnits: { formula: 'value - 273.15', symbol: '°C' }
+        })
+      }
+    ],
+    displayUnit({ units: 'm' })
+  )
+  const when = (rule: Partial<RuleInfo>) => {
+    const info = ruleEntry({
+      rule: { signal: { paths: ['propulsion.port.coolantTemperature'] }, ...rule }
+    }).rule
+    return alertsWhen(info, ruleDisplay(info, units))
+  }
+
+  it('words one step with its duration, in display units', () => {
+    expect(
+      when({
+        detector: { type: 'sustained', direction: 'above' },
+        steps: [{ limit: 368.15, priority: 'warning' }],
+        duration: 30
+      })
+    ).toBe('above 95 °C for at least 30 s')
+  })
+
+  it('words each step with its priority, sharing the duration', () => {
+    expect(
+      when({
+        detector: { type: 'sustained', direction: 'above' },
+        steps: [
+          { limit: 368.15, priority: 'warning' },
+          { limit: 373.15, priority: 'alarm' }
+        ],
+        duration: 30
+      })
+    ).toBe('above 95 °C (warning), above 100 °C (alarm), each for at least 30 s')
+  })
+
+  it('words a zone limit, and a step without a duration', () => {
+    expect(
+      when({ detector: { type: 'sustained', direction: 'above', zoneLevel: 'warn' }, steps: [] })
+    ).toBe('above the warn zone')
+    expect(
+      when({
+        detector: { type: 'sustained', direction: 'below' },
+        steps: [{ limit: 353.15, priority: 'caution' }]
+      })
+    ).toBe('below 80 °C')
+  })
+
+  it.each([
+    [{ type: 'match', op: 'equals' }, { value: 'fault', priority: 'warning' }, 'equals fault'],
+    [{ type: 'match', op: 'changesTo' }, { value: 'off', priority: 'warning' }, 'changes to off'],
+    [{ type: 'count' }, { limit: 5, priority: 'warning' }, 'more than 5 events'],
+    [{ type: 'absence' }, { within: 600, priority: 'warning' }, 'no event within 10 min'],
+    [
+      { type: 'accumulator', measure: 'time' },
+      { limit: 7200, priority: 'caution' },
+      'a total of 2 h'
+    ]
+  ])('words a %o step', (detector, step, text) => {
+    expect(when({ detector, steps: [step] })).toBe(text)
   })
 })
