@@ -83,6 +83,11 @@
   color: var(--skar-text);
 }
 
+/* A view focuses its title only to move the screen reader there; it is not a control. */
+.skar-title:focus {
+  outline: none;
+}
+
 .skar-summary {
   margin: 0;
   font-size: 0.8125rem;
@@ -1007,6 +1012,20 @@ select.skar-input {
 .skar-prefix {
   flex-shrink: 0;
   color: var(--skar-muted);
+}
+
+/* An alert path prefix is long; on a phone the field drops under it rather than shrink to nothing. */
+.skar-input-row:has(> .skar-prefix) {
+  flex-wrap: wrap;
+}
+
+.skar-input-row > .skar-prefix {
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.skar-input-row:has(> .skar-prefix) > .skar-input {
+  flex-basis: 10rem;
 }
 
 .skar-error {
