@@ -116,3 +116,106 @@ templates:
           - { limit: 0.15, priority: alarm }
         duration: 60
         hysteresis: 0.02
+
+  # Engines. NMEA 2000 engine gateways report the coolant temperature as the
+  # engine's temperature, so that is the path watched.
+  - id: engine-temperature-high
+    description: >-
+      An engine's coolant temperature stays above 95 °C for 30 seconds, a
+      warning, and climbs to an alarm above 100 °C.
+    open: [instance]
+    condition: temperatureHigh
+    rule:
+      name: Engine ${instance} temperature high
+      message: 'Engine ${instance} temperature above {limit}: {value}'
+      signal:
+        path: propulsion.${instance}.temperature
+      detector:
+        type: sustained
+        direction: above
+        steps:
+          - { limit: 368.15, priority: warning }
+          - { limit: 373.15, priority: alarm }
+        duration: 30
+        hysteresis: 2
+
+  # Oil pressure is low whenever the engine is stopped, so these rules apply
+  # only once it has run for a while, which also lets pressure build after a
+  # start.
+  - id: engine-oil-pressure-low
+    description: >-
+      While an engine runs, its oil pressure stays below 1 bar for 10
+      seconds, a warning, and climbs to an alarm below 0.5 bar.
+    open: [instance]
+    condition: oilPressureLow
+    rule:
+      name: Engine ${instance} oil pressure low
+      message: 'Engine ${instance} oil pressure below {limit}: {value}'
+      signal:
+        path: propulsion.${instance}.oilPressure
+      detector:
+        type: sustained
+        direction: below
+        steps:
+          - { limit: 100000, priority: warning }
+          - { limit: 50000, priority: alarm }
+        duration: 10
+      # Running means above 480 rpm, between a diesel's cranking speed and
+      # its idle. Holding it for 30 seconds lets oil pressure build after a
+      # start.
+      gates:
+        - signal:
+            path: propulsion.${instance}.revolutions
+          direction: above
+          limit: { kind: fixed, value: 8 }
+          duration: 30
+
+  # A charging alternator holds a 12 V system above about 13.5 V; at rest a
+  # battery sits below 13 V.
+  - id: alternator-not-charging
+    description: >-
+      While an engine runs, its alternator's voltage stays below 13.0 V for
+      two minutes, a warning that it is not charging.
+    open: [instance]
+    condition: alternatorNotCharging
+    rule:
+      name: Engine ${instance} alternator not charging
+      message: 'Engine ${instance} alternator not charging: {value}'
+      signal:
+        path: propulsion.${instance}.alternatorVoltage
+      detector:
+        type: sustained
+        direction: below
+        steps:
+          - { limit: 13.0, priority: warning }
+        duration: 120
+      # The oil pressure gate: running above 480 rpm for 30 seconds. A
+      # regulator's delay before it starts charging is covered by the
+      # two-minute duration, so the gate needs no longer hold.
+      gates:
+        - signal:
+            path: propulsion.${instance}.revolutions
+          direction: above
+          limit: { kind: fixed, value: 8 }
+          duration: 30
+
+  # Counts running time from when the rule is created; resetting its total
+  # after the service starts the next interval.
+  - id: engine-service-due
+    description: >-
+      An engine has run 250 hours, a caution that service is due, and 275
+      hours, a warning that it is overdue.
+    open: [instance]
+    condition: serviceDue
+    rule:
+      name: Engine ${instance} service due
+      message: Engine ${instance} service is due
+      signal:
+        path: propulsion.${instance}.revolutions
+      detector:
+        type: accumulator
+        measure: time
+        while: { op: above, value: 0 }
+        steps:
+          - { limit: 900000, priority: caution }
+          - { limit: 990000, priority: warning }
