@@ -186,6 +186,8 @@ export interface PanelApi {
   disableRule(slug: string, note: string): Promise<RuleEntry>
   /** Enabling raises an alert at once if the rule's condition holds. */
   enableRule(slug: string): Promise<RuleEntry>
+  /** Deletes a rule, a stored one that does not run included, and clears its alerts. */
+  deleteRule(slug: string): Promise<void>
 }
 
 /** `POST /rules/:slug/preview`, as docs/api.md describes it. */
@@ -620,6 +622,9 @@ export function httpApi(fetchFn: typeof fetch = (input, init) => fetch(input, in
     enableRule: async (slug) => {
       const path = `${ruleRoute(slug)}/enable`
       return parseRuleEntry(await send('POST', path), path)
+    },
+    deleteRule: async (slug) => {
+      await send('DELETE', ruleRoute(slug))
     }
   }
 }

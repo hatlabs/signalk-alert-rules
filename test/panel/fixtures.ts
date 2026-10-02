@@ -14,9 +14,10 @@ export const noAuthoring: Pick<
 }
 
 /** The control routes of a fake API, for tests that never use them. */
-export const noControls: Pick<PanelApi, 'disableRule' | 'enableRule'> = {
+export const noControls: Pick<PanelApi, 'disableRule' | 'enableRule' | 'deleteRule'> = {
   disableRule: notExpected,
-  enableRule: notExpected
+  enableRule: notExpected,
+  deleteRule: notExpected
 }
 
 /** A normal instance with a value, to override per test. */

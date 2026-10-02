@@ -557,5 +557,24 @@ describe('httpApi', () => {
       expect(init?.body).toBeUndefined()
       expect(new Headers(init?.headers).get('content-type')).toBe('application/json')
     })
+
+    it('deletes a rule with a bodiless JSON DELETE on its slug', async () => {
+      const fetchFn = vi.fn<typeof fetch>(() =>
+        Promise.resolve(new Response(null, { status: 204 }))
+      )
+      await httpApi(fetchFn).deleteRule('house battery')
+      const [url, init] = fetchFn.mock.calls[0]
+      expect(url).toBe(`${BASE}/rules/house%20battery`)
+      expect(init?.method).toBe('DELETE')
+      expect(init?.body).toBeUndefined()
+      expect(new Headers(init?.headers).get('content-type')).toBe('application/json')
+    })
+
+    it("fails a delete with the server's message", async () => {
+      const fetchFn = fakeFetch({
+        [`${BASE}/rules/gone`]: { status: 404, body: { error: 'no such rule' } }
+      })
+      await expect(httpApi(fetchFn).deleteRule('gone')).rejects.toThrow('no such rule')
+    })
   })
 })

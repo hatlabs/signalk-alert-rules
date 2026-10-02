@@ -17,7 +17,8 @@ function api(state: () => Promise<PluginState>, disable: PanelApi['disableRule']
     resetAccumulator: () => Promise.reject(new SessionExpiredError()),
     ...noAuthoring,
     disableRule: disable,
-    enableRule: () => Promise.resolve(ruleEntry())
+    enableRule: () => Promise.resolve(ruleEntry()),
+    deleteRule: () => Promise.reject(new SessionExpiredError())
   }
 }
 
@@ -50,7 +51,8 @@ describe('withRefusals', () => {
         permissions
       })
       await expect(wrapped.resetAccumulator('x')).rejects.toBeInstanceOf(LevelRefusedError)
-      expect(onLevelRefused).toHaveBeenCalledTimes(2)
+      await expect(wrapped.deleteRule('x')).rejects.toBeInstanceOf(LevelRefusedError)
+      expect(onLevelRefused).toHaveBeenCalledTimes(3)
       expect(onLevelRefused).toHaveBeenCalledWith(expect.objectContaining({ permissions }))
     }
   )
