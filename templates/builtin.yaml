@@ -280,3 +280,42 @@ templates:
           - { limit: 0.1, priority: warning }
         duration: 60
         hysteresis: 0.02
+
+  # Bilge pumps. The Signal K specification has no bilge pump path; pumps
+  # are reported as switches, whose state is true while the pump runs.
+  - id: bilge-pump-running-long
+    description: >-
+      A bilge pump runs for three minutes without stopping, an alarm: the
+      boat may be taking on water, or the float switch is stuck.
+    open: [instance]
+    condition: runningLong
+    rule:
+      name: Bilge pump ${instance} running long
+      message: Bilge pump ${instance} running for over {duration}
+      signal:
+        path: electrical.switches.${instance}.state
+      detector:
+        type: match
+        op: equals
+        steps:
+          - { value: true, priority: alarm }
+        duration: 180
+
+  - id: bilge-pump-cycling
+    description: >-
+      A bilge pump starts more than 4 times within an hour, a warning, and
+      more than 10 times, an alarm.
+    open: [instance]
+    condition: cyclingOften
+    rule:
+      name: Bilge pump ${instance} cycling often
+      message: Bilge pump ${instance} started more than {limit} times in an hour
+      signal:
+        path: electrical.switches.${instance}.state
+      detector:
+        type: count
+        event: { op: changesTo, value: true }
+        window: 3600
+        steps:
+          - { limit: 4, priority: warning }
+          - { limit: 10, priority: alarm }
