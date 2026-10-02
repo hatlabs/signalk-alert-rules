@@ -1,20 +1,28 @@
 # The template set built into Alert Rules. A template is a rule whose
 # instance, written ${instance} in its paths, and the source of its input
 # can be left open; using it makes an ordinary rule with the picks filled in.
+#
+# Limits are typical values for a 12 V cruising boat, in SI units: volts,
+# kelvin, pascal, hertz, seconds, and ratios from 0 to 1. Each one is meant
+# to be adjusted to the boat when the template is used. In messages,
+# {limit}, {duration} and {value} are filled in when the alert is sent.
 name: Alert Rules
 id: builtin
 version: 1.0.0
 description: Templates that ship with Alert Rules.
 templates:
+  # Batteries. Lead-acid and LiFePO4 banks rest at different voltages, so
+  # each has its own voltage templates; both share the condition name, as a
+  # bank has one chemistry.
   - id: battery-voltage-low
     description: >-
-      A battery bank's voltage stays below 12.2 V for a minute, a warning,
-      and climbs to an alarm below 11.8 V.
+      A lead-acid battery bank's voltage stays below 12.2 V for a minute, a
+      warning, and climbs to an alarm below 11.8 V.
     open: [instance]
     condition: voltageLow
     rule:
-      name: Battery ${instance} voltage low
-      message: Battery ${instance} voltage is low
+      name: Battery ${instance} voltage low (lead-acid)
+      message: 'Battery ${instance} voltage below {limit}: {value}'
       signal:
         path: electrical.batteries.${instance}.voltage
       detector:
@@ -24,3 +32,365 @@ templates:
           - { limit: 12.2, priority: warning }
           - { limit: 11.8, priority: alarm }
         duration: 60
+        hysteresis: 0.1
+
+  - id: battery-voltage-low-lifepo4
+    description: >-
+      A LiFePO4 battery bank's voltage stays below 12.8 V for a minute, a
+      warning, and climbs to an alarm below 12.0 V, close to empty.
+    open: [instance]
+    condition: voltageLow
+    rule:
+      name: Battery ${instance} voltage low (LiFePO4)
+      message: 'Battery ${instance} voltage below {limit}: {value}'
+      signal:
+        path: electrical.batteries.${instance}.voltage
+      detector:
+        type: sustained
+        direction: below
+        steps:
+          - { limit: 12.8, priority: warning }
+          - { limit: 12.0, priority: alarm }
+        duration: 60
+        hysteresis: 0.1
+
+  - id: battery-voltage-high
+    description: >-
+      A lead-acid battery bank's voltage stays above 15.0 V for 30 seconds,
+      a warning that the charger may be overcharging it, and climbs to an
+      alarm above 15.5 V.
+    open: [instance]
+    condition: voltageHigh
+    rule:
+      name: Battery ${instance} voltage high (lead-acid)
+      message: 'Battery ${instance} voltage above {limit}: {value}'
+      signal:
+        path: electrical.batteries.${instance}.voltage
+      detector:
+        type: sustained
+        direction: above
+        steps:
+          - { limit: 15.0, priority: warning }
+          - { limit: 15.5, priority: alarm }
+        duration: 30
+        hysteresis: 0.1
+
+  - id: battery-voltage-high-lifepo4
+    description: >-
+      A LiFePO4 battery bank's voltage stays above 14.6 V for 10 seconds, a
+      warning that it is being charged past full, and climbs to an alarm
+      above 14.8 V.
+    open: [instance]
+    condition: voltageHigh
+    rule:
+      name: Battery ${instance} voltage high (LiFePO4)
+      message: 'Battery ${instance} voltage above {limit}: {value}'
+      signal:
+        path: electrical.batteries.${instance}.voltage
+      detector:
+        type: sustained
+        direction: above
+        steps:
+          - { limit: 14.6, priority: warning }
+          - { limit: 14.8, priority: alarm }
+        duration: 10
+        hysteresis: 0.1
+
+  - id: battery-charge-low
+    description: >-
+      A battery bank's state of charge stays below 30 % for a minute, a
+      warning, and climbs to an alarm below 15 %. Needs a battery monitor
+      that reports state of charge.
+    open: [instance]
+    condition: stateOfChargeLow
+    rule:
+      name: Battery ${instance} charge low
+      message: 'Battery ${instance} charge below {limit}: {value}'
+      signal:
+        path: electrical.batteries.${instance}.capacity.stateOfCharge
+      detector:
+        type: sustained
+        direction: below
+        steps:
+          - { limit: 0.3, priority: warning }
+          - { limit: 0.15, priority: alarm }
+        duration: 60
+        hysteresis: 0.02
+
+  # Engines. NMEA 2000 engine gateways report the coolant temperature as the
+  # engine's temperature, so that is the path watched.
+  - id: engine-temperature-high
+    description: >-
+      An engine's coolant temperature stays above 95 °C for 30 seconds, a
+      warning, and climbs to an alarm above 100 °C.
+    open: [instance]
+    condition: temperatureHigh
+    rule:
+      name: Engine ${instance} temperature high
+      message: 'Engine ${instance} temperature above {limit}: {value}'
+      signal:
+        path: propulsion.${instance}.temperature
+      detector:
+        type: sustained
+        direction: above
+        steps:
+          - { limit: 368.15, priority: warning }
+          - { limit: 373.15, priority: alarm }
+        duration: 30
+        hysteresis: 2
+
+  # Oil pressure is low whenever the engine is stopped, so these rules apply
+  # only once it has run for a while, which also lets pressure build after a
+  # start.
+  - id: engine-oil-pressure-low
+    description: >-
+      While an engine runs, its oil pressure stays below 1 bar for 10
+      seconds, a warning, and climbs to an alarm below 0.5 bar.
+    open: [instance]
+    condition: oilPressureLow
+    rule:
+      name: Engine ${instance} oil pressure low
+      message: 'Engine ${instance} oil pressure below {limit}: {value}'
+      signal:
+        path: propulsion.${instance}.oilPressure
+      detector:
+        type: sustained
+        direction: below
+        steps:
+          - { limit: 100000, priority: warning }
+          - { limit: 50000, priority: alarm }
+        duration: 10
+      # Running means above 480 rpm, between a diesel's cranking speed and
+      # its idle. Holding it for 30 seconds lets oil pressure build after a
+      # start.
+      gates:
+        - signal:
+            path: propulsion.${instance}.revolutions
+          direction: above
+          limit: { kind: fixed, value: 8 }
+          duration: 30
+
+  # A charging alternator holds a 12 V system above about 13.5 V; at rest a
+  # battery sits below 13 V.
+  - id: alternator-not-charging
+    description: >-
+      While an engine runs, its alternator's voltage stays below 13.0 V for
+      two minutes, a warning that it is not charging.
+    open: [instance]
+    condition: alternatorNotCharging
+    rule:
+      name: Engine ${instance} alternator not charging
+      message: 'Engine ${instance} alternator not charging: {value}'
+      signal:
+        path: propulsion.${instance}.alternatorVoltage
+      detector:
+        type: sustained
+        direction: below
+        steps:
+          - { limit: 13.0, priority: warning }
+        duration: 120
+      # The oil pressure gate: running above 480 rpm for 30 seconds. A
+      # regulator's delay before it starts charging is covered by the
+      # two-minute duration, so the gate needs no longer hold.
+      gates:
+        - signal:
+            path: propulsion.${instance}.revolutions
+          direction: above
+          limit: { kind: fixed, value: 8 }
+          duration: 30
+
+  # Counts running time from when the rule is created; resetting its total
+  # after the service starts the next interval.
+  - id: engine-service-due
+    description: >-
+      An engine has run 250 hours, a caution that service is due, and 275
+      hours, a warning that it is overdue.
+    open: [instance]
+    condition: serviceDue
+    rule:
+      name: Engine ${instance} service due
+      message: Engine ${instance} service is due
+      signal:
+        path: propulsion.${instance}.revolutions
+      detector:
+        type: accumulator
+        measure: time
+        while: { op: above, value: 0 }
+        steps:
+          - { limit: 900000, priority: caution }
+          - { limit: 990000, priority: warning }
+
+  # Tanks. Levels slosh in a seaway, so each level must hold for a minute.
+  - id: fuel-low
+    description: >-
+      A fuel tank's level stays below 25 % for a minute, a caution, and
+      climbs to a warning below 10 %.
+    open: [instance]
+    condition: levelLow
+    rule:
+      name: Fuel tank ${instance} low
+      message: 'Fuel tank ${instance} below {limit}: {value}'
+      signal:
+        path: tanks.fuel.${instance}.currentLevel
+      detector:
+        type: sustained
+        direction: below
+        steps:
+          - { limit: 0.25, priority: caution }
+          - { limit: 0.1, priority: warning }
+        duration: 60
+        hysteresis: 0.02
+
+  - id: holding-tank-full
+    description: >-
+      A holding tank's level stays above 75 % for a minute, a caution, and
+      climbs to a warning above 90 %.
+    open: [instance]
+    condition: levelHigh
+    rule:
+      name: Holding tank ${instance} full
+      message: 'Holding tank ${instance} above {limit}: {value}'
+      signal:
+        path: tanks.blackWater.${instance}.currentLevel
+      detector:
+        type: sustained
+        direction: above
+        steps:
+          - { limit: 0.75, priority: caution }
+          - { limit: 0.9, priority: warning }
+        duration: 60
+        hysteresis: 0.02
+
+  - id: fresh-water-low
+    description: >-
+      A fresh water tank's level stays below 25 % for a minute, a caution,
+      and climbs to a warning below 10 %.
+    open: [instance]
+    condition: levelLow
+    rule:
+      name: Fresh water tank ${instance} low
+      message: 'Fresh water tank ${instance} below {limit}: {value}'
+      signal:
+        path: tanks.freshWater.${instance}.currentLevel
+      detector:
+        type: sustained
+        direction: below
+        steps:
+          - { limit: 0.25, priority: caution }
+          - { limit: 0.1, priority: warning }
+        duration: 60
+        hysteresis: 0.02
+
+  # Bilge pumps. The Signal K specification has no bilge pump path; pumps
+  # are reported as switches, whose state is true while the pump runs.
+  - id: bilge-pump-running-long
+    description: >-
+      A bilge pump runs for three minutes without stopping, an alarm: the
+      boat may be taking on water, or the float switch is stuck.
+    open: [instance]
+    condition: runningLong
+    rule:
+      name: Bilge pump ${instance} running long
+      message: Bilge pump ${instance} running for over {duration}
+      signal:
+        path: electrical.switches.${instance}.state
+      detector:
+        type: match
+        op: equals
+        steps:
+          - { value: true, priority: alarm }
+        duration: 180
+
+  - id: bilge-pump-cycling
+    description: >-
+      A bilge pump starts more than 4 times within an hour, a warning, and
+      more than 10 times, an alarm.
+    open: [instance]
+    condition: cyclingOften
+    rule:
+      name: Bilge pump ${instance} cycling often
+      message: Bilge pump ${instance} started more than {limit} times in an hour
+      signal:
+        path: electrical.switches.${instance}.state
+      detector:
+        type: count
+        event: { op: changesTo, value: true }
+        window: 3600
+        steps:
+          - { limit: 4, priority: warning }
+          - { limit: 10, priority: alarm }
+
+  # Navigation.
+  - id: depth-shallow
+    description: >-
+      The depth below the transducer stays below 3 m for 5 seconds, a
+      warning, and climbs to an alarm below 2 m. Set the limits from the
+      boat's draft and where the transducer sits.
+    condition: belowTransducerLow
+    rule:
+      name: Shallow water
+      message: 'Depth below {limit}: {value}'
+      signal:
+        path: environment.depth.belowTransducer
+      detector:
+        type: sustained
+        direction: below
+        steps:
+          - { limit: 3, priority: warning }
+          - { limit: 2, priority: alarm }
+        duration: 5
+        hysteresis: 0.3
+
+  # Apparent wind is what an anemometer reports without any other input, and
+  # at anchor it is the true wind.
+  - id: wind-strong
+    description: >-
+      The apparent wind stays above 25 knots for a minute, a caution, and
+      climbs to a warning above 34 knots, gale force.
+    condition: speedApparentHigh
+    rule:
+      name: Strong wind
+      message: 'Wind above {limit}: {value}'
+      signal:
+        path: environment.wind.speedApparent
+      detector:
+        type: sustained
+        direction: above
+        steps:
+          - { limit: 12.86, priority: caution }
+          - { limit: 17.49, priority: warning }
+        duration: 60
+        hysteresis: 1
+
+  # Sensors that stop reporting. The server marks a path as timed out once
+  # its source falls silent; these templates cover the sensors a cruising
+  # boat most relies on.
+  - id: depth-not-reporting
+    description: The depth sounder sends no depth for 30 seconds, a warning.
+    condition: belowTransducerNotReporting
+    rule:
+      name: Depth sounder not reporting
+      message: Depth sounder stopped reporting
+      signal:
+        path: environment.depth.belowTransducer
+      detector:
+        type: match
+        op: timedOut
+        steps:
+          - { priority: warning }
+        duration: 30
+
+  - id: position-not-reporting
+    description: No position is received for 30 seconds, a warning.
+    condition: positionNotReporting
+    rule:
+      name: Position not reporting
+      message: Position stopped reporting
+      signal:
+        path: navigation.position
+      detector:
+        type: match
+        op: timedOut
+        steps:
+          - { priority: warning }
+        duration: 30
