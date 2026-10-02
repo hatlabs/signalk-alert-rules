@@ -361,3 +361,36 @@ templates:
           - { limit: 17.49, priority: warning }
         duration: 60
         hysteresis: 1
+
+  # Sensors that stop reporting. The server marks a path as timed out once
+  # its source falls silent; these templates cover the sensors a cruising
+  # boat most relies on.
+  - id: depth-not-reporting
+    description: The depth sounder sends no depth for 30 seconds, a warning.
+    condition: belowTransducerNotReporting
+    rule:
+      name: Depth sounder not reporting
+      message: Depth sounder stopped reporting
+      signal:
+        path: environment.depth.belowTransducer
+      detector:
+        type: match
+        op: timedOut
+        steps:
+          - { priority: warning }
+        duration: 30
+
+  - id: position-not-reporting
+    description: No position is received for 30 seconds, a warning.
+    condition: positionNotReporting
+    rule:
+      name: Position not reporting
+      message: Position stopped reporting
+      signal:
+        path: navigation.position
+      detector:
+        type: match
+        op: timedOut
+        steps:
+          - { priority: warning }
+        duration: 30
