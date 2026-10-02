@@ -16,15 +16,14 @@ const single = valid({
   name: 'Oil pressure low',
   slug: 'oil-pressure-low',
   message: 'Oil pressure is low',
-  priority: 'alarm',
   signal: { path: 'propulsion.main.oilPressure' },
-  detector: { type: 'sustained', direction: 'below', limit: { kind: 'fixed', value: 100000 } }
+  detector: { type: 'sustained', direction: 'below', steps: [{ limit: 100000, priority: 'alarm' }] }
 })
 const wildcard = valid({
   ...single,
   slug: 'coolant-high',
   signal: { path: 'propulsion.*.coolantTemperature' },
-  detector: { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 368 } }
+  detector: { type: 'sustained', direction: 'above', steps: [{ limit: 368, priority: 'alarm' }] }
 })
 
 function alert(path: string, condition = true, source = PLUGIN): CoreAlert {
@@ -55,8 +54,10 @@ describe('reconcile', () => {
       [OIL, 'oil-pressure-low', undefined],
       [PORT, 'coolant-high', 'port']
     ])
-    expect(result.activeByRule.get('oil-pressure-low')).toEqual([{}])
-    expect(result.activeByRule.get('coolant-high')).toEqual([{ segment: 'port' }])
+    expect(result.activeByRule.get('oil-pressure-low')).toEqual([{ priority: 'alarm' }])
+    expect(result.activeByRule.get('coolant-high')).toEqual([
+      { segment: 'port', priority: 'alarm' }
+    ])
   })
 
   it("matches by the alert path of the rule's condition name", () => {

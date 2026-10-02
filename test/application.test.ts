@@ -25,12 +25,11 @@ const oil = {
   name: 'Oil pressure low',
   slug: 'oil-pressure-low',
   message: 'Engine oil pressure is low',
-  priority: 'alarm',
   signal: { path: OIL },
   detector: {
     type: 'sustained',
     direction: 'below',
-    limit: { kind: 'fixed', value: 100000 },
+    steps: [{ limit: 100000, priority: 'alarm' }],
     duration: 5
   }
 }
@@ -38,12 +37,11 @@ const coolant = {
   name: 'Coolant high',
   slug: 'coolant-high',
   message: 'Coolant temperature is high',
-  priority: 'alarm',
   signal: { path: COOLANT },
   detector: {
     type: 'sustained',
     direction: 'above',
-    limit: { kind: 'fixed', value: 368 },
+    steps: [{ limit: 368, priority: 'alarm' }],
     duration: 2
   }
 }
@@ -51,14 +49,27 @@ const hours = {
   name: 'Engine hours',
   slug: 'engine-hours',
   message: 'Engine service due',
-  priority: 'caution',
   signal: { path: RPM },
-  detector: { type: 'accumulator', measure: 'time', limit: 1000 }
+  detector: { type: 'accumulator', measure: 'time', steps: [{ limit: 1000, priority: 'caution' }] }
 }
 
-const integral = { ...hours, detector: { type: 'accumulator', measure: 'integral', limit: 1000 } }
+const integral = {
+  ...hours,
+  detector: {
+    type: 'accumulator',
+    measure: 'integral',
+    steps: [{ limit: 1000, priority: 'caution' }]
+  }
+}
 /** Fails validation: an accumulator limit must be positive. */
-const brokenHours = { ...hours, detector: { ...hours.detector, limit: -5 } }
+const brokenHours = {
+  ...hours,
+  detector: { ...hours.detector, steps: [{ limit: -5, priority: 'caution' }] }
+}
+/** A rule with an unknown priority on its step. */
+function loud<R extends { detector: object }>(rule: R) {
+  return { ...rule, detector: { ...rule.detector, steps: [{ limit: 1, priority: 'loud' }] } }
+}
 
 let dir: string
 
@@ -140,10 +151,10 @@ describe('application', () => {
 
   it('rejects an invalid rule with field-path errors and persists nothing', () => {
     const { application } = setup()
-    const result = application.createRule({ ...oil, priority: 'loud' })
+    const result = application.createRule(loud(oil))
     expect(result).toMatchObject({ ok: false, reason: 'invalid' })
     if (!result.ok && result.reason === 'invalid') {
-      expect(result.errors.map((e) => e.path)).toContain('/priority')
+      expect(result.errors.map((e) => e.path)).toContain('/detector/steps/0/priority')
     }
     expect(existsSync(join(dir, 'rules', 'oil-pressure-low.json'))).toBe(false)
     expect(application.allRules()).toEqual([])
@@ -274,11 +285,11 @@ describe('application', () => {
 
   it('skips and reports an invalid stored rule while the others run, and can delete it', () => {
     stored(oil)
-    stored({ ...coolant, priority: 'loud' })
+    stored(loud(coolant))
     writeFileSync(join(dir, 'rules', 'renamed.json'), JSON.stringify(coolant))
     const { application, at, alerts } = setup()
     expect(application.issues).toHaveLength(2)
-    expect(application.issues.join('\n')).toMatch(/coolant-high.*\/priority/)
+    expect(application.issues.join('\n')).toMatch(/coolant-high.*\/detector\/steps\/0\/priority/)
     expect(application.issues.join('\n')).toMatch(/renamed.*coolant-high/)
     at(0, OIL, 0)
     at(5)
@@ -319,7 +330,7 @@ describe('application', () => {
 
   it("checkpoints running totals and keeps a skipped rule's until it is deleted", () => {
     stored(hours)
-    stored({ ...hours, slug: 'genset-hours', priority: 'loud' })
+    stored({ ...loud(hours), slug: 'genset-hours' })
     new Store(dir).saveCheckpoints({
       'engine-hours': { measure: 'time', totals: { '': 100 } },
       'genset-hours': { measure: 'time', totals: { '': 50 } }
@@ -385,7 +396,10 @@ describe('application', () => {
 describe('application operator actions', () => {
   const OIL_ALERT = 'propulsion.main.oilPressureLow'
   // Not caution: core drops a cleared caution alert, which the tests read back.
-  const shortHours = { ...hours, priority: 'warning', detector: { ...hours.detector, limit: 10 } }
+  const shortHours = {
+    ...hours,
+    detector: { ...hours.detector, steps: [{ limit: 10, priority: 'warning' }] }
+  }
 
   it('ignores a stored evaluation switch set to off: start evaluates', () => {
     stored(oil)
@@ -536,7 +550,10 @@ describe('application operator actions', () => {
     at(0, OIL, 0)
     at(5)
 
-    const retyped = { ...oil, detector: { type: 'match', op: 'equals', value: 0 } }
+    const retyped = {
+      ...oil,
+      detector: { type: 'match', op: 'equals', steps: [{ value: 0, priority: 'alarm' }] }
+    }
     const clearing = application.previewRule('oil-pressure-low', retyped)
     expect(clearing).toMatchObject({
       ok: true,
@@ -544,7 +561,10 @@ describe('application operator actions', () => {
     })
     if (clearing.ok) expect(clearing.value.changes).toContain('detector.type')
 
-    const limit = { ...oil, detector: { ...oil.detector, limit: { kind: 'fixed', value: 90000 } } }
+    const limit = {
+      ...oil,
+      detector: { ...oil.detector, steps: [{ limit: 90000, priority: 'alarm' }] }
+    }
     expect(application.previewRule('oil-pressure-low', limit)).toEqual({
       ok: true,
       value: {
@@ -567,7 +587,11 @@ describe('application operator actions', () => {
     expect(alerts()).toEqual([['propulsion.main.oilPressureLow', true]])
     const reversed = {
       ...oil,
-      detector: { ...oil.detector, direction: 'above', limit: { kind: 'fixed', value: -1 } }
+      detector: {
+        ...oil.detector,
+        direction: 'above',
+        steps: [{ limit: -1, priority: 'alarm' }]
+      }
     }
     expect(application.previewRule(oil.slug, reversed)).toMatchObject({
       ok: true,
@@ -598,7 +622,11 @@ describe('application operator actions', () => {
     expect(alerts()).toEqual([['propulsion.main.oilPressureLow', true]])
     const reversed = {
       ...named,
-      detector: { ...oil.detector, direction: 'above', limit: { kind: 'fixed', value: -1 } }
+      detector: {
+        ...oil.detector,
+        direction: 'above',
+        steps: [{ limit: -1, priority: 'alarm' }]
+      }
     }
     expect(application.previewRule(oil.slug, reversed)).toMatchObject({
       ok: true,
@@ -702,7 +730,7 @@ describe('application operator actions', () => {
     stored(oil)
     const { application } = setup()
     expect(application.createRule(oil)).toEqual({ ok: false, reason: 'exists' })
-    expect(application.createRule({ ...oil, priority: 'loud' })).toMatchObject({
+    expect(application.createRule(loud(oil))).toMatchObject({
       ok: false,
       reason: 'invalid'
     })
@@ -1227,9 +1255,12 @@ describe('templates', () => {
       rule: {
         name: `${id} \${instance}`,
         message: id,
-        priority: 'warning',
         signal: { path: `electrical.batteries.\${instance}.${id}` },
-        detector: { type: 'sustained', direction: 'below', limit: { kind: 'fixed', value: 1 } }
+        detector: {
+          type: 'sustained',
+          direction: 'below',
+          steps: [{ limit: 1, priority: 'warning' }]
+        }
       }
     }
   }

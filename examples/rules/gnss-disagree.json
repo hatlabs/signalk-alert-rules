@@ -3,7 +3,6 @@
   "slug": "gnss-disagree",
   "condition": "gnssDisagree",
   "message": "GNSS positions disagree",
-  "priority": "warning",
   "signal": {
     "combinator": "positionSpread",
     "inputs": [
@@ -24,10 +23,12 @@
   "detector": {
     "type": "sustained",
     "direction": "above",
-    "limit": {
-      "kind": "fixed",
-      "value": 50
-    },
+    "steps": [
+      {
+        "limit": 50,
+        "priority": "warning"
+      }
+    ],
     "duration": 20
   }
 }

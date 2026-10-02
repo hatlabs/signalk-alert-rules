@@ -1,4 +1,4 @@
-import type { Detector as DetectorModel, Event, Limit } from '../../model/rule.js'
+import type { Detector as DetectorModel, Event } from '../../model/rule.js'
 import type { Stopwatch } from '../clock.js'
 import type { Reading, SignalValue } from '../signals.js'
 
@@ -8,10 +8,25 @@ import type { Reading, SignalValue } from '../signals.js'
  */
 export type Transition = 'set' | 'clear' | 'pulse'
 
-type WithResolvedLimit<D> = D extends { limit: Limit } ? Omit<D, 'limit'> & { limit: number } : D
+type Model<T extends DetectorModel['type']> = Omit<
+  Extract<DetectorModel, { type: T }>,
+  'steps' | 'limit'
+>
 
-/** A detector definition whose limit has been resolved to an SI value. */
-export type DetectorSpec = WithResolvedLimit<DetectorModel>
+/**
+ * The detector of one step: the rule's detector with that step's limit,
+ * resolved to an SI value, in place of its steps. A match step holds the
+ * values of that step and every later one, so that like a threshold it holds
+ * for any value at or beyond it.
+ */
+export type DetectorSpec =
+  | (Model<'match'> & { values: SignalValue[] })
+  | (Model<'sustained'> & { limit: number })
+  | (Model<'slope'> & { limit: number })
+  | (Model<'projection'> & { limit: number })
+  | (Model<'accumulator'> & { limit: number })
+  | (Model<'count'> & { limit: number })
+  | (Model<'absence'> & { within: number })
 
 /**
  * How far a detector is toward its next transition, for status: a duration

@@ -6,16 +6,24 @@ import { Confirm } from '../rules/Confirm'
 import { discardedTotals, ruleDisplay } from '../rules/describe'
 import { signalMeasure, useUnits, type UnitLookup } from '../signalUnits'
 import { editConsequences } from './consequences'
-import { AdvancedFields, DetectFields, LimitSectionFields, TimingFields } from './DetectorFields'
+import {
+  AdvancedFields,
+  DetectFields,
+  LaterStepsNotice,
+  LimitSectionFields,
+  TimingFields
+} from './DetectorFields'
 import { Field, FieldErrors, SelectField, TextField } from './fields'
 import {
   defaultFormCondition,
   emptyForm,
   emptyGate,
+  FIRST_STEP,
   formAlertPrefix,
   fromRule,
   hasWildcard,
   isZoneLimited,
+  keptLaterSteps,
   MAX_GATES,
   PRIORITY_LEVELS,
   signalShape,
@@ -310,7 +318,7 @@ function EditorForm({ api, paths, units, editing, onSaved, onClose }: FormProps)
             ) : (
               <SelectField
                 label="Priority"
-                pointer="/priority"
+                pointer={`${FIRST_STEP}/priority`}
                 value={form.priority}
                 options={PRIORITIES}
                 onChange={(priority) => {
@@ -318,6 +326,11 @@ function EditorForm({ api, paths, units, editing, onSaved, onClose }: FormProps)
                 }}
               />
             )}
+            <LaterStepsNotice
+              detector={form.detector}
+              steps={keptLaterSteps(form)}
+              measure={measure}
+            />
             <Field
               label="Message"
               pointer="/message"

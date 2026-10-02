@@ -24,12 +24,11 @@ const oil = {
   name: 'Oil pressure low',
   slug: 'oil-pressure-low',
   message: 'Engine oil pressure is low',
-  priority: 'alarm',
   signal: { path: 'propulsion.main.oilPressure' },
   detector: {
     type: 'sustained',
     direction: 'below',
-    limit: { kind: 'fixed', value: 100000 },
+    steps: [{ limit: 100000, priority: 'alarm' }],
     duration: 5
   }
 }
@@ -37,30 +36,31 @@ const hours = {
   name: 'Engine hours',
   slug: 'engine-hours',
   message: 'Engine service due',
-  priority: 'caution',
   signal: { path: RPM },
-  detector: { type: 'accumulator', measure: 'time', limit: 1000 }
+  detector: { type: 'accumulator', measure: 'time', steps: [{ limit: 1000, priority: 'caution' }] }
 }
 const batteries = {
   name: 'Battery low',
   slug: 'battery-low',
   message: '{instance} battery is low',
-  priority: 'warning',
   signal: { path: 'electrical.batteries.*.voltage' },
-  detector: { type: 'sustained', direction: 'below', limit: { kind: 'fixed', value: 12 } }
+  detector: { type: 'sustained', direction: 'below', steps: [{ limit: 12, priority: 'warning' }] }
 }
 const mismatch = {
   name: 'RPM mismatch',
   slug: 'rpm-mismatch',
   condition: 'revolutionsMismatch',
   message: 'Engine revolutions differ',
-  priority: 'warning',
   signal: { combinator: 'absDifference', inputs: [{ path: RPM }, { path: AUX_RPM }] },
-  detector: { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 3 } },
+  detector: { type: 'sustained', direction: 'above', steps: [{ limit: 3, priority: 'warning' }] },
   gates: [{ signal: { path: COOLANT }, direction: 'above', limit: { kind: 'fixed', value: 300 } }]
 }
 /** Fails validation: an accumulator limit must be positive. */
-const broken = { ...hours, slug: 'broken', detector: { ...hours.detector, limit: -5 } }
+const broken = {
+  ...hours,
+  slug: 'broken',
+  detector: { ...hours.detector, steps: [{ limit: -5, priority: 'caution' }] }
+}
 
 let dir: string
 
@@ -198,5 +198,5 @@ describe('panel parsers against the Application', () => {
 })
 
 function progress(total: number) {
-  return { progress: { kind: 'total', total, limit: hours.detector.limit } }
+  return { progress: { kind: 'total', total, limit: hours.detector.steps[0].limit } }
 }

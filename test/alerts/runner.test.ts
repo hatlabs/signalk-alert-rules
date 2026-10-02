@@ -23,12 +23,11 @@ const oil = valid({
   name: 'Oil pressure low',
   slug: 'oil-pressure-low',
   message: 'Engine oil pressure is low',
-  priority: 'alarm',
   signal: { path: OIL },
   detector: {
     type: 'sustained',
     direction: 'below',
-    limit: { kind: 'fixed', value: 100000 },
+    steps: [{ limit: 100000, priority: 'alarm' }],
     duration: 5,
     hysteresis: 50000,
     clearDuration: 10
@@ -44,9 +43,8 @@ const coolant = valid({
   name: 'Coolant high',
   slug: 'coolant-high',
   message: 'Coolant high on {instance}',
-  priority: 'alarm',
   signal: { path: 'propulsion.*.coolantTemperature' },
-  detector: { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 368 } }
+  detector: { type: 'sustained', direction: 'above', steps: [{ limit: 368, priority: 'alarm' }] }
 })
 const VOLTAGE = 'electrical.batteries.house.voltage'
 const batteryLow = valid({
@@ -69,24 +67,39 @@ const batteryZones: PathMeta = {
     { lower: 11.5, upper: 12, state: 'warn', message: 'Battery low' }
   ]
 }
+const steppedBattery = valid({
+  ...batteryLow,
+  detector: {
+    type: 'sustained',
+    direction: 'below',
+    steps: [
+      { limit: 12.2, priority: 'warning' },
+      { limit: 11.8, priority: 'alarm' }
+    ],
+    duration: 5
+  }
+})
 const PUMP = 'electrical.switches.bilgePump.state'
 const pumpCycling = valid({
   name: 'Bilge pump cycling',
   slug: 'bilge-pump-cycling',
   message: 'Bilge pump is cycling',
-  priority: 'alarm',
   signal: { path: PUMP },
-  detector: { type: 'count', event: { op: 'changesTo', value: true }, window: 60, limit: 1 }
+  detector: {
+    type: 'count',
+    event: { op: 'changesTo', value: true },
+    window: 60,
+    steps: [{ limit: 1, priority: 'alarm' }]
+  }
 })
 const latchingPump = valid({ ...pumpCycling, latching: true })
 const pumpOn = valid({
   name: 'Bilge pump on',
   slug: 'bilge-pump-on',
   message: 'Bilge pump started',
-  priority: 'alarm',
   latching: true,
   signal: { path: PUMP },
-  detector: { type: 'match', op: 'changesTo', value: true }
+  detector: { type: 'match', op: 'changesTo', steps: [{ value: true, priority: 'alarm' }] }
 })
 const BATTERY_ALERT = 'electrical.batteries.house.voltageLow'
 const OIL_ALERT = 'propulsion.main.oilPressureLow'
@@ -151,7 +164,8 @@ function coreWith(path: string, message = 'Engine oil pressure is low'): FakeAle
     priority: 'alarm',
     message,
     latching: false,
-    data: { rule: 'oil-pressure-low' }
+    // What SKAR's raise wrote, the limit included, so adoption has nothing to change.
+    data: { rule: 'oil-pressure-low', limit: 100000 }
   })
   core.alertings = 0
   return core
@@ -239,7 +253,11 @@ describe('rule runner', () => {
     at(0, OIL, 0)
     run(1, 5)
     const raised = sent[0]?.[1]
-    runner.update({ ...oil, message: 'Check the oil', priority: 'emergency' })
+    runner.update({
+      ...oil,
+      message: 'Check the oil',
+      detector: { ...oil.detector, steps: [{ limit: 100000, priority: 'emergency' }] }
+    } as Rule)
     expect(sent).toHaveLength(1)
     run(6, 5 + HEARTBEAT_S)
     expect(sent.at(-1)).toEqual([
@@ -258,7 +276,7 @@ describe('rule runner', () => {
     })
   })
 
-  it('a zone-limit alert escalates at once when a more severe level is entered, and reports a fall', () => {
+  it('a zone-limit alert escalates at once when a more severe level is entered, and keeps it through a fall', () => {
     const { at, run, sent, core, runner } = setup([batteryLow], {
       meta: { [VOLTAGE]: batteryZones }
     })
@@ -278,7 +296,7 @@ describe('rule runner', () => {
           message: 'House battery voltage is low',
           latching: false,
           references: [VOLTAGE],
-          data: raised?.data
+          data: { ...raised?.data, limit: 11.5 }
         }
       ]
     ])
@@ -292,12 +310,276 @@ describe('rule runner', () => {
     })
     at(12, VOLTAGE, 11.8)
     run(13, 17)
-    expect(sent.at(-1)?.[1]).toMatchObject({ priority: 'warning' })
+    expect(sent).toHaveLength(2)
+    expect(runner.status('house-battery-low')?.instances[0]).toMatchObject({
+      level: 'alarm',
+      priority: 'alarm'
+    })
+    run(18, 17 + HEARTBEAT_S)
+    expect(sent.at(-1)?.[1]).toMatchObject({ priority: 'alarm' })
     expect(sent).toHaveLength(3)
     expect(core.getByPath(BATTERY_ALERT)).toMatchObject({ priority: 'alarm', condition: true })
-    run(18, 17 + HEARTBEAT_S)
-    expect(sent.at(-1)?.[1]).toMatchObject({ priority: 'warning' })
-    expect(sent).toHaveLength(4)
+  })
+
+  it('an alert with steps is raised with the reached step limit and escalated on the same path', () => {
+    const { at, run, sent, core } = setup([steppedBattery])
+    at(0, VOLTAGE, 12)
+    run(1, 5)
+    expect(sent[0]?.[1]).toMatchObject({ priority: 'warning', data: { limit: 12.2 } })
+    core.acknowledge(BATTERY_ALERT)
+    at(6, VOLTAGE, 11.7)
+    run(7, 11)
+    expect(sent.map(([path, value]) => [path, value?.priority])).toEqual([
+      [BATTERY_ALERT, 'warning'],
+      [BATTERY_ALERT, 'alarm']
+    ])
+    expect(core.getByPath(BATTERY_ALERT)).toMatchObject({
+      priority: 'alarm',
+      state: 'unacknowledged',
+      data: { rule: 'house-battery-low', limit: 11.8, raisedAt: sent[0]?.[1]?.data?.raisedAt }
+    })
+  })
+
+  it("an edit to a reached step's limit reaches the alert's data", () => {
+    const { at, run, sent, runner, core } = setup([steppedBattery])
+    at(0, VOLTAGE, 11.7)
+    run(1, 5)
+    runner.update(
+      valid({
+        ...steppedBattery,
+        detector: {
+          ...steppedBattery.detector,
+          steps: [
+            { limit: 12.2, priority: 'warning' },
+            { limit: 11.9, priority: 'alarm' }
+          ]
+        }
+      })
+    )
+    run(6, 5 + HEARTBEAT_S)
+    expect(sent.at(-1)?.[1]?.data).toMatchObject({ rule: 'house-battery-low', limit: 11.9 })
+    expect(core.getByPath(BATTERY_ALERT)?.data).toMatchObject({ limit: 11.9 })
+  })
+
+  describe('an edit to an alert that has climbed', () => {
+    function climbed() {
+      const setupResult = setup([steppedBattery])
+      setupResult.at(0, VOLTAGE, 11.7)
+      setupResult.run(1, 5)
+      return setupResult
+    }
+    const edited = (steps: { limit: number; priority: string }[]) =>
+      valid({ ...steppedBattery, detector: { ...steppedBattery.detector, steps } })
+
+    it('keeps the reached priority when the reached step is removed', () => {
+      const { run, sent, runner } = climbed()
+      runner.update(edited([{ limit: 12.2, priority: 'warning' }]))
+      run(6, 5 + HEARTBEAT_S)
+      expect(runner.status('house-battery-low')?.instances[0]).toMatchObject({
+        step: 0,
+        priority: 'alarm'
+      })
+      expect(sent.at(-1)?.[1]?.priority).toBe('alarm')
+    })
+
+    it('keeps a priority an edit raised once a later edit lowers it again', () => {
+      const { at, run, sent, runner, core } = setup([steppedBattery])
+      at(0, VOLTAGE, 12)
+      run(1, 5)
+      runner.update(
+        edited([
+          { limit: 12.2, priority: 'alarm' },
+          { limit: 11.8, priority: 'emergency' }
+        ])
+      )
+      run(6, 5 + HEARTBEAT_S)
+      expect(sent.at(-1)?.[1]?.priority).toBe('alarm')
+      runner.update(steppedBattery)
+      run(6 + HEARTBEAT_S, 5 + 2 * HEARTBEAT_S)
+      expect(runner.status('house-battery-low')?.instances[0]).toMatchObject({
+        step: 0,
+        priority: 'alarm'
+      })
+      expect(sent.at(-1)?.[1]?.priority).toBe('alarm')
+      expect(core.getByPath(BATTERY_ALERT)?.priority).toBe('alarm')
+    })
+
+    it('keeps the limit core holds when a step is inserted ahead of the reached one', () => {
+      const { at, run, sent, runner, core } = climbed()
+      // Above the alarm step, so the inserted step does not climb back to it.
+      at(6, VOLTAGE, 11.9)
+      runner.update(
+        edited([
+          { limit: 12.4, priority: 'caution' },
+          { limit: 12.2, priority: 'warning' },
+          { limit: 11.8, priority: 'alarm' }
+        ])
+      )
+      run(7, 7 + 2 * HEARTBEAT_S)
+      expect(runner.status('house-battery-low')?.instances[0]).toMatchObject({
+        step: 1,
+        priority: 'alarm'
+      })
+      expect(sent.every(([, value]) => value?.data?.limit !== 12.2)).toBe(true)
+      expect(core.getByPath(BATTERY_ALERT)?.data).toMatchObject({ limit: 11.8 })
+    })
+
+    it("keeps the reached priority when the reached step's priority is lowered", () => {
+      const { run, sent, runner } = climbed()
+      runner.update(
+        edited([
+          { limit: 12.2, priority: 'caution' },
+          { limit: 11.8, priority: 'warning' }
+        ])
+      )
+      run(6, 5 + HEARTBEAT_S)
+      expect(runner.status('house-battery-low')?.instances[0]).toMatchObject({
+        step: 1,
+        priority: 'alarm'
+      })
+      expect(sent.at(-1)?.[1]?.priority).toBe('alarm')
+    })
+  })
+
+  it('an adopted alert that climbs keeps the data core stored, with the reached limit', () => {
+    const core = new FakeAlertsCore()
+    const stored = { rule: 'house-battery-low', name: 'House battery low', limit: 12.2 }
+    core.ingest(PLUGIN, BATTERY_ALERT, {
+      priority: 'warning',
+      message: 'House battery voltage is low',
+      latching: false,
+      data: stored
+    })
+    const { at, run, sent } = setup([steppedBattery], { core })
+    at(0, VOLTAGE, 11.7)
+    run(1, 5)
+    expect(sent.at(-1)?.[1]).toMatchObject({ priority: 'alarm', data: { ...stored, limit: 11.8 } })
+    expect(core.getByPath(BATTERY_ALERT)).toMatchObject({
+      priority: 'alarm',
+      data: { ...stored, limit: 11.8 }
+    })
+  })
+
+  describe('an adopted alert core holds above the first step', () => {
+    // What the warning's raise stored; core now holds the alert at a higher
+    // priority while the value has not moved.
+    const stored = { rule: 'house-battery-low', name: 'House battery low', limit: 12.2 }
+
+    function adoptedAt(priority: 'caution' | 'alarm' | 'emergency') {
+      const core = new FakeAlertsCore()
+      core.ingest(PLUGIN, BATTERY_ALERT, {
+        priority,
+        message: 'House battery voltage is low',
+        latching: false,
+        data: stored
+      })
+      core.acknowledge(BATTERY_ALERT)
+      return setup([steppedBattery], { core })
+    }
+
+    it("stays at the first step at core's priority, keeps core's data and heartbeats without re-alerting", () => {
+      const { at, run, sent, runner, core } = adoptedAt('alarm')
+      const alertings = core.alertings
+      at(0, VOLTAGE, 12)
+      run(1, 2 * HEARTBEAT_S)
+      expect(runner.status('house-battery-low')?.instances[0]).toMatchObject({
+        active: true,
+        step: 0,
+        priority: 'alarm'
+      })
+      expect(sent.length).toBeGreaterThan(1)
+      expect(sent.every(([, value]) => value?.priority === 'alarm')).toBe(true)
+      expect(sent.every(([, value]) => value?.data === undefined)).toBe(true)
+      expect(core.getByPath(BATTERY_ALERT)).toMatchObject({
+        priority: 'alarm',
+        state: 'acknowledged',
+        data: stored
+      })
+      expect(core.alertings).toBe(alertings)
+    })
+
+    it("climbs once a further step's own detector holds, and only then names its limit", () => {
+      const { at, run, sent, runner, core } = adoptedAt('alarm')
+      at(0, VOLTAGE, 12)
+      run(1, 5)
+      at(6, VOLTAGE, 11.7)
+      run(7, 11)
+      expect(runner.status('house-battery-low')?.instances[0]).toMatchObject({
+        step: 1,
+        priority: 'alarm',
+        limit: 11.8
+      })
+      expect(sent.at(-1)?.[1]).toMatchObject({
+        priority: 'alarm',
+        data: { ...stored, limit: 11.8 }
+      })
+      expect(core.getByPath(BATTERY_ALERT)?.data).toEqual({ ...stored, limit: 11.8 })
+    })
+
+    it('an edit applied in place leaves the limit core holds', () => {
+      const { at, run, runner, core } = adoptedAt('alarm')
+      at(0, VOLTAGE, 12)
+      runner.update(
+        valid({
+          ...steppedBattery,
+          detector: {
+            ...steppedBattery.detector,
+            steps: [
+              { limit: 12.3, priority: 'warning' },
+              { limit: 11.8, priority: 'alarm' }
+            ]
+          }
+        })
+      )
+      run(1, 2 * HEARTBEAT_S)
+      expect(core.getByPath(BATTERY_ALERT)?.data).toEqual(stored)
+    })
+
+    it('stays at the first step when core holds a priority beyond every step', () => {
+      const { at, sent, runner } = adoptedAt('emergency')
+      at(0, VOLTAGE, 12)
+      expect(runner.status('house-battery-low')?.instances[0]).toMatchObject({
+        step: 0,
+        priority: 'emergency'
+      })
+      expect(sent.at(-1)?.[1]?.priority).toBe('emergency')
+    })
+
+    it("heartbeats at the first step's priority when core holds less than it", () => {
+      const { at, sent, runner } = adoptedAt('caution')
+      at(0, VOLTAGE, 12)
+      expect(runner.status('house-battery-low')?.instances[0]).toMatchObject({
+        step: 0,
+        priority: 'warning'
+      })
+      expect(sent.at(-1)?.[1]?.priority).toBe('warning')
+    })
+  })
+
+  it('a latching count sends a latching raise at each step it climbs to', () => {
+    const cycling = valid({
+      ...latchingPump,
+      detector: {
+        ...latchingPump.detector,
+        window: 3600,
+        steps: [
+          { limit: 1, priority: 'warning' },
+          { limit: 3, priority: 'alarm' }
+        ]
+      }
+    })
+    const { at, sent, core } = setup([cycling])
+    pumpStarts(at, 0)
+    expect(sent.map(([, value]) => [value?.priority, value?.latching])).toEqual([['warning', true]])
+    pumpStarts(at, 10)
+    expect(sent.map(([, value]) => [value?.priority, value?.latching])).toEqual([
+      ['warning', true],
+      ['alarm', true]
+    ])
+    expect(core.getByPath(PUMP_ALERT)).toMatchObject({
+      priority: 'alarm',
+      state: 'unacknowledged'
+    })
   })
 
   it("an edit to an active zone-limit rule keeps the level's priority", () => {
@@ -309,7 +591,7 @@ describe('rule runner', () => {
     expect(sent.at(-1)?.[1]).toMatchObject({ priority: 'alarm', message: 'Charge the battery' })
   })
 
-  it('an adopted zone-limit alert is heartbeated at the priority of its named level', () => {
+  it("an adopted zone-limit alert is heartbeated at core's priority before its zones are readable", () => {
     const core = new FakeAlertsCore()
     core.ingest(PLUGIN, BATTERY_ALERT, {
       priority: 'alarm',
@@ -320,7 +602,7 @@ describe('rule runner', () => {
     expect(sent).toEqual([
       [
         BATTERY_ALERT,
-        { priority: 'warning', message: 'House battery voltage is low', latching: false }
+        { priority: 'alarm', message: 'House battery voltage is low', latching: false }
       ]
     ])
     expect(core.getByPath(BATTERY_ALERT)?.priority).toBe('alarm')
@@ -434,9 +716,12 @@ describe('rule runner', () => {
       name: 'Watch not acknowledged',
       slug: 'watch-not-acknowledged',
       message: 'No watch acknowledgement received',
-      priority: 'alarm',
       signal: { path: 'navigation.watch.acknowledged' },
-      detector: { type: 'absence', event: { op: 'changes' }, within: 900 }
+      detector: {
+        type: 'absence',
+        event: { op: 'changes' },
+        steps: [{ within: 900, priority: 'alarm' }]
+      }
     })
     const { run, sent, runner } = setup([watch])
     run(0, 900 + 2 * HEARTBEAT_S)
@@ -450,9 +735,12 @@ describe('rule runner', () => {
       name: 'Watch not acknowledged',
       slug: 'watch-not-acknowledged',
       message: 'No watch acknowledgement received',
-      priority: 'alarm',
       signal: { path: 'navigation.watch.acknowledged' },
-      detector: { type: 'absence', event: { op: 'changes' }, within: 900 }
+      detector: {
+        type: 'absence',
+        event: { op: 'changes' },
+        steps: [{ within: 900, priority: 'alarm' }]
+      }
     })
     const core = new FakeAlertsCore()
     core.ingest(PLUGIN, WATCH_ALERT, {
@@ -471,9 +759,8 @@ describe('rule runner', () => {
       name: 'Depth sensor silent',
       slug: 'depth-sensor-silent',
       message: 'No depth data',
-      priority: 'warning',
       signal: { path: DEPTH },
-      detector: { type: 'match', op: 'timedOut', duration: 30 }
+      detector: { type: 'match', op: 'timedOut', steps: [{ priority: 'warning' }], duration: 30 }
     })
     const { at, run, sent } = setup([depth])
     at(0, DEPTH, 7)
@@ -587,9 +874,12 @@ describe('rule runner', () => {
       name: 'Engine hours',
       slug: 'engine-hours',
       message: 'Engine service due',
-      priority: 'caution',
       signal: { path: 'propulsion.main.revolutions' },
-      detector: { type: 'accumulator', measure: 'time', limit: 100 }
+      detector: {
+        type: 'accumulator',
+        measure: 'time',
+        steps: [{ limit: 100, priority: 'caution' }]
+      }
     })
     const { at, run, runner, sent } = setup([hours, oil], {
       accumulated: new Map([
@@ -613,9 +903,12 @@ describe('rule runner', () => {
         name: 'Engine hours',
         slug: 'engine-hours',
         message: 'Engine service due',
-        priority: 'caution',
         signal: { path: 'propulsion.main.revolutions' },
-        detector: { type: 'accumulator', measure: 'time', limit: 100 }
+        detector: {
+          type: 'accumulator',
+          measure: 'time',
+          steps: [{ limit: 100, priority: 'caution' }]
+        }
       })
     )
     at(0, 'propulsion.main.revolutions', 30)
@@ -646,9 +939,12 @@ describe('rule runner', () => {
       name: 'Tank low',
       slug: 'tank-low',
       message: 'Tank {instance} low',
-      priority: 'warning',
       signal: { path: 'tanks.fuel.*.currentLevel' },
-      detector: { type: 'sustained', direction: 'below', limit: { kind: 'fixed', value: 0.1 } }
+      detector: {
+        type: 'sustained',
+        direction: 'below',
+        steps: [{ limit: 0.1, priority: 'warning' }]
+      }
     })
     const { at, sent, runner } = setup([rule])
     at(0, `tanks.fuel.${'x'.repeat(260)}.currentLevel`, 0.05)
@@ -856,9 +1152,12 @@ describe('rule status', () => {
       name: 'Engine hours',
       slug: 'engine-hours',
       message: 'Engine service due',
-      priority: 'caution',
       signal: { path: RPM },
-      detector: { type: 'accumulator', measure: 'time', limit: 100 }
+      detector: {
+        type: 'accumulator',
+        measure: 'time',
+        steps: [{ limit: 100, priority: 'caution' }]
+      }
     })
     const failing = () => {
       const subscriptions = new FakeSubscriptionManager()
@@ -902,7 +1201,11 @@ describe('rule status', () => {
       const runner = failing()
       const integral = valid({
         ...hours,
-        detector: { type: 'accumulator', measure: 'integral', limit: 100 }
+        detector: {
+          type: 'accumulator',
+          measure: 'integral',
+          steps: [{ limit: 100, priority: 'caution' }]
+        }
       })
       runner.update(integral)
       expect(runner.accumulators().get(HOURS_ID)?.totals.get('') ?? 0).toBe(0)

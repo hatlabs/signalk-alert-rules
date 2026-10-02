@@ -1,6 +1,9 @@
 import type { SubscriptionManager } from '@signalk/server-api'
 import {
-  priorityOf,
+  firstPriority,
+  LEVEL_PRIORITY,
+  severityOf,
+  stepsOf,
   zoneLimitOf,
   type Limit,
   type Priority,
@@ -20,7 +23,7 @@ import {
   type Progress
 } from './detectors/index.js'
 import { Gate } from './gates.js'
-import { resolveLimit, severerLevels, severity, type Zone } from './limits.js'
+import { resolveLimit, severerLevels, type Zone } from './limits.js'
 import {
   bindPath,
   inputState,
@@ -32,6 +35,7 @@ import {
   type SignalValue
 } from './signals.js'
 import { asGiven, canonicalSources, type Canonicalise } from './sourceRefs.js'
+import { stepSpec } from './steps.js'
 import { errorMessage } from '../util.js'
 
 export type { InputState }
@@ -64,6 +68,12 @@ export interface EvaluatorContext {
 export interface Adopted {
   /** The alert path's instance segment, for a wildcard rule. */
   segment?: string
+  /**
+   * The priority core holds the alert at, which the alert's reached priority
+   * starts from. It seeds no step: core's priority is not evidence of which
+   * step's condition held.
+   */
+  priority?: Priority
 }
 
 export type RuleEvent =
@@ -77,10 +87,10 @@ export type RuleEvent =
       limit?: number
     }
   /**
-   * An active zone-limit alert moved to another zone level, so it now has
-   * this priority.
+   * An active alert reached a further step, so it now has this priority.
+   * Nothing sends a lower one: core never lowers an alert's priority.
    */
-  | { type: 'priority'; instance?: Instance; priority: Priority }
+  | { type: 'priority'; instance?: Instance; priority: Priority; limit?: number }
   | { type: 'clear'; instance?: Instance }
 
 export interface GateStatus {
@@ -96,7 +106,10 @@ export interface InstanceStatus {
   input: InputState
   /** The signal's current value in SI units, while it has one; a combined signal's combined value. */
   value?: SignalValue
-  /** The limit in force, in SI units; a zone limit's named-level threshold. */
+  /**
+   * A sustained or projection rule's limit in force, in SI units: the reached
+   * step's while the alert is active, else the first step's.
+   */
   limit?: number
   /** How far the detector is toward its next transition. */
   progress?: Progress
@@ -104,9 +117,11 @@ export interface InstanceStatus {
   gates: GateStatus[]
   /** The alert was adopted from core at start and has not cleared since. */
   adopted: boolean
-  /** The most severe zone level an active zone-limit alert holds. */
+  /** The furthest step an active alert has reached, an index into the rule's steps. */
+  step?: number
+  /** The zone level of that step, for a zone-limit rule. */
   level?: ZoneLevel
-  /** The priority an active alert has now. */
+  /** The priority an active alert has now: the most severe it has reached. */
   priority?: Priority
   /** Why the rule cannot evaluate this instance. */
   inactive?: string
@@ -137,22 +152,32 @@ interface Track {
   specKey?: string
 }
 
-interface Unit extends Track {
+interface Unit {
   key: string
   instance?: Instance
   last?: Reading
   /** The last value the input had, which outlives an unavailable reading. */
   lastValue?: SignalValue
-  /** Detectors of the zone levels more severe than the rule's own. */
-  levels: Map<ZoneLevel, Track>
-  /** The most severe zone level the active alert holds, for a zone-limit rule. */
-  level?: ZoneLevel
-  /** Create the next detector in the condition-active state. */
+  /** One detector per step, the first step's first. */
+  tracks: Track[]
+  /** The steps as last resolved; empty while they cannot be. */
+  steps: ResolvedStep[]
+  /**
+   * The furthest step the active alert has reached; never lowered while it
+   * lasts, but clamped when an edit removes steps.
+   */
+  step?: number
+  /**
+   * The most severe priority the active alert has had, starting from core's
+   * for an adopted alert. An edit that removes the reached step or lowers its
+   * priority does not lower the alert's, as core never does.
+   */
+  reached?: Priority
+  /** Create the first step's next detector in the condition-active state. */
   startActive: boolean
   /** The alert was adopted from core and has not cleared; never-seen gates hold for it. */
   adoptedAlert: boolean
   alerting: boolean
-  limit?: number
   inUse: boolean
   inactive?: string
   present: boolean
@@ -160,14 +185,17 @@ interface Unit extends Track {
   clearedAt?: number
 }
 
-interface LevelSpec {
-  level: ZoneLevel
+/** A step with its limit resolved, and the detector that judges it. */
+interface ResolvedStep {
+  priority: Priority
   spec: DetectorSpec
+  /** The SI limit of a sustained or projection step. */
+  limit?: number
+  /** The zone level the step comes from, for a zone-limit rule. */
+  level?: ZoneLevel
 }
 
-type Resolved =
-  | { ok: true; spec: DetectorSpec; limit?: number; levels: LevelSpec[] }
-  | { ok: false; reason: string }
+type Resolved = { ok: true; steps: ResolvedStep[] } | { ok: false; reason: string }
 
 // Rule fields whose change clears and restarts the rule; every other detector
 // field is re-evaluated in place. Latching is one of them because a latching
@@ -176,7 +204,7 @@ type Resolved =
 const STRUCTURAL: {
   [T in DetectorSpec['type']]: (keyof Extract<DetectorSpec, { type: T }>)[]
 } = {
-  match: ['op', 'value'],
+  match: ['op'],
   sustained: ['direction'],
   slope: ['direction'],
   projection: ['direction'],
@@ -193,6 +221,8 @@ function canonical(value: unknown): string {
   )
 }
 
+// A match's values are structural like its operator: re-evaluated in place, an
+// active match of a value no longer listed would hold until the next sample.
 // A zone limit's named level is structural too: re-evaluated in place, an
 // active alert would at once report the new level, which the value may never
 // have entered, while its detector waits out the clear duration. The alert
@@ -205,7 +235,10 @@ function structure(rule: Rule): Record<string, unknown> {
     signal: rule.signal,
     gates: rule.gates ?? [],
     latching: rule.latching ?? false,
+    'detector.limit': zoneLimitOf(rule) === undefined ? 'steps' : 'zone',
     'detector.limit.level': zoneLimitOf(rule)?.level,
+    'detector.steps.value':
+      rule.detector.type === 'match' ? rule.detector.steps.map((s) => s.value) : undefined,
     ...Object.fromEntries(
       Object.entries(rule.detector)
         .filter(([key]) => fields.includes(key))
@@ -222,7 +255,12 @@ export function structuralChanges(current: Rule, next: Rule): string[] {
   const a = structure(current)
   const b = structure(next)
   const parts = new Set([...Object.keys(a), ...Object.keys(b)])
-  return [...parts].filter((part) => canonical(a[part]) !== canonical(b[part]))
+  const changes = [...parts].filter((part) => canonical(a[part]) !== canonical(b[part]))
+  // Steps have no zone level, so a switch between kinds changes the level too;
+  // it is one change.
+  return changes.includes('detector.limit')
+    ? changes.filter((part) => part !== 'detector.limit.level')
+    : changes
 }
 
 export function isWildcard(signal: Signal): boolean {
@@ -231,8 +269,8 @@ export function isWildcard(signal: Signal): boolean {
 
 /**
  * Evaluates one rule on the self vessel: its signal per instance through a
- * detector, its gates and zone limits. It reports raises, zone-level priority
- * changes and clears; what happens to the alert after that is core's
+ * detector per step, its gates and zone limits. It reports raises, climbs to
+ * a further step and clears; what happens to the alert after that is core's
  * lifecycle, not the evaluator's. A rule is in use only while every gate holds. Out of use, a detector is dropped and
  * started afresh when the rule comes back into use, fed the last reading, so
  * durations count from then; an accumulator keeps its total and only its
@@ -247,7 +285,8 @@ export class RuleEvaluator {
   private closers: (() => void)[] = []
   private readonly issues = new Set<string>()
   private readonly errors = new Set<string>()
-  private adopted: Set<string>
+  /** Adopted alerts' core priorities, by instance key. */
+  private adopted: Map<string, Priority | undefined>
   private carried = new Map<string, number>()
   private running = false
 
@@ -260,7 +299,7 @@ export class RuleEvaluator {
     /** Read at every evaluation; `refresh` applies a change at once. */
     private readonly disabled: () => boolean = () => false
   ) {
-    this.adopted = new Set(adopted.map((a) => a.segment ?? ''))
+    this.adopted = new Map(adopted.map((a) => [a.segment ?? '', a.priority]))
     this.carried = new Map(accumulated)
   }
 
@@ -269,7 +308,7 @@ export class RuleEvaluator {
     this.running = true
     const gates = this.rule.gates ?? []
     this.gates = gates.map(() => new Map<string, Gate>())
-    for (const key of this.adopted) {
+    for (const key of this.adopted.keys()) {
       this.unit(key, key === '' ? undefined : { name: key, segment: key })
     }
     if (!isWildcard(this.rule.signal)) this.unit('')
@@ -338,7 +377,7 @@ export class RuleEvaluator {
       this.carried = this.totals(rule)
       this.remove()
       this.rule = rule
-      this.adopted = new Set()
+      this.adopted = new Map()
       this.units.clear()
       this.issues.clear()
       this.errors.clear()
@@ -364,7 +403,7 @@ export class RuleEvaluator {
     this.carried.clear()
     for (const unit of this.units.values()) {
       if (unit.alerting) this.clear(unit)
-      unit.detector = undefined
+      unit.tracks = []
     }
     if (!this.running) return
     const now = this.ctx.clock()
@@ -386,9 +425,8 @@ export class RuleEvaluator {
     if (this.rule.detector.type !== 'accumulator') return new Map()
     const totals = new Map(this.carried)
     for (const unit of this.units.values()) {
-      if (unit.detector instanceof AccumulatorDetector) {
-        totals.set(unit.key, unit.detector.accumulated)
-      }
+      const total = accumulatedOf(unit)
+      if (total !== undefined) totals.set(unit.key, total)
     }
     return totals
   }
@@ -398,22 +436,26 @@ export class RuleEvaluator {
     return {
       issues: [...this.issues],
       errors: [...this.errors],
-      instances: [...this.units.values()].map((u) => ({
-        instance: u.instance,
-        active: u.alerting,
-        inUse: u.inUse,
-        input: inputState(u.last),
-        value: u.last?.available === true ? u.last.value : undefined,
-        limit: u.limit,
-        progress: u.detector?.progress(now),
-        gates: this.gateStatus(u),
-        adopted: u.adoptedAlert,
-        level: u.alerting ? u.level : undefined,
-        priority: u.alerting ? priorityOf(this.rule, u.level) : undefined,
-        inactive: u.inactive,
-        conditionPresent: u.present,
-        clearedFor: u.present || u.clearedAt === undefined ? undefined : now - u.clearedAt
-      }))
+      instances: [...this.units.values()].map((u) => {
+        const step = u.alerting ? (u.step ?? 0) : undefined
+        return {
+          instance: u.instance,
+          active: u.alerting,
+          inUse: u.inUse,
+          input: inputState(u.last),
+          value: u.last?.available === true ? u.last.value : undefined,
+          limit: u.steps.at(step ?? 0)?.limit,
+          progress: u.tracks.at(0)?.detector?.progress(now),
+          gates: this.gateStatus(u),
+          adopted: u.adoptedAlert,
+          step,
+          level: step === undefined ? undefined : this.levelAt(u, step),
+          priority: step === undefined ? undefined : this.reachedAt(u, step),
+          inactive: u.inactive,
+          conditionPresent: u.present,
+          clearedFor: u.present || u.clearedAt === undefined ? undefined : now - u.clearedAt
+        }
+      })
     }
   }
 
@@ -428,6 +470,25 @@ export class RuleEvaluator {
       : { input: inputState(unit.last), adopted: unit.adoptedAlert }
   }
 
+  /**
+   * What each active alert's emissions say after an edit applied in place:
+   * the reached priority, and the limit of the step at the alert's index only
+   * while that step has that priority. Otherwise it is not the step the alert
+   * reached: an edit inserted one ahead of it or lowered its priority, or core
+   * escalated an adopted alert by itself. Core then keeps the limit it holds
+   * until the next climb, so `data.limit` only names a step that set.
+   */
+  revisions(): { instance?: Instance; priority: Priority; limit?: number }[] {
+    return [...this.units.values()].flatMap((u) => {
+      if (!u.alerting) return []
+      const step = u.step ?? 0
+      const priority = this.reachedAt(u, step)
+      const own = u.steps.at(step)
+      const limit = own?.priority === priority ? own.limit : undefined
+      return [{ instance: u.instance, priority, limit }]
+    })
+  }
+
   private unit(key: string, instance?: Instance): Unit {
     let unit = this.units.get(key)
     if (unit === undefined) {
@@ -435,10 +496,12 @@ export class RuleEvaluator {
       unit = {
         key,
         instance,
-        levels: new Map(),
-        level: adopted ? zoneLimitOf(this.rule)?.level : undefined,
+        tracks: [],
+        steps: [],
+        step: adopted ? 0 : undefined,
         startActive: adopted,
         adoptedAlert: adopted,
+        reached: this.adopted.get(key),
         alerting: adopted,
         inUse: false,
         present: adopted
@@ -509,23 +572,38 @@ export class RuleEvaluator {
 
   private resolve(unit: Unit): Resolved {
     const d = this.rule.detector
-    if (d.type !== 'sustained' && d.type !== 'projection') return { ok: true, spec: d, levels: [] }
+    const zone = zoneLimitOf(this.rule)
+    if (zone === undefined || (d.type !== 'sustained' && d.type !== 'projection')) {
+      const steps = stepsOf(this.rule).flatMap((step, i) => {
+        const spec = stepSpec(d, i)
+        if (spec === undefined) return []
+        const limit =
+          spec.type === 'sustained' || spec.type === 'projection' ? spec.limit : undefined
+        return [{ priority: step.priority, spec, limit }]
+      })
+      return { ok: true, steps }
+    }
+    const { steps: _steps, limit: _zone, ...rest } = d
     const direction =
       d.type === 'sustained' ? d.direction : d.direction === 'rising' ? 'above' : 'below'
-    const zones = this.zones(d.limit, this.rule.signal, unit.instance)
-    const resolved = resolveLimit(d.limit, direction, zones)
+    const zones = this.zones(zone, this.rule.signal, unit.instance)
+    const resolved = resolveLimit(zone, direction, zones)
     if (!resolved.ok) return resolved
-    // Only a sustained rule escalates: a projection's detectors for more severe
-    // levels would share its horizon, so a steady trend would set them all at
-    // once and the first alert would name a level the value is nowhere near.
-    const levels =
-      d.type === 'sustained' && d.limit.kind === 'zone'
-        ? severerLevels(d.limit, direction, zones).map(({ level, value }) => ({
-            level,
-            spec: { ...d, limit: value }
-          }))
-        : []
-    return { ok: true, spec: { ...d, limit: resolved.value }, limit: resolved.value, levels }
+    // Only a sustained zone-limit rule escalates through levels: a
+    // projection's detectors for more severe levels would share its horizon,
+    // so a steady trend would set them all at once and the first alert would
+    // name a level the value is nowhere near.
+    const levels = [
+      { level: zone.level, value: resolved.value },
+      ...(rest.type === 'sustained' ? severerLevels(zone, direction, zones) : [])
+    ]
+    const steps = levels.map(({ level, value }) => ({
+      priority: LEVEL_PRIORITY[level],
+      spec: { ...rest, limit: value },
+      limit: value,
+      level
+    }))
+    return { ok: true, steps }
   }
 
   /** An angular combination of an input the server reports in units other than radians. */
@@ -582,81 +660,71 @@ export class RuleEvaluator {
       gates.find((g) => g.seen && g.issue !== undefined)?.issue ??
       (resolved.ok ? undefined : resolved.reason)
     unit.inactive = problem
-    unit.limit = resolved.ok ? resolved.limit : undefined
+    unit.steps = resolved.ok ? resolved.steps : []
+    // A step an edit or a zone change removed is no longer reached; the
+    // alert stays at the furthest step left, and core at its priority. An
+    // edit that raised the reached step's priority has reached core through
+    // the next emission, so it is reached too.
+    if (unit.step !== undefined) {
+      unit.step = Math.min(unit.step, Math.max(unit.steps.length - 1, 0))
+      if (unit.alerting) unit.reached = this.reachedAt(unit, unit.step)
+    }
 
     const gatesHold = gates.every((g) => this.holds(g, unit))
     if (problem !== undefined || !gatesHold || !resolved.ok) {
       unit.inUse = false
-      if (resolved.ok && resolved.spec.type === 'accumulator') {
-        this.drive(unit, resolved, now, feed)
+      if (resolved.ok && this.rule.detector.type === 'accumulator') {
+        this.drive(unit, resolved.steps, now, feed)
       } else {
-        unit.detector = undefined
+        unit.tracks = []
       }
-      unit.levels.clear()
       if (unit.alerting) this.clear(unit)
       return
     }
     unit.inUse = true
-    const transition = this.drive(unit, resolved, now, feed)
-    this.driveLevels(unit, resolved.levels, now, feed)
-    const detector = unit.detector
-    if (detector === undefined) return
-    if (transition === 'pulse') {
+    const transitions = this.drive(unit, resolved.steps, now, feed)
+    const pulsed = transitions.lastIndexOf('pulse')
+    if (pulsed >= 0) {
       // An event holds for a moment only: it has cleared again by now.
       this.recordCondition(unit, true, now)
       this.recordCondition(unit, false, now)
       if (!disabled && !unit.alerting) {
-        this.raise(unit, this.held(unit))
+        this.raise(unit, pulsed)
         this.clear(unit)
       }
       return
     }
-    this.recordCondition(unit, detector.active, now)
+    const furthest = unit.tracks.map((t) => t.detector?.active === true).lastIndexOf(true)
+    const active = furthest >= 0
+    this.recordCondition(unit, active, now)
     if (disabled) return
-    const level = this.held(unit)
-    if (detector.active && !unit.alerting) this.raise(unit, level)
-    else if (!detector.active && unit.alerting) this.clear(unit)
-    else if (unit.alerting && level !== unit.level) this.reprioritise(unit, level)
+    if (active && !unit.alerting) this.raise(unit, furthest)
+    else if (!active && unit.alerting) this.clear(unit)
+    else if (unit.alerting && furthest > (unit.step ?? 0)) this.escalate(unit, furthest)
   }
 
   /**
-   * The most severe zone level whose own detector is active, else the rule's
-   * own level; undefined for a rule without a zone limit.
+   * Creates, reconfigures and feeds the detector of each step, and returns
+   * their transitions. A step's condition holds at that step and beyond it,
+   * so the alert is active while any step's detector is. Only the first
+   * starts active for an adopted alert, which so holds the first step until a
+   * further one has been reached for the duration.
    */
-  private held(unit: Unit): ZoneLevel | undefined {
-    const own = zoneLimitOf(this.rule)?.level
-    if (own === undefined) return undefined
-    const entered = [...unit.levels]
-      .filter(([, track]) => track.detector?.active === true)
-      .map(([level]) => level)
-    return entered.reduce((most, level) => (severity(level) > severity(most) ? level : most), own)
-  }
-
-  /** Creates, reconfigures and feeds the unit's detector, and returns its transition. */
-  private drive(unit: Unit, resolved: Extract<Resolved, { ok: true }>, now: number, feed?: Sample) {
-    const options = {
-      start: now,
-      active: unit.startActive,
-      accumulated: this.carried.get(unit.key)
-    }
+  private drive(unit: Unit, steps: ResolvedStep[], now: number, feed?: Sample) {
+    unit.tracks = unit.tracks.slice(0, steps.length)
+    const transitions = steps.map((step, i) => {
+      const track = unit.tracks.at(i) ?? {}
+      unit.tracks[i] = track
+      const options = {
+        start: now,
+        active: i === 0 && unit.startActive,
+        // A step added later starts from the total the first step has reached.
+        accumulated: (i === 0 ? undefined : accumulatedOf(unit)) ?? this.carried.get(unit.key)
+      }
+      return this.run(track, step.spec, options, unit.last, now, feed)
+    })
     unit.startActive = false
-    return this.run(unit, resolved.spec, options, unit.last, now, feed)
-  }
-
-  /**
-   * Runs the detector of each zone level more severe than the rule's own.
-   * They start inactive, so an adopted alert holds the rule's own level until
-   * a more severe one has been entered for the duration.
-   */
-  private driveLevels(unit: Unit, levels: LevelSpec[], now: number, feed?: Sample): void {
-    for (const level of unit.levels.keys()) {
-      if (!levels.some((l) => l.level === level)) unit.levels.delete(level)
-    }
-    for (const { level, spec } of levels) {
-      const track = unit.levels.get(level) ?? {}
-      unit.levels.set(level, track)
-      this.run(track, spec, { start: now }, unit.last, now, feed)
-    }
+    return transitions
   }
 
   /** Creates, reconfigures and feeds a detector, and returns its transition. */
@@ -691,32 +759,62 @@ export class RuleEvaluator {
     unit.present = present
   }
 
-  private raise(unit: Unit, level: ZoneLevel | undefined): void {
+  // An adopted zone-limit alert whose zones are not yet readable has no
+  // resolved steps; it holds the rule's first.
+  private priorityAt(unit: Unit, step: number): Priority {
+    return unit.steps.at(step)?.priority ?? firstPriority(this.rule)
+  }
+
+  /** A step's priority, or the alert's reached one if that is more severe. */
+  private reachedAt(unit: Unit, step: number): Priority {
+    const priority = this.priorityAt(unit, step)
+    const reached = unit.reached
+    return reached !== undefined && severityOf(reached) > severityOf(priority) ? reached : priority
+  }
+
+  private levelAt(unit: Unit, step: number): ZoneLevel | undefined {
+    return unit.steps.at(step)?.level ?? (step === 0 ? zoneLimitOf(this.rule)?.level : undefined)
+  }
+
+  private raise(unit: Unit, step: number): void {
     unit.alerting = true
-    unit.level = level
+    unit.step = step
+    unit.reached = this.reachedAt(unit, step)
     const value = unit.last?.available === true ? unit.last.value : undefined
     this.onEvent({
       type: 'raise',
       instance: unit.instance,
-      priority: priorityOf(this.rule, level),
+      priority: unit.reached,
       rule: this.rule,
       value,
-      limit: unit.limit
+      limit: unit.steps.at(step)?.limit
     })
   }
 
-  private reprioritise(unit: Unit, level: ZoneLevel | undefined): void {
-    unit.level = level
+  /**
+   * A latching alert is raised again at the further step: core holds it
+   * without repeats, escalating it while it waits for acknowledgment and
+   * raising a new one after. Any other alert is sent at the step's priority.
+   */
+  private escalate(unit: Unit, step: number): void {
+    if (this.rule.latching === true) {
+      this.raise(unit, step)
+      return
+    }
+    unit.step = step
+    unit.reached = this.reachedAt(unit, step)
     this.onEvent({
       type: 'priority',
       instance: unit.instance,
-      priority: priorityOf(this.rule, level)
+      priority: unit.reached,
+      limit: unit.steps.at(step)?.limit
     })
   }
 
   private clear(unit: Unit): void {
     unit.alerting = false
-    unit.level = undefined
+    unit.step = undefined
+    unit.reached = undefined
     unit.startActive = false
     unit.adoptedAlert = false
     this.onEvent({ type: 'clear', instance: unit.instance })
@@ -726,6 +824,12 @@ export class RuleEvaluator {
   private totals(next: Rule): Map<string, number> {
     return carriesTotals(this.rule, next) ? this.accumulators() : new Map<string, number>()
   }
+}
+
+/** The total of an accumulator rule's first step, which every step shares. */
+function accumulatedOf(unit: Unit): number | undefined {
+  const detector = unit.tracks.at(0)?.detector
+  return detector instanceof AccumulatorDetector ? detector.accumulated : undefined
 }
 
 /** The measure of an accumulator rule; undefined for any other detector. */

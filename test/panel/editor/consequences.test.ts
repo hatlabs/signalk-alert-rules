@@ -31,6 +31,19 @@ describe('editConsequences', () => {
     ])
   })
 
+  it('names a switch between steps and a zone limit', () => {
+    const [line] = editConsequences(
+      preview({
+        restarts: true,
+        changes: ['detector.limit'],
+        activeAlerts: 1,
+        clearsActiveAlert: true
+      }),
+      []
+    )
+    expect(line).toContain('because its limit kind changed.')
+  })
+
   it('names a moved alert path in words', () => {
     const [line] = editConsequences(
       preview({

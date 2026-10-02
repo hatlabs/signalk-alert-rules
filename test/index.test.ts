@@ -14,9 +14,8 @@ const hours = {
   name: 'Engine hours',
   slug: 'engine-hours',
   message: 'Engine service due',
-  priority: 'caution',
   signal: { path: RPM },
-  detector: { type: 'accumulator', measure: 'time', limit: 180 }
+  detector: { type: 'accumulator', measure: 'time', steps: [{ limit: 180, priority: 'caution' }] }
 }
 
 let dir: string
@@ -195,7 +194,11 @@ describe('plugin', () => {
 
   it('runs and reports what it could not load', async () => {
     storeRule(hours)
-    storeRule({ ...hours, slug: 'genset-hours', priority: 'loud' })
+    storeRule({
+      ...hours,
+      slug: 'genset-hours',
+      detector: { ...hours.detector, steps: [{ limit: 180, priority: 'loud' }] }
+    })
     writeFileSync(join(dir, 'accumulators.json'), '{')
     const app = new MockServerAPI(true, dir)
     const plugin = createPlugin(app.asServerAPI())
@@ -369,7 +372,11 @@ describe('plugin', () => {
 
   it('logs a failing checkpoint once and restores the status when the disk recovers', async () => {
     storeRule(hours)
-    storeRule({ ...hours, slug: 'genset-hours', priority: 'loud' })
+    storeRule({
+      ...hours,
+      slug: 'genset-hours',
+      detector: { ...hours.detector, steps: [{ limit: 180, priority: 'loud' }] }
+    })
     const app = new MockServerAPI(true, dir)
     const plugin = createPlugin(app.asServerAPI())
     plugin.start({}, () => undefined)

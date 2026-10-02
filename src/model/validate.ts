@@ -3,12 +3,15 @@ import Value from 'typebox/value'
 import {
   DISCRIMINATOR_KEY,
   PATTERN_MESSAGE_KEY,
+  PRIORITIES,
+  severityOf,
   RuleSchema,
   type CombinatorKind,
   type Event,
   type Limit,
   type Rule,
   type Signal,
+  type Step,
   zoneLimitOf
 } from './rule.js'
 import { wildcards } from '../alerts/paths.js'
@@ -331,16 +334,16 @@ function eventErrors(event: Event, at: string): ValidationError[] {
   return valueRequired(event.op, event.value !== undefined, event.op === 'changesTo', at)
 }
 
+const STEPS_AT = '/detector/steps'
+
 function detectorErrors(rule: Rule, wildcard: string | undefined): ValidationError[] {
   const d = rule.detector
   const at = '/detector'
   switch (d.type) {
     case 'match': {
-      const errors = valueRequired(
-        d.op,
-        d.value !== undefined,
-        ['equals', 'notEquals', 'changesTo'].includes(d.op),
-        at
+      const takesValue = ['equals', 'notEquals', 'changesTo'].includes(d.op)
+      const errors = d.steps.flatMap((step, i) =>
+        valueRequired(d.op, step.value !== undefined, takesValue, pointer(STEPS_AT, i))
       )
       if (d.duration !== undefined && (d.op === 'changesTo' || d.op === 'decreases')) {
         errors.push({
@@ -353,7 +356,9 @@ function detectorErrors(rule: Rule, wildcard: string | undefined): ValidationErr
     }
     case 'sustained':
     case 'projection':
-      return limitErrors(d.limit, rule.signal, pointer(at, 'limit'), wildcard)
+      return d.limit === undefined
+        ? []
+        : limitErrors(d.limit, rule.signal, pointer(at, 'limit'), wildcard)
     case 'accumulator': {
       const errors = d.resetOn ? eventErrors(d.resetOn, pointer(at, 'resetOn')) : []
       if (
@@ -404,23 +409,104 @@ function timeoutTypeErrors(rule: Rule, ctx: ValidationContext): ValidationError[
   return []
 }
 
-// A zone-limit rule's priority comes from its zone levels rather than from the
-// rule: a sustained rule escalates through them, a projection keeps the level
-// it names.
-function priorityErrors(rule: Rule): ValidationError[] {
+// A zone-limit rule's steps, and so its priorities, come from its zone levels:
+// a sustained rule escalates through them, a projection keeps the level it
+// names.
+function stepErrors(rule: Rule): ValidationError[] {
+  const d = rule.detector
   const zoned = zoneLimitOf(rule) !== undefined
-  if (zoned && rule.priority !== undefined) {
+  if (zoned) {
+    return d.steps === undefined
+      ? []
+      : [{ path: STEPS_AT, message: 'a rule has steps or a zone limit, never both' }]
+  }
+  if (d.steps === undefined || d.steps.length === 0) {
+    const zonable = d.type === 'sustained' || d.type === 'projection'
+    const message = zonable
+      ? 'a rule needs at least one step or a zone limit'
+      : 'a rule needs at least one step'
+    return [{ path: STEPS_AT, message }]
+  }
+  return stepOrderErrors(d)
+}
+
+/** At most one step per priority: caution, warning, alarm and emergency. */
+const MAX_STEPS = PRIORITIES.length
+
+// Matches with more than one step: a different value can be worse. The other
+// operators have no worse kind of their condition, so an alert that lasts is
+// core's to escalate when left unacknowledged.
+const STEPPED_MATCHES: ReadonlySet<string> = new Set(['equals', 'changesTo'])
+
+// A later step is a worse condition than an earlier one: more severe, and
+// further from normal, so reaching it implies having passed the earlier one.
+function stepOrderErrors(d: Rule['detector']): ValidationError[] {
+  const steps: readonly Step[] = d.steps ?? []
+  if (steps.length > MAX_STEPS) {
     return [
       {
-        path: '/priority',
-        message: 'a zone-limit rule takes its priority from the zone level it is in'
+        path: pointer(STEPS_AT, MAX_STEPS),
+        message: `a rule has at most ${String(MAX_STEPS)} steps, one per priority`
       }
     ]
   }
-  if (!zoned && rule.priority === undefined) {
-    return [{ path: '/priority', message: 'a rule without a zone limit needs a priority' }]
+  if (d.type === 'match' && !STEPPED_MATCHES.has(d.op) && steps.length > 1) {
+    return [{ path: pointer(STEPS_AT, 1), message: `a ${d.op} match takes one step` }]
   }
-  return []
+  return steps.slice(1).flatMap((step, i) => {
+    const previous = steps[i]
+    const at = pointer(STEPS_AT, i + 1)
+    const errors: ValidationError[] = []
+    if (severityOf(step.priority) <= severityOf(previous.priority)) {
+      errors.push({
+        path: pointer(at, 'priority'),
+        message: `must be more severe than the previous step's ${previous.priority}`
+      })
+    }
+    const beyond = beyondError(d, steps.slice(0, i + 1), step)
+    if (beyond !== undefined) {
+      errors.push({ path: pointer(at, beyond.field), message: beyond.message })
+    }
+    return errors
+  })
+}
+
+type BeyondError = { field: string; message: string } | undefined
+
+function beyondError(d: Rule['detector'], earlier: readonly Step[], step: Step): BeyondError {
+  const previous = earlier.at(-1)
+  switch (d.type) {
+    case 'match': {
+      const value = 'value' in step ? step.value : undefined
+      return earlier.some((s) => 'value' in s && s.value === value)
+        ? { field: 'value', message: 'repeats an earlier step' }
+        : undefined
+    }
+    case 'absence':
+      return previous !== undefined &&
+        'within' in previous &&
+        'within' in step &&
+        step.within <= previous.within
+        ? { field: 'within', message: "must be longer than the previous step's" }
+        : undefined
+    case 'sustained':
+      return limitBeyondError(previous, step, d.direction === 'above')
+    case 'projection':
+      return limitBeyondError(previous, step, d.direction === 'rising')
+    case 'slope':
+    case 'accumulator':
+    case 'count':
+      return limitBeyondError(previous, step, true)
+  }
+}
+
+/** A limit moves away from normal: up for a rising condition, down for a falling one. */
+function limitBeyondError(previous: Step | undefined, step: Step, up: boolean): BeyondError {
+  if (previous === undefined || !('limit' in previous) || !('limit' in step)) return undefined
+  const moves = up ? step.limit > previous.limit : step.limit < previous.limit
+  return moves
+    ? undefined
+    : { field: 'limit', message: `must be ${up ? 'above' : 'below'} the previous step's limit` }
 }
 
 // A latching rule holds no alert across a restart, so its condition must be
@@ -449,7 +535,7 @@ function semanticErrors(rule: Rule, ctx: ValidationContext): ValidationError[] {
 
   const errors = [
     ...signalErrors(rule.signal, '/signal', undefined, ctx),
-    ...priorityErrors(rule),
+    ...stepErrors(rule),
     ...latchingErrors(rule),
     ...detectorErrors(rule, bound),
     ...timeoutTypeErrors(rule, ctx)

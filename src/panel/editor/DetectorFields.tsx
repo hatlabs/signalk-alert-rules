@@ -1,8 +1,9 @@
 import { PathPicker } from '../paths/PathPicker'
 import type { PathList, Zone } from '../paths/selfPaths'
-import { formatValue } from '../rules/describe'
+import type { Step } from '../../model/rule'
+import { formatDuration, formatNumber, formatValue } from '../rules/describe'
 import type { Measure, UnitLookup } from '../signalUnits'
-import { unitLabel } from '../units'
+import { fromSI, unitLabel } from '../units'
 import {
   CheckField,
   DurationInput,
@@ -15,6 +16,7 @@ import {
 } from './fields'
 import {
   canLatch,
+  FIRST_STEP,
   matchTakesDuration,
   matchTakesValue,
   ZONE_LEVEL_NAMES,
@@ -286,6 +288,8 @@ function zoneText(zone: Zone, measure: Measure): string {
 interface LimitProps {
   label: string
   at: string
+  /** Where a fixed limit's value is stored; a rule's detector keeps it in its first step. */
+  valuePointer?: string
   limit: LimitForm
   onChange: (limit: LimitForm) => void
   measure: Measure
@@ -299,6 +303,7 @@ interface LimitProps {
 export function LimitFields({
   label,
   at,
+  valuePointer = `${at}/value`,
   limit,
   onChange,
   measure,
@@ -324,7 +329,7 @@ export function LimitFields({
       {limit.kind === 'fixed' ? (
         <TextField
           label={label}
-          pointer={`${at}/value`}
+          pointer={valuePointer}
           value={limit.value}
           numeric
           unit={unitLabels(measure).value}
@@ -363,6 +368,67 @@ export function LimitFields({
   )
 }
 
+/** A step's condition in words, numbers in the display unit of the signal. */
+function stepCondition(d: DetectorForm, step: Step, measure: Measure): string {
+  if ('value' in step)
+    return step.value === undefined ? '' : `on ${formatValue(step.value, measure)}`
+  if ('within' in step) return `after ${formatDuration(step.within)} without the event`
+  if (!('limit' in step)) return ''
+  const labels = unitLabels(measure)
+  const shown = (kind: 'slope' | 'interval' | 'ratio') =>
+    formatNumber(fromSI(kind, step.limit, measure.unit))
+  switch (d.type) {
+    case 'sustained':
+      return `${d.direction} ${formatValue(step.limit, measure)}`
+    case 'projection':
+      return `when projected to reach ${formatValue(step.limit, measure)}`
+    case 'slope':
+      return `${d.trend} faster than ${shown('slope')} ${labels.slope}`
+    case 'accumulator':
+      return d.measure === 'time'
+        ? `at a total of ${formatDuration(step.limit)}`
+        : `at a total of ${shown(measure.kind === 'ratio' ? 'ratio' : 'interval')} ${labels.integral}`
+    case 'count':
+      return `above ${String(step.limit)} events`
+    default:
+      return formatValue(step.limit, measure)
+  }
+}
+
+/**
+ * The steps after the first, which the editor cannot show as fields yet and
+ * saving keeps as they are: a user changing the first step's limit sees what
+ * the rule goes on to, and whether it still fits.
+ */
+export function LaterStepsNotice({
+  detector,
+  steps,
+  measure
+}: {
+  detector: DetectorForm
+  steps: readonly Step[]
+  measure: Measure
+}) {
+  if (steps.length === 0) return null
+  return (
+    <div className="form-text">
+      <p className="mb-1">
+        This rule has further steps, which the editor cannot change yet. Saving keeps them as they
+        are:
+      </p>
+      <ul className="mb-0">
+        {steps.map((step) => (
+          <li key={step.priority}>
+            {['Then', step.priority, stepCondition(detector, step, measure)]
+              .filter((part) => part !== '')
+              .join(' ')}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 export function LimitSectionFields({
   detector: d,
   update,
@@ -377,7 +443,7 @@ export function LimitSectionFields({
       return matchTakesValue(d.matchOp) ? (
         <ValueInput
           label="Value"
-          pointer="/detector/value"
+          pointer={`${FIRST_STEP}/value`}
           value={d.matchValue}
           unit={labels.value}
           onChange={(matchValue) => {
@@ -391,6 +457,7 @@ export function LimitSectionFields({
         <LimitFields
           label="Limit"
           at="/detector/limit"
+          valuePointer={`${FIRST_STEP}/limit`}
           limit={d.limit}
           measure={measure}
           signalPath={signalPath}
@@ -405,7 +472,7 @@ export function LimitSectionFields({
       return (
         <TextField
           label="Faster than"
-          pointer="/detector/limit"
+          pointer={`${FIRST_STEP}/limit`}
           value={d.slopeLimit}
           numeric
           unit={labels.slope}
@@ -418,7 +485,7 @@ export function LimitSectionFields({
       return d.measure === 'time' ? (
         <DurationInput
           label="Alert at a total of"
-          pointer="/detector/limit"
+          pointer={`${FIRST_STEP}/limit`}
           value={d.timeLimit}
           onChange={(timeLimit) => {
             update({ timeLimit })
@@ -427,7 +494,7 @@ export function LimitSectionFields({
       ) : (
         <TextField
           label="Alert at a total of"
-          pointer="/detector/limit"
+          pointer={`${FIRST_STEP}/limit`}
           value={d.integralLimit}
           numeric
           unit={labels.integral}
@@ -440,7 +507,7 @@ export function LimitSectionFields({
       return (
         <TextField
           label="More events than"
-          pointer="/detector/limit"
+          pointer={`${FIRST_STEP}/limit`}
           value={d.countLimit}
           numeric
           onChange={(countLimit) => {
@@ -504,7 +571,7 @@ export function TimingFields({ detector: d, update }: DetectorFieldsProps) {
       return (
         <DurationInput
           label="Missing for"
-          pointer="/detector/within"
+          pointer={`${FIRST_STEP}/within`}
           value={d.within}
           onChange={(within) => {
             update({ within })

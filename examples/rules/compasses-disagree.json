@@ -3,7 +3,6 @@
   "slug": "compasses-disagree",
   "condition": "compassesDisagree",
   "message": "Compass headings disagree",
-  "priority": "caution",
   "signal": {
     "combinator": "absDifference",
     "angular": true,
@@ -21,10 +20,12 @@
   "detector": {
     "type": "sustained",
     "direction": "above",
-    "limit": {
-      "kind": "fixed",
-      "value": 0.1
-    },
+    "steps": [
+      {
+        "limit": 0.1,
+        "priority": "caution"
+      }
+    ],
     "duration": 60
   }
 }

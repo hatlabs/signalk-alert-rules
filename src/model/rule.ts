@@ -1,4 +1,4 @@
-import Type, { type Static, type TNumberOptions } from 'typebox'
+import Type, { type Static, type TNumberOptions, type TProperties } from 'typebox'
 import { MAX_ALERT_PATH_LENGTH, SEGMENT_CHARS } from '../alerts/paths.js'
 
 export const MAX_DURATION_S = 24 * 3600
@@ -56,6 +56,12 @@ export type CombinatorKind = (typeof COMBINATORS)[number]
 
 export const PRIORITIES = ['emergency', 'alarm', 'warning', 'caution'] as const
 export type Priority = (typeof PRIORITIES)[number]
+
+/** A priority's severity: a more severe priority ranks higher. */
+export function severityOf(priority: Priority): number {
+  // PRIORITIES lists the most severe first.
+  return PRIORITIES.length - PRIORITIES.indexOf(priority)
+}
 
 /** The `meta.zones` states that raise an alert; normal and nominal raise nothing. */
 export const ZONE_LEVELS = ['alert', 'warn', 'alarm', 'emergency'] as const
@@ -119,29 +125,46 @@ const SignalSchema = Type.Union([PathInputSchema, CombinatorSchema], {
   [DISCRIMINATOR_KEY]: 'combinator'
 })
 
+const ZoneLimitSchema = Type.Object(
+  {
+    kind: Type.Literal('zone'),
+    level: Type.Enum(ZONE_LEVELS),
+    path: Type.Optional(PathSchema)
+  },
+  closed
+)
+
 const LimitSchema = Type.Union(
-  [
-    Type.Object({ kind: Type.Literal('fixed'), value: num('absolute') }, closed),
-    Type.Object(
-      {
-        kind: Type.Literal('zone'),
-        level: Type.Enum(ZONE_LEVELS),
-        path: Type.Optional(PathSchema)
-      },
-      closed
-    )
-  ],
+  [Type.Object({ kind: Type.Literal('fixed'), value: num('absolute') }, closed), ZoneLimitSchema],
   { [DISCRIMINATOR_KEY]: 'kind' }
 )
 
+const PrioritySchema = Type.Enum(PRIORITIES)
+
+/**
+ * A rule's steps, in the order the alert climbs them: each holds the
+ * detector's kind of limit and the priority the alert has once the condition
+ * reaches it. The bounds and the ordering are checked with the rest of the
+ * rule, so that each error points at the step that breaks them.
+ */
+const stepArray = <P extends TProperties>(limit: P) =>
+  Type.Array(Type.Object({ ...limit, priority: PrioritySchema }, closed))
+
 const ValueSchema = Type.Union([num('absolute'), Type.String(), Type.Boolean()])
 
-const comparisonFields = {
-  direction: Type.Enum(['above', 'below']),
-  limit: LimitSchema,
+const timingFields = {
   duration: Type.Optional(duration()),
   hysteresis: Type.Optional(nonNegative('interval')),
   clearDuration: Type.Optional(duration())
+}
+
+/**
+ * A value limit's steps, or the steps the path's `meta.zones` give from a
+ * zone level upwards; a rule has one or the other.
+ */
+const valueLimitFields = {
+  steps: Type.Optional(stepArray({ limit: num('absolute') })),
+  limit: Type.Optional(ZoneLimitSchema)
 }
 
 const StateConditionSchema = Type.Object(
@@ -160,18 +183,26 @@ const DetectorSchema = Type.Union(
       {
         type: Type.Literal('match'),
         op: Type.Enum(['equals', 'notEquals', 'changesTo', 'decreases', 'timedOut']),
-        value: Type.Optional(ValueSchema),
+        steps: stepArray({ value: Type.Optional(ValueSchema) }),
         duration: Type.Optional(duration())
       },
       closed
     ),
-    Type.Object({ type: Type.Literal('sustained'), ...comparisonFields }, closed),
+    Type.Object(
+      {
+        type: Type.Literal('sustained'),
+        direction: Type.Enum(['above', 'below']),
+        ...valueLimitFields,
+        ...timingFields
+      },
+      closed
+    ),
     Type.Object(
       {
         type: Type.Literal('slope'),
         direction: Type.Enum(['rising', 'falling']),
         window: timeWindow(),
-        limit: num('interval', { exclusiveMinimum: 0 })
+        steps: stepArray({ limit: num('interval', { exclusiveMinimum: 0 }) })
       },
       closed
     ),
@@ -179,7 +210,7 @@ const DetectorSchema = Type.Union(
       {
         type: Type.Literal('projection'),
         direction: Type.Enum(['rising', 'falling']),
-        limit: LimitSchema,
+        ...valueLimitFields,
         window: timeWindow(),
         horizon: timeWindow()
       },
@@ -191,7 +222,7 @@ const DetectorSchema = Type.Union(
         measure: Type.Enum(['time', 'integral']),
         while: Type.Optional(StateConditionSchema),
         resetOn: Type.Optional(EventSchema),
-        limit: num('accumulated', { exclusiveMinimum: 0 })
+        steps: stepArray({ limit: num('accumulated', { exclusiveMinimum: 0 }) })
       },
       closed
     ),
@@ -200,16 +231,32 @@ const DetectorSchema = Type.Union(
         type: Type.Literal('count'),
         event: EventSchema,
         window: timeWindow(),
-        limit: num('count', { minimum: 1, multipleOf: 1 })
+        steps: stepArray({ limit: num('count', { minimum: 1, multipleOf: 1 }) })
       },
       closed
     ),
-    Type.Object({ type: Type.Literal('absence'), event: EventSchema, within: timeWindow() }, closed)
+    Type.Object(
+      {
+        type: Type.Literal('absence'),
+        event: EventSchema,
+        steps: stepArray({ within: timeWindow() })
+      },
+      closed
+    )
   ],
   { [DISCRIMINATOR_KEY]: 'type' }
 )
 
-const GateSchema = Type.Object({ signal: SignalSchema, ...comparisonFields }, closed)
+// A gate is a plain condition: one limit, no steps.
+const GateSchema = Type.Object(
+  {
+    signal: SignalSchema,
+    direction: Type.Enum(['above', 'below']),
+    limit: LimitSchema,
+    ...timingFields
+  },
+  closed
+)
 
 // The pattern alone requires a character, so an empty instance gets one error.
 const InstancePickSchema = Type.String({
@@ -252,8 +299,6 @@ export const RuleSchema = Type.Object(
      */
     condition: Type.Optional(conditionSchema()),
     message: Type.String({ minLength: 1, maxLength: 500 }),
-    /** Required unless the detector has a zone limit, whose levels set the priority. */
-    priority: Type.Optional(Type.Enum(PRIORITIES)),
     /**
      * Accepted only on detectors whose condition is an event: a count, or a
      * `changesTo` or `decreases` match. Each time the condition becomes
@@ -287,24 +332,31 @@ export type Event = Static<typeof EventSchema>
 export type TemplateRecord = Static<typeof TemplateRecordSchema>
 export type TemplatePick = TemplateRecord['pick']
 
-export type ZoneLimit = Extract<Limit, { kind: 'zone' }>
+export type ZoneLimit = Static<typeof ZoneLimitSchema>
+
+/** A rule's step: the detector's kind of limit and the priority it raises at. */
+export type Step = NonNullable<Extract<Detector, { steps?: unknown }>['steps']>[number]
 
 /** The zone limit of the rule's detector; a gate's zone limit does not count. */
 export function zoneLimitOf(rule: Pick<Rule, 'detector'>): ZoneLimit | undefined {
   const d = rule.detector
-  if (d.type !== 'sustained' && d.type !== 'projection') return undefined
-  return d.limit.kind === 'zone' ? d.limit : undefined
+  return d.type === 'sustained' || d.type === 'projection' ? d.limit : undefined
 }
 
 /**
- * The priority of a rule's alert while it holds a zone level, or while it
- * holds its own level when none is given. A rule without a zone limit has one
- * priority.
+ * The steps a rule stores; empty for a zone-limit rule, whose steps come from
+ * the path's zones.
  */
-export function priorityOf(rule: Rule, level?: ZoneLevel): Priority {
-  const held = level ?? zoneLimitOf(rule)?.level
-  if (held !== undefined) return LEVEL_PRIORITY[held]
-  // Validation requires a priority on every rule without a zone limit.
-  if (rule.priority === undefined) throw new Error(`rule ${rule.slug} has no priority`)
-  return rule.priority
+export function stepsOf(rule: Pick<Rule, 'detector'>): readonly Step[] {
+  return rule.detector.steps ?? []
+}
+
+/** The priority an alert is raised at when the condition reaches only the first step. */
+export function firstPriority(rule: Pick<Rule, 'detector' | 'slug'>): Priority {
+  const zone = zoneLimitOf(rule)
+  if (zone !== undefined) return LEVEL_PRIORITY[zone.level]
+  // Validation requires a zone limit or at least one step.
+  const first = stepsOf(rule).at(0)
+  if (first === undefined) throw new Error(`rule ${rule.slug} has no steps`)
+  return first.priority
 }

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import type { PathValueState, Value } from '@signalk/server-api'
 import {
   RuleEvaluator,
+  structuralChanges,
   type Adopted,
   type PathMeta,
   type RuleEvent,
@@ -113,6 +114,26 @@ describe('zone limits', () => {
     detector: { ...batteryLow.detector, hysteresis: 0.1, clearDuration: 10 }
   })
 
+  it("an adopted alert keeps core's priority at its named level until the value enters a severer one", () => {
+    const { at, events, meta, evaluator } = setup(escalating, { adopted: [{ priority: 'alarm' }] })
+    at(0)
+    expect(evaluator.status().instances[0]).toMatchObject({ step: 0, priority: 'alarm' })
+    meta.set(VOLTAGE, { zones: batteryZones })
+    at(1, VOLTAGE, 11.7)
+    expect(events).toEqual([])
+    expect(evaluator.status().instances[0]).toMatchObject({
+      step: 0,
+      level: 'warn',
+      priority: 'alarm'
+    })
+    at(2, VOLTAGE, 11.4)
+    at(32)
+    expect(events).toEqual([
+      { type: 'priority', instance: undefined, priority: 'alarm', limit: 11.5 }
+    ])
+    expect(evaluator.status().instances[0]).toMatchObject({ step: 1, level: 'alarm' })
+  })
+
   it('entering warn raises at warning, and entering alarm while active escalates the same alert', () => {
     const { at, log, events, evaluator } = setup(escalating, zoned)
     at(0, VOLTAGE, 11.8)
@@ -129,7 +150,7 @@ describe('zone limits', () => {
     expect(evaluator.status().instances[0]).toMatchObject({ level: 'alarm', priority: 'alarm' })
   })
 
-  it('falling from alarm back to warn reports warning, and the condition ends only when warn clears', () => {
+  it('falling from alarm back to warn stays at alarm, and the condition ends only when warn clears', () => {
     const { at, log, evaluator } = setup(escalating, zoned)
     at(0, VOLTAGE, 11.3)
     at(30)
@@ -137,14 +158,17 @@ describe('zone limits', () => {
     at(100)
     at(110, VOLTAGE, 11.8)
     at(120)
-    expect(evaluator.status().instances[0]).toMatchObject({ active: true, level: 'warn' })
+    expect(evaluator.status().instances[0]).toMatchObject({
+      active: true,
+      level: 'alarm',
+      priority: 'alarm'
+    })
     at(130, VOLTAGE, 12.05)
     at(200)
     at(210, VOLTAGE, 12.2)
     at(220)
     expect(log).toEqual([
       [30, 'raise', '', 'alarm'],
-      [120, 'priority', '', 'warning'],
       [220, 'clear', '']
     ])
     expect(evaluator.status().instances[0]).toMatchObject({ active: false })
@@ -212,17 +236,14 @@ describe('zone limits', () => {
     ])
   })
 
-  it('a zone edit that removes the held more severe level returns the alert to its named level', () => {
+  it('a zone edit that removes the held more severe level reports the named level at the priority reached, and sends nothing', () => {
     const { at, log, meta, evaluator } = setup(escalating, zoned)
     at(0, VOLTAGE, 11.3)
     at(30)
     meta.set(VOLTAGE, { zones: [{ upper: 12, state: 'warn' }] })
     at(31)
-    expect(log).toEqual([
-      [30, 'raise', '', 'alarm'],
-      [31, 'priority', '', 'warning']
-    ])
-    expect(evaluator.status().instances[0]).toMatchObject({ level: 'warn', priority: 'warning' })
+    expect(log).toEqual([[30, 'raise', '', 'alarm']])
+    expect(evaluator.status().instances[0]).toMatchObject({ level: 'warn', priority: 'alarm' })
   })
 
   describe('an edit of the named level clears and restarts', () => {
@@ -365,6 +386,320 @@ describe('zone limits', () => {
     expect(log).toEqual([[600, 'raise', '', 'caution']])
     expect(evaluator.status().instances[0]).toMatchObject({ level: 'alert', priority: 'caution' })
   })
+
+  it('a projection with typed steps raises at the furthest step the trend reaches', () => {
+    const LEVEL = 'tanks.freshWater.0.currentLevel'
+    const rule = valid({
+      name: 'Fresh water running out',
+      slug: 'fresh-water-running-out',
+      message: 'Fresh water tank will be empty soon',
+      signal: { path: LEVEL },
+      detector: {
+        type: 'projection',
+        direction: 'falling',
+        steps: [
+          { limit: 0.2, priority: 'caution' },
+          { limit: 0.1, priority: 'alarm' }
+        ],
+        window: 600,
+        horizon: 3600
+      }
+    })
+    const { at, log, evaluator } = setup(rule)
+    for (let t = 0; t <= 1200; t += 10) at(t, LEVEL, 0.3 - t / 6000)
+    expect(log).toEqual([[600, 'raise', '', 'alarm']])
+    expect(evaluator.status().instances[0]).toMatchObject({ step: 1, limit: 0.1 })
+  })
+})
+
+describe('escalation steps', () => {
+  const voltageLow = valid({
+    name: 'House voltage low',
+    slug: 'house-voltage-low',
+    message: 'House voltage is low',
+    signal: { path: VOLTAGE },
+    detector: {
+      type: 'sustained',
+      direction: 'below',
+      steps: [
+        { limit: 12.2, priority: 'warning' },
+        { limit: 11.8, priority: 'alarm' }
+      ],
+      duration: 30,
+      hysteresis: 0.1,
+      clearDuration: 10
+    }
+  })
+
+  it("an adopted alert stays at the first step at core's priority until a further step holds", () => {
+    const { at, events, evaluator } = setup(voltageLow, { adopted: [{ priority: 'alarm' }] })
+    at(0, VOLTAGE, 12)
+    at(60)
+    expect(events).toEqual([])
+    expect(evaluator.status().instances[0]).toMatchObject({
+      active: true,
+      step: 0,
+      priority: 'alarm'
+    })
+    expect(evaluator.revisions()).toEqual([{ instance: undefined, priority: 'alarm' }])
+    at(70, VOLTAGE, 11.7)
+    at(100)
+    expect(events).toEqual([
+      { type: 'priority', instance: undefined, priority: 'alarm', limit: 11.8 }
+    ])
+    expect(evaluator.status().instances[0]).toMatchObject({ step: 1, limit: 11.8 })
+  })
+
+  it('raises at the first step, escalates at the second, keeps alarm between them and clears past the first', () => {
+    const { at, log, evaluator } = setup(voltageLow)
+    at(0, VOLTAGE, 12.6)
+    at(10, VOLTAGE, 12)
+    at(40)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      step: 0,
+      priority: 'warning',
+      limit: 12.2
+    })
+    at(50, VOLTAGE, 11.7)
+    at(80)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      step: 1,
+      priority: 'alarm',
+      limit: 11.8
+    })
+    at(90, VOLTAGE, 12)
+    at(200)
+    expect(evaluator.status().instances[0]).toMatchObject({
+      active: true,
+      step: 1,
+      priority: 'alarm'
+    })
+    at(210, VOLTAGE, 12.25)
+    at(300)
+    at(310, VOLTAGE, 12.4)
+    at(320)
+    expect(log).toEqual([
+      [40, 'raise', '', 'warning'],
+      [80, 'priority', '', 'alarm'],
+      [320, 'clear', '']
+    ])
+    expect(evaluator.status().instances[0]?.step).toBeUndefined()
+  })
+
+  it('a dip past the second step shorter than the duration does not escalate', () => {
+    const { at, log } = setup(voltageLow)
+    at(0, VOLTAGE, 12)
+    at(30)
+    at(40, VOLTAGE, 11.7)
+    at(69, VOLTAGE, 12)
+    at(200)
+    expect(log).toEqual([[30, 'raise', '', 'warning']])
+  })
+
+  it('a value past both steps at once raises at the second, with its limit', () => {
+    const { at, log, events } = setup(voltageLow)
+    at(0, VOLTAGE, 12.6)
+    at(10, VOLTAGE, 11.5)
+    at(40)
+    expect(log).toEqual([[40, 'raise', '', 'alarm']])
+    expect(events[0]).toMatchObject({ type: 'raise', limit: 11.8 })
+  })
+
+  it('an adopted alert holds the first step until a further one has been reached', () => {
+    const { at, log, evaluator } = setup(voltageLow, { adopted: [{}] })
+    expect(evaluator.status().instances[0]).toMatchObject({ active: true, step: 0 })
+    at(0, VOLTAGE, 11.5)
+    at(30)
+    expect(log).toEqual([[30, 'priority', '', 'alarm']])
+  })
+
+  it('a latching count raises again at the step it climbs to', () => {
+    const PUMP = 'electrical.switches.bilgePump.state'
+    const rule = valid({
+      name: 'Bilge pump cycling',
+      slug: 'bilge-pump-cycling',
+      message: 'Bilge pump is cycling',
+      latching: true,
+      signal: { path: PUMP },
+      detector: {
+        type: 'count',
+        event: { op: 'changesTo', value: true },
+        window: 86400,
+        steps: [
+          { limit: 2, priority: 'warning' },
+          { limit: 5, priority: 'alarm' }
+        ]
+      }
+    })
+    const { at, log } = setup(rule)
+    at(0, PUMP, false)
+    for (let start = 1; start <= 6; start++) {
+      at(start * 100, PUMP, true)
+      at(start * 100 + 50, PUMP, false)
+    }
+    expect(log).toEqual([
+      [300, 'raise', '', 'warning'],
+      [600, 'raise', '', 'alarm']
+    ])
+  })
+
+  describe('a match', () => {
+    const STATE = 'electrical.inverters.main.state'
+    const inverter = (op: string) =>
+      valid({
+        name: 'Inverter fault',
+        slug: 'inverter-fault',
+        message: 'Inverter fault',
+        signal: { path: STATE },
+        detector: {
+          type: 'match',
+          op,
+          steps: [
+            { value: 'fault', priority: 'warning' },
+            { value: 'critical', priority: 'alarm' }
+          ]
+        }
+      })
+
+    it('escalates on the second value, stays there on the first and clears on neither', () => {
+      const { at, log, evaluator } = setup(inverter('equals'))
+      at(0, STATE, 'ok')
+      at(10, STATE, 'fault')
+      at(20, STATE, 'critical')
+      at(30, STATE, 'fault')
+      expect(evaluator.status().instances[0]).toMatchObject({ step: 1, priority: 'alarm' })
+      at(40, STATE, 'ok')
+      expect(log).toEqual([
+        [10, 'raise', '', 'warning'],
+        [20, 'priority', '', 'alarm'],
+        [40, 'clear', '']
+      ])
+    })
+
+    it('raises a change to each value at its step', () => {
+      const { at, log } = setup(inverter('changesTo'))
+      at(0, STATE, 'ok')
+      at(10, STATE, 'fault')
+      at(20, STATE, 'critical')
+      expect(log).toEqual([
+        [10, 'raise', '', 'warning'],
+        [10, 'clear', ''],
+        [20, 'raise', '', 'alarm'],
+        [20, 'clear', '']
+      ])
+    })
+  })
+
+  it('an absence escalates at the longer window and clears at the event', () => {
+    const HEARTBEAT = 'notifications.watch.acknowledged'
+    const rule = valid({
+      name: 'Watch not acknowledged',
+      slug: 'watch-not-acknowledged',
+      message: 'Watch not acknowledged',
+      signal: { path: HEARTBEAT },
+      condition: 'notAcknowledged',
+      detector: {
+        type: 'absence',
+        event: { op: 'changes' },
+        steps: [
+          { within: 600, priority: 'warning' },
+          { within: 1800, priority: 'alarm' }
+        ]
+      }
+    })
+    const { at, log } = setup(rule)
+    at(0, HEARTBEAT, 1)
+    at(600)
+    at(1800)
+    at(1900, HEARTBEAT, 2)
+    expect(log).toEqual([
+      [600, 'raise', '', 'warning'],
+      [1800, 'priority', '', 'alarm'],
+      [1900, 'clear', '']
+    ])
+  })
+
+  describe('edits', () => {
+    const withSteps = (...steps: [number, string][]) =>
+      valid({
+        ...voltageLow,
+        detector: {
+          ...voltageLow.detector,
+          steps: steps.map(([limit, priority]) => ({ limit, priority }))
+        }
+      })
+
+    it('adds a step in place; the alert climbs to it once it has held for the duration', () => {
+      const { at, log, evaluator } = setup(withSteps([12.2, 'warning']))
+      at(0, VOLTAGE, 11.7)
+      at(30)
+      evaluator.update(withSteps([12.2, 'warning'], [11.8, 'alarm']))
+      at(59)
+      at(60)
+      expect(log).toEqual([
+        [30, 'raise', '', 'warning'],
+        [60, 'priority', '', 'alarm']
+      ])
+    })
+
+    it('re-evaluates step limits, priorities and added or removed steps in place', () => {
+      expect(
+        structuralChanges(
+          voltageLow,
+          withSteps([12.3, 'caution'], [11.8, 'alarm'], [11, 'emergency'])
+        )
+      ).toEqual([])
+      expect(structuralChanges(voltageLow, withSteps([12.2, 'warning']))).toEqual([])
+    })
+
+    it('restarts for a switch between steps and a zone limit', () => {
+      const zoned = valid({
+        ...voltageLow,
+        detector: { type: 'sustained', direction: 'below', limit: { kind: 'zone', level: 'warn' } }
+      })
+      expect(structuralChanges(voltageLow, zoned)).toEqual(['detector.limit'])
+      expect(structuralChanges(zoned, voltageLow)).toEqual(['detector.limit'])
+    })
+
+    it("restarts for a match's step values, not for their priorities", () => {
+      const match = (...steps: [string, string][]) =>
+        valid({
+          name: 'Inverter fault',
+          slug: 'inverter-fault',
+          message: 'Inverter fault',
+          signal: { path: 'electrical.inverters.main.state' },
+          detector: {
+            type: 'match',
+            op: 'equals',
+            steps: steps.map(([value, priority]) => ({ value, priority }))
+          }
+        })
+      const current = match(['fault', 'warning'], ['critical', 'alarm'])
+      expect(
+        structuralChanges(current, match(['fault', 'caution'], ['critical', 'emergency']))
+      ).toEqual([])
+      expect(structuralChanges(current, match(['fault', 'warning']))).toEqual([
+        'detector.steps.value'
+      ])
+      expect(
+        structuralChanges(current, match(['error', 'warning'], ['critical', 'alarm']))
+      ).toEqual(['detector.steps.value'])
+    })
+
+    it('removes the reached step in place; the alert reports the furthest step left at the priority reached, and sends nothing', () => {
+      const { at, log, evaluator } = setup(voltageLow)
+      at(0, VOLTAGE, 11.7)
+      at(30)
+      evaluator.update(withSteps([12.2, 'warning']))
+      at(40)
+      expect(log).toEqual([[30, 'raise', '', 'alarm']])
+      expect(evaluator.status().instances[0]).toMatchObject({
+        active: true,
+        step: 0,
+        priority: 'alarm'
+      })
+    })
+  })
 })
 
 const RPM = 'propulsion.main.revolutions'
@@ -373,12 +708,11 @@ const oilPressure = valid({
   name: 'Oil pressure low',
   slug: 'oil-pressure-low',
   message: 'Engine oil pressure is low',
-  priority: 'alarm',
   signal: { path: OIL },
   detector: {
     type: 'sustained',
     direction: 'below',
-    limit: { kind: 'fixed', value: 100000 },
+    steps: [{ limit: 100000, priority: 'alarm' }],
     duration: 5
   },
   gates: [
@@ -426,9 +760,8 @@ describe('gates', () => {
       name: 'Bilge high water underway',
       slug: 'bilge-high-water',
       message: 'Bilge water is high',
-      priority: 'alarm',
       signal: { path: HIGH_WATER },
-      detector: { type: 'match', op: 'equals', value: true },
+      detector: { type: 'match', op: 'equals', steps: [{ value: true, priority: 'alarm' }] },
       gates: [
         {
           signal: { path: RPM },
@@ -494,9 +827,12 @@ describe('gates', () => {
       name: 'Genset hours',
       slug: 'genset-hours',
       message: 'Genset service due',
-      priority: 'caution',
       signal: { path: RPM },
-      detector: { type: 'accumulator', measure: 'time', limit: 100 },
+      detector: {
+        type: 'accumulator',
+        measure: 'time',
+        steps: [{ limit: 100, priority: 'caution' }]
+      },
       gates: [
         {
           signal: { path: 'environment.mode' },
@@ -519,9 +855,8 @@ const depthTimeout = valid({
   name: 'Depth sensor silent',
   slug: 'depth-sensor-silent',
   message: 'No depth data',
-  priority: 'warning',
   signal: { path: DEPTH },
-  detector: { type: 'match', op: 'timedOut', duration: 30 }
+  detector: { type: 'match', op: 'timedOut', steps: [{ priority: 'warning' }], duration: 30 }
 })
 
 describe('checks when a path reports', () => {
@@ -532,13 +867,16 @@ describe('checks when a path reports', () => {
     slug: 'compasses-disagree',
     condition: 'compassesDisagree',
     message: 'Compasses disagree',
-    priority: 'caution',
     signal: {
       combinator: 'absDifference',
       angular: true,
       inputs: [{ path: HDG_A }, { path: HDG_B }]
     },
-    detector: { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 0.1 } }
+    detector: {
+      type: 'sustained',
+      direction: 'above',
+      steps: [{ limit: 0.1, priority: 'caution' }]
+    }
   })
 
   it('an angular combination whose input reports units other than radians is inactive', () => {
@@ -665,12 +1003,11 @@ describe('wildcard rules', () => {
     name: 'Coolant temperature high',
     slug: 'coolant-high',
     message: 'Coolant temperature is high on {instance}',
-    priority: 'warning',
     signal: { path: 'propulsion.*.coolantTemperature' },
     detector: {
       type: 'sustained',
       direction: 'above',
-      limit: { kind: 'fixed', value: 368 }
+      steps: [{ limit: 368, priority: 'warning' }]
     },
     gates: [
       {
@@ -695,9 +1032,8 @@ const engineStopped = valid({
   name: 'Engine stopped',
   slug: 'engine-stopped',
   message: 'Engine {instance} stopped',
-  priority: 'warning',
   signal: { path: 'propulsion.*.state' },
-  detector: { type: 'match', op: 'changesTo', value: 'stopped' }
+  detector: { type: 'match', op: 'changesTo', steps: [{ value: 'stopped', priority: 'warning' }] }
 })
 
 describe('pulses', () => {
@@ -734,7 +1070,10 @@ describe('rule edits', () => {
     ],
     [
       'detector type',
-      (r) => ({ ...r, detector: { type: 'match', op: 'equals', value: 0 } }),
+      (r) => ({
+        ...r,
+        detector: { type: 'match', op: 'equals', steps: [{ value: 0, priority: 'alarm' }] }
+      }),
       [OIL, 0, undefined, 'src']
     ],
     [
@@ -760,9 +1099,13 @@ describe('rule edits', () => {
       name: 'Bilge pump cycling',
       slug: 'bilge-pump-cycling',
       message: 'Bilge pump is cycling',
-      priority: 'alarm',
       signal: { path: PUMP },
-      detector: { type: 'count', event: { op: 'changesTo', value: true }, window: 600, limit: 1 }
+      detector: {
+        type: 'count',
+        event: { op: 'changesTo', value: true },
+        window: 600,
+        steps: [{ limit: 1, priority: 'alarm' }]
+      }
     })
     const { evaluator, log, at } = setup(pumpCycling)
     at(0, PUMP, true)
@@ -786,13 +1129,13 @@ describe('rule edits', () => {
     at(30)
     evaluator.update({
       ...oilPressure,
-      detector: { ...oilPressure.detector, limit: { kind: 'fixed', value: 50000 } }
+      detector: { ...oilPressure.detector, steps: [{ limit: 50000, priority: 'alarm' }] }
     } as Rule)
     expect(log).toEqual([])
     at(31)
     evaluator.update({
       ...oilPressure,
-      detector: { ...oilPressure.detector, limit: { kind: 'fixed', value: -1 } }
+      detector: { ...oilPressure.detector, steps: [{ limit: -1, priority: 'alarm' }] }
     } as Rule)
     expect(log).toEqual([[31, 'clear', '']])
   })
@@ -800,7 +1143,10 @@ describe('rule edits', () => {
   it('a priority edit takes effect at the next raise', () => {
     const { evaluator, log, at } = raised()
     at(30)
-    evaluator.update({ ...oilPressure, priority: 'emergency' })
+    evaluator.update({
+      ...oilPressure,
+      detector: { ...oilPressure.detector, steps: [{ limit: 100000, priority: 'emergency' }] }
+    } as Rule)
     expect(log).toEqual([])
     at(40, OIL, 300000)
     at(50, OIL, 0)
@@ -867,9 +1213,12 @@ describe('adopted alerts', () => {
       name: 'Coolant temperature high',
       slug: 'coolant-high',
       message: 'Coolant temperature is high on {instance}',
-      priority: 'warning',
       signal: { path: 'propulsion.*.coolantTemperature' },
-      detector: { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 360 } },
+      detector: {
+        type: 'sustained',
+        direction: 'above',
+        steps: [{ limit: 360, priority: 'warning' }]
+      },
       gates: [
         { signal: { path: IGNITION }, direction: 'above', limit: { kind: 'fixed', value: 0.5 } }
       ]
@@ -892,9 +1241,12 @@ describe('adopted alerts', () => {
       name: 'Coolant temperature high',
       slug: 'coolant-high',
       message: 'Coolant temperature is high on {instance}',
-      priority: 'warning',
       signal: { path: 'propulsion.*.coolantTemperature' },
-      detector: { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 368 } },
+      detector: {
+        type: 'sustained',
+        direction: 'above',
+        steps: [{ limit: 368, priority: 'warning' }]
+      },
       gates: [
         {
           signal: { path: 'propulsion.*.revolutions' },
@@ -935,9 +1287,8 @@ describe('restarts and status', () => {
     name: 'Genset hours',
     slug: 'genset-hours',
     message: 'Genset service due',
-    priority: 'caution',
     signal: { path: RPM },
-    detector: { type: 'accumulator', measure: 'time', limit: 100 }
+    detector: { type: 'accumulator', measure: 'time', steps: [{ limit: 100, priority: 'caution' }] }
   })
 
   const running = (rule: Rule) => {
@@ -955,6 +1306,43 @@ describe('restarts and status', () => {
     at(10)
     expect(log).toEqual([[10, 'raise', '', 'caution']])
     expect(evaluator.accumulators()).toEqual(new Map([['', 100]]))
+  })
+
+  it('compares one total, restored or added to later, against every step', () => {
+    const stepped = valid({
+      ...genset,
+      detector: {
+        ...genset.detector,
+        steps: [
+          { limit: 100, priority: 'caution' },
+          { limit: 150, priority: 'warning' }
+        ]
+      }
+    })
+    const { at, log, evaluator } = setup(stepped, { accumulated: new Map([['', 90]]) })
+    at(0, RPM, 30)
+    at(10)
+    evaluator.update(
+      valid({
+        ...stepped,
+        detector: {
+          ...stepped.detector,
+          steps: [
+            { limit: 100, priority: 'caution' },
+            { limit: 150, priority: 'warning' },
+            { limit: 200, priority: 'alarm' }
+          ]
+        }
+      })
+    )
+    at(60)
+    at(110)
+    expect(log).toEqual([
+      [10, 'raise', '', 'caution'],
+      [60, 'priority', '', 'warning'],
+      [110, 'priority', '', 'alarm']
+    ])
+    expect(evaluator.accumulators()).toEqual(new Map([['', 200]]))
   })
 
   it("reports each instance's total, keeping restored ones not yet seen", () => {
@@ -1013,7 +1401,11 @@ describe('restarts and status', () => {
     const { at, log, evaluator } = running(genset)
     evaluator.update({
       ...genset,
-      detector: { ...genset.detector, measure: 'integral', limit: 3000 }
+      detector: {
+        ...genset.detector,
+        measure: 'integral',
+        steps: [{ limit: 3000, priority: 'caution' }]
+      }
     } as Rule)
     for (let t = 70; t <= 150; t += 10) at(t, RPM, 30)
     expect(log).toEqual([])
@@ -1026,9 +1418,12 @@ describe('restarts and status', () => {
       name: 'Oil pressure low',
       slug: 'oil-low',
       message: 'Oil pressure low on {instance}',
-      priority: 'alarm',
       signal: { path: 'propulsion.*.oilPressure' },
-      detector: { type: 'sustained', direction: 'below', limit: { kind: 'fixed', value: 100000 } }
+      detector: {
+        type: 'sustained',
+        direction: 'below',
+        steps: [{ limit: 100000, priority: 'alarm' }]
+      }
     })
     const { at, evaluator } = setup(rule)
     at(0, 'propulsion.a b.oilPressure', 300000)
@@ -1086,9 +1481,12 @@ describe('zone changes and adopted gates', () => {
       name: 'Coolant temperature high',
       slug: 'coolant-high',
       message: 'Coolant temperature is high on {instance}',
-      priority: 'warning',
       signal: { path: 'propulsion.*.coolantTemperature' },
-      detector: { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 368 } },
+      detector: {
+        type: 'sustained',
+        direction: 'above',
+        steps: [{ limit: 368, priority: 'warning' }]
+      },
       gates: [
         {
           signal: { path: 'propulsion.*.revolutions' },
@@ -1115,9 +1513,12 @@ describe('zone changes and adopted gates', () => {
       name: 'Coolant temperature high',
       slug: 'coolant-high',
       message: 'Coolant temperature is high on {instance}',
-      priority: 'warning',
       signal: { path: 'propulsion.*.coolantTemperature' },
-      detector: { type: 'sustained', direction: 'above', limit: { kind: 'fixed', value: 368 } },
+      detector: {
+        type: 'sustained',
+        direction: 'above',
+        steps: [{ limit: 368, priority: 'warning' }]
+      },
       gates: [
         {
           signal: { path: IGNITION },
@@ -1202,7 +1603,7 @@ describe('live status', () => {
   it('reports an accumulator total while its rule is out of use', () => {
     const rule = valid({
       ...oilPressure,
-      detector: { type: 'accumulator', measure: 'time', limit: 100 }
+      detector: { type: 'accumulator', measure: 'time', steps: [{ limit: 100, priority: 'alarm' }] }
     })
     const { at, evaluator } = setup(rule)
     at(0, RPM, 0)
@@ -1363,7 +1764,7 @@ describe('disabled rules', () => {
     const genset = valid({
       ...portOil,
       signal: { path: RPM },
-      detector: { type: 'accumulator', measure: 'time', limit: 100 }
+      detector: { type: 'accumulator', measure: 'time', steps: [{ limit: 100, priority: 'alarm' }] }
     })
     const { at, log, evaluator, setDisabled } = setup(genset)
     at(0, RPM, 30)

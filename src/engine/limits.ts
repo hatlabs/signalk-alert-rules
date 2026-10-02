@@ -11,7 +11,7 @@ export interface Zone {
 export type LimitResolution = { ok: true; value: number } | { ok: false; reason: string }
 
 /** A zone level's rank; a more severe level ranks higher. */
-export function severity(level: ZoneLevel): number {
+function severity(level: ZoneLevel): number {
   return ZONE_LEVELS.indexOf(level)
 }
 

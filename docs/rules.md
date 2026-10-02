@@ -11,9 +11,13 @@ The rules in [`examples/rules`](../examples/rules) are complete, valid rules; [W
   "name": "Coolant temperature rising",
   "slug": "coolant-temperature-rising",
   "message": "Coolant temperature is rising fast on {instance}",
-  "priority": "warning",
   "signal": { "path": "propulsion.*.coolantTemperature" },
-  "detector": { "type": "slope", "direction": "rising", "window": 300, "limit": 0.02 },
+  "detector": {
+    "type": "slope",
+    "direction": "rising",
+    "window": 300,
+    "steps": [{ "limit": 0.02, "priority": "warning" }]
+  },
   "gates": [
     {
       "signal": { "path": "propulsion.*.revolutions" },
@@ -29,11 +33,10 @@ The rules in [`examples/rules`](../examples/rules) are complete, valid rules; [W
 | `name` | Human-readable name, 1-200 characters. Written into alert data. |
 | `slug` | Lowercase letters and digits separated by single hyphens, at most 64 characters. Fixed when the rule is created. |
 | `condition` | Optional condition name, the last segment of the alert path; see [Alert paths](#alert-paths). Letters, digits, `_` and `-`. Required for a combined signal and for an input path ending in a wildcard. |
-| `message` | The alert message, 1-500 characters. `{instance}` is replaced with the wildcard instance's name. The message is the same at every zone level. |
-| `priority` | `emergency`, `alarm`, `warning` or `caution`. Required unless the detector has a zone limit, and rejected when it has one, because the zone level sets the priority. |
+| `message` | The alert message, 1-500 characters. `{instance}` is replaced with the wildcard instance's name. The message is the same at every step. |
 | `latching` | Optional; see [Latching](#latching). |
 | `signal` | What the rule watches; see [Signals](#signals). |
-| `detector` | The condition; see [Detectors](#detectors). |
+| `detector` | The condition, with its steps; see [Detectors](#detectors) and [Steps and escalation](#steps-and-escalation). |
 | `gates` | Optional, at most 8; see [Gates](#gates). |
 
 A rule has an origin: `user` for rules written by the user, or the slug of the ruleset that provides it. Origin and slug together identify the rule and must be unique. The rule has no `id` or `enabled` field.
@@ -46,11 +49,11 @@ Every numeric field is tagged in the schema (`x-quantity`) with how it converts 
 
 | Quantity | Fields | Conversion |
 |---|---|---|
-| `absolute` | a fixed limit's `value`; the numeric `value` of a match, state condition or event | the display unit's full formula |
-| `interval` | `hysteresis`; a slope's `limit` (per second) | the linear part only, so 2 °C of hysteresis is 2 K, not 275.15 K |
-| `duration` | `duration`, `clearDuration`, `window`, `horizon`, `within` | seconds |
-| `count` | a count's `limit` | unitless |
-| `accumulated` | an accumulator's `limit` | seconds for `time`; the signal's unit times seconds for `integral` |
+| `absolute` | a sustained or projection step's `limit`; a gate's fixed limit `value`; the numeric `value` of a match step, state condition or event | the display unit's full formula |
+| `interval` | `hysteresis`; a slope step's `limit` (per second) | the linear part only, so 2 °C of hysteresis is 2 K, not 275.15 K |
+| `duration` | `duration`, `clearDuration`, `window`, `horizon`, an absence step's `within` | seconds |
+| `count` | a count step's `limit` | unitless |
+| `accumulated` | an accumulator step's `limit` | seconds for `time`; the signal's unit times seconds for `integral` |
 
 ## Signals
 
@@ -100,7 +103,7 @@ Each input subscribes through the server's subscription manager, which replays t
 
 ## Detectors
 
-A detector turns a signal into a condition that is active or not. Durations run on a monotonic clock, so wall-clock changes do not affect them.
+A detector turns a signal into a condition that is active or not. Its `steps` hold its limits, each with the priority the alert has once the condition reaches it; the field lists below describe one step's limit, and [Steps and escalation](#steps-and-escalation) how several combine. Durations run on a monotonic clock, so wall-clock changes do not affect them.
 
 **Input availability.** An unavailable or never-seen input holds the condition as it is and pauses duration timers: a failing sensor neither raises nor clears. Three exceptions:
 
@@ -120,45 +123,45 @@ A replayed value only sets the baseline. An unavailable reading leaves the basel
 
 ### match
 
-`op`, `value`, `duration`.
+`op`, `steps` (each with a `value` for `equals`, `notEquals` and `changesTo`, without one otherwise), `duration`.
 
-- `equals`, `notEquals` (`value` required): active once the value has matched for `duration` (default 0). A non-matching value resets the timer; an unavailable input pauses it.
-- `changesTo` (`value` required), `decreases`: a momentary condition at the event, with no duration. A device reporting for the first time after start raises nothing, since there is no previous value.
-- `timedOut` (no `value`, `duration` required and above 0): a *timeout rule*. Active once the input has carried core's timed-out marker for `duration`, or has not been seen at all for `duration` since the rule came into use (core marks only paths it has seen). Any value ends it. A timeout rule watches a single path, not a combined signal, and is rejected on a path the server reports as boolean or string, when the rule is validated with the server's path information. A rule saved before its path reports is checked when a value arrives: once the path has reported a boolean or a string, the rule is inactive with the reason "core never times out boolean paths" (or string paths). It is also inactive, with the reason in its status, when the server does not enforce data timeouts, when the path declares an update contract other than `periodic`, when its `meta.timeout` is 0 or less, or when it has no `meta.timeout` and the server's default timeouts are off.
+- `equals`, `notEquals` (step `value` required): active once the value has matched for `duration` (default 0). A non-matching value resets the timer; an unavailable input pauses it.
+- `changesTo` (step `value` required), `decreases`: a momentary condition at the event, with no duration. A device reporting for the first time after start raises nothing, since there is no previous value.
+- `timedOut` (no step `value`, `duration` required and above 0): a *timeout rule*. Active once the input has carried core's timed-out marker for `duration`, or has not been seen at all for `duration` since the rule came into use (core marks only paths it has seen). Any value ends it. A timeout rule watches a single path, not a combined signal, and is rejected on a path the server reports as boolean or string, when the rule is validated with the server's path information. A rule saved before its path reports is checked when a value arrives: once the path has reported a boolean or a string, the rule is inactive with the reason "core never times out boolean paths" (or string paths). It is also inactive, with the reason in its status, when the server does not enforce data timeouts, when the path declares an update contract other than `periodic`, when its `meta.timeout` is 0 or less, or when it has no `meta.timeout` and the server's default timeouts are off.
 
 ### sustained
 
-`direction` (`above` or `below`), `limit`, `duration`, `hysteresis`, `clearDuration`.
+`direction` (`above` or `below`), `steps` (each a `limit`) or a zone `limit`, `duration`, `hysteresis`, `clearDuration`.
 
-Active once the value has been beyond the limit (strictly above or below it) for `duration`. Ends once it has been back past the limit by `hysteresis`, at or below `limit - hysteresis` for `above`, for `clearDuration`. All three default to 0. The timer restarts whenever the value leaves the side it is timing and pauses while the input is unavailable. The limit is fixed or from zones; a zone limit escalates (see [Zone limits](#zone-limits)).
+Active once the value has been beyond the limit (strictly above or below it) for `duration`. Ends once it has been back past the limit by `hysteresis`, at or below `limit - hysteresis` for `above`, for `clearDuration`. All three default to 0. The timer restarts whenever the value leaves the side it is timing and pauses while the input is unavailable. The limits are the steps' or come from zones (see [Zone limits](#zone-limits)).
 
 ### slope
 
-`direction` (`rising` or `falling`), `window`, `limit` (per second, above 0).
+`direction` (`rising` or `falling`), `window`, `steps` (each a `limit`, per second, above 0).
 
 Active while the trend over the last `window` seconds changes faster than `limit` in `direction`. The trend is the least-squares slope of the signal held between samples, weighted by time, so sparse samples cannot produce a steep slope from one step. Unavailable time is left out of the window rather than restarting it. Nothing is decided until a full window of available time is known, and the state holds while the input is unavailable. Input is decimated to a spacing of `window`/256; a window keeps at most 1024 points, including the markers of unavailable stretches.
 
 ### projection
 
-`direction` (`rising` or `falling`), `limit`, `window`, `horizon`.
+`direction` (`rising` or `falling`), `steps` (each a `limit`) or a zone `limit`, `window`, `horizon`.
 
-Active when the value, extended along the trend of the last `window` seconds (as for slope), reaches `limit` within `horizon` seconds, and the trend points toward it, so a flat value never sets it. Once active it holds until the projected value is back on the safe side, so noise around a value already past the limit does not toggle it. With a zone limit, `rising` resolves like `above` and `falling` like `below`; a projection alerts at its named level's priority and does not escalate, because one trend over one horizon reaches every more severe level at the same moment.
+Active when the value, extended along the trend of the last `window` seconds (as for slope), reaches `limit` within `horizon` seconds, and the trend points toward it, so a flat value never sets it. Once active it holds until the projected value is back on the safe side, so noise around a value already past the limit does not toggle it. With a zone limit, `rising` resolves like `above` and `falling` like `below`; a projection with a zone limit alerts at its named level's priority and does not escalate, because one trend over one horizon reaches every more severe level at the same moment. Typed steps do escalate: each step's limit is one the user chose to be told about.
 
 ### accumulator
 
-`measure` (`time` or `integral`), `while`, `resetOn`, `limit`.
+`measure` (`time` or `integral`), `while`, `resetOn`, `steps` (each a total `limit`, above 0).
 
 Accumulates while the input is available and `while` holds: seconds for `time`, the value integrated over seconds for `integral`. A value holds until the next sample. `while` is `{ "op": "above" | "below" | "equals" | "notEquals", "value": ... }`; `above` and `below` need a number. The condition becomes active when the total reaches `limit` and stays active until a `resetOn` event sets the total to zero. Without `resetOn` it never ends. Only time while the server runs counts. Totals survive a plugin or server restart: SKAR saves them every 60 s and when the plugin stops, so a crash loses at most the last minute. Without `while`, an input that stops reporting without a timed-out marker keeps accumulating.
 
 ### count
 
-`event`, `window`, `limit` (a whole number, at least 1).
+`event`, `window`, `steps` (each a `limit`, a whole number, at least 1).
 
 Active while more than `limit` events fall within the last `window` seconds: with `limit` 4, the fifth event within the window raises. It ends when events age out of the window. The state holds while the input is unavailable.
 
 ### absence
 
-`event`, `within`.
+`event`, `steps` (each a window `within`, in seconds).
 
 Active once no event has arrived for `within` seconds; ends at the next event. The window starts when the rule comes into use and pauses while the input is unavailable.
 
@@ -175,9 +178,9 @@ A gate puts a rule in use only while a condition on another signal holds, such a
 
 ## Limits
 
-A sustained or projection detector, and every gate, has a `limit`:
+Every gate has a `limit`, and a sustained or projection detector has either steps or a zone `limit`, never both:
 
-- `{ "kind": "fixed", "value": 3 }`: an SI value.
+- `{ "kind": "fixed", "value": 3 }`: an SI value; gates only, since a detector's fixed limits are its steps.
 - `{ "kind": "zone", "level": "warn", "path": "..." }`: taken from `meta.zones`. `path` is optional and defaults to the signal's path; a combined signal has no single path, so it must name one. `path` may hold the rule's wildcard.
 
 SKAR only reads `meta.zones`; it never writes meta.
@@ -203,7 +206,7 @@ For example, with zones `{ upper: 11.5, state: 'alarm' }`, `{ lower: 11.5, upper
 
 #### Escalation
 
-A sustained rule resolves each more severe level the zones define the same way, and escalates its alert as the value passes that level's threshold. A more severe level is an escalation step only when its threshold is at or beyond the named level's threshold in the rule's direction: at or below it for `below`, at or above it for `above`. A more severe level whose only zones lie on the far side of the range resolves to a threshold short of the named level's, so it is left out. With `{ upper: 12, state: 'warn' }` and `{ lower: 14.8, upper: 20, state: 'alarm' }`, a `below` rule naming `warn` has threshold 12 and no escalation step, because alarm resolves to 20 on its own.
+A sustained rule resolves each more severe level the zones define the same way, and takes each as a step: it escalates its alert as the value passes that level's threshold. A more severe level is an escalation step only when its threshold is at or beyond the named level's threshold in the rule's direction: at or below it for `below`, at or above it for `above`. A more severe level whose only zones lie on the far side of the range resolves to a threshold short of the named level's, so it is left out. With `{ upper: 12, state: 'warn' }` and `{ lower: 14.8, upper: 20, state: 'alarm' }`, a `below` rule naming `warn` has threshold 12 and no escalation step, because alarm resolves to 20 on its own.
 
 A more severe level that does not resolve is left out of escalation too.
 
@@ -220,9 +223,34 @@ The rule is inactive, with one of these reasons, when:
 - A side lacking the named level makes the rule inactive, even when the other side's zones of that level are bounded on both sides and could be read as lying on the rule's side. With `{ upper: 11.5, state: 'alarm' }` and `{ lower: 14.8, upper: 20, state: 'warn' }`, a `below` rule naming `warn` reports "the path has no warn zone on the low side".
 - A path with a single bounded zone, or with bounded zones all of one level, resolves in either direction, since zones of the named level supply the edges on both sides. With `{ lower: 0, upper: 5, state: 'alarm' }`, a `below` rule naming `alarm` has threshold 5 and an `above` rule naming `alarm` has threshold 0. A rule pointing the wrong way on such a path alerts permanently.
 
-## Priorities and escalation
+## Steps and escalation
 
-A rule with a fixed limit, or with no limit, raises at its `priority` and keeps it. A rule whose detector has a zone limit has no `priority`; it raises at the priority of the zone level it holds:
+A rule raises one alert at one alert path, and that alert climbs in priority while the condition lasts. The detector's `steps` list the climb, each a limit and a `priority` (`emergency`, `alarm`, `warning` or `caution`); a rule with one step raises at its priority and keeps it. Warning below 12.2 V and alarm below 11.8 V is one rule:
+
+```json
+{
+  "type": "sustained",
+  "direction": "below",
+  "steps": [
+    { "limit": 12.2, "priority": "warning" },
+    { "limit": 11.8, "priority": "alarm" }
+  ],
+  "duration": 60
+}
+```
+
+A step's limit depends on the detector: a `limit` for sustained, projection, slope, accumulator and count; a `value` for a match; a window `within` for absence. A rule has one to four steps, one per priority. Validation refuses anything else, with the error on the offending step:
+
+- Priorities strictly increase.
+- Limits strictly move in the condition's direction: down for `below` and a falling projection, up for `above`, a rising projection, a slope, a total and a count.
+- An `equals` or `changesTo` match takes a different value at each step, such as `fault` at warning and `critical` at alarm. A `notEquals`, `decreases` or `timedOut` match takes one step: an alert left unacknowledged too long is core's to escalate.
+- An absence rule's windows grow, such as no heartbeat for 10 min at warning and for 30 min at alarm.
+
+A step's condition holds at that step or beyond it: a value below 11.7 V is beyond both steps, and a match step holds for its own value and every later step's. Each step must hold for the rule's `duration` before the alert climbs to it, so a momentary dip does not escalate, and a value that passes several steps at once raises at the furthest of them. Reaching a further step sends that step's priority and limit at once; a latching rule sends a latching raise at the new priority. A pulse of a `changesTo` match is raised at the furthest step it reaches.
+
+Nothing lowers the priority. Between steps the alert keeps the highest priority it reached, because core never lowers one, while its message and value keep updating. An edit that removes the reached step or lowers its priority does not lower it either: SKAR keeps sending and reporting the priority reached until the alert ends. The alert ends only when the condition is back past the first step: for a sustained rule, by its `hysteresis` for its `clearDuration`.
+
+A zone-limit rule has no steps of its own: its steps come from the path's zones, from its named level upwards (see [Escalation](#escalation)), each at its level's priority:
 
 | Zone level | Priority |
 |---|---|
@@ -231,13 +259,11 @@ A rule with a fixed limit, or with no limit, raises at its `priority` and keeps 
 | `alarm` | `alarm` |
 | `emergency` | `emergency` |
 
-A sustained rule with a zone limit runs one detector per zone level: the named level and each more severe level that is an escalation step (see [Escalation](#escalation)), all with the rule's `duration`, `hysteresis` and `clearDuration`. The alert's priority is that of the most severe level whose detector is active. When that rises, SKAR sends the higher priority at once and core escalates the alert. When it falls, SKAR sends the lower priority and core keeps the higher one, because core never lowers a priority. The condition, and so the alert, ends only when the named level's detector ends. Core treats the lower priority as a repeat, so a fall does not re-alert.
-
 Everything after the raise, acknowledgment, silencing and escalation included, is core's alert lifecycle. SKAR never acknowledges, silences or escalates. It reads core's alert state once, at start, to adopt or clear its own alerts (see [Restart reconciliation](#restart-reconciliation)), and not after that.
 
 ## Latching
 
-`latching: true` is accepted only on detectors whose condition is an event: a count, or a match with `changesTo` or `decreases`. Each time the condition becomes active, SKAR sends one latching raise; it sends no heartbeat and no clear, and core holds the alert until it is acknowledged. The `engine-stopped` example latches. A lasting condition cannot latch: after every restart, gate reopening or structural edit it would be seen again and announced as a new occurrence, and a latching zone-limit rule could never escalate. A lasting condition at a priority that needs acknowledgment already waits for it after the condition returns to normal.
+`latching: true` is accepted only on detectors whose condition is an event: a count, or a match with `changesTo` or `decreases`. Each time the condition becomes active, SKAR sends one latching raise; it sends no heartbeat and no clear, and core holds the alert until it is acknowledged. The `engine-stopped` example latches. A latching rule with steps sends a latching raise at each step it reaches (see [Steps and escalation](#steps-and-escalation)). A lasting condition cannot latch: after every restart, gate reopening or structural edit it would be seen again and announced as a new occurrence. A lasting condition at a priority that needs acknowledgment already waits for it after the condition returns to normal.
 
 A non-latching `changesTo` or `decreases` match raises and clears at the same instant; what remains of the alert is core's.
 
@@ -287,11 +313,11 @@ The keys of `data`, written at each raise:
 | `rule` | always | `<origin>.<slug>` |
 | `name` | always | the rule's `name` |
 | `instance` | wildcard rules | the instance name as the path has it, before sanitising |
-| `limit` | sustained and projection rules | the SI limit in force at the raise; for a zone limit, the named level's threshold |
+| `limit` | sustained and projection rules | the SI limit of the step the alert has reached, updated as it climbs and when an edit changes that step's limit while that step still has the alert's priority; for a zone limit, that level's threshold. It names a step the alert reached: an edit that inserts a step ahead of the reached one, or an adopted alert, keeps the limit core holds until the next climb. An edit to the reached step's limit sends the new limit even if the value has not crossed it, since the alert keeps that step's priority |
 | `valueAtRaise` | when the input had a value | the signal's value at the raise: a number, string, boolean or position |
 | `raisedAt` | always | the wall-clock time of the raise, ISO 8601 |
 
-Data holds only what changes rarely, so repeats of the alert cause no store writes. The zone level held, the current priority, the live value, the limit in force and timer progress are in SKAR's rule status (see [Status](#status)), not in the alert.
+Data holds only what changes rarely, so repeats of the alert cause no store writes. Core replaces an alert's data whole, so a climb resends the data with the reached step's `limit` and the rest unchanged. The step reached, the current priority, the live value and timer progress are in SKAR's rule status (see [Status](#status)), not in the alert. The message is the same at every step; it names no limit.
 
 ### Heartbeat and input evidence
 
@@ -310,7 +336,7 @@ The evidence gate stands until core's staleness behaviour is specified (SignalK/
 At start SKAR reads core's alerts once and sorts those whose `$source` is SKAR and whose condition is active, matching each to the rule whose [alert path](#alert-paths) is the alert's, a wildcard rule's with an instance segment in place of its `*`:
 
 - An alert that matches no rule, because its rule no longer exists, is disabled or now has another alert path, or that matches a rule now latching, is cleared.
-- Every other such alert is adopted. SKAR sends it once at once, with the rule's current message and the rule's own priority (for a zone-limit rule, its named level's) and no data, unless core already marks it stale; an edit made while SKAR was down reaches core this way. The instance's detector starts in the active state.
+- Every other such alert is adopted. SKAR sends it once at once, with the rule's current message, the more severe of core's priority and its first step's (for a zone-limit rule, its named level's), and no data, so core keeps the data it stored, unless core already marks it stale; an edit made while SKAR was down reaches core this way. The instance's detector starts in the active state at the first step, with core's priority as the most severe it has reached. Core's priority names no step, because it is not evidence of which step's condition held. Status reports step 0 at that priority, and the following repeats carry it.
 
 Alerts whose condition has ended, latching alerts among them, are core's until acknowledged and are left alone, as are other sources' alerts. Alert paths are shared with every other source, and core keeps one alert per path, attributed to the source that raised it last: an alert at a rule's path that another source raised last is that source's, so SKAR neither adopts nor clears it. While both run, they share that one alert.
 
@@ -318,7 +344,7 @@ An adopted alert ends by its rule's clear criterion or a gate not holding, like 
 
 - Unavailable and never-seen inputs, gate inputs and wildcard instances hold it, so sensors that report late cannot clear it. A wildcard instance is gone only when its rule cannot have it at all, not when it has not reported yet.
 - A count detector does not end it before one full window has passed since start, because events before start are unknown. Slope and projection detectors decide nothing until they have a full window of available time. An absence detector ends it at the first event.
-- A zone-limit alert holds its named level until a more severe level has been entered for the duration.
+- An adopted alert stays at the first step until a further step's own condition has held for its duration. It then climbs as any alert does, and only then is the `limit` in core's data changed, to that step's.
 
 ### Stopping
 
@@ -330,14 +356,14 @@ An edited rule saved through the [REST API](api.md) replaces the running one wit
 
 | Edit | Effect on an active alert |
 |---|---|
-| signal (paths, sources, combinator, `angular`), gates, `latching`, detector `type`; a match's `op` or `value`; `direction`; a zone limit's `level`; an accumulator's `measure`, `while` or `resetOn`; a count's or absence's `event` | cleared, and the rule restarts from nothing; it raises again once its condition holds |
-| limits (a fixed value, or a zone limit's `path`), `duration`, `clearDuration`, `hysteresis`, `window`, `horizon`, `within`, a count's or accumulator's `limit` | re-evaluated in place; timers and windows are kept, and the current value is checked against the new limit before any timer counts |
-| `message`, `priority` | sent with the next emission; core decides whether it re-alerts |
+| signal (paths, sources, combinator, `angular`), gates, `latching`, detector `type`; a match's `op` or step values; `direction`; a zone limit's `level`, or a change between steps and a zone limit; an accumulator's `measure`, `while` or `resetOn`; a count's or absence's `event` | cleared, and the rule restarts from nothing; it raises again once its condition holds |
+| step limits and windows, a step added or removed (other than a match's), a zone limit's `path`, `duration`, `clearDuration`, `hysteresis`, `window`, `horizon` | re-evaluated in place; timers and windows are kept, and the current value is checked against the new limits before any timer counts. An added step starts its own detector at the edit and must hold for the duration before the alert climbs to it: a count step counts only events after the edit, an absence step's window starts at the edit, a slope or projection step decides nothing until it has a full window, and an accumulator step starts from the total reached; an alert whose step was removed stays at the furthest step left, at the priority it reached |
+| `message`, step priorities | sent with the next emission; core decides whether it re-alerts. A lowered priority does not lower an active alert's |
 | delete, disable, suppress, accumulator reset, a ruleset disabled or uninstalled, a ruleset upgrade removing the rule | cleared |
 
 A restarted accumulator keeps its total when its `measure` is unchanged, also for a ruleset upgrade installed while the plugin was stopped. An edit or delete that discards a total saves the totals at once, so a restart cannot give the old total to the new rule. Each saved total records the measure it was built under, and a total whose measure differs from its rule's is dropped at start and when its ruleset returns, so a rule never takes over a total of another measure, even when that save failed on a full disk.
 
-A zone limit's `level` changes what the alert means, so it restarts the rule. Re-evaluated in place, an active alert would report the new level at once, while its detector waits out `clearDuration`, although the value may never have entered that level. After the restart the rule raises at the new level only once the value has been in it for `duration`.
+A match's step values and a zone limit's `level` change what the alert means, so they restart the rule. Re-evaluated in place, a match of a value no longer listed would hold until the next sample. For a zone limit, re-evaluated in place, an active alert would report the new level at once, while its detector waits out `clearDuration`, although the value may never have entered that level. After the restart the rule raises at the new level only once the value has been in it for `duration`.
 
 ## Enable and suppression
 
@@ -402,11 +428,12 @@ Per instance:
 | `inUse` | every gate holds and the rule can evaluate |
 | `input` | `value`, `unavailable` or `neverSeen` |
 | `value` | the signal's current value, while it has one; a combined signal's combined value |
-| `limit` | a sustained or projection rule's limit in force; for a zone limit, the named level's threshold |
+| `limit` | a sustained or projection rule's limit in force: the reached step's while the alert is active, else the first step's; for a zone limit, the matching level's threshold |
 | `progress` | how far the detector is toward its next transition (below) |
 | `gates` | per gate, in the rule's order: `holds`, and `input` as above |
 | `adopted` | the alert was adopted at restart and has not cleared since |
-| `level`, `priority` | the zone level and priority of an active alert |
+| `step`, `priority` | the index of the furthest step an active alert has reached, from 0, and the most severe priority it has reached, which an edit does not lower |
+| `level` | the zone level of the step an active zone-limit alert has reached |
 | `awaitingInput` | an alert without input evidence, whose heartbeat has stopped |
 | `inactive` | why the rule cannot evaluate this instance |
 | `suppression` | the instance is suppressed: `{ "scope": "rule" }` or `{ "scope": "input", "path" }`, with `autoEndAfter` when it ends by itself |
@@ -415,8 +442,8 @@ Per instance:
 `progress` is one of:
 
 - `{ "kind": "timer", "toward": "set" | "clear", "elapsed", "target" }`: seconds of a duration timer, pauses excluded. Sustained times `duration` toward set and `clearDuration` toward clear; a match with a `duration`, a timeout rule, and absence (toward `within`) time toward set. It is absent while no timer runs.
-- `{ "kind": "events", "count", "limit" }`: a count's events in its window; it sets when `count` exceeds `limit`.
-- `{ "kind": "total", "total", "limit" }`: an accumulator's total.
+- `{ "kind": "events", "count", "limit" }`: a count's events in its window; it sets when `count` exceeds the first step's `limit`.
+- `{ "kind": "total", "total", "limit" }`: an accumulator's total and its first step's limit.
 
 Slope and projection report no progress.
 
@@ -451,7 +478,7 @@ Each rule in [`examples/rules`](../examples/rules) runs in `test/examples.test.t
 
 | Example | Rule | Scenario | Alerts |
 |---|---|---|---|
-| `house-battery-low` | Sustained below the house battery's `warn` zone for 60 s, clearing 0.2 V above it after 30 s; escalates through `alarm`. | Zones: `warn` 11.5-12 V, `alarm` below 11.5 V. 12.6 V, 11.8 V at 10 s, 11.3 V at 100 s, 12.1 V at 200 s, 12.4 V at 300 s. | 70 s raise warning; 160 s priority alarm; 230 s priority warning; 330 s clear. 12.1 V at 200 s leaves `alarm` but is inside the 0.2 V hysteresis of `warn`. |
+| `house-battery-low` | Sustained below the house battery's `warn` zone for 60 s, clearing 0.2 V above it after 30 s; escalates through `alarm`. | Zones: `warn` 11.5-12 V, `alarm` below 11.5 V. 12.6 V, 11.8 V at 10 s, 11.3 V at 100 s, 12.1 V at 200 s, 12.4 V at 300 s. | 70 s raise warning; 160 s priority alarm; 330 s clear. 12.1 V at 200 s leaves `alarm` but is inside the 0.2 V hysteresis of `warn`; the alert stays at alarm, since nothing lowers a priority. |
 | `bilge-pump-cycling` | Count: more than 4 bilge pump starts within an hour, warning. | Pump on for 60 s every 10 min from 0 s, five times. | 2400 s raise warning (fifth start); 3600 s clear (first start ages out). |
 | `engine-service-due` | Accumulator: 250 h of engine running (revolutions above 0), caution. | Revolutions every minute: running for 200 h, stopped for 10 h, running again. | 260 h raise caution. No `resetOn`, so it never clears. |
 | `coolant-temperature-rising` | Slope: each engine's coolant rising faster than 0.02 K/s over 5 min, gated on that engine's revolutions above 5 Hz, warning. | Both engines run; port coolant climbs 0.05 K/s from 300 s; port engine stops at 600 s. | 440 s raise warning on `.port`; 600 s clear on `.port` (gate). Starboard raises nothing. |

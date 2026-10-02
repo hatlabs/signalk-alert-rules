@@ -2,7 +2,6 @@
   "name": "Engine stopped",
   "slug": "engine-stopped",
   "message": "Engine {instance} stopped",
-  "priority": "warning",
   "latching": true,
   "signal": {
     "path": "propulsion.*.state"
@@ -10,6 +9,11 @@
   "detector": {
     "type": "match",
     "op": "changesTo",
-    "value": "stopped"
+    "steps": [
+      {
+        "value": "stopped",
+        "priority": "warning"
+      }
+    ]
   }
 }

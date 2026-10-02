@@ -99,9 +99,8 @@ describe('Shell rule authoring', () => {
       name: 'Aground',
       slug: 'aground',
       message: 'Aground',
-      priority: 'alarm',
       signal: { path: 'navigation.state' },
-      detector: { type: 'match', op: 'changesTo', value: 'aground' }
+      detector: { type: 'match', op: 'changesTo', steps: [{ value: 'aground', priority: 'alarm' }] }
     })
   })
 

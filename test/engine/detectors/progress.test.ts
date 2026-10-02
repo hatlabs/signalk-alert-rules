@@ -37,7 +37,7 @@ describe('detector progress', () => {
   })
 
   it('match: the timer toward set while the value matches', () => {
-    const { at, detector } = harness({ type: 'match', op: 'equals', value: 'off', duration: 20 })
+    const { at, detector } = harness({ type: 'match', op: 'equals', values: ['off'], duration: 20 })
     at(0, v('on'))
     expect(detector.progress(5)).toBeUndefined()
     at(10, v('off'))
@@ -47,7 +47,7 @@ describe('detector progress', () => {
   })
 
   it('timeout: the timer runs from start while the path is never seen', () => {
-    const { at, detector } = harness({ type: 'match', op: 'timedOut', duration: 30 })
+    const { at, detector } = harness({ type: 'match', op: 'timedOut', values: [], duration: 30 })
     expect(detector.progress(10)).toEqual({ kind: 'timer', toward: 'set', elapsed: 10, target: 30 })
     at(12, v(3))
     expect(detector.progress(12)).toBeUndefined()
@@ -56,7 +56,7 @@ describe('detector progress', () => {
   })
 
   it('a transition match has no progress', () => {
-    const { at, detector } = harness({ type: 'match', op: 'changesTo', value: 'stopped' })
+    const { at, detector } = harness({ type: 'match', op: 'changesTo', values: ['stopped'] })
     at(0, v('started'))
     expect(detector.progress(0)).toBeUndefined()
   })

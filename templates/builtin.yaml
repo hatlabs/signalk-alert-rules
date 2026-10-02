@@ -7,17 +7,20 @@ version: 1.0.0
 description: Templates that ship with Alert Rules.
 templates:
   - id: battery-voltage-low
-    description: A battery bank's voltage stays below 12 V for a minute.
+    description: >-
+      A battery bank's voltage stays below 12.2 V for a minute, a warning,
+      and climbs to an alarm below 11.8 V.
     open: [instance]
     condition: voltageLow
     rule:
       name: Battery ${instance} voltage low
       message: Battery ${instance} voltage is low
-      priority: warning
       signal:
         path: electrical.batteries.${instance}.voltage
       detector:
         type: sustained
         direction: below
-        limit: { kind: fixed, value: 12 }
+        steps:
+          - { limit: 12.2, priority: warning }
+          - { limit: 11.8, priority: alarm }
         duration: 60

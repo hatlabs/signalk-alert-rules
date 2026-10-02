@@ -2,7 +2,6 @@
   "name": "Bilge pump cycling",
   "slug": "bilge-pump-cycling",
   "message": "Bilge pump is running often",
-  "priority": "warning",
   "signal": {
     "path": "electrical.switches.bilgePump.state"
   },
@@ -13,6 +12,11 @@
       "value": true
     },
     "window": 3600,
-    "limit": 4
+    "steps": [
+      {
+        "limit": 4,
+        "priority": "warning"
+      }
+    ]
   }
 }

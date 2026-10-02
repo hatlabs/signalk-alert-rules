@@ -3,7 +3,6 @@
   "slug": "engine-rpm-mismatch",
   "condition": "revolutionsMismatch",
   "message": "Port and starboard engine speeds differ",
-  "priority": "caution",
   "signal": {
     "combinator": "absDifference",
     "inputs": [
@@ -18,10 +17,12 @@
   "detector": {
     "type": "sustained",
     "direction": "above",
-    "limit": {
-      "kind": "fixed",
-      "value": 3
-    },
+    "steps": [
+      {
+        "limit": 3,
+        "priority": "caution"
+      }
+    ],
     "duration": 30
   },
   "gates": [

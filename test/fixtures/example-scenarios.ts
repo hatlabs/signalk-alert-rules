@@ -118,7 +118,6 @@ export const exampleScenarios: Record<string, Scenario> = {
     expected: [
       [70, 'raise', alert('house-battery-low'), 'warning'],
       [160, 'priority', alert('house-battery-low'), 'alarm'],
-      [230, 'priority', alert('house-battery-low'), 'warning'],
       [330, 'clear', alert('house-battery-low')]
     ]
   },

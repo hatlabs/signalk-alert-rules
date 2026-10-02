@@ -29,18 +29,22 @@ templates:
     rule:
       name: Battery \${instance} low
       message: Battery voltage low
-      priority: warning
       # The instance is picked when the template is used.
       signal:
         path: electrical.batteries.\${instance}.voltage
-      detector: { type: sustained, direction: below, limit: { kind: fixed, value: 12 } }
+      detector:
+        type: sustained
+        direction: below
+        steps: [{ limit: 12, priority: warning }]
   - id: depth-shallow
     rule:
       name: Shallow
       message: Shallow water
-      priority: alarm
       signal: { path: environment.depth.belowKeel }
-      detector: { type: sustained, direction: below, limit: { kind: fixed, value: 3 } }
+      detector:
+        type: sustained
+        direction: below
+        steps: [{ limit: 3, priority: alarm }]
 `
 
 const batteries = {
@@ -55,9 +59,12 @@ const batteries = {
       rule: {
         name: 'Battery ${instance} low',
         message: 'Battery voltage low',
-        priority: 'warning',
         signal: { path: 'electrical.batteries.${instance}.voltage' },
-        detector: { type: 'sustained', direction: 'below', limit: { kind: 'fixed', value: 12 } }
+        detector: {
+          type: 'sustained',
+          direction: 'below',
+          steps: [{ limit: 12, priority: 'warning' }]
+        }
       }
     },
     {
@@ -65,9 +72,12 @@ const batteries = {
       rule: {
         name: 'Shallow',
         message: 'Shallow water',
-        priority: 'alarm',
         signal: { path: 'environment.depth.belowKeel' },
-        detector: { type: 'sustained', direction: 'below', limit: { kind: 'fixed', value: 3 } }
+        detector: {
+          type: 'sustained',
+          direction: 'below',
+          steps: [{ limit: 3, priority: 'alarm' }]
+        }
       }
     }
   ]
@@ -83,9 +93,8 @@ function setYaml(id: string, templateLines = ''): string {
     '    rule:',
     '      name: Engine stopped',
     '      message: Engine stopped',
-    '      priority: warning',
     '      signal: { path: propulsion.main.state }',
-    '      detector: { type: match, op: changesTo, value: stopped }',
+    '      detector: { type: match, op: changesTo, steps: [{ value: stopped, priority: warning }] }',
     templateLines
   ].join('\n')
 }
@@ -193,6 +202,19 @@ describe('discoverTemplateSets', () => {
       ['file mine.yaml', 'mine']
     ])
     expect(result.sets[0]?.set.templates.length).toBeGreaterThan(0)
+  })
+
+  it('ships a battery template that warns below 12.2 V and alarms below 11.8 V', () => {
+    const result = discoverTemplateSets({ builtin: BUILTIN_TEMPLATES })
+    const battery = result.sets[0]?.set.templates.find((t) => t.id === 'battery-voltage-low')
+    expect(battery?.rule.detector).toMatchObject({
+      type: 'sustained',
+      direction: 'below',
+      steps: [
+        { limit: 12.2, priority: 'warning' },
+        { limit: 11.8, priority: 'alarm' }
+      ]
+    })
   })
 
   it('ships the built-in set in the published package', async () => {
@@ -453,9 +475,8 @@ describe('discoverTemplateSets', () => {
       '    rule:',
       `      name: ${id}`,
       `      message: ${id}`,
-      '      priority: warning',
       `      signal: { path: ${path} }`,
-      `      detector: { type: match, op: ${op}, value: ${value} }`
+      `      detector: { type: match, op: ${op}, steps: [{ value: ${value}, priority: warning }] }`
     ]
     await writeFile(
       join(dropIn, 'words.yaml'),
@@ -471,7 +492,7 @@ describe('discoverTemplateSets', () => {
 
     expect(result.problems).toEqual([])
     const values = result.sets[0]?.set.templates.map(
-      (t) => (t.rule.detector as { value?: unknown }).value
+      (t) => (t.rule.detector as { steps: { value?: unknown }[] }).steps[0]?.value
     )
     expect(values).toEqual(['on', 'yes', 'no', 'stopped'])
   })
@@ -479,7 +500,10 @@ describe('discoverTemplateSets', () => {
   it('reports a string where a boolean is required', async () => {
     await writeFile(
       join(dropIn, 'latching.yaml'),
-      setYaml('latching').replace('priority: warning', 'priority: warning\n      latching: yes')
+      setYaml('latching').replace(
+        'message: Engine stopped',
+        'message: Engine stopped\n      latching: yes'
+      )
     )
 
     const result = discover()
@@ -505,7 +529,10 @@ describe('discoverTemplateSets', () => {
   it('rejects a duplicated key with its line', async () => {
     await writeFile(
       join(dropIn, 'twice.yaml'),
-      setYaml('twice').replace('priority: warning', 'priority: warning\n      priority: alarm')
+      setYaml('twice').replace(
+        'signal: { path: propulsion.main.state }',
+        'signal: { path: propulsion.main.state }\n      signal: { path: propulsion.port.state }'
+      )
     )
 
     const result = discover()

@@ -11,31 +11,38 @@ import {
 } from '../../src/alerts/paths.js'
 import type { Detector } from '../../src/model/rule.js'
 
-const fixed = { kind: 'fixed', value: 1 } as const
+const steps = [{ limit: 1, priority: 'warning' as const }]
+const step = [{ priority: 'warning' }] as const
 const event = { op: 'changes' } as const
 
 describe('defaultCondition', () => {
   const cases: [Detector, string][] = [
-    [{ type: 'sustained', direction: 'above', limit: fixed }, 'voltageHigh'],
-    [{ type: 'sustained', direction: 'below', limit: fixed }, 'voltageLow'],
+    [{ type: 'sustained', direction: 'above', steps }, 'voltageHigh'],
+    [{ type: 'sustained', direction: 'below', steps }, 'voltageLow'],
     [
-      { type: 'projection', direction: 'rising', limit: fixed, window: 60, horizon: 600 },
+      { type: 'projection', direction: 'rising', steps, window: 60, horizon: 600 },
       'voltageProjectedHigh'
     ],
     [
-      { type: 'projection', direction: 'falling', limit: fixed, window: 60, horizon: 600 },
+      { type: 'projection', direction: 'falling', steps, window: 60, horizon: 600 },
       'voltageProjectedLow'
     ],
-    [{ type: 'slope', direction: 'rising', window: 60, limit: 1 }, 'voltageRising'],
-    [{ type: 'slope', direction: 'falling', window: 60, limit: 1 }, 'voltageFalling'],
-    [{ type: 'match', op: 'equals', value: 1 }, 'voltageMatch'],
-    [{ type: 'match', op: 'notEquals', value: 1 }, 'voltageMismatch'],
-    [{ type: 'match', op: 'changesTo', value: 1 }, 'voltageChanged'],
-    [{ type: 'match', op: 'decreases' }, 'voltageDecreased'],
-    [{ type: 'match', op: 'timedOut', duration: 10 }, 'voltageTimedOut'],
-    [{ type: 'accumulator', measure: 'time', limit: 10 }, 'voltageAccumulated'],
-    [{ type: 'count', event, window: 60, limit: 3 }, 'voltageFrequent'],
-    [{ type: 'absence', event, within: 60 }, 'voltageMissing']
+    [{ type: 'slope', direction: 'rising', window: 60, steps }, 'voltageRising'],
+    [{ type: 'slope', direction: 'falling', window: 60, steps }, 'voltageFalling'],
+    [{ type: 'match', op: 'equals', steps: [{ value: 1, priority: 'warning' }] }, 'voltageMatch'],
+    [
+      { type: 'match', op: 'notEquals', steps: [{ value: 1, priority: 'warning' }] },
+      'voltageMismatch'
+    ],
+    [
+      { type: 'match', op: 'changesTo', steps: [{ value: 1, priority: 'warning' }] },
+      'voltageChanged'
+    ],
+    [{ type: 'match', op: 'decreases', steps: [...step] }, 'voltageDecreased'],
+    [{ type: 'match', op: 'timedOut', steps: [...step], duration: 10 }, 'voltageTimedOut'],
+    [{ type: 'accumulator', measure: 'time', steps }, 'voltageAccumulated'],
+    [{ type: 'count', event, window: 60, steps }, 'voltageFrequent'],
+    [{ type: 'absence', event, steps: [{ within: 60, priority: 'warning' }] }, 'voltageMissing']
   ]
 
   it.each(cases)('names the condition of %o after the leaf', (detector, name) => {
@@ -112,7 +119,7 @@ describe('alertParent', () => {
 })
 
 describe('alertPathOf', () => {
-  const detector = { type: 'sustained', direction: 'below', limit: fixed }
+  const detector = { type: 'sustained', direction: 'below', steps }
   const combined = {
     combinator: 'difference',
     inputs: [{ path: 'propulsion.port.revolutions' }, { path: 'propulsion.starboard.revolutions' }]

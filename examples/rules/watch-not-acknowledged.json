@@ -2,7 +2,6 @@
   "name": "Watch not acknowledged",
   "slug": "watch-not-acknowledged",
   "message": "No watch acknowledgement received",
-  "priority": "alarm",
   "signal": {
     "path": "navigation.watch.acknowledged"
   },
@@ -11,6 +10,11 @@
     "event": {
       "op": "changes"
     },
-    "within": 900
+    "steps": [
+      {
+        "within": 900,
+        "priority": "alarm"
+      }
+    ]
   }
 }
