@@ -23,6 +23,8 @@ import { reconcile } from './reconcile.js'
 import { referencesOf } from './references.js'
 import { errorMessage } from '../util.js'
 
+const INVALID_PATH = { reason: 'alertPathInvalid' } as const
+
 export interface RunnerDeps extends EvaluatorContext, EmitterDeps {
   pluginId: string
   /** Read once at start, to adopt or clear the alerts SKAR already has in core. */
@@ -223,7 +225,7 @@ export class RuleRunner {
     const errors = [...status.errors, ...(this.errors.get(id) ?? [])]
     const instances = status.instances.map((instance) => {
       const path = instanceAlertPath(ruleAlertPath(rule), instance.instance?.segment)
-      if (!path.ok) return { ...instance, inactive: instance.inactive ?? path.message }
+      if (!path.ok) return { ...instance, inactive: instance.inactive ?? INVALID_PATH }
       const alert = this.emitter.status(path.value)
       return alert === undefined
         ? instance

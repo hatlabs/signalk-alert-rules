@@ -334,7 +334,10 @@ describe('zone limits', () => {
       [30, 'raise', '', 'warning'],
       [31, 'clear', '']
     ])
-    expect(evaluator.status().instances[0]?.inactive).toMatch(/no warn zone/)
+    expect(evaluator.status().instances[0]?.inactive).toEqual({
+      reason: 'missingZone',
+      level: 'warn'
+    })
   })
 
   it('on a path zoned on both sides, a below rule raises and escalates on the low-side zones only', () => {
@@ -886,9 +889,11 @@ describe('checks when a path reports', () => {
     at(0, HDG_A, 0.1)
     at(0, HDG_B, 90)
     expect(log).toEqual([])
-    expect(evaluator.status().instances[0]?.inactive).toBe(
-      `${HDG_B}: angular combination needs radians, the path is in deg`
-    )
+    expect(evaluator.status().instances[0]?.inactive).toEqual({
+      reason: 'unitsNotRadians',
+      path: HDG_B,
+      units: 'deg'
+    })
   })
 
   it('units that arrive after the values make an active angular rule inactive and clear it', () => {
@@ -902,7 +907,7 @@ describe('checks when a path reports', () => {
       [0, 'raise', '', 'caution'],
       [1, 'clear', '']
     ])
-    expect(evaluator.status().instances[0]?.inactive).toMatch(/needs radians/)
+    expect(evaluator.status().instances[0]?.inactive).toMatchObject({ reason: 'unitsNotRadians' })
   })
 
   it('an angular combination in radians evaluates', () => {
@@ -916,15 +921,18 @@ describe('checks when a path reports', () => {
   })
 
   it.each([
-    ['boolean', true],
-    ['string', 'ok']
+    ['boolean', true, 'booleanPath'],
+    ['string', 'ok', 'stringPath']
   ])(
     'a timeout rule whose path reports a %s value is inactive, and its adopted alert clears',
-    (type, value) => {
+    (_type, value, cause) => {
       const { at, log, evaluator } = setup(depthTimeout, { adopted: [{}] })
       at(5, DEPTH, value)
       expect(log).toEqual([[5, 'clear', '']])
-      expect(evaluator.status().instances[0]?.inactive).toBe(`core never times out ${type} paths`)
+      expect(evaluator.status().instances[0]?.inactive).toEqual({
+        reason: 'timeoutNotPossible',
+        cause
+      })
       at(100, DEPTH, null, TIMED_OUT)
       expect(log).toHaveLength(1)
     }
@@ -961,14 +969,10 @@ describe('timeout rules', () => {
   })
 
   it.each([
-    [{ enforce: false, useDefaults: true }, {}, /does not enforce data timeouts/],
-    [
-      { enforce: true, useDefaults: false },
-      {},
-      /no timeout and the server's default timeouts are off/
-    ],
-    [ENFORCED, { updateContract: 'event' }, /update contract is event/],
-    [ENFORCED, { timeout: 0 }, /meta.timeout/]
+    [{ enforce: false, useDefaults: true }, {}, { cause: 'notEnforced' }],
+    [{ enforce: true, useDefaults: false }, {}, { cause: 'noTimeout' }],
+    [ENFORCED, { updateContract: 'event' }, { cause: 'updateContract', contract: 'event' }],
+    [ENFORCED, { timeout: 0 }, { cause: 'timeoutOff' }]
   ])(
     'are inactive when the server can never time the path out (%o, %o)',
     (settings, meta, reason) => {
@@ -976,7 +980,10 @@ describe('timeout rules', () => {
       at(0, DEPTH, 7.3)
       at(1000)
       expect(log).toEqual([])
-      expect(evaluator.status().instances[0]?.inactive).toMatch(reason)
+      expect(evaluator.status().instances[0]?.inactive).toEqual({
+        reason: 'timeoutNotPossible',
+        ...reason
+      })
     }
   )
 
@@ -1446,7 +1453,11 @@ describe('restarts and status', () => {
     at(0, RPM, 30)
     at(0, OIL, 0)
     expect(evaluator.status().instances[0]).toMatchObject({ inUse: false })
-    expect(evaluator.status().instances[0]?.inactive).toMatch(/no alarm zone/)
+    expect(evaluator.status().instances[0]?.inactive).toEqual({
+      reason: 'missingZone',
+      level: 'alarm',
+      gate: 0
+    })
   })
 
   it('an edit to a stopped evaluator does not clear its alerts', () => {

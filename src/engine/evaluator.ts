@@ -12,7 +12,6 @@ import {
   type ZoneLevel
 } from '../model/rule.js'
 import { ruleAlertPath } from '../model/alertPath.js'
-import { angularUnitsMessage, timeoutValueTypeMessage } from '../model/validate.js'
 import type { Clock } from './clock.js'
 import {
   AccumulatorDetector,
@@ -23,7 +22,7 @@ import {
   type Progress
 } from './detectors/index.js'
 import { Gate } from './gates.js'
-import { resolveLimit, severerLevels, type Zone } from './limits.js'
+import { resolveLimit, severerLevels, type MissingZone, type Zone } from './limits.js'
 import {
   bindPath,
   inputState,
@@ -93,6 +92,23 @@ export type RuleEvent =
   | { type: 'priority'; instance?: Instance; priority: Priority; limit?: number }
   | { type: 'clear'; instance?: Instance }
 
+/** Why the server can never time a timeout rule's path out. */
+export type TimeoutCause =
+  'booleanPath' | 'stringPath' | 'notEnforced' | 'updateContract' | 'timeoutOff' | 'noTimeout'
+
+/**
+ * Why a rule cannot evaluate an instance, as a reason code and its facts: a
+ * zone level missing from the path its limit or a gate's (`gate`, by index)
+ * reads, a timeout rule's path the server never times out, an angular
+ * combination of an input in other units than radians, or an alert path core
+ * would not accept.
+ */
+export type Problem =
+  | ({ reason: 'missingZone'; gate?: number } & MissingZone)
+  | { reason: 'timeoutNotPossible'; cause: TimeoutCause; contract?: string }
+  | { reason: 'unitsNotRadians'; path: string; units: string }
+  | { reason: 'alertPathInvalid' }
+
 export interface GateStatus {
   /** Whether the gate holds for this instance, as the rule reads it. */
   holds: boolean
@@ -124,7 +140,7 @@ export interface InstanceStatus {
   /** The priority an active alert has now: the most severe it has reached. */
   priority?: Priority
   /** Why the rule cannot evaluate this instance. */
-  inactive?: string
+  inactive?: Problem
   /**
    * Whether the condition holds: the alert would be active were the rule
    * enabled. While the rule is out of use or unable to evaluate, the last
@@ -179,7 +195,7 @@ interface Unit {
   adoptedAlert: boolean
   alerting: boolean
   inUse: boolean
-  inactive?: string
+  inactive?: Problem
   present: boolean
   /** When the condition last stopped holding. */
   clearedAt?: number
@@ -195,7 +211,7 @@ interface ResolvedStep {
   level?: ZoneLevel
 }
 
-type Resolved = { ok: true; steps: ResolvedStep[] } | { ok: false; reason: string }
+type Resolved = { ok: true; steps: ResolvedStep[] } | { ok: false; missing: MissingZone }
 
 // Rule fields whose change clears and restarts the rule; every other detector
 // field is re-evaluated in place. Latching is one of them because a latching
@@ -607,42 +623,42 @@ export class RuleEvaluator {
   }
 
   /** An angular combination of an input the server reports in units other than radians. */
-  private unitsProblem(): string | undefined {
+  private unitsProblem(): Problem | undefined {
     const signal = this.rule.signal
     if (!('combinator' in signal) || signal.angular !== true) return undefined
     for (const input of signal.inputs) {
       const units = this.ctx.meta(input.path)?.units
       if (units !== undefined && units !== 'rad') {
-        return `${input.path}: ${angularUnitsMessage(units)}`
+        return { reason: 'unitsNotRadians', path: input.path, units }
       }
     }
     return undefined
   }
 
-  private timeoutProblem(unit: Unit): string | undefined {
+  private timeoutProblem(unit: Unit): Problem | undefined {
     const d = this.rule.detector
     if (d.type !== 'match' || d.op !== 'timedOut' || 'combinator' in this.rule.signal) {
       return undefined
     }
-    if (typeof unit.lastValue === 'boolean') return timeoutValueTypeMessage('boolean')
-    if (typeof unit.lastValue === 'string') return timeoutValueTypeMessage('string')
+    const problem = (cause: TimeoutCause, contract?: string): Problem => ({
+      reason: 'timeoutNotPossible',
+      cause,
+      ...(contract === undefined ? {} : { contract })
+    })
+    if (typeof unit.lastValue === 'boolean') return problem('booleanPath')
+    if (typeof unit.lastValue === 'string') return problem('stringPath')
     const settings = this.ctx.timeoutSettings()
-    if (settings !== undefined && !settings.enforce) {
-      return 'the server does not enforce data timeouts'
-    }
+    if (settings !== undefined && !settings.enforce) return problem('notEnforced')
     // Meta exists only once the path has a value; a path never seen since
     // start is the dead-at-boot case, which fires without a marker.
     if (unit.last === undefined) return undefined
     const meta = this.ctx.meta(bindPath(this.rule.signal.path, unit.instance))
     const contract = meta?.updateContract
-    if (contract !== undefined && contract !== 'periodic') {
-      return `the path's update contract is ${contract}, so the server never times it out`
-    }
-    if (typeof meta?.timeout === 'number' && meta.timeout <= 0) {
-      return "the path's meta.timeout turns timing out off"
-    }
+    if (contract !== undefined && contract !== 'periodic')
+      return problem('updateContract', contract)
+    if (typeof meta?.timeout === 'number' && meta.timeout <= 0) return problem('timeoutOff')
     if (settings !== undefined && !settings.useDefaults && meta?.timeout === undefined) {
-      return "the path has no timeout and the server's default timeouts are off"
+      return problem('noTimeout')
     }
     return undefined
   }
@@ -657,8 +673,8 @@ export class RuleEvaluator {
     const problem =
       this.timeoutProblem(unit) ??
       this.unitsProblem() ??
-      gates.find((g) => g.seen && g.issue !== undefined)?.issue ??
-      (resolved.ok ? undefined : resolved.reason)
+      gateProblem(gates) ??
+      limitProblem(resolved)
     unit.inactive = problem
     unit.steps = resolved.ok ? resolved.steps : []
     // A step an edit or a zone change removed is no longer reached; the
@@ -824,6 +840,16 @@ export class RuleEvaluator {
   private totals(next: Rule): Map<string, number> {
     return carriesTotals(this.rule, next) ? this.accumulators() : new Map<string, number>()
   }
+}
+
+function gateProblem(gates: readonly Gate[]): Problem | undefined {
+  const at = gates.findIndex((g) => g.seen && g.issue !== undefined)
+  const missing = gates[at]?.issue
+  return missing === undefined ? undefined : { reason: 'missingZone', ...missing, gate: at }
+}
+
+function limitProblem(resolved: Resolved): Problem | undefined {
+  return resolved.ok ? undefined : { reason: 'missingZone', ...resolved.missing }
 }
 
 /** The total of an accumulator rule's first step, which every step shares. */

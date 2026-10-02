@@ -109,7 +109,7 @@ describe('gate', () => {
     )
     g.sample(v(12), false, 0)
     expect(g.holds).toBe(false)
-    expect(g.issue).toMatch(/no alarm zone/)
+    expect(g.issue).toEqual({ level: 'alarm' })
   })
 
   it('a zone limit pointing at the unzoned side of a path does not hold', () => {
@@ -123,7 +123,7 @@ describe('gate', () => {
     )
     g.sample(v(1000), false, 0)
     expect(g.holds).toBe(false)
-    expect(g.issue).toMatch(/no warn zone on the low side/)
+    expect(g.issue).toEqual({ level: 'warn', side: 'low' })
   })
 
   it('a zone limit on a path zoned on both sides takes only its own side', () => {

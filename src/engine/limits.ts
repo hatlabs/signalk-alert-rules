@@ -8,7 +8,13 @@ export interface Zone {
   message?: string
 }
 
-export type LimitResolution = { ok: true; value: number } | { ok: false; reason: string }
+/** A zone level a path lacks, on the rule's side when the level exists only on the other. */
+export interface MissingZone {
+  level: ZoneLevel
+  side?: 'low' | 'high'
+}
+
+export type LimitResolution = { ok: true; value: number } | { ok: false; missing: MissingZone }
 
 /** A zone level's rank; a more severe level ranks higher. */
 function severity(level: ZoneLevel): number {
@@ -71,7 +77,7 @@ export function resolveLimit(
   if (limit.kind === 'fixed') return { ok: true, value: limit.value }
   const all = zones ?? []
   if (!all.some((z) => z.state === limit.level)) {
-    return { ok: false, reason: `the path has no ${limit.level} zone` }
+    return { ok: false, missing: { level: limit.level } }
   }
   const runs = runsFrom(all, limit.level)
   const outer = direction === 'below' ? runs[0] : runs.at(-1)
@@ -84,8 +90,10 @@ export function resolveLimit(
   )
   const graded = suppliers.every((z) => z.state === limit.level)
   if (!graded || edge === undefined || !Number.isFinite(edge)) {
-    const side = direction === 'below' ? 'low' : 'high'
-    return { ok: false, reason: `the path has no ${limit.level} zone on the ${side} side` }
+    return {
+      ok: false,
+      missing: { level: limit.level, side: direction === 'below' ? 'low' : 'high' }
+    }
   }
   return { ok: true, value: edge }
 }

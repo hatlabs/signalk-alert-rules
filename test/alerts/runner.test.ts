@@ -950,8 +950,10 @@ describe('rule runner', () => {
     at(0, `tanks.fuel.${'x'.repeat(260)}.currentLevel`, 0.05)
     expect(sent).toEqual([])
     expect(runner.status('tank-low')).toMatchObject({ badge: 'inactive', errors: [] })
-    expect(runner.status('tank-low')?.reason).toMatch(/longer than/)
-    expect(runner.status('tank-low')?.instances[0]?.inactive).toMatch(/longer than/)
+    expect(runner.status('tank-low')?.reason).toBe('alertPathInvalid')
+    expect(runner.status('tank-low')?.instances[0]?.inactive).toEqual({
+      reason: 'alertPathInvalid'
+    })
   })
 })
 
@@ -1056,7 +1058,7 @@ describe('rule status', () => {
     at(0, VOLTAGE, 12.6)
     expect(runner.status('house-battery-low')).toMatchObject({
       badge: 'inactive',
-      reason: 'the path has no warn zone'
+      reason: 'missingZone'
     })
   })
 

@@ -6,7 +6,11 @@ const holding = { holds: true, input: 'value' } as const
 
 describe('status badge', () => {
   it.each<[string, InstanceFacts, (typeof BADGES)[number]]>([
-    ['inactive', { ...idle, inactive: 'the path has no warn zone', active: true }, 'inactive'],
+    [
+      'inactive',
+      { ...idle, inactive: { reason: 'missingZone', level: 'warn' }, active: true },
+      'inactive'
+    ],
     ['alert active', { ...idle, active: true, input: 'unavailable' }, 'alertActive'],
     [
       'gated off',
@@ -59,11 +63,12 @@ describe('status badge', () => {
   })
 
   it('an inactive instance carries its reason to the rule', () => {
-    const status = statusBadge([], [idle, { ...idle, inactive: 'no timeout marker possible' }])
-    expect(status).toMatchObject({ badge: 'inactive', reason: 'no timeout marker possible' })
+    const inactive = { reason: 'timeoutNotPossible', cause: 'notEnforced' } as const
+    const status = statusBadge([], [idle, { ...idle, inactive }])
+    expect(status).toMatchObject({ badge: 'inactive', reason: 'timeoutNotPossible' })
     expect(status.instances[1]).toMatchObject({
       badge: 'inactive',
-      reason: 'no timeout marker possible'
+      reason: 'timeoutNotPossible'
     })
     expect(status.instances[0]?.reason).toBeUndefined()
   })

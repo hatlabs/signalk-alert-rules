@@ -1,4 +1,5 @@
 import type { Progress } from '../engine/detectors/index.js'
+import type { Problem } from '../engine/evaluator.js'
 import type { InputState } from '../engine/signals.js'
 
 /** The closed status list, most important first. */
@@ -26,7 +27,7 @@ export interface InstanceFacts {
   gates: readonly { holds: boolean; input: InputState }[]
   progress?: Progress
   /** Why the rule cannot evaluate this instance. */
-  inactive?: string
+  inactive?: Problem
   awaitingInput?: boolean
 }
 
@@ -67,7 +68,7 @@ function verdict(facts: InstanceFacts, disabled: boolean): Verdict {
   if (disabled) return { badge: 'disabled', subLabels: labels }
   const badge = instanceBadge(facts)
   return badge === 'inactive'
-    ? { badge, reason: facts.inactive, subLabels: labels }
+    ? { badge, reason: facts.inactive?.reason, subLabels: labels }
     : { badge, subLabels: labels }
 }
 

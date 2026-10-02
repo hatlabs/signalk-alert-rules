@@ -12,7 +12,7 @@ import { FakeSubscriptionManager } from './helpers/FakeSubscriptionManager.js'
  * an alert not active, a changed priority of one that is, and a clear) and
  * the rule's issues and inactive reasons at the end.
  */
-function run(rule: unknown, scenario: Scenario): { steps: AlertStep[]; problems: string[] } {
+function run(rule: unknown, scenario: Scenario): { steps: AlertStep[]; problems: unknown[] } {
   const validated = validateRule(rule)
   if (!validated.ok) throw new Error(JSON.stringify(validated.errors))
   const sm = new FakeSubscriptionManager(scenario.ranking)
