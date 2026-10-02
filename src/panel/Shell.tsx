@@ -1,15 +1,33 @@
-import { useEffect, useId, useRef, useState, type Ref } from 'react'
-import { isInvalid, type PanelApi, type RuleEntry } from './api'
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type Ref
+} from 'react'
+import {
+  isInvalid,
+  type InvalidRuleEntry,
+  type LevelRefusedError,
+  type PanelApi,
+  type RuleEntry
+} from './api'
 import { EditRule } from './editor/EditRule'
 import { RuleEditor } from './editor/RuleEditor'
+import { failureMessage, fieldErrorText, NEEDS_ADMINISTRATOR } from './failure'
+import { RuleList } from './list/RuleList'
+import { withRefusals } from './refusal'
 import type { PathSource } from './paths/selfPaths'
+import { hashWithRoute, parseRoute, type Route } from './route'
 import { RuleDetail } from './rules/RuleDetail'
-import { hashWithRule, parseRuleFragment, type RuleRef } from './rules/ruleLink'
-import { RulesView } from './rules/RulesView'
 import {
   pollDelay,
   probe,
   shownReady,
+  viewMessage,
   type ReadyView,
   type ShellSnapshot,
   type ShellView
@@ -75,13 +93,10 @@ function useSnapshot(api: PanelApi): [ShellSnapshot, ReadyView | undefined, () =
     }
   }, [api, requests])
 
-  return [
-    snapshot,
-    ready,
-    () => {
-      setRequests((n) => n + 1)
-    }
-  ]
+  const again = useCallback(() => {
+    setRequests((n) => n + 1)
+  }, [])
+  return [snapshot, ready, again]
 }
 
 function SecurityWarning() {
@@ -93,83 +108,99 @@ function SecurityWarning() {
   )
 }
 
-interface ConditionProps {
-  view: ShellView
-  /** The views below show the rules as last read, not as they are now. */
-  stale: boolean
-  checkAgain: () => void
+function CheckAgain({ onClick }: { onClick: () => void }) {
+  return (
+    <button type="button" className="skar-btn skar-btn-ghost skar-btn-small" onClick={onClick}>
+      Check again
+    </button>
+  )
 }
 
-function Condition({ view, stale, checkAgain }: ConditionProps) {
-  const lastRead = stale ? ' The rules below are as last read.' : ''
+/** The plugin's status while there are no rules to show. */
+function PluginStatus({ view, checkAgain }: { view: ShellView; checkAgain: () => void }) {
+  const message = viewMessage(view)
   switch (view.kind) {
+    case 'ready':
+      return null
     case 'loading':
-      return <div role="status">Loading…</div>
-    case 'unreachable':
-      return (
-        <div className="alert alert-info" role="alert">
-          Cannot reach the alert rules plugin: {view.reason}. Retrying…{lastRead}
-        </div>
-      )
-    case 'notRunning':
-      return (
-        <div className="alert alert-info" role="alert">
-          The alert rules plugin is not running. Retrying…{lastRead}
-        </div>
-      )
+      return <div role="status">{message}</div>
     case 'sessionExpired':
       return (
         <div className="alert alert-warning" role="alert">
-          <p>
-            Your session has expired or lacks administrator rights; log in as an administrator.
-            {lastRead}
-          </p>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={checkAgain}>
-            Check again
-          </button>
+          <p>{message}</p>
+          <CheckAgain onClick={checkAgain} />
         </div>
       )
     case 'failed':
       return (
         <div className="alert alert-danger" role="alert">
-          <p>The alert rules plugin could not start: {view.error}</p>
-          <p className="mb-0">Rules cannot be edited until the plugin runs.</p>
+          <p className="mb-0">{message}</p>
         </div>
       )
-    case 'ready':
-      return null
+    default:
+      return (
+        <div className="alert alert-info" role="alert">
+          {message}
+        </div>
+      )
   }
 }
 
-/**
- * A link to a rule that is not listed: deleted, renamed, or a stored rule
- * that no longer validates.
- */
-function RuleNotFound({
-  ruleRef,
-  backHref,
-  headingRef
-}: {
-  ruleRef: RuleRef
-  backHref: string
-  headingRef: Ref<HTMLHeadingElement>
-}) {
+function WifiOffIcon() {
   return (
-    <div className="skar-empty">
-      <h3 ref={headingRef} tabIndex={-1} className="h5">
-        Rule not found
-      </h3>
-      <p>There is no rule {ruleRef.slug}. It may have been deleted, or it no longer validates.</p>
-      <a href={backHref}>
-        <span aria-hidden="true">←</span> All rules
-      </a>
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M2 8.8a15 15 0 014.2-2.6M10.7 5.1A15 15 0 0122 8.8M5 12.5a10 10 0 015.2-2.8M16.9 10.7A10 10 0 0119 12.5M8.5 16a5 5 0 017 0M12 20h.01M3 3l18 18" />
+    </svg>
+  )
+}
+
+/**
+ * Over the last rules read while they cannot be read again: what went wrong
+ * and how old the shown states are. Polling goes on underneath, so the list
+ * stays mounted, scrolled where it was, and recovers by itself.
+ */
+function StaleNotice({
+  view,
+  readAt,
+  checkAgain
+}: {
+  view: ShellView
+  readAt: number
+  checkAgain: () => void
+}) {
+  const message = viewMessage(view)
+  if (message === undefined) return null
+  const time = new Date(readAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  const text = `${message} Showing states from ${time}.`
+  if (view.kind === 'sessionExpired') {
+    return (
+      <div className="skar-banner" role="alert">
+        <span>{text}</span>
+        <CheckAgain onClick={checkAgain} />
+      </div>
+    )
+  }
+  return (
+    <div className="skar-banner" role="status">
+      <WifiOffIcon />
+      <span>{text}</span>
     </div>
   )
 }
 
 /**
- * What went wrong while loading the data directory. A stored rule that no
- * longer validates is not listed at all, so without this it would vanish.
+ * What went wrong while loading the data directory: a stored rule file that
+ * could not be read is not listed at all, so without this it would vanish.
  */
 function LoadIssues({ issues }: { issues: string[] }) {
   const headingId = useId()
@@ -188,27 +219,97 @@ function LoadIssues({ issues }: { issues: string[] }) {
   )
 }
 
-function NoRules({
-  onNew,
-  someNotLoaded
+/** A link to a rule that is not listed, such as a deleted one: shown over the list. */
+function RuleNotFound({ slug, noticeRef }: { slug: string; noticeRef: Ref<HTMLDivElement> }) {
+  return (
+    <div ref={noticeRef} tabIndex={-1} className="skar-banner skar-banner-info" role="alert">
+      <span>
+        <strong>Rule not found.</strong> There is no rule {slug}; it may have been deleted.
+      </span>
+    </div>
+  )
+}
+
+function BackLink({ href }: { href: string }) {
+  return (
+    <a href={href}>
+      <span aria-hidden="true">←</span> All rules
+    </a>
+  )
+}
+
+/** A view the caller's level cannot use, reached through a link. */
+function NeedsAdministrator({
+  title,
+  backHref,
+  headingRef
 }: {
-  onNew: () => void
-  /** Stored rules may exist that did not load, so "none yet" would be untrue. */
-  someNotLoaded: boolean
+  title: string
+  backHref: string
+  headingRef: Ref<HTMLHeadingElement>
 }) {
   return (
-    <div className="skar-empty">
-      <p>{someNotLoaded ? 'No alert rule is listed.' : 'There are no alert rules yet.'}</p>
-      <button type="button" className="btn btn-primary" onClick={onNew}>
-        New rule
-      </button>
+    <div className="skar-placeholder">
+      <BackLink href={backHref} />
+      <h2 ref={headingRef} tabIndex={-1} className="skar-title">
+        {title}
+      </h2>
+      <p>{NEEDS_ADMINISTRATOR}</p>
+    </div>
+  )
+}
+
+/** Add rule, until template sets can be picked from: only the data path flow works. */
+function AddRule({
+  routeHref,
+  headingRef
+}: {
+  routeHref: (route: Route) => string
+  headingRef: Ref<HTMLHeadingElement>
+}) {
+  return (
+    <div className="skar-placeholder">
+      <BackLink href={routeHref({ kind: 'list' })} />
+      <h2 ref={headingRef} tabIndex={-1} className="skar-title">
+        Add rule
+      </h2>
+      <p>Adding a rule from a template is not available yet.</p>
+      <a className="skar-btn skar-btn-primary" href={routeHref({ kind: 'add', from: 'path' })}>
+        Start from a data path
+      </a>
+    </div>
+  )
+}
+
+/** A stored rule that does not run, until it can be opened in the editor to fix. */
+function InvalidRule({
+  entry,
+  backHref,
+  headingRef
+}: {
+  entry: InvalidRuleEntry
+  backHref: string
+  headingRef: Ref<HTMLHeadingElement>
+}) {
+  return (
+    <div className="skar-placeholder">
+      <BackLink href={backHref} />
+      <h2 ref={headingRef} tabIndex={-1} className="skar-title">
+        {entry.name}
+      </h2>
+      <p>The stored rule is not valid, so it does not run:</p>
+      <ul>
+        {entry.invalid.errors.map((e) => (
+          <li key={`${e.path} ${e.message}`}>{fieldErrorText(e)}</li>
+        ))}
+      </ul>
     </div>
   )
 }
 
 /**
  * The location hash, kept current. The admin UI's router owns the hash, and
- * the panel reads its own fragment after it (see rules/ruleLink.ts).
+ * the panel reads its own fragment after it (see route.ts).
  */
 function useLocationHash(): string {
   const [hash, setHash] = useState(() => window.location.hash)
@@ -232,38 +333,34 @@ interface ViewsProps {
   paths: PathSource
   /** Probes again at once, so the views show the outcome of an action. */
   refresh: () => void
+  /** Shown over the views while they show the rules as last read. */
+  stale: ReactNode
 }
 
-/** What the authoring form is open on. */
-type EditorTarget = { kind: 'new' } | { kind: 'edit'; slug: string }
-
-function Views({ api, view, paths, refresh }: ViewsProps) {
-  const { issues } = view
-  const rules = view.rules.filter((entry): entry is RuleEntry => !isInvalid(entry))
+function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
+  const { rules, issues, permissions, readAt } = view
   const { units } = useUnits(paths)
-  const [editor, setEditor] = useState<EditorTarget | undefined>(undefined)
   // Shown until the list, refreshed after the save, has the rule.
   const [justSaved, setJustSaved] = useState<RuleEntry | undefined>(undefined)
   const hash = useLocationHash()
-  const ref = parseRuleFragment(hash)
+  const route = parseRoute(hash)
+  const routeHref = (to: Route) => hashWithRoute(hash, to)
+  const go = (to: Route) => {
+    window.location.hash = routeHref(to)
+  }
+  const listHref = routeHref({ kind: 'list' })
+  const admin = permissions === 'admin'
+  const canDisable = admin || permissions === 'readwrite'
 
-  // Switching between the list and a rule replaces the view that held focus,
-  // which would otherwise drop to the page body; focus moves to the new
-  // view's heading instead. Not on first load, which must not steal focus
-  // from the admin UI.
+  // Switching views replaces the one that held focus, which would otherwise
+  // drop to the page body; focus moves to the new view's heading instead.
+  // Not on first load, which must not steal focus from the admin UI.
   const heading = useRef<HTMLHeadingElement | null>(null)
-  // An instance link focuses the instance's row instead, when the rule has it.
+  // An instance link focuses the instance's row instead, when the rule has it,
+  // and a link to a rule that is not there the notice saying so.
   const instanceRow = useRef<HTMLTableRowElement | null>(null)
-  // The authoring form focuses its own heading once it shows, which for an
-  // edit is only after the rule has loaded; leaving it returns focus here.
-  const viewKey =
-    editor !== undefined
-      ? editor.kind === 'new'
-        ? 'new'
-        : `edit ${editor.slug}`
-      : ref === undefined
-        ? ''
-        : `${ref.slug}#${ref.instance ?? ''}`
+  const notFound = useRef<HTMLDivElement | null>(null)
+  const viewKey = JSON.stringify(route)
   const focusedKey = useRef(viewKey)
   const focusPending = useRef(false)
   useEffect(() => {
@@ -273,104 +370,161 @@ function Views({ api, view, paths, refresh }: ViewsProps) {
     }
     if (focusPending.current) {
       focusPending.current = false
-      ;(instanceRow.current ?? heading.current)?.focus()
+      ;(instanceRow.current ?? notFound.current ?? heading.current)?.focus()
     }
   })
 
-  const closeEditor = () => {
-    setEditor(undefined)
+  // A write refused for its level re-reads the level, which can take away the
+  // control and its dialog that would have said so; this notice says it
+  // instead, until the operator moves on. A refusal that answers after they
+  // moved on belongs to a view no longer shown, so it sets nothing.
+  const [refusal, setRefusal] = useState<LevelRefusedError | undefined>(undefined)
+  const [refusalView, setRefusalView] = useState(viewKey)
+  if (refusalView !== viewKey) {
+    setRefusalView(viewKey)
+    setRefusal(undefined)
   }
+  const shownView = useRef(viewKey)
+  useEffect(() => {
+    shownView.current = viewKey
+  })
+  const api = useMemo(
+    () =>
+      withRefusals(serverApi, (refused) => {
+        if (shownView.current === viewKey) setRefusal(refused)
+        refresh()
+      }),
+    [serverApi, refresh, viewKey]
+  )
+
+  const find = (slug: string) =>
+    rules.find((r) => r.slug === slug) ?? (justSaved?.slug === slug ? justSaved : undefined)
 
   const saved = (entry: RuleEntry) => {
-    closeEditor()
     setJustSaved(entry)
     refresh()
-    window.location.hash = hashWithRule(hash, { slug: entry.slug })
+    go({ kind: 'rule', slug: entry.slug })
   }
 
-  const editorView = (target: EditorTarget) => {
-    if (target.kind === 'new') {
-      return <RuleEditor api={api} paths={paths} onSaved={saved} onClose={closeEditor} />
-    }
-    const entry = rules.find((r) => r.slug === target.slug)
-    if (entry === undefined) {
-      return <RuleNotFound ruleRef={target} backHref={hashWithRule(hash)} headingRef={heading} />
-    }
-    return <EditRule api={api} paths={paths} entry={entry} onSaved={saved} onClose={closeEditor} />
-  }
+  // A rule's own view and its editor both need the rule; a link to one that
+  // is not listed shows the list, saying so.
+  const ruleRoute = route.kind === 'rule' || (route.kind === 'edit' && admin) ? route : undefined
+  const entry = ruleRoute && find(ruleRoute.slug)
+  const missing = ruleRoute !== undefined && entry === undefined ? ruleRoute.slug : undefined
+  const showsList = route.kind === 'list' || missing !== undefined
+  // Adding and editing say so themselves to anyone below an administrator.
+  const shownRefusal = admin || route.kind === 'rule' ? refusal : undefined
+
+  const list = () => (
+    <RuleList
+      rules={rules}
+      permissions={permissions}
+      units={units}
+      now={readAt}
+      routeHref={routeHref}
+      headingRef={heading}
+      someNotLoaded={issues.length > 0}
+      notices={
+        <>
+          {stale}
+          {missing !== undefined && <RuleNotFound slug={missing} noticeRef={notFound} />}
+          <LoadIssues issues={issues} />
+        </>
+      }
+    />
+  )
 
   const content = () => {
-    if (editor !== undefined) return editorView(editor)
-    if (ref !== undefined) {
-      const entry =
-        rules.find((r) => r.slug === ref.slug) ??
-        (justSaved?.slug === ref.slug ? justSaved : undefined)
-      const backHref = hashWithRule(hash)
-      if (entry === undefined) {
-        return <RuleNotFound ruleRef={ref} backHref={backHref} headingRef={heading} />
-      }
-      return (
-        <RuleDetail
-          entry={entry}
-          backHref={backHref}
-          headingRef={heading}
-          units={units}
-          instance={ref.instance}
-          instanceRef={instanceRow}
-          edit={() => {
-            setEditor({ kind: 'edit', slug: entry.slug })
-          }}
-          reset={async () => {
-            await api.resetAccumulator(entry.slug)
-            refresh()
-          }}
-          disable={async (note) => {
-            await api.disableRule(entry.slug, note)
-            refresh()
-          }}
-          enable={async () => {
-            await api.enableRule(entry.slug)
-            refresh()
-          }}
-        />
-      )
+    if (showsList) return list()
+    if (entry !== undefined && isInvalid(entry)) {
+      return <InvalidRule entry={entry} backHref={listHref} headingRef={heading} />
     }
-    // The admin UI's page title names the list for sighted users; this heading is where focus lands.
-    const listHeading = (
-      <h3 ref={heading} tabIndex={-1} className="visually-hidden">
-        All rules
-      </h3>
-    )
-    if (rules.length === 0) {
-      return (
-        <>
-          {listHeading}
-          <LoadIssues issues={issues} />
-          <NoRules
-            someNotLoaded={issues.length > 0}
-            onNew={() => {
-              setEditor({ kind: 'new' })
+    switch (route.kind) {
+      case 'rule': {
+        if (entry === undefined) return list()
+        return (
+          <RuleDetail
+            entry={entry}
+            backHref={listHref}
+            headingRef={heading}
+            units={units}
+            instance={route.instance}
+            instanceRef={instanceRow}
+            {...(admin
+              ? {
+                  edit: () => {
+                    go({ kind: 'edit', slug: entry.slug })
+                  },
+                  reset: async () => {
+                    await api.resetAccumulator(entry.slug)
+                    refresh()
+                  }
+                }
+              : {})}
+            {...(canDisable
+              ? {
+                  disable: async (note: string) => {
+                    await api.disableRule(entry.slug, note)
+                    refresh()
+                  },
+                  enable: async () => {
+                    await api.enableRule(entry.slug)
+                    refresh()
+                  }
+                }
+              : {})}
+          />
+        )
+      }
+      case 'edit': {
+        if (!admin) {
+          return <NeedsAdministrator title="Edit rule" backHref={listHref} headingRef={heading} />
+        }
+        if (entry === undefined) return list()
+        return (
+          <EditRule
+            api={api}
+            paths={paths}
+            entry={entry}
+            onSaved={saved}
+            onClose={() => {
+              go({ kind: 'rule', slug: entry.slug })
             }}
           />
-        </>
-      )
+        )
+      }
+      case 'add':
+        if (!admin) {
+          return <NeedsAdministrator title="Add rule" backHref={listHref} headingRef={heading} />
+        }
+        if (route.from === 'path') {
+          return (
+            <RuleEditor
+              api={api}
+              paths={paths}
+              onSaved={saved}
+              onClose={() => {
+                go({ kind: 'list' })
+              }}
+            />
+          )
+        }
+        return <AddRule routeHref={routeHref} headingRef={heading} />
     }
-    return (
-      <>
-        {listHeading}
-        <LoadIssues issues={issues} />
-        <RulesView
-          rules={rules}
-          ruleHref={(slug) => hashWithRule(hash, { slug })}
-          onNew={() => {
-            setEditor({ kind: 'new' })
-          }}
-        />
-      </>
-    )
   }
 
-  return <div className="skar-view">{content()}</div>
+  // The list carries the stale notice under its summary line; the other views on top.
+  return (
+    <div className="skar-view">
+      {!showsList && stale}
+      {shownRefusal !== undefined && (
+        <div className="skar-banner" role="alert">
+          <span>{failureMessage(shownRefusal)}</span>
+        </div>
+      )}
+      {content()}
+    </div>
+  )
 }
 
 export function Shell({ api, paths }: ShellProps) {
@@ -380,12 +534,17 @@ export function Shell({ api, paths }: ShellProps) {
   return (
     <div className="skar-panel">
       {securityEnabled === false && <SecurityWarning />}
-      <Condition
-        view={view}
-        stale={ready !== undefined && view.kind !== 'ready'}
-        checkAgain={checkAgain}
-      />
-      {ready !== undefined && <Views api={api} view={ready} paths={paths} refresh={checkAgain} />}
+      {ready === undefined ? (
+        <PluginStatus view={view} checkAgain={checkAgain} />
+      ) : (
+        <Views
+          api={api}
+          view={ready}
+          paths={paths}
+          refresh={checkAgain}
+          stale={<StaleNotice view={view} readAt={ready.readAt} checkAgain={checkAgain} />}
+        />
+      )}
     </div>
   )
 }

@@ -1,64 +1,398 @@
-/* Layout only: colours and components come from the admin UI's Bootstrap theme. */
-
 /*
- * The admin UI drops its page padding on embedded webapp routes, so the
- * webapp pads itself: as much as the admin UI's own pages on wide screens,
- * a little on phones, where the admin UI's 2 px would leave it flush.
+ * The look follows the admin UI's own variables: its primary blue, blue-grey
+ * greys and system font. State colours are darkened from its palette so
+ * chip text keeps a 4.5:1 contrast. The views later units rebuild still use
+ * the admin UI's Bootstrap classes.
  */
 .skar-panel {
+  --skar-primary: #003399;
+  --skar-primary-hover: #002266;
+  --skar-text: #151b1e;
+  --skar-muted: #536c79;
+  /* Muted text on the page ground, darker so it keeps its contrast off white. */
+  --skar-muted-on-ground: #3e515b;
+  --skar-border: #c2cfd6;
+  --skar-divider: #e4e9ec;
+  --skar-control-border: #a4b7c1;
+  --skar-surface: #fff;
+  --skar-hover: #f6f8f9;
+  /* Solid, so it reads on white, the page ground and the banner alike. */
+  --skar-focus: 2px solid #003399;
+
+  color: var(--skar-text);
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    'Helvetica Neue',
+    sans-serif;
+  line-height: 1.4;
+
+  /*
+   * The admin UI drops its page padding on embedded webapp routes, so the
+   * webapp pads itself: as much as the admin UI's own pages on wide screens,
+   * less on phones, where the admin UI's 2 px would leave it flush.
+   */
   padding: 30px;
 }
 
 @media (max-width: 767px) {
   .skar-panel {
-    padding: 0.75rem;
+    padding: 1rem;
   }
 }
 
 .skar-view {
-  padding-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
-.skar-empty {
-  padding: 1rem 0;
+.skar-muted {
+  color: var(--skar-muted);
 }
 
-.skar-toolbar {
+/* The list: title row, summary line, notices, then the groups. */
+
+.skar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.skar-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.skar-title {
+  flex-grow: 1;
+  margin: 0;
+  font-size: 1.375rem;
+  font-weight: 650;
+  color: var(--skar-text);
+}
+
+.skar-summary {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--skar-muted-on-ground);
+}
+
+.skar-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.skar-group-title {
+  margin: 0.25rem 2px 0;
+  font-size: 0.8125rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--skar-muted-on-ground);
+}
+
+.skar-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--skar-surface);
+  border: 1px solid var(--skar-border);
+  border-radius: 6px;
+}
+
+.skar-rows > li + li {
+  border-top: 1px solid var(--skar-divider);
+}
+
+.skar-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 64px;
+  padding: 12px 14px;
+  color: var(--skar-text);
+  text-decoration: none;
+}
+
+.skar-row:hover {
+  background: var(--skar-hover);
+  color: var(--skar-text);
+}
+
+.skar-row:focus-visible {
+  outline: var(--skar-focus);
+  outline-offset: -2px;
+}
+
+.skar-rows > li:first-child .skar-row {
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
+}
+
+.skar-rows > li:last-child .skar-row {
+  border-bottom-left-radius: 6px;
+  border-bottom-right-radius: 6px;
+}
+
+.skar-row-main {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* Names and messages can hold long paths with no spaces: they wrap rather than widen the page. */
+.skar-row-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.skar-row-fact {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 0.8125rem;
+  color: var(--skar-muted);
+  overflow-wrap: anywhere;
+}
+
+.skar-row-state {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+/* State chips: an icon and a word; Disabled is the only filled one. */
+
+.skar-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.skar-chip svg {
+  flex-shrink: 0;
+}
+
+.skar-chip-alerting {
+  background: #fde8e8;
+  color: #a3201f;
+}
+
+.skar-chip-problem {
+  background: #fbe9dc;
+  color: #8a3d00;
+}
+
+.skar-chip-noData,
+.skar-chip-present {
+  background: #e9eef1;
+  color: #3e515b;
+}
+
+.skar-chip-normal {
+  background: #e3f6ee;
+  color: #00663e;
+}
+
+.skar-chip-disabled {
+  background: #29363d;
+  color: #fff;
+}
+
+.skar-priority {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  font-weight: 650;
+}
+
+.skar-priority-caution {
+  background: #e8eefb;
+  color: #0b2a6f;
+}
+
+.skar-priority-warning {
+  background: #fff3c4;
+  color: #5c4600;
+}
+
+.skar-priority-alarm {
+  background: #fde8e8;
+  color: #a3201f;
+}
+
+.skar-priority-emergency {
+  background: #a3201f;
+  color: #fff;
+}
+
+/* Buttons: touch-sized, in the admin UI's primary blue. */
+
+.skar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 18px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.skar-btn:focus-visible {
+  outline: var(--skar-focus);
+  outline-offset: 2px;
+}
+
+.skar-btn-compact {
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 0 14px;
+  font-size: 0.9375rem;
+}
+
+.skar-btn-small {
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  font-size: 0.875rem;
+}
+
+.skar-btn-primary {
+  background: var(--skar-primary);
+  color: #fff;
+}
+
+.skar-btn-primary:hover {
+  background: var(--skar-primary-hover);
+  color: #fff;
+}
+
+.skar-btn-ghost {
+  background: var(--skar-surface);
+  border-color: var(--skar-control-border);
+  color: var(--skar-primary);
+}
+
+.skar-btn-ghost:hover {
+  background: #f0f3f5;
+  color: var(--skar-primary);
+}
+
+/* Banners over the list: reconnecting, an expired login, a rule not found. */
+
+.skar-banner {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
+  align-items: center;
   gap: 0.75rem;
-  margin-bottom: 1rem;
+  padding: 12px 14px;
+  border: 1px solid #e8cf6a;
+  border-radius: 6px;
+  background: #fff3c4;
+  color: #4d3b00;
 }
 
-.skar-toolbar > div {
+.skar-banner > span {
   flex: 1 1 12rem;
 }
 
-.skar-toolbar .form-label {
-  margin-bottom: 0.25rem;
+.skar-banner-info {
+  border-color: #b9c8ef;
+  background: #e8eefb;
+  color: #0b2a6f;
+}
+
+.skar-banner:focus-visible {
+  outline: var(--skar-focus);
+  outline-offset: 2px;
+}
+
+/* No rules yet: centred, the actions full width. */
+
+.skar-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  max-width: 28rem;
+  margin: 0 auto;
+  padding-top: 3rem;
+  text-align: center;
+}
+
+.skar-empty > .skar-banner,
+.skar-empty > .alert {
+  align-self: stretch;
+  text-align: start;
+}
+
+.skar-empty .skar-title {
+  flex-grow: 0;
+}
+
+.skar-empty p {
+  margin: 0;
+  max-width: 20rem;
+  color: var(--skar-muted-on-ground);
+}
+
+.skar-empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border: 1px solid var(--skar-border);
+  border-radius: 50%;
+  background: var(--skar-surface);
+  color: var(--skar-primary);
+}
+
+.skar-empty-actions {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  gap: 0.75rem;
+}
+
+/* Views that later units fill in: a heading and a few lines. */
+
+.skar-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.skar-placeholder p,
+.skar-placeholder ul {
+  margin: 0;
 }
 
 /* Paths are long and have no spaces; let them break at the dots' neighbours. */
 .skar-path {
   overflow-wrap: anywhere;
-}
-
-/*
- * The rule table's input, which marks the breaks after each dot. `anywhere`
- * would also shrink the column's minimum width to one character, so the
- * table would break the paths inside their segments.
- */
-.skar-input {
-  overflow-wrap: break-word;
-}
-
-/*
- * Paths break only after their dots, so at tablet width the status badge wraps
- * instead; otherwise the row overflows and hides the actions column.
- */
-.skar-rules td .badge {
-  white-space: normal;
 }
 
 .skar-instance-summary {

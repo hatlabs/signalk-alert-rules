@@ -70,6 +70,24 @@ const change = (element: HTMLElement, value: string) => {
   fireEvent.change(element, { target: { value } })
 }
 
+/** Add rule, then From a data path: the way to the authoring form until templates land. */
+async function openNewRule() {
+  fireEvent.click(await screen.findByRole('link', { name: 'Add rule' }))
+  fireEvent.click(await screen.findByRole('link', { name: 'Start from a data path' }))
+}
+
+/** Fills the new rule form with an alarm when the navigation state changes to aground. */
+function fillAground(inputPath: HTMLElement) {
+  change(inputPath, 'navigation.state')
+  fireEvent.click(screen.getByRole('radio', { name: /a value or state/i }))
+  change(screen.getByRole('combobox', { name: 'The input' }), 'changesTo')
+  change(screen.getByRole('combobox', { name: 'Value type' }), 'text')
+  change(screen.getByRole('textbox', { name: 'Value' }), 'aground')
+  change(screen.getByRole('combobox', { name: 'Priority' }), 'alarm')
+  change(screen.getByRole('textbox', { name: 'Message' }), 'Aground')
+  change(screen.getByRole('textbox', { name: 'Name' }), 'Aground')
+}
+
 beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn()
 })
@@ -80,18 +98,11 @@ describe('Shell rule authoring', () => {
     window.history.replaceState(null, '', '/')
   })
 
-  it('creates a rule from New rule and opens it once saved', async () => {
+  it('creates a rule from Add rule and opens it once saved', async () => {
     const api = renderShell([battery])
-    fireEvent.click(await screen.findByRole('button', { name: 'New rule' }))
+    await openNewRule()
     const form = await screen.findByRole('form', { name: 'New rule' })
-    change(within(form).getByRole('combobox', { name: 'Input path' }), 'navigation.state')
-    fireEvent.click(screen.getByRole('radio', { name: /a value or state/i }))
-    change(screen.getByRole('combobox', { name: 'The input' }), 'changesTo')
-    change(screen.getByRole('combobox', { name: 'Value type' }), 'text')
-    change(screen.getByRole('textbox', { name: 'Value' }), 'aground')
-    change(screen.getByRole('combobox', { name: 'Priority' }), 'alarm')
-    change(screen.getByRole('textbox', { name: 'Message' }), 'Aground')
-    change(screen.getByRole('textbox', { name: 'Name' }), 'Aground')
+    fillAground(within(form).getByRole('combobox', { name: 'Input path' }))
     fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
     expect(await screen.findByRole('heading', { name: 'Aground' })).toBeTruthy()
     expect(window.location.hash).toBe('#rule=aground')
@@ -125,15 +136,8 @@ describe('Shell rule authoring', () => {
     api.createRule.mockImplementationOnce((rule: Rule) =>
       Promise.resolve(ruleEntry({ slug: rule.slug, rule: { name: rule.name } }))
     )
-    fireEvent.click(await screen.findByRole('button', { name: 'New rule' }))
-    change(await screen.findByRole('combobox', { name: 'Input path' }), 'navigation.state')
-    fireEvent.click(screen.getByRole('radio', { name: /a value or state/i }))
-    change(screen.getByRole('combobox', { name: 'The input' }), 'changesTo')
-    change(screen.getByRole('combobox', { name: 'Value type' }), 'text')
-    change(screen.getByRole('textbox', { name: 'Value' }), 'aground')
-    change(screen.getByRole('combobox', { name: 'Priority' }), 'alarm')
-    change(screen.getByRole('textbox', { name: 'Message' }), 'Aground')
-    change(screen.getByRole('textbox', { name: 'Name' }), 'Aground')
+    await openNewRule()
+    fillAground(await screen.findByRole('combobox', { name: 'Input path' }))
     fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
     expect(await screen.findByRole('heading', { name: 'Aground' })).toBeTruthy()
     await waitFor(() => {
@@ -158,13 +162,13 @@ describe('Shell rule authoring', () => {
 
   it('moves focus to the form heading when it opens, and back to the list when it closes', async () => {
     renderShell([battery])
-    fireEvent.click(await screen.findByRole('button', { name: 'New rule' }))
+    await openNewRule()
     await waitFor(() => {
       expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'New rule' }))
     })
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     await waitFor(() => {
-      expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'All rules' }))
+      expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Alert rules' }))
     })
   })
 
@@ -180,7 +184,7 @@ describe('Shell rule authoring', () => {
 
   it('keeps what was typed when a probe finds the session expired', async () => {
     const api = renderShell([battery])
-    fireEvent.click(await screen.findByRole('button', { name: 'New rule' }))
+    await openNewRule()
     change(await screen.findByRole('combobox', { name: 'Input path' }), 'a.b')
     api.state.mockRejectedValue(new SessionExpiredError())
     // A tablet waking from sleep probes at once.
@@ -188,13 +192,42 @@ describe('Shell rule authoring', () => {
     document.dispatchEvent(new Event('visibilitychange'))
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
     document.dispatchEvent(new Event('visibilitychange'))
-    expect((await screen.findByText(/your session has expired/i)).textContent).toMatch(/last read/)
+    expect((await screen.findByText(/your login has expired/i)).textContent).toMatch(
+      /showing states from/i
+    )
     expect(screen.getByRole('combobox', { name: 'Input path' })).toHaveProperty('value', 'a.b')
+  })
+
+  // Signal K refuses an expired login and a level too low alike with 401.
+  it('says a refused save needs an administrator while the login still reads the state', async () => {
+    const api = renderShell([battery])
+    await openNewRule()
+    fillAground(await screen.findByRole('combobox', { name: 'Input path' }))
+    api.createRule.mockRejectedValueOnce(new SessionExpiredError())
+    // The level was lowered meanwhile.
+    api.state.mockResolvedValue({ ...running, permissions: 'readwrite' })
+    fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+    expect(await screen.findByText(/needs an administrator/i)).toBeTruthy()
+    expect(screen.queryByText(/expired/i)).toBeNull()
+    expect(screen.queryByRole('form')).toBeNull()
+  })
+
+  it('says a refused save is an expired login when the state is refused too, keeping the form', async () => {
+    const api = renderShell([battery])
+    await openNewRule()
+    fillAground(await screen.findByRole('combobox', { name: 'Input path' }))
+    api.createRule.mockRejectedValueOnce(new SessionExpiredError())
+    api.state.mockRejectedValue(new SessionExpiredError())
+    fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+    const form = screen.getByRole('form', { name: 'New rule' })
+    expect((await within(form).findByRole('alert')).textContent).toMatch(/your login has expired/i)
+    expect(screen.queryByText(/administrator/i)).toBeNull()
+    expect(screen.getByRole('textbox', { name: 'Name' })).toHaveProperty('value', 'Aground')
   })
 
   it('opens the form from the empty rule list', async () => {
     renderShell([])
-    fireEvent.click(await screen.findByRole('button', { name: 'New rule' }))
+    fireEvent.click(await screen.findByRole('link', { name: 'Start from a data path' }))
     expect(await screen.findByRole('form', { name: 'New rule' })).toBeTruthy()
   })
 })

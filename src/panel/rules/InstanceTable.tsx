@@ -1,7 +1,7 @@
 import type { Ref } from 'react'
 import type { GateStatus, InputState, InstanceStatus, Progress } from '../api'
 import { instanceName, type RuleDisplay } from './describe'
-import { StatusBadge } from './StatusBadge'
+import { StateChip } from '../list/StateChip'
 
 const INPUT_TEXT: Readonly<Record<InputState, string>> = {
   value: '',
@@ -84,7 +84,7 @@ export function InstanceTable({ instances, display, linked, linkedRef }: Instanc
             >
               {named && <th scope="row">{instanceName(i)}</th>}
               <td>
-                <StatusBadge kind={i.condition} />
+                <StateChip kind={i.condition} />
                 {i.condition === 'alerting' && i.priority !== undefined && (
                   <div className="skar-instance-summary">at {i.priority}</div>
                 )}

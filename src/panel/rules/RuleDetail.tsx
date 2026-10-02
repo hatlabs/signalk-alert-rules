@@ -8,20 +8,20 @@ import {
   describePriority,
   discardedTotals,
   formatTime,
-  ruleBadge,
   ruleDisplay,
   type RuleDisplay
 } from './describe'
 import { InstanceTable, isLinked } from './InstanceTable'
 import { DisableToggle } from './RuleControls'
-import { StatusBadge } from './StatusBadge'
+import { chipOf } from '../list/attention'
+import { StateChip } from '../list/StateChip'
 
 export interface RuleDetailProps {
   entry: RuleEntry
   /** The link back to the rule list. */
   backHref: string
-  /** Resets the rule's accumulator; a rejection is shown in the confirmation. */
-  reset: () => Promise<void>
+  /** Resets the rule's accumulator, a rejection shown in the confirmation; absent where it cannot be reset. */
+  reset?: () => Promise<void>
   /** The rule's heading, which takes focus when the operator navigates to it. */
   headingRef?: Ref<HTMLHeadingElement>
   /** The units of the rule's paths; without them values are shown in SI. */
@@ -85,7 +85,7 @@ export function RuleDetail({
   const confirmation = useConfirmation()
   const { rule, status } = entry
   const errorsId = useId()
-  const isAccumulator = rule.detector.type === 'accumulator'
+  const canReset = reset !== undefined && rule.detector.type === 'accumulator'
   const display = ruleDisplay(rule, units)
 
   return (
@@ -97,7 +97,7 @@ export function RuleDetail({
         {rule.name}
       </h3>
       <p className="skar-path">{entry.slug}</p>
-      <StatusBadge kind={ruleBadge(entry)} />
+      <StateChip kind={chipOf(entry)} />
       {status.errors.length > 0 && (
         <>
           <h4 id={errorsId} className="h6 mt-3">
@@ -151,18 +151,15 @@ export function RuleDetail({
       />
       {display.si && <p className="form-text">Values are in SI units.</p>}
       <div className="skar-actions">
-        <button
-          type="button"
-          className="btn btn-outline-primary btn-sm me-2"
-          disabled={edit === undefined}
-          onClick={edit}
-        >
-          Edit
-        </button>
+        {edit !== undefined && (
+          <button type="button" className="btn btn-outline-primary btn-sm me-2" onClick={edit}>
+            Edit
+          </button>
+        )}
         {disable !== undefined && enable !== undefined && (
           <DisableToggle entry={entry} disable={disable} enable={enable} />
         )}
-        {isAccumulator && (
+        {canReset && (
           <button
             ref={confirmation.trigger}
             type="button"
@@ -174,7 +171,7 @@ export function RuleDetail({
           </button>
         )}
       </div>
-      {confirmation.open && (
+      {confirmation.open && reset !== undefined && (
         <Confirm
           title={`Reset ${rule.name}?`}
           confirmLabel="Reset total"
