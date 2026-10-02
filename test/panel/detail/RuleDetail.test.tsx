@@ -309,6 +309,28 @@ describe('RuleDetail', () => {
       })
       expect(document.activeElement).toBe(button)
     })
+
+    it('moves focus to Disable once the rule shows enabled', async () => {
+      const controls = admin()
+      const { rerender } = renderDetail(disabledHouse, controls)
+      const button = screen.getByRole('button', { name: 'Enable rule' })
+      button.focus()
+      await click(button)
+      rerender(
+        <RuleDetail entry={houseLow} backHref="#/list" units={units} now={NOW} {...controls} />
+      )
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Disable' }))
+    })
+
+    it('leaves focus alone when a poll shows the rule enabled by someone else', () => {
+      const controls = admin()
+      const { rerender } = renderDetail(disabledHouse, controls)
+      screen.getByRole('button', { name: 'Enable rule' }).focus()
+      rerender(
+        <RuleDetail entry={houseLow} backHref="#/list" units={units} now={NOW} {...controls} />
+      )
+      expect(document.activeElement).toBe(document.body)
+    })
   })
 
   describe('by access level', () => {
@@ -356,6 +378,37 @@ describe('RuleDetail', () => {
       expect(controls.disable).toHaveBeenCalledWith('Shunt cable loose')
       expect(screen.queryByRole('alertdialog')).toBeNull()
       expect(document.activeElement).toBe(trigger)
+    })
+
+    it('moves focus to Enable rule once the rule shows disabled', async () => {
+      const controls = admin()
+      const { rerender } = renderDetail(houseLow, controls)
+      fireEvent.click(screen.getByRole('button', { name: 'Disable' }))
+      await click(screen.getByRole('button', { name: 'Disable rule' }))
+      rerender(
+        <RuleDetail entry={disabledHouse} backHref="#/list" units={units} now={NOW} {...controls} />
+      )
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Enable rule' }))
+    })
+
+    it('names the count of the current alerts it clears', () => {
+      const firing = { condition: 'alerting', reason: 'alertActive', priority: 'warning' } as const
+      renderDetail(
+        ruleEntry({
+          rule: { name: 'Battery low', signal: { paths: ['electrical.batteries.*.voltage'] } },
+          status: {
+            instances: [
+              instance({ instance: { name: 'house', segment: 'house' }, ...firing }),
+              instance({ instance: { name: 'start', segment: 'start' }, ...firing })
+            ]
+          }
+        }),
+        admin()
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Disable' }))
+      expect(screen.getByRole('alertdialog').textContent).toContain(
+        'It raises no alerts until someone enables it again, and its 2 current alerts are cleared now.'
+      )
     })
 
     it('does not mention an alert for a rule that raises none', () => {

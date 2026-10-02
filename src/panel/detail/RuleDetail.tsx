@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode, type Ref } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode, type Ref, type RefObject } from 'react'
 import { UNAUTHENTICATED_ACTOR, type RuleEntry } from '../api'
 import { failureMessage } from '../failure'
 import { chipOf } from '../list/attention'
@@ -210,10 +210,15 @@ function DisableSheet({
 }
 
 /** Enables at once: enabling raises nothing that disabling had not held back. */
-function EnableButton({ enable }: { enable: () => Promise<void> }) {
+function EnableButton({
+  enable,
+  button
+}: {
+  enable: () => Promise<void>
+  button: RefObject<HTMLButtonElement | null>
+}) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
-  const button = useRef<HTMLButtonElement | null>(null)
   const wasBusy = useRef(false)
 
   // A browser drops focus to the page from a button as it is disabled. The
@@ -281,6 +286,41 @@ function SheetTrigger({
   )
 }
 
+/**
+ * Disabling or enabling replaces the control that did it, which held focus,
+ * so focus would drop to the page body. Once the operator's own action shows
+ * in the rule, focus moves to the control that replaced it, unless they have
+ * moved on; a change someone else made moves nothing. Returns a wrapper that
+ * marks an action as the operator's own.
+ */
+function useToggleFocus(
+  disabled: boolean,
+  disableButton: RefObject<HTMLButtonElement | null>,
+  enableButton: RefObject<HTMLButtonElement | null>
+) {
+  const own = useRef(false)
+  const wasDisabled = useRef(disabled)
+  useEffect(() => {
+    if (wasDisabled.current === disabled) return
+    wasDisabled.current = disabled
+    if (own.current && document.activeElement === document.body) {
+      ;(disabled ? enableButton : disableButton).current?.focus()
+    }
+    own.current = false
+  }, [disabled, disableButton, enableButton])
+  return <A extends unknown[]>(action: (...args: A) => Promise<void>) =>
+    async (...args: A) => {
+      // Marked before the request, as a poll can show the change before it answers.
+      own.current = true
+      try {
+        await action(...args)
+      } catch (err) {
+        own.current = false
+        throw err
+      }
+    }
+}
+
 /** The rule's own controls, each present only for a level that can use it. */
 function Controls({
   entry,
@@ -297,8 +337,10 @@ function Controls({
   const disabling = useConfirmation()
   const deleting = useConfirmation()
   const resetting = useConfirmation()
+  const enabling = useRef<HTMLButtonElement | null>(null)
   const { rule } = entry
   const disabled = entry.disabled !== undefined
+  const toggled = useToggleFocus(disabled, disabling.trigger, enabling)
   const canReset = reset !== undefined && rule.detector.type === 'accumulator'
 
   const editButton = edit !== undefined && (
@@ -333,7 +375,7 @@ function Controls({
           Rule
         </h3>
       )}
-      {enableButton && <EnableButton enable={enable} />}
+      {enableButton && <EnableButton enable={toggled(enable)} button={enabling} />}
       {grid.length > 0 && (
         <div
           className="skar-control-grid"
@@ -348,7 +390,7 @@ function Controls({
         </SheetTrigger>
       )}
       {disabling.open && disable !== undefined && (
-        <DisableSheet entry={entry} disable={disable} onClose={disabling.close} />
+        <DisableSheet entry={entry} disable={toggled(disable)} onClose={disabling.close} />
       )}
       {deleting.open && remove !== undefined && (
         <ConfirmSheet
