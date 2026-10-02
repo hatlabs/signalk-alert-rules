@@ -1,7 +1,10 @@
+/**
+ * Rule messages with their placeholders filled in. The webapp previews a
+ * message with this module too, so it imports only types besides format.
+ */
 import { formatDuration, formatNumber } from '../format.js'
-import { stepsOf, type Rule, type Signal } from '../model/rule.js'
-import { POSITION_COMBINATORS } from '../model/validate.js'
-import { bindPath, type Instance, type SignalValue } from '../engine/signals.js'
+import type { Rule } from '../model/rule.js'
+import type { SignalValue } from '../engine/signals.js'
 
 /** What a rule's message placeholders are filled in from, for one instance. */
 export interface MessageFacts {
@@ -23,24 +26,6 @@ export interface MessageFacts {
   limit?: number
   /** The signal's SI unit, as the path's `meta.units` names it. */
   units?: string
-}
-
-/**
- * The units a signal's values are in: its path's, or a combination's first
- * input's that has them. A ratio has none, and the position combinations
- * give metres.
- */
-export function signalUnits(
-  signal: Signal,
-  instance: Instance | undefined,
-  meta: (path: string) => { units?: string } | undefined
-): string | undefined {
-  if (!('combinator' in signal)) return meta(bindPath(signal.path, instance))?.units
-  if (signal.combinator === 'ratio') return undefined
-  if (POSITION_COMBINATORS.has(signal.combinator)) return 'm'
-  return signal.inputs
-    .map((input) => meta(bindPath(input.path, instance))?.units)
-    .find((units) => units !== undefined)
 }
 
 /**
@@ -74,7 +59,7 @@ function valueText(value: SignalValue, units: string | undefined): string {
 function limitText(rule: Rule, facts: MessageFacts): string | undefined {
   const d = rule.detector
   const { units, step } = facts
-  const own = step === undefined ? undefined : stepsOf(rule).at(step)
+  const own = step === undefined ? undefined : (d.steps ?? []).at(step)
   const limit = facts.limit ?? (own !== undefined && 'limit' in own ? own.limit : undefined)
   switch (d.type) {
     case 'sustained':
