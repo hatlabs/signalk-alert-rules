@@ -294,6 +294,17 @@ describe('RuleDetail', () => {
       )
     })
 
+    it('says when it clears without a range, for a first step that has none', () => {
+      const unranged = {
+        ...heel,
+        rule: { ...heel.rule, steps: [{ priority: 'warning' }, ...heel.rule.steps.slice(1)] }
+      }
+      renderDetail(unranged, { units: heelUnits })
+      expect(screen.getByText(/^Clears when/).textContent).toBe(
+        'Clears when the first step no longer holds. It stays a warning until then.'
+      )
+    })
+
     it('charts the lowest and highest heel against both limits of each step', async () => {
       const bucket = (i: number) => Date.now() - 86_400_000 + i * 600_000
       const lows = Array.from({ length: 144 }, (_, i) => ({ time: bucket(i), value: -27 }))

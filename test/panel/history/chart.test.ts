@@ -358,6 +358,19 @@ describe('an outside rule’s history', () => {
     )
   })
 
+  it('names the high limit passed when only the high side was left', () => {
+    expect(historySummary(range(-20, 36), outside(steps), words)).toBe(
+      'Lowest -20 ° at 10 min; highest 36 ° at 30 min. It went above the alarm limit.'
+    )
+  })
+
+  it('says nothing, rather than judge one side, while either series has no values', () => {
+    const { min } = range(-27, 36)
+    const empty = min.map((p) => ({ time: p.time, value: null }))
+    expect(historySummary({ min, max: empty }, outside(steps), words)).toBeUndefined()
+    expect(historySummary({ min: empty, max: min }, outside(steps), words)).toBeUndefined()
+  })
+
   it('names the furthest limit passed on each side', () => {
     expect(historySummary(range(-27, 36), outside(steps), words)).toBe(
       'Lowest -27 ° at 10 min; highest 36 ° at 30 min. It went below the warning limit and above the alarm limit.'
