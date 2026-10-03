@@ -79,7 +79,8 @@ interface FormProps extends Omit<RuleEditorProps, 'paths'> {
 function initialForm(props: FormProps): RuleForm {
   const { editing, invalid, start, units } = props
   if (editing !== undefined) return fromRule(editing.rule, units)
-  if (invalid !== undefined) return fromBody(invalid.body, units)
+  // Saved to the slug it is stored under, which the form does not show for an edit.
+  if (invalid !== undefined) return { ...fromBody(invalid.body, units), slug: invalid.slug }
   if (start === undefined) return emptyForm()
   const form = withKind(emptyForm(), start.kind)
   form.signal.slots[0] = { path: start.path, source: '' }

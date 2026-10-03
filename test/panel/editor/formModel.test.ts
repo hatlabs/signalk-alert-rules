@@ -667,6 +667,23 @@ describe('a stored rule that does not validate', () => {
     expect(form.detector.type).toBe('')
     expect(fromBody('junk', NO_UNITS).name).toBe('')
   })
+
+  it('opens a rule-shaped body missing its texts with them empty, to be filled in', () => {
+    const { name: _name, message: _message, ...body } = example('house-battery-low')
+    const form = fromBody(body, NO_UNITS)
+    expect(form).toMatchObject({ name: '', message: '', condition: '' })
+    const result = toRule(form, NO_UNITS)
+    expect(!result.ok && result.errors.map((e) => e.path)).toEqual(['/name', '/message'])
+  })
+
+  it('asks for the kind of a detector it does not know', () => {
+    const rule = example('house-battery-low')
+    const form = fromBody({ ...rule, detector: { type: 'nonsense' } }, NO_UNITS)
+    const result = toRule(form, NO_UNITS)
+    expect(!result.ok && result.errors).toEqual([
+      { path: '/detector/type', message: 'is required' }
+    ])
+  })
 })
 
 describe('local checks', () => {

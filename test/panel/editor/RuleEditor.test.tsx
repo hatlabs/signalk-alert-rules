@@ -628,6 +628,55 @@ describe('RuleEditor, an invalid stored rule', () => {
     expect(textbox(/^Name/)).toHaveProperty('value', 'Odd')
     expect(textbox(/^Message/)).toHaveProperty('value', 'Hello')
   })
+
+  it('opens a rule-shaped body without a message, asking for one', async () => {
+    const { message: _message, ...body } = battery
+    renderEditor({
+      invalid: {
+        slug: battery.slug,
+        name: battery.name,
+        body,
+        errors: [{ path: '/message', message: 'is required' }]
+      }
+    })
+    await formShown()
+    expect(textbox(/^Message/)).toHaveProperty('value', '')
+    expect(description(textbox(/^Message/))).toContain('is required')
+  })
+
+  it('keeps an error on a detector it does not know after Save', async () => {
+    const { api } = renderEditor({
+      invalid: {
+        slug: battery.slug,
+        name: battery.name,
+        body: { ...battery, detector: { type: 'nonsense' } },
+        errors: [{ path: '/detector/type', message: 'is not a known detector' }]
+      }
+    })
+    await formShown()
+    click(button('Save'))
+    await waitFor(() => {
+      expect(description(select(/^Alert when/))).toContain('is required')
+    })
+    expect(api.updateRule).not.toHaveBeenCalled()
+  })
+
+  it('saves under the slug it is stored under, whatever its body says', async () => {
+    const { api, onSaved } = renderEditor({
+      invalid: {
+        slug: 'battery-old',
+        name: battery.name,
+        body: { ...battery, detector: { ...battery.detector, duration: -5 } },
+        errors: [{ path: '/detector/duration', message: 'must be at least 0' }]
+      }
+    })
+    await formShown()
+    type(textbox('For at least'), '1')
+    choose('For at least unit', 'min')
+    click(button('Save'))
+    await saved(onSaved)
+    expect(api.updateRule).toHaveBeenCalledWith('battery-old', { ...battery, slug: 'battery-old' })
+  })
 })
 
 describe('ZONE_PRIORITY', () => {

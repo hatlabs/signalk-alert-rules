@@ -77,6 +77,15 @@ export const ANGULAR_KINDS: ReadonlySet<CombinatorKind> = new Set([
 ])
 
 export type DetectorType = Detector['type']
+const DETECTOR_TYPES: Readonly<Record<DetectorType, true>> = {
+  sustained: true,
+  slope: true,
+  projection: true,
+  match: true,
+  accumulator: true,
+  count: true,
+  absence: true
+}
 export type MatchOp = Extract<Detector, { type: 'match' }>['op']
 export type EventOp = Event['op']
 type StateOp = 'above' | 'below' | 'equals' | 'notEquals'
@@ -509,15 +518,22 @@ function gateFrom(gate: Gate, units: UnitLookup, shown: ShownValues): GateForm {
  * what can be read of it, so the user can fill in the rest.
  */
 export function fromBody(body: unknown, units: UnitLookup): RuleForm {
+  const text = (key: string) => (isRecord(body) && typeof body[key] === 'string' ? body[key] : '')
+  const texts = { name: text('name'), slug: text('slug'), message: text('message') }
   try {
-    return fromRule(body as Rule, units)
+    const form = fromRule(body as Rule, units)
+    // A detector the form has no fields for is shown unchosen, to be chosen again.
+    const type = Object.hasOwn(DETECTOR_TYPES, form.detector.type) ? form.detector.type : ''
+    return {
+      ...form,
+      ...texts,
+      condition: text('condition'),
+      detector: { ...form.detector, type }
+    }
   } catch {
-    const text = (key: string) => (isRecord(body) && typeof body[key] === 'string' ? body[key] : '')
     return {
       ...emptyForm(),
-      name: text('name'),
-      slug: text('slug'),
-      message: text('message'),
+      ...texts,
       slugFollowsName: false,
       nameFollows: false,
       messageFollows: false
