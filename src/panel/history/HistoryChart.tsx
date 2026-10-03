@@ -145,13 +145,13 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
   const { path, methods, source, measure } = spec
   // A spec is built afresh on each render, so its list of aggregates is too; their names are not.
   const asked = methods.join(',')
+  const of = `${path}:${asked}|${source ?? ''}:${String(span.seconds)}`
 
   useEffect(() => {
     if (resolution === undefined) return undefined
     let cancelled = false
     let next: ReturnType<typeof setTimeout> | undefined
     const { seconds } = span
-    const of = `${path}:${asked}|${source ?? ''}:${String(seconds)}`
     // A new width asks for finer or coarser buckets of the same line; the
     // line drawn stays until they come, rather than blinking out.
     setLoaded((last) => (last.status === 'ready' && last.of === of ? last : { status: 'loading' }))
@@ -182,14 +182,19 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
       cancelled = true
       clearTimeout(next)
     }
-  }, [history, path, asked, source, span, resolution])
+  }, [history, path, asked, source, span, resolution, of])
+
+  // Until the effect above has asked for a changed spec, as on the render
+  // after an editor's kind or path changes, the last answer is of another.
+  const current: Loaded =
+    loaded.status === 'ready' && loaded.of !== of ? { status: 'loading' } : loaded
 
   const symbol = measure.kind === 'ratio' ? '' : measure.unit.symbol
   const shown = (v: number) => (symbol === '' ? formatNumber(v) : `${formatNumber(v)} ${symbol}`)
   const series: HistorySeries = {}
-  if (loaded.status === 'ready') {
+  if (current.status === 'ready') {
     for (const method of methods) {
-      series[method] = loaded.series[method]?.map((p) => ({
+      series[method] = current.series[method]?.map((p) => ({
         time: p.time,
         value: p.value === null ? null : fromSI(measure.kind, p.value, measure.unit)
       }))
@@ -208,12 +213,12 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
   // Drawn in the frame the answer was asked in, so the line holds still
   // between answers however often the page around it renders.
   const geometry =
-    loaded.status === 'ready'
+    current.status === 'ready'
       ? chartGeometry(drawn, limits, {
-          from: loaded.to - loaded.seconds * 1000,
-          to: loaded.to,
+          from: current.to - current.seconds * 1000,
+          to: current.to,
           width: drawnWidth,
-          resolution: loaded.resolution
+          resolution: current.resolution
         })
       : { lines: [], limits: [] }
   const summary =
@@ -226,9 +231,9 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
         )
   const withLimits = limits.length === 0 ? '' : several ? ' with the limits' : ' with the limit'
   const note =
-    loaded.status === 'failed'
+    current.status === 'failed'
       ? 'History unavailable.'
-      : loaded.status === 'ready' && !recorded
+      : current.status === 'ready' && !recorded
         ? `Nothing recorded in the ${span.title.toLowerCase()}.`
         : undefined
 
@@ -255,7 +260,7 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
         </div>
       </div>
       <div ref={ref} className="skar-history-plot">
-        {loaded.status === 'loading' && (
+        {current.status === 'loading' && (
           <p className="skar-history-note" style={{ height: CHART_HEIGHT }}>
             Loading history…
           </p>

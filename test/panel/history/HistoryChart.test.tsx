@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useLayoutEffect } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { REQUEST_TIMEOUT_MS } from '../../../src/panel/api'
@@ -199,6 +200,48 @@ describe('HistoryChart', () => {
       expect(screen.getByRole('status').textContent).toMatch(
         /^Lowest 75 °C at .+; highest 90 °C at .+\. It went below the warning limit and above the alarm limit\.$/
       )
+    })
+
+    it('shows loading, not the last answer, on the first render after a switch from below', async () => {
+      const history = fakeHistory((q) =>
+        Promise.resolve(Object.fromEntries(q.methods.map((method) => [method, lows])))
+      )
+      const below: ChartSpec = {
+        ...coolant,
+        methods: ['min'],
+        side: 'below',
+        limits: [{ value: 70 }]
+      }
+      // Runs as each render is committed, before the chart's own effects answer it.
+      const frames: { loading: boolean; lines: number; status: string | undefined }[] = []
+      function Probe() {
+        useLayoutEffect(() => {
+          frames.push({
+            loading: screen.queryByText('Loading history…') !== null,
+            lines: document.querySelectorAll('polyline').length,
+            status: screen.queryByRole('status')?.textContent
+          })
+        })
+        return null
+      }
+      const { rerender } = render(
+        <>
+          <HistoryChart history={history} spec={below} />
+          <Probe />
+        </>
+      )
+      await settle()
+      expect(screen.getByRole('status').textContent).toMatch(/^Lowest 75 °C at /)
+      frames.length = 0
+      rerender(
+        <>
+          <HistoryChart history={history} spec={band} />
+          <Probe />
+        </>
+      )
+      expect(frames[0]).toEqual({ loading: true, lines: 0, status: '' })
+      await settle()
+      expect(screen.getByRole('img').querySelectorAll('polyline')).toHaveLength(4)
     })
 
     it('asks again when a one-sided spec becomes an outside one', async () => {
