@@ -253,8 +253,9 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
             role="img"
             aria-label={`${span.title}${withLimits}`}
           >
-            {geometry.limits.map((l) => (
-              <g key={l.label} className={`skar-history-limit skar-history-limit-${l.tone}`}>
+            {/* Steps may share a label, so their place in the list is their key. */}
+            {geometry.limits.map((l, i) => (
+              <g key={i} className={`skar-history-limit skar-history-limit-${l.tone}`}>
                 <line x1={0} y1={l.y} x2={drawnWidth} y2={l.y} />
               </g>
             ))}
@@ -262,8 +263,8 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
               <polyline key={line} className="skar-history-line" points={line} />
             ))}
             {/* The labels go over the line, so it never hides one. */}
-            {geometry.limits.map((l) => (
-              <g key={l.label} className={`skar-history-limit skar-history-limit-${l.tone}`}>
+            {geometry.limits.map((l, i) => (
+              <g key={i} className={`skar-history-limit skar-history-limit-${l.tone}`}>
                 <text x={drawnWidth - LIMIT_LABEL_INSET} y={l.labelY} textAnchor="end">
                   {l.label}
                 </text>

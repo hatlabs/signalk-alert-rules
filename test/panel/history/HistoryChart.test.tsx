@@ -105,6 +105,33 @@ describe('HistoryChart', () => {
     expect(chart.textContent).toContain('alarm 105 °C')
   })
 
+  it('labels a step typed before its priority by its value, and draws steps of one limit each', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      render(
+        <HistoryChart
+          history={fakeHistory()}
+          spec={{ ...coolant, limits: [{ value: 85 }, { value: 85 }] }}
+        />
+      )
+      await settle()
+      const chart = screen.getByRole('img', { name: 'Last 24 hours with the limits' })
+      expect(chart.querySelectorAll('line')).toHaveLength(2)
+      expect([...chart.querySelectorAll('text')].map((t) => t.textContent)).toEqual([
+        'step 85 °C',
+        'step 85 °C',
+        '24 h ago',
+        'now'
+      ])
+      expect(screen.getByRole('status').textContent).toMatch(
+        /^Highest 90 °C at .+\. It went above the limit\.$/
+      )
+      expect(consoleError).not.toHaveBeenCalled()
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it('takes the title it is given, as the detail names the path', async () => {
     render(<HistoryChart history={fakeHistory()} spec={coolant} title="Port coolant" />)
     await settle()
