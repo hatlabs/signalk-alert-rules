@@ -188,6 +188,14 @@ function author(form: RuleForm) {
   if ((textbox('Slug') as HTMLInputElement).value !== form.slug) type(textbox('Slug'), form.slug)
 }
 
+/**
+ * Authoring an example field by field is hundreds of role queries over the
+ * whole form, synchronous work that takes the largest example about a second
+ * alone and several times that while the other test files run alongside.
+ * Its waits are short; the time is the authoring.
+ */
+const AUTHORING_TIMEOUT_MS = 20_000
+
 beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn()
 })
@@ -195,14 +203,18 @@ beforeAll(() => {
 describe('every worked example', () => {
   afterEach(cleanup)
 
-  it.each(SLUGS)('%s can be created in the editor and saves as stored', async (slug) => {
-    const rule = example(slug)
-    const { api, onSaved } = renderEditor()
-    await formShown()
-    openMoreOptions()
-    author(fromRule(rule, units))
-    click(button('Create rule'))
-    await saved(onSaved)
-    expect(api.createRule).toHaveBeenCalledWith(rule)
-  })
+  it.each(SLUGS)(
+    '%s can be created in the editor and saves as stored',
+    async (slug) => {
+      const rule = example(slug)
+      const { api, onSaved } = renderEditor()
+      await formShown()
+      openMoreOptions()
+      author(fromRule(rule, units))
+      click(button('Create rule'))
+      await saved(onSaved)
+      expect(api.createRule).toHaveBeenCalledWith(rule)
+    },
+    AUTHORING_TIMEOUT_MS
+  )
 })
