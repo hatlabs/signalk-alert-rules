@@ -482,7 +482,7 @@ A stored rule that does not run, because it does not validate, names another slu
 
 ## Worked examples
 
-Each rule in [`examples/rules`](../examples/rules) runs in `test/examples.test.ts` against the scenario of the same name in `test/fixtures/example-scenarios.ts`, from a plugin start at 0 s. The table summarises the sequence the test asserts, with heartbeats left out.
+Each rule in [`examples/rules`](../examples/rules) runs in `test/examples.test.ts` against the scenario of the same name in `test/fixtures/example-scenarios.ts`, from a plugin start at 0 s. The table summarises the sequence the test asserts, with heartbeats left out. [Worked examples in the editor](examples.md) shows how to write each one in the webapp.
 
 | Example | Rule | Scenario | Alerts |
 |---|---|---|---|
