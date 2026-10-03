@@ -22,6 +22,31 @@ Alert Rules is a Signal K server plugin (npm `signalk-alert-rules`; code and com
 - Versioning: `./run bumpversion patch|minor|major` updates `VERSION` and `package.json`. Publishing to npm happens from a GitHub release whose tag matches `VERSION`, through npm trusted publishing. The very first version must be published manually, because npm can only attach a trusted publisher to a package that already exists.
 - Comments explain why the code is the way it is, never what changed.
 
+## Rendering the UI
+
+`harness/` serves the webapp on a fake server: `harness/main.tsx` puts React on the admin UI's globals, as the admin UI does, and mounts `Shell` with a fake `PanelApi`, path source and history source (`harness/fakeServer.ts`). The rules are `examples/rules/*.json`, the paths `test/panel/reportedPaths.ts`, the template sets `templates/builtin.yaml` and `examples/template-set-example`. Writes change the rules in memory until the page reloads. The harness is not in the package (`files`) or the panel bundle, and Bootstrap's stylesheet comes from a CDN.
+
+```
+npm ci
+./run harness 5173
+```
+
+Open `http://localhost:5173/`. The page matches the admin UI's body text and background and, from 992 px wide, leaves the 200 px column of its sidebar, so widths are those of the admin UI with its sidebar open. Query parameters pick the fake server's answers, and the hash picks the view as in the admin UI (`src/panel/route.ts`), so `http://localhost:5173/?history=error#rule=house-battery-low` is the rule detail with the history failing. `OPTIONS` in `harness/scenario.ts` lists each parameter's values and what they answer, the first value being the default; an unknown value logs a console warning and falls back to it. `test/panel/harness.test.ts` passes every value's answers through the panel's parsers.
+
+States per view:
+
+- Rules list, at `/`: populated by default; `?rules=empty`, `?plugin=loading`, `?plugin=failed`, `?plugin=notRunning`, `?plugin=unreachable`, `?plugin=session`; partial `?rules=partial`; `?access=readonly`, `?security=off`, `?templates=new`. Over the rules already read, at the poll after the switch: `?after=unreachable` (reconnecting banner), `?after=notRunning` (not running, retrying), `?after=session` (login expired, with Check again).
+- Rule detail: `#rule=house-battery-low` (alerting, zone limit), `#rule=coolant-temperature-rising` (wildcard instances), `#rule=engine-service-due` (total), `#rule=bilge-pump-cycling` (event count), `#rule=watch-not-acknowledged` (disabled), `#rule=depth-sensor-silent` (no data), `?rules=partial#rule=coolant-high` (invalid), `#rule=no-such-rule` (not found); loading and error states are the list's `plugin` values. `?controls=refused` and Disable, Enable, Reset or Delete shows the notice of a write refused for the login's level.
+- History chart, on any rule detail or editor: `?history=data|gaps|empty|loading|error|none`.
+- Editor, new rule: `#add=path` (path search; `?paths=loading|error|empty`), `#add=path&path=electrical.batteries.start.voltage` (kind picker), `#add=path&path=electrical.batteries.start.voltage&when=below` (form). Choosing a priority and limit and pressing Create rule shows success (the new rule's detail), `?save=rejected`, `?save=error` or `?save=refused` (the level refusal notice). The fake refuses what the server would: the same form for `electrical.batteries.house.voltage` makes an alert path overlapping `house-battery-low`'s, and naming the rule `House battery low` takes that rule's slug.
+- Editor, existing rule: `#edit=house-battery-low`; `?definition=loading`, `?definition=error`; `?preview=restart` and Save shows the confirmation; `?access=readonly` shows the refusal; `?save=refused` and Save shows the level refusal notice.
+- Editor, invalid stored rule: `?rules=partial#edit=coolant-high`; saving it starts the rule fresh, as creating it would.
+- Add rule and templates: `#add` (`?templates=loading|error|none`), `#add=template&set=builtin`, `#add=template&set=builtin&template=battery-voltage-low` (picker), `#add=template&set=builtin&template=battery-voltage-low&picks=%5B%7B%22instance%22%3A%22house%22%7D%5D&step=edit` (the rules the picks make).
+
+Reloading with a dirty form raises a beforeunload dialog that browser automation must accept.
+
+Server-backed checks (path search, units and zones from a real server) need a Signal K server from the alerts branch with Alert Rules installed into a scratch config directory: `npm run build`, then `npm install <this repo>` in the config directory, enable the plugin in `plugin-config-data/signalk-alert-rules.json`, disable Kip there as well (its history provider records nothing and leaves an empty chart beside every form), feed sample data through an `n2kFromFile` piped provider, and start the server with `PORT=3456 node bin/signalk-server -c <config dir>`. The webapp is then at `http://localhost:3456/admin/#/e/signalk_alert_rules`; paths the sample data lacks, zones, sources and `displayUnits` come from a delta feeder over `ws://localhost:3456/signalk/v1/stream`.
+
 ## Plan
 
 The implementation plan is tracked in issue 1 of this repository, with one sub-issue per unit. The plan for Disable, template sets and the webapp is issue 54, also with one sub-issue per unit.
