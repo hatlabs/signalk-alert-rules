@@ -859,7 +859,11 @@ describe('a stored rule that does not validate', () => {
   it.each([
     { inputs: undefined, missing: noPath },
     { inputs: 'a.b', missing: noPath },
-    { inputs: [null, { path: 'a.b' }], missing: ['/signal/inputs/0/path'] }
+    // a.b has no known unit, and the empty input may yet get a path that has one.
+    {
+      inputs: [null, { path: 'a.b' }],
+      missing: ['/signal/inputs/0/path', '/detector/steps/0/limit']
+    }
   ])(
     'keeps the rest of a body whose combined signal has inputs $inputs, asking for each path',
     ({ inputs, missing }) => {
@@ -979,6 +983,51 @@ describe('a stored rule that does not validate', () => {
         type: 'text',
         text: 'stopped'
       })
+    })
+
+    it('asks again for the limit of a combination whose only path has no known unit', () => {
+      // The empty input may yet be given a path the server shows in rpm.
+      const starboardOnly = unitLookup(
+        shown.filter((p) => p.path === 'propulsion.starboard.revolutions'),
+        displayed.distance
+      )
+      const rule = example('engine-rpm-mismatch')
+      const form = fromBody(
+        {
+          ...rule,
+          signal: {
+            combinator: 'absDifference',
+            inputs: [{ path: 'propulsion.port.revolutions' }, {}]
+          }
+        },
+        starboardOnly
+      )
+      expect(form.steps[0]?.limit).toBe('')
+    })
+
+    it('asks again for the limit of a combination stored without inputs', () => {
+      const form = withoutSignal('engine-rpm-mismatch', { combinator: 'absDifference', inputs: [] })
+      expect(form.steps[0]?.limit).toBe('')
+    })
+
+    it('keeps the limit of a combination whose every input has a path of unknown unit', () => {
+      const form = fromBody(example('engine-rpm-mismatch'), NO_UNITS)
+      expect(form.steps[0]?.limit).toBe('3')
+    })
+
+    it('keeps the limit of a combination one of whose paths has a known unit', () => {
+      const rule = example('engine-rpm-mismatch')
+      const form = fromBody(
+        {
+          ...rule,
+          signal: {
+            combinator: 'absDifference',
+            inputs: [{ path: 'propulsion.port.revolutions' }, {}]
+          }
+        },
+        displayed
+      )
+      expect(form.steps[0]?.limit).toBe('180')
     })
 
     it('keeps the limit of a combination whose unit does not come from its paths', () => {

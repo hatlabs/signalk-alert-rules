@@ -107,12 +107,18 @@ export function signalMeasure(signal: SignalShape, lookup: UnitLookup): Measure 
   return { kind, unit }
 }
 
-/** Whether `signalMeasure` is settled: by the combinator, or by a path the signal has. */
-export function measureSettled(signal: SignalShape): boolean {
-  const { combinator } = signal
+/**
+ * Whether `signalMeasure` is settled: by the combinator, by a path whose unit
+ * is known, or by every input having a path, SI then being final. A path of
+ * unknown unit beside an empty input settles nothing: the input may yet be
+ * given a path shown in another unit.
+ */
+export function measureSettled(signal: SignalShape, lookup: UnitLookup): boolean {
+  const { combinator, paths } = signal
   return (
     (combinator !== undefined && (POSITION_KINDS.has(combinator) || combinator === 'ratio')) ||
-    signal.paths.some((p) => p !== '')
+    paths.some((p) => p !== '' && lookup.entry(p)?.unit !== undefined) ||
+    (paths.length > 0 && paths.every((p) => p !== ''))
   )
 }
 

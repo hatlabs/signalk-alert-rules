@@ -538,14 +538,14 @@ export function durationFrom(seconds: number | undefined): DurationField {
 }
 
 /**
- * How a stored signal's numbers show; undefined while it has no path to take
- * a unit from, as in a stored rule that does not validate. Its numbers are
- * then left to type again once a path is picked: shown in SI, they would be
- * read back in that path's display unit.
+ * How a stored signal's numbers show; undefined while its unit is not
+ * settled (`measureSettled`), as in a stored rule that does not validate
+ * missing a path. Its numbers are then left to type again once a path is
+ * picked: shown in SI, they would be read back in that path's display unit.
  */
 function storedMeasure(signal: SignalForm, units: UnitLookup): Measure | undefined {
   const shape = signalShape(signal)
-  return measureSettled(shape) ? signalMeasure(shape, units) : undefined
+  return measureSettled(shape, units) ? signalMeasure(shape, units) : undefined
 }
 
 /** A stored number of `quantity` as its field shows it; empty while the measure is unknown. */
