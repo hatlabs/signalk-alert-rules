@@ -979,8 +979,11 @@ export class RuleEvaluator {
 }
 
 /**
- * A step's SI limit, for a detector whose steps have one; a zone limit's is
- * its resolved threshold, and an outside step's the one the value went past.
+ * A step's SI limit as a message's `{limit}` renders it: a sustained,
+ * projection, slope, accumulator or count step's `limit` (a zone limit's
+ * resolved threshold), or an outside step's on the side passed. A match or
+ * absence step has none: the message reads its value or window from the
+ * rule's step.
  */
 function limitOf(unit: Unit, step: number): number | undefined {
   const spec = unit.steps.at(step)?.spec
@@ -989,7 +992,12 @@ function limitOf(unit: Unit, step: number): number | undefined {
   )
 }
 
-/** The SI limit of a sustained, projection or outside step, as events report it. */
+/**
+ * A step's SI limit as events and the status report it: a sustained or
+ * projection step's, or an outside step's on the side passed. Only these are
+ * thresholds of the value itself; a slope's rate or a count's number of
+ * events is no `limit` in an alert's data.
+ */
 function stepLimit(unit: Unit, step: number): number | undefined {
   return passedAt(unit, step)?.limit ?? unit.steps.at(step)?.limit
 }
