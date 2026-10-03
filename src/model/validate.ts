@@ -373,9 +373,35 @@ function detectorErrors(rule: Rule, wildcard: string | undefined): ValidationErr
     case 'count':
     case 'absence':
       return eventErrors(d.event, pointer(at, 'event'))
+    case 'outside':
+      return rangeErrors(d)
     case 'slope':
       return []
   }
+}
+
+// The alert clears only inside the first step's range narrowed by hysteresis
+// on both sides, so hysteresis of half its width or more never clears. Later
+// steps are wider and clear whenever the first can.
+function rangeErrors(d: Extract<Rule['detector'], { type: 'outside' }>): ValidationError[] {
+  const errors: ValidationError[] = d.steps.flatMap((step, i) =>
+    step.low < step.high
+      ? []
+      : [{ path: pointer(pointer(STEPS_AT, i), 'high'), message: 'must be above the low limit' }]
+  )
+  const first = d.steps.at(0)
+  if (
+    first !== undefined &&
+    first.low < first.high &&
+    d.hysteresis !== undefined &&
+    d.hysteresis >= (first.high - first.low) / 2
+  ) {
+    errors.push({
+      path: '/detector/hysteresis',
+      message: "must be less than half the first step's range, or the alert could never clear"
+    })
+  }
+  return errors
 }
 
 // Core emits its timed-out marker only for numeric paths, so a timeout rule
@@ -497,7 +523,19 @@ function beyondError(d: Rule['detector'], earlier: readonly Step[], step: Step):
     case 'accumulator':
     case 'count':
       return limitBeyondError(previous, step, true)
+    case 'outside':
+      return rangeBeyondError(previous, step)
   }
+}
+
+/** A range widens: neither limit moves inward and at least one moves outward. */
+function rangeBeyondError(previous: Step | undefined, step: Step): BeyondError {
+  if (previous === undefined || !('low' in previous) || !('low' in step)) return undefined
+  const message = "must not be inside the previous step's range"
+  if (step.low > previous.low) return { field: 'low', message }
+  if (step.high < previous.high) return { field: 'high', message }
+  if (step.low === previous.low && step.high === previous.high) return { field: 'high', message }
+  return undefined
 }
 
 /** A limit moves away from normal: up for a rising condition, down for a falling one. */

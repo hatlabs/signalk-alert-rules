@@ -16,10 +16,12 @@ import type { Clock } from './clock.js'
 import {
   AccumulatorDetector,
   createDetector,
+  SustainedDetector,
   type Detector,
   type DetectorOptions,
   type DetectorSpec,
-  type Progress
+  type Progress,
+  type Side
 } from './detectors/index.js'
 import { Gate } from './gates.js'
 import { resolveLimit, severerLevels, type MissingZone, type Zone } from './limits.js'
@@ -126,9 +128,13 @@ export interface InstanceStatus {
   value?: SignalValue
   /**
    * A sustained or projection rule's limit in force, in SI units: the reached
-   * step's while the alert is active, else the first step's.
+   * step's while the alert is active, else the first step's. An outside
+   * rule's is that step's limit on the side the value last went past, absent
+   * until it has gone past one.
    */
   limit?: number
+  /** The side of an outside rule's limit. */
+  passed?: Side
   /** How far the detector is toward its next transition. */
   progress?: Progress
   /** One entry per gate of the rule, in its order. */
@@ -245,7 +251,10 @@ interface Unit {
 interface ResolvedStep {
   priority: Priority
   spec: DetectorSpec
-  /** The SI limit of a sustained or projection step. */
+  /**
+   * The SI limit of a sustained or projection step. An outside step has two,
+   * and which one applies is known only from its detector: {@link passedAt}.
+   */
   limit?: number
   /** The zone level the step comes from, for a zone-limit rule. */
   level?: ZoneLevel
@@ -262,6 +271,7 @@ const STRUCTURAL: {
 } = {
   match: ['op'],
   sustained: ['direction'],
+  outside: [],
   slope: ['direction'],
   projection: ['direction'],
   accumulator: ['measure', 'while', 'resetOn'],
@@ -497,11 +507,14 @@ export class RuleEvaluator {
       errors: [...this.errors],
       runningFor: now - this.startedAt,
       instances: [...this.units.values()].map((u) => {
+        const step = u.alerting ? (u.step ?? 0) : 0
+        const passed = passedAt(u, step)
         return {
           instance: u.instance,
           inUse: u.inUse,
           value: u.last?.available === true ? u.last.value : undefined,
-          limit: u.steps.at(u.alerting ? (u.step ?? 0) : 0)?.limit,
+          limit: stepLimit(u, step),
+          ...(passed === undefined ? {} : { passed: passed.side }),
           progress: u.tracks.at(0)?.detector?.progress(now),
           gates: this.gateStatus(u),
           conditionPresent: u.present,
@@ -574,10 +587,11 @@ export class RuleEvaluator {
     const unit = this.units.get(segment)
     if (unit === undefined) return undefined
     const value = unit.lastValue
-    if (!unit.alerting) return { value, index: 0, step: 0, limit: limitOf(unit.steps.at(0)) }
+    if (!unit.alerting) return { value, index: 0, step: 0, limit: limitOf(unit, 0) }
     const index = unit.step ?? 0
-    const own = this.ownStep(unit, index)
-    return own === undefined ? { value, index } : { value, index, step: index, limit: limitOf(own) }
+    return this.ownStep(unit, index) === undefined
+      ? { value, index }
+      : { value, index, step: index, limit: limitOf(unit, index) }
   }
 
   /**
@@ -591,7 +605,8 @@ export class RuleEvaluator {
       if (!u.alerting) return []
       const step = u.step ?? 0
       const priority = this.reachedAt(u, step)
-      return [{ instance: u.instance, priority, limit: this.ownStep(u, step)?.limit }]
+      const limit = this.ownStep(u, step) === undefined ? undefined : stepLimit(u, step)
+      return [{ instance: u.instance, priority, limit }]
     })
   }
 
@@ -924,7 +939,7 @@ export class RuleEvaluator {
       priority: unit.reached,
       rule: this.rule,
       value,
-      limit: unit.steps.at(step)?.limit
+      limit: stepLimit(unit, step)
     })
   }
 
@@ -943,7 +958,7 @@ export class RuleEvaluator {
       type: 'priority',
       instance: unit.instance,
       priority: unit.reached,
-      limit: unit.steps.at(step)?.limit
+      limit: stepLimit(unit, step)
     })
   }
 
@@ -962,9 +977,43 @@ export class RuleEvaluator {
   }
 }
 
-/** A step's SI limit, for a detector whose steps have one; a zone limit's is its resolved threshold. */
-function limitOf(step: ResolvedStep | undefined): number | undefined {
-  return step !== undefined && 'limit' in step.spec ? step.spec.limit : undefined
+/**
+ * A step's SI limit as a message's `{limit}` renders it: a sustained,
+ * projection, slope, accumulator or count step's `limit` (a zone limit's
+ * resolved threshold), or an outside step's on the side passed. A match or
+ * absence step has none: the message reads its value or window from the
+ * rule's step.
+ */
+function limitOf(unit: Unit, step: number): number | undefined {
+  const spec = unit.steps.at(step)?.spec
+  return (
+    passedAt(unit, step)?.limit ?? (spec !== undefined && 'limit' in spec ? spec.limit : undefined)
+  )
+}
+
+/**
+ * A step's SI limit as events and the status report it: a sustained or
+ * projection step's, or an outside step's on the side passed. Only these are
+ * thresholds of the value itself; a slope's rate or a count's number of
+ * events is no `limit` in an alert's data.
+ */
+function stepLimit(unit: Unit, step: number): number | undefined {
+  return passedAt(unit, step)?.limit ?? unit.steps.at(step)?.limit
+}
+
+/**
+ * An outside step's limit on the side the value last went past; undefined for
+ * any other step and before the value has gone past either limit. The side is
+ * the first step's detector's: its range is the narrowest, so it sees every
+ * value beyond any step, including a fall past its own other limit that a
+ * wider step reached earlier never sees.
+ */
+function passedAt(unit: Unit, step: number): { side: Side; limit: number } | undefined {
+  const spec = unit.steps.at(step)?.spec
+  const detector = unit.tracks.at(0)?.detector
+  if (spec?.type !== 'outside' || !(detector instanceof SustainedDetector)) return undefined
+  const side = detector.passed
+  return side === undefined ? undefined : { side, limit: side === 'low' ? spec.low : spec.high }
 }
 
 function gateProblem(gates: readonly Gate[]): Problem | undefined {

@@ -48,9 +48,13 @@ import { displayUnit } from '../../../src/panel/units'
 const EXAMPLES = join(import.meta.dirname, '../../../examples/rules')
 
 function examples(): [string, Rule][] {
-  return readdirSync(EXAMPLES)
-    .filter((f) => f.endsWith('.json'))
-    .map((f) => [f, JSON.parse(readFileSync(join(EXAMPLES, f), 'utf8')) as Rule])
+  return (
+    readdirSync(EXAMPLES)
+      .filter((f) => f.endsWith('.json'))
+      .map((f): [string, Rule] => [f, JSON.parse(readFileSync(join(EXAMPLES, f), 'utf8')) as Rule])
+      // The editor has no outside condition kind until issue 88's Unit 4.
+      .filter(([, rule]) => rule.detector.type !== 'outside')
+  )
 }
 
 function example(slug: string): Rule {

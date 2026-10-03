@@ -89,6 +89,28 @@ describe('renderMessage', () => {
     )
   })
 
+  it('renders the limit an outside rule went past, and a dash before it has gone past one', () => {
+    const frequency = valid({
+      name: 'Shore power frequency',
+      slug: 'shore-power-frequency',
+      message: 'Frequency {value}, past {limit}',
+      signal: { path: 'electrical.ac.shore.frequency' },
+      detector: {
+        type: 'outside',
+        steps: [
+          { low: 49, high: 51, priority: 'warning' },
+          { low: 48, high: 52, priority: 'alarm' }
+        ]
+      }
+    })
+    expect(renderMessage(frequency, { value: 47.5, step: 1, limit: 48, units: 'Hz' })).toBe(
+      'Frequency 47.5 Hz, past 48 Hz'
+    )
+    expect(renderMessage(frequency, { value: 50, step: 0, units: 'Hz' })).toBe(
+      'Frequency 50 Hz, past –'
+    )
+  })
+
   it("renders each detector's limit in its own quantity", () => {
     const pump = 'electrical.switches.bilge.state'
     const count = valid({

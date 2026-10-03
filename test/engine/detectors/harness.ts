@@ -1,6 +1,7 @@
 import {
   AccumulatorDetector,
   createDetector,
+  SustainedDetector,
   type Detector,
   type DetectorOptions,
   type DetectorSpec,
@@ -17,7 +18,9 @@ export function v(value: SignalValue): Reading {
 
 type DetectorFor<S extends DetectorSpec> = S extends { type: 'accumulator' }
   ? AccumulatorDetector
-  : Detector
+  : S extends { type: 'sustained' | 'outside' }
+    ? SustainedDetector
+    : Detector
 
 /**
  * Drives a detector on a hand-set monotonic clock. `at(t, reading)` delivers a

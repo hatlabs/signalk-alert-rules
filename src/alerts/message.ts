@@ -63,6 +63,7 @@ function limitText(rule: Rule, facts: MessageFacts): string | undefined {
   const limit = facts.limit ?? (own !== undefined && 'limit' in own ? own.limit : undefined)
   switch (d.type) {
     case 'sustained':
+    case 'outside':
     case 'projection':
       return limit === undefined ? undefined : quantity(limit, units)
     case 'slope':

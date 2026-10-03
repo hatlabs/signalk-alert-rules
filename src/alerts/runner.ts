@@ -360,6 +360,7 @@ export class RuleRunner {
       gates: instance.gates,
       value: instance.value,
       limit: instance.limit,
+      ...(instance.passed === undefined ? {} : { passed: instance.passed }),
       progress: instance.progress,
       ...(instance.clearedFor === undefined ? {} : { clearedAt: ago(instance.clearedFor) }),
       ...(instance.sinceValue === undefined ? {} : { lastSeen: ago(instance.sinceValue) }),

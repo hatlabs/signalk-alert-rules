@@ -199,6 +199,14 @@ const DetectorSchema = Type.Union(
     ),
     Type.Object(
       {
+        type: Type.Literal('outside'),
+        steps: stepArray({ low: num('absolute'), high: num('absolute') }),
+        ...timingFields
+      },
+      closed
+    ),
+    Type.Object(
+      {
         type: Type.Literal('slope'),
         direction: Type.Enum(['rising', 'falling']),
         window: timeWindow(),

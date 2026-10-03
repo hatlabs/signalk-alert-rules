@@ -122,6 +122,17 @@ describe('the state of an instance of an enabled rule', () => {
   it('does not report a cleared state as clear since start', () => {
     expect(enabled(idle)).not.toHaveProperty('clearSince')
   })
+
+  it("names the side of an outside rule's limit the alert went past, only while alerting", () => {
+    const passed = { value: -27, limit: -25, passed: 'low' } as const
+    expect(enabled(judgedAs({ alert: { step: 0, priority: 'warning' } }, passed))).toMatchObject({
+      condition: 'alerting',
+      value: -27,
+      limit: -25,
+      passed: 'low'
+    })
+    expect(enabled({ ...idle, ...passed })).not.toHaveProperty('passed')
+  })
 })
 
 describe('the state of an instance of a disabled rule', () => {

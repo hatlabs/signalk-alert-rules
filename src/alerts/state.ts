@@ -1,4 +1,4 @@
-import type { Progress } from '../engine/detectors/index.js'
+import type { Progress, Side } from '../engine/detectors/index.js'
 import type { GateStatus, Judgement, Problem } from '../engine/evaluator.js'
 import type { InputState, SignalValue } from '../engine/signals.js'
 import type { Priority, ZoneLevel } from '../model/rule.js'
@@ -28,6 +28,8 @@ export type ConditionState =
       step: number
       /** The zone level of that step, for a zone-limit rule. */
       level?: ZoneLevel
+      /** Which of an outside rule's limits the value last went past: the one `limit` names. */
+      passed?: Side
       /** The input has stopped reporting, so the alert is not repeated. */
       awaitingInput: boolean
       /** The alert's message as SKAR last sent it, or as it reads now before its first emission. */
@@ -125,6 +127,7 @@ export interface InstanceFacts {
   gates: GateStatus[]
   value?: SignalValue
   limit?: number
+  passed?: Side
   progress?: Progress
   clearedAt?: string
   lastSeen?: string
@@ -176,6 +179,7 @@ function conditionState(facts: InstanceFacts, disabled: boolean, started: string
         condition: 'alerting',
         reason: 'alertActive',
         ...classified.alert,
+        ...optional('passed', facts.passed),
         awaitingInput: facts.awaitingInput,
         ...optional('message', facts.message)
       }

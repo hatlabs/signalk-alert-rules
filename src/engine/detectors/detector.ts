@@ -14,14 +14,15 @@ type Model<T extends DetectorModel['type']> = Omit<
 >
 
 /**
- * The detector of one step: the rule's detector with that step's limit,
- * resolved to an SI value, in place of its steps. A match step holds the
- * values of that step and every later one, so that like a threshold it holds
- * for any value at or beyond it.
+ * The detector of one step: the rule's detector with that step's limit, or an
+ * outside step's low and high limits, resolved to SI values, in place of its
+ * steps. A match step holds the values of that step and every later one, so
+ * that like a threshold it holds for any value at or beyond it.
  */
 export type DetectorSpec =
   | (Model<'match'> & { values: SignalValue[] })
   | (Model<'sustained'> & { limit: number })
+  | (Model<'outside'> & { low: number; high: number })
   | (Model<'slope'> & { limit: number })
   | (Model<'projection'> & { limit: number })
   | (Model<'accumulator'> & { limit: number })
