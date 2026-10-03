@@ -295,8 +295,7 @@ function canonical(value: unknown): string {
 // path is listed so that the edit preview names it: `RuleRunner.update` moves
 // an alert whose path changes before an evaluator sees the edit.
 function structure(rule: Rule): Record<string, unknown> {
-  const d = rule.detector
-  const fields: readonly string[] = ['type', ...STRUCTURAL[d.type]]
+  const fields: readonly string[] = ['type', ...STRUCTURAL[rule.detector.type]]
   return {
     alertPath: ruleAlertPath(rule),
     signal: rule.signal,
