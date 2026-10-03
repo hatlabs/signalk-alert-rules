@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { RANGE_HYSTERESIS, RANGE_INVERTED, RANGE_NOT_WIDER } from '../../../src/model/rangeMessages'
 import { LEVEL_PRIORITY, type Rule } from '../../../src/model/rule'
+import { validateRule } from '../../../src/model/validate'
 import { RuleRejectedError, type EditPreview } from '../../../src/panel/api'
 import { ZONE_PRIORITY } from '../../../src/panel/editor/MoreOptions'
 import type { PathSource } from '../../../src/panel/paths/selfPaths'
@@ -987,7 +989,7 @@ describe('RuleEditor, outside a range', () => {
 
   it('shows a range whose high limit is not above its low on the high field', async () => {
     const { api } = renderEditor({ start: { path: HOUSE, kind: 'outside' } })
-    rejectWith(api, '/detector/steps/1/high', 'must be above the low limit')
+    rejectWith(api, '/detector/steps/1/high', RANGE_INVERTED)
     await formShown()
     choose('Priority for step 1', 'warning')
     fillRange('11.5', '14.8')
@@ -1005,7 +1007,7 @@ describe('RuleEditor, outside a range', () => {
 
   it('names a narrower later range by the limit it moved inside', async () => {
     const { api } = renderEditor({ start: { path: HOUSE, kind: 'outside' } })
-    rejectWith(api, '/detector/steps/1/low', "must not be inside the previous step's range")
+    rejectWith(api, '/detector/steps/1/low', RANGE_NOT_WIDER)
     await formShown()
     choose('Priority for step 1', 'warning')
     fillRange('11.5', '14.8')
@@ -1022,7 +1024,7 @@ describe('RuleEditor, outside a range', () => {
 
   it('names a high limit moved inside, and a range no wider than the last', async () => {
     const { api } = renderEditor({ start: { path: HOUSE, kind: 'outside' } })
-    rejectWith(api, '/detector/steps/1/high', "must not be inside the previous step's range")
+    rejectWith(api, '/detector/steps/1/high', RANGE_NOT_WIDER)
     await formShown()
     choose('Priority for step 1', 'warning')
     fillRange('11.5', '14.8')
@@ -1034,7 +1036,7 @@ describe('RuleEditor, outside a range', () => {
         "Step 2: an alarm's high limit must not be below 14.8 V, the warning's high limit."
       )
     })
-    rejectWith(api, '/detector/steps/1/high', "must not be inside the previous step's range")
+    rejectWith(api, '/detector/steps/1/high', RANGE_NOT_WIDER)
     fillRange('11.5', '14.8', 2)
     create()
     await waitFor(() => {
@@ -1044,12 +1046,39 @@ describe('RuleEditor, outside a range', () => {
     })
   })
 
+  it("words the validator's own range errors", async () => {
+    const { api } = renderEditor({ start: { path: HOUSE, kind: 'outside' } })
+    api.createRule.mockImplementationOnce((rule: Rule) => {
+      const result = validateRule(rule)
+      return Promise.reject(
+        new RuleRejectedError('invalid request body', result.ok ? [] : result.errors)
+      )
+    })
+    await formShown()
+    choose('Priority for step 1', 'warning')
+    fillRange('11.5', '14.8')
+    click(button('Escalate at…'))
+    fillRange('11.8', '15', 2)
+    click(button('Escalate at…'))
+    fillRange('11', '10', 3)
+    create()
+    await waitFor(() => {
+      expect(description(textbox('Low limit for step 2'))).toContain(
+        "Step 2: an alarm's low limit must not be above 11.5 V, the warning's low limit."
+      )
+    })
+    expect(description(textbox('High limit for step 3'))).toContain(
+      'Step 3: the high limit must be above the low limit.'
+    )
+    expect(description(textbox('Low limit for step 2'))).not.toContain(RANGE_NOT_WIDER)
+  })
+
   it.each([
     ['11.5', '14.8', '11.50', '14.80', '11.5 to 14.8 V'],
     ['11,5', '14.8', '11.5', '14,8', '11,5 to 14.8 V']
   ])('reads %s to %s and %s to %s as the same range', async (low1, high1, low2, high2, range) => {
     const { api } = renderEditor({ start: { path: HOUSE, kind: 'outside' } })
-    rejectWith(api, '/detector/steps/1/low', "must not be inside the previous step's range")
+    rejectWith(api, '/detector/steps/1/low', RANGE_NOT_WIDER)
     await formShown()
     choose('Priority for step 1', 'warning')
     fillRange(low1, high1)
@@ -1065,11 +1094,7 @@ describe('RuleEditor, outside a range', () => {
 
   it('opens More options for a clear margin too wide for the range', async () => {
     const { api } = renderEditor({ start: { path: HOUSE, kind: 'outside' } })
-    rejectWith(
-      api,
-      '/detector/hysteresis',
-      "must be less than half the first step's range, or the alert could never clear"
-    )
+    rejectWith(api, '/detector/hysteresis', RANGE_HYSTERESIS)
     await formShown()
     choose('Priority for step 1', 'warning')
     fillRange('11.5', '14.8')

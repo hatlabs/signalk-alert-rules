@@ -16,6 +16,7 @@ import {
 } from './rule.js'
 import { wildcards } from '../alerts/paths.js'
 import { alertPathErrors, conditionMissing } from './alertPath.js'
+import { RANGE_HYSTERESIS, RANGE_INVERTED, RANGE_NOT_WIDER } from './rangeMessages.js'
 import { isRecord, pointer } from '../util.js'
 
 /** A validation failure; `path` is a JSON pointer into the validated document. */
@@ -387,7 +388,7 @@ function rangeErrors(d: Extract<Rule['detector'], { type: 'outside' }>): Validat
   const errors: ValidationError[] = d.steps.flatMap((step, i) =>
     step.low < step.high
       ? []
-      : [{ path: pointer(pointer(STEPS_AT, i), 'high'), message: 'must be above the low limit' }]
+      : [{ path: pointer(pointer(STEPS_AT, i), 'high'), message: RANGE_INVERTED }]
   )
   const first = d.steps.at(0)
   if (
@@ -398,7 +399,7 @@ function rangeErrors(d: Extract<Rule['detector'], { type: 'outside' }>): Validat
   ) {
     errors.push({
       path: '/detector/hysteresis',
-      message: "must be less than half the first step's range, or the alert could never clear"
+      message: RANGE_HYSTERESIS
     })
   }
   return errors
@@ -531,7 +532,7 @@ function beyondError(d: Rule['detector'], earlier: readonly Step[], step: Step):
 /** A range widens: neither limit moves inward and at least one moves outward. */
 function rangeBeyondError(previous: Step | undefined, step: Step): BeyondError {
   if (previous === undefined || !('low' in previous) || !('low' in step)) return undefined
-  const message = "must not be inside the previous step's range"
+  const message = RANGE_NOT_WIDER
   if (step.low > previous.low) return { field: 'low', message }
   if (step.high < previous.high) return { field: 'high', message }
   if (step.low === previous.low && step.high === previous.high) return { field: 'high', message }

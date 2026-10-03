@@ -1,5 +1,6 @@
 import { useContext, useId, useState } from 'react'
 import type { Priority } from '../../model/rule'
+import { RANGE_INVERTED, RANGE_NOT_WIDER } from '../../model/rangeMessages'
 import type { SignalValue } from '../api'
 import { capitalised } from '../list/PriorityBadge'
 import { article } from '../rules/describe'
@@ -73,9 +74,6 @@ function CrossIcon() {
 
 const ORDER = /^must be (above|below) the previous step's limit$/
 
-const RANGE_ORDER = "must not be inside the previous step's range"
-const RANGE_INVERTED = 'must be above the low limit'
-
 interface StepError {
   index: number
   pointer: string
@@ -91,7 +89,7 @@ function rangeError(
   if (message === RANGE_INVERTED) return 'the high limit must be above the low limit.'
   const step = form.steps.at(index)
   const previous = index > 0 ? form.steps.at(index - 1) : undefined
-  if (message !== RANGE_ORDER || step === undefined || previous === undefined) return undefined
+  if (message !== RANGE_NOT_WIDER || step === undefined || previous === undefined) return undefined
   if (step.priority === '' || previous.priority === '') return undefined
   const whose = `${article(step.priority)} ${step.priority}'s`
   const equal = (a: string, b: string) => {
