@@ -1,6 +1,6 @@
 # Rules
 
-This is the reference for SKAR's rule model: what a rule consists of, how it is evaluated, and what it sends to the Signal K alerts API. Field names are those of the rule schema in `src/model/rule.ts`. Every number in a rule is in SI units.
+This is the reference for the Alert Rules rule model: what a rule consists of, how it is evaluated, and what it sends to the Signal K alerts API. Field names are those of the rule schema in `src/model/rule.ts`. Every number in a rule is in SI units.
 
 The rules in [`examples/rules`](../examples/rules) are complete, valid rules; [Worked examples](#worked-examples) shows what each one raises and clears.
 
@@ -38,10 +38,11 @@ The rules in [`examples/rules`](../examples/rules) are complete, valid rules; [W
 | `signal` | What the rule watches; see [Signals](#signals). |
 | `detector` | The condition, with its steps; see [Detectors](#detectors) and [Steps and escalation](#steps-and-escalation). |
 | `gates` | Optional, at most 8; see [Gates](#gates). |
+| `template` | Optional and informational: the template set (`set`, `version`), the template (`id`) and the `pick` (`instance`, `source`) the rule was made from; see [Templates](templates.md). Nothing reads it to evaluate the rule. |
 
-A rule has an origin: `user` for rules written by the user, or the slug of the ruleset that provides it. Origin and slug together identify the rule and must be unique. The rule has no `id` or `enabled` field.
+The slug identifies the rule and is unique among rules. The rule has no `id` or `enabled` field: whether it is disabled is kept apart from it (see [Disable](#disable)).
 
-A ruleset (`src/model/ruleset.ts`) is a document with `name`, `slug`, `version`, optional `description`, up to 32 `parameters` (`name`, `type` `number` or `string`, optional `description`, `unit`, `minimum`, `maximum`, and a `default`) and up to 500 `rules`. A ruleset rule may put `{ "param": "<name>" }` wherever a number goes and `${name}` inside a path. A ruleset slug may not be `user`. Of two rulesets with the same slug, the one discovered first loads and the later one is reported as malformed. Validation checks every rule with the parameters at their defaults. How rulesets are discovered, enabled, tuned and upgraded is in [Rulesets](rulesets.md).
+A rule can be written from scratch or made from a template, a rule whose instance or source is left open for the user to pick. A rule made from a template is an ordinary rule; [Templates](templates.md) describes template sets and how they are used.
 
 ### Quantities
 
@@ -151,7 +152,7 @@ Active when the value, extended along the trend of the last `window` seconds (as
 
 `measure` (`time` or `integral`), `while`, `resetOn`, `steps` (each a total `limit`, above 0).
 
-Accumulates while the input is available and `while` holds: seconds for `time`, the value integrated over seconds for `integral`. A value holds until the next sample. `while` is `{ "op": "above" | "below" | "equals" | "notEquals", "value": ... }`; `above` and `below` need a number. The condition becomes active when the total reaches `limit` and stays active until a `resetOn` event sets the total to zero. Without `resetOn` it never ends. Only time while the server runs counts. Totals survive a plugin or server restart: SKAR saves them every 60 s and when the plugin stops, so a crash loses at most the last minute. Without `while`, an input that stops reporting without a timed-out marker keeps accumulating.
+Accumulates while the input is available and `while` holds: seconds for `time`, the value integrated over seconds for `integral`. A value holds until the next sample. `while` is `{ "op": "above" | "below" | "equals" | "notEquals", "value": ... }`; `above` and `below` need a number. The condition becomes active when the total reaches `limit` and stays active until a `resetOn` event sets the total to zero. Without `resetOn` it never ends. Only time while the server runs counts. Totals survive a plugin or server restart: Alert Rules saves them every 60 s and when the plugin stops, so a crash loses at most the last minute. Without `while`, an input that stops reporting without a timed-out marker keeps accumulating.
 
 ### count
 
@@ -171,7 +172,6 @@ A gate puts a rule in use only while a condition on another signal holds, such a
 
 - A gate that stops holding takes the rule out of use and clears its alert. The rule's detector is dropped; when the rule comes back into use it starts afresh, given the last reading, so durations count from then. An accumulator is the exception: it keeps accumulating while its rule is out of use, and only its alert is held back.
 - A gate whose input becomes unavailable keeps its last state: an engine that stopped before its controller went silent stays not running, and a tachometer that fails while the engine runs leaves the rule in use.
-- A gate whose input path is [suppressed](#input-suppression) is frozen: it ignores time and keeps the state it had when the suppression started until the suppression ends. It holds back the input's latest value and evaluates it when the suppression ends, so an input sent only on change is not left stale.
 - A gate whose input has not been seen since start does not hold, except for an alert adopted at restart (see [Restart](#restart-reconciliation)), which is kept until the gate input reports. For such an alert the gate starts as holding and does not wait out its `duration`.
 - A gate with a wildcard signal is evaluated per instance; a gate without one is shared by every instance.
 - A gate's limit can be a zone limit, resolved like any other; a zone level missing from the path makes the rule a problem with the reason `missingZone` and the gate's index. A gate's zone level does not affect the rule's priority.
@@ -183,7 +183,7 @@ Every gate has a `limit`, and a sustained or projection detector has either step
 - `{ "kind": "fixed", "value": 3 }`: an SI value; gates only, since a detector's fixed limits are its steps.
 - `{ "kind": "zone", "level": "warn", "path": "..." }`: taken from `meta.zones`. `path` is optional and defaults to the signal's path; a combined signal has no single path, so it must name one. `path` may hold the rule's wildcard.
 
-SKAR only reads `meta.zones`; it never writes meta.
+Alert Rules only reads `meta.zones`; it never writes meta.
 
 ### Zone limits
 
@@ -248,7 +248,7 @@ A step's limit depends on the detector: a `limit` for sustained, projection, slo
 
 A step's condition holds at that step or beyond it: a value below 11.7 V is beyond both steps, and a match step holds for its own value and every later step's. Each step must hold for the rule's `duration` before the alert climbs to it, so a momentary dip does not escalate, and a value that passes several steps at once raises at the furthest of them. Reaching a further step sends that step's priority and limit at once, with the message filled in from that step's limit (see [Messages](#messages)); a latching rule sends a latching raise at the new priority. A pulse of a `changesTo` match is raised at the furthest step it reaches.
 
-Nothing lowers the priority. Between steps the alert keeps the highest priority it reached, because core never lowers one, while its message and value keep updating. An edit that removes the reached step or lowers its priority does not lower it either: SKAR keeps sending and reporting the priority reached until the alert ends. The alert ends only when the condition is back past the first step: for a sustained rule, by its `hysteresis` for its `clearDuration`.
+Nothing lowers the priority. Between steps the alert keeps the highest priority it reached, because core never lowers one, while its message and value keep updating. An edit that removes the reached step or lowers its priority does not lower it either: Alert Rules keeps sending and reporting the priority reached until the alert ends. The alert ends only when the condition is back past the first step: for a sustained rule, by its `hysteresis` for its `clearDuration`.
 
 A zone-limit rule has no steps of its own: its steps come from the path's zones, from its named level upwards (see [Escalation](#escalation)), each at its level's priority:
 
@@ -259,11 +259,11 @@ A zone-limit rule has no steps of its own: its steps come from the path's zones,
 | `alarm` | `alarm` |
 | `emergency` | `emergency` |
 
-Everything after the raise, acknowledgment, silencing and escalation included, is core's alert lifecycle. SKAR never acknowledges, silences or escalates. It reads core's alert state once, at start, to adopt or clear its own alerts (see [Restart reconciliation](#restart-reconciliation)), and not after that.
+Everything after the raise, acknowledgment, silencing and the escalation of an unacknowledged alert included, is core's alert lifecycle. Alert Rules never acknowledges or silences an alert, and never escalates one on time. It reads core's alert state once, at start, to adopt or clear its own alerts (see [Restart reconciliation](#restart-reconciliation)), and not after that.
 
 ## Latching
 
-`latching: true` is accepted only on detectors whose condition is an event: a count, or a match with `changesTo` or `decreases`. Each time the condition becomes active, SKAR sends one latching raise; it sends no heartbeat and no clear, and core holds the alert until it is acknowledged. The `engine-stopped` example latches. A latching rule with steps sends a latching raise at each step it reaches (see [Steps and escalation](#steps-and-escalation)). A lasting condition cannot latch: after every restart, gate reopening or structural edit it would be seen again and announced as a new occurrence. A lasting condition at a priority that needs acknowledgment already waits for it after the condition returns to normal.
+`latching: true` is accepted only on detectors whose condition is an event: a count, or a match with `changesTo` or `decreases`. Each time the condition becomes active, Alert Rules sends one latching raise; it sends no heartbeat and no clear, and core holds the alert until it is acknowledged. The `engine-stopped` example latches. A latching rule with steps sends a latching raise at each step it reaches (see [Steps and escalation](#steps-and-escalation)). A lasting condition cannot latch: after every restart, gate reopening or structural edit it would be seen again and announced as a new occurrence. A lasting condition at a priority that needs acknowledgment already waits for it after the condition returns to normal.
 
 A non-latching `changesTo` or `decreases` match raises and clears at the same instant; what remains of the alert is core's.
 
@@ -282,9 +282,9 @@ A wildcard rule's alert path keeps the `*`, and each instance's alert fills it w
 
 Parent segments and the instance segment are the path's or instance name's with every character other than `A-Z`, `a-z`, `0-9`, `_` and `-` replaced by `_`. Two instance names that map to the same segment cannot both be admitted; the later one is reported in the rule's issues. A path under `alerts.` longer than 255 characters, or with a segment of `__proto__`, `constructor` or `prototype`, is not emitted, and the instance is a problem with the reason `alertPathInvalid`.
 
-### What SKAR sends
+### What Alert Rules sends
 
-SKAR raises through delta ingress: a delta from the plugin, whose id core takes as the alert's `$source`, with the path `alerts.<alert path>` and the value
+Alert Rules raises through delta ingress: a delta from the plugin, whose id core takes as the alert's `$source`, with the path `alerts.<alert path>` and the value
 
 ```json
 {
@@ -302,7 +302,7 @@ SKAR raises through delta ingress: a delta from the plugin, whose id core takes 
 }
 ```
 
-A clear is the value `null`: it reports that the condition ended, and is the last thing SKAR sends about the alert.
+A clear is the value `null`: it reports that the condition ended, and is the last thing Alert Rules sends about the alert.
 
 `references`, written at each raise, lists the data paths the rule reads for the alert's instance: its input paths first, then its zone limit's path, then each gate's input paths and zone limit's path, with the instance's name in place of the wildcard. Duplicates and paths core would refuse are left out, since core drops every reference when it refuses one, and the list keeps the first 50, the most core accepts. A rule that reads no path core accepts sends no `references`.
 
@@ -317,16 +317,16 @@ The keys of `data`, written at each raise:
 | `valueAtRaise` | when the input had a value | the signal's value at the raise: a number, string, boolean or position |
 | `raisedAt` | always | the wall-clock time of the raise, ISO 8601 |
 
-Data holds only what changes rarely, so repeats of the alert cause no store writes for it. Core replaces an alert's data whole, so a climb resends the data with the reached step's `limit` and the rest unchanged. The step reached and the current priority are in SKAR's rule state (see [State](#state)), not in the alert's data; the live value is in the rule state and, through `{value}`, in the message.
+Data holds only what changes rarely, so repeats of the alert cause no store writes for it. Core replaces an alert's data whole, so a climb resends the data with the reached step's `limit` and the rest unchanged. The step reached and the current priority are in the rule state (see [State](#state)), not in the alert's data; the live value is in the rule state and, through `{value}`, in the message.
 
 ### Messages
 
-A rule's `message` is a template. SKAR fills in its placeholders when it raises the alert, when the alert climbs to a further step, and afresh for every repeat while the alert lasts:
+A rule's `message` is a template. Alert Rules fills in its placeholders when it raises the alert, when the alert climbs to a further step, and afresh for every repeat while the alert lasts:
 
 | Placeholder | Filled in with |
 |---|---|
 | `{instance}` | the wildcard instance's name; empty for a rule without a wildcard |
-| `{limit}` | the limit of the step the alert has reached: a sustained or projection step's value (for a zone limit, the level's threshold), a slope's rate per second, a count's number of events, an accumulator's total (a duration for `time`), an absence step's window, or a match step's value. When no step of the rule set the alert's priority, as for an alert adopted at restart above its first step or after an edit inserting a step ahead of the reached one, the `limit` SKAR last sent in the alert's data, or, when the data holds none, the limit of the step at the alert's index |
+| `{limit}` | the limit of the step the alert has reached: a sustained or projection step's value (for a zone limit, the level's threshold), a slope's rate per second, a count's number of events, an accumulator's total (a duration for `time`), an absence step's window, or a match step's value. When no step of the rule set the alert's priority, as for an alert adopted at restart above its first step or after an edit inserting a step ahead of the reached one, the `limit` Alert Rules last sent in the alert's data, or, when the data holds none, the limit of the step at the alert's index |
 | `{duration}` | the rule's `duration`, for a sustained or match rule |
 | `{value}` | the input's last value, a combined signal's combined value |
 
@@ -336,13 +336,13 @@ Values are in SI, labelled with the unit the input path's `meta.units` names: fo
 
 A placeholder with nothing to fill it in reads as a dash, "–": `{duration}` on a rule without one, `{value}` before the input has reported since start, or `{limit}` of a zone limit whose zones have not been read. Any other text in braces stays as written.
 
-A changed value is sent with the next repeat, so the message is at most one heartbeat behind the value, and a burst of changes adds no emissions: SKAR sends a changed message at most once per repeat. A message without placeholders is sent unchanged. The rule state's `message` is the message SKAR last sent for the alert, or, for an alert not sent since start, such as one adopted while already stale, the message as it reads now (see [State](#state)).
+A changed value is sent with the next repeat, so the message is at most one heartbeat behind the value, and a burst of changes adds no emissions: Alert Rules sends a changed message at most once per repeat. A message without placeholders is sent unchanged. The rule state's `message` is the message Alert Rules last sent for the alert, or, for an alert not sent since start, such as one adopted while already stale, the message as it reads now (see [State](#state)).
 
 ### Heartbeat and input evidence
 
-Core marks an alert stale when its source has not repeated it for 60 s. SKAR repeats every active non-latching alert every 10 s with the same value, its message rendered afresh, `references` and data included; an adopted alert's repeats omit both, so core keeps what it stored. A priority change is sent at once, and a message or priority edit goes out with the next repeat.
+Core marks an alert stale when its source has not repeated it for 60 s. Alert Rules repeats every active non-latching alert every 10 s with the same value, its message rendered afresh, `references` and data included; an adopted alert's repeats omit both, so core keeps what it stored. A priority change is sent at once, and a message or priority edit goes out with the next repeat.
 
-SKAR repeats an alert only while it has input evidence for it, and otherwise lets core mark it stale rather than clearing it; the rule's state shows the alert as awaiting input. An instance has evidence:
+Alert Rules repeats an alert only while it has input evidence for it, and otherwise lets core mark it stale rather than clearing it; the rule's state shows the alert as awaiting input. An instance has evidence:
 
 - for a timeout rule, always, since the input's silence is the condition;
 - for an alert adopted at restart, other than an absence rule's, while its input has a value;
@@ -352,12 +352,12 @@ The evidence gate stands until core's staleness behaviour is specified (SignalK/
 
 ### Restart reconciliation
 
-At start SKAR reads core's alerts once and sorts those whose `$source` is SKAR and whose condition is active, matching each to the rule whose [alert path](#alert-paths) is the alert's, a wildcard rule's with an instance segment in place of its `*`:
+At start Alert Rules reads core's alerts once and sorts those whose `$source` is Alert Rules and whose condition is active, matching each to the rule whose [alert path](#alert-paths) is the alert's, a wildcard rule's with an instance segment in place of its `*`:
 
-- An alert that matches no rule, because its rule no longer exists, is disabled or now has another alert path, or that matches a rule now latching, is cleared.
-- Every other such alert is adopted. SKAR sends it once as soon as its rules have started, with the rule's current message filled in from the values the inputs replayed at start, the more severe of core's priority and its first step's (for a zone-limit rule, its named level's), and no data, so core keeps the data it stored, unless core already marks it stale; an edit made while SKAR was down reaches core this way. The instance's detector starts in the active state at the first step, with core's priority as the most severe it has reached. Core's priority names no step, because it is not evidence of which step's condition held. The rule's state reports step 0 at that priority, and the following repeats carry it.
+- An alert that matches no rule, because its rule no longer exists or now has another alert path, or that matches a rule now latching, is cleared. An alert of a disabled rule is adopted and cleared at the rule's first evaluation, as disabling would have cleared it.
+- Every other such alert is adopted. Alert Rules sends it once as soon as its rules have started, with the rule's current message filled in from the values the inputs replayed at start, the more severe of core's priority and its first step's (for a zone-limit rule, its named level's), and no data, so core keeps the data it stored, unless core already marks it stale; an edit made while Alert Rules was down reaches core this way. The instance's detector starts in the active state at the first step, with core's priority as the most severe it has reached. Core's priority names no step, because it is not evidence of which step's condition held. The rule's state reports step 0 at that priority, and the following repeats carry it.
 
-Alerts whose condition has ended, latching alerts among them, are core's until acknowledged and are left alone, as are other sources' alerts. Alert paths are shared with every other source, and core keeps one alert per path, attributed to the source that raised it last: an alert at a rule's path that another source raised last is that source's, so SKAR neither adopts nor clears it. While both run, they share that one alert.
+Alerts whose condition has ended, latching alerts among them, are core's until acknowledged and are left alone, as are other sources' alerts. Alert paths are shared with every other source, and core keeps one alert per path, attributed to the source that raised it last: an alert at a rule's path that another source raised last is that source's, so Alert Rules neither adopts nor clears it. While both run, they share that one alert.
 
 An adopted alert ends by its rule's clear criterion or a gate not holding, like any other. Until then:
 
@@ -367,54 +367,37 @@ An adopted alert ends by its rule's clear criterion or a gate not holding, like 
 
 ### Stopping
 
-Stopping the plugin never clears alerts. Stop runs on every configuration save, enable, disable and server shutdown, and SKAR cannot tell them apart; clearing would end every active alert on each of them, and the next start would raise it again. On a server without the alerts API the plugin reports an error and evaluates nothing. Alerts left in core while the plugin is stopped go stale without its heartbeat, and the next start adopts them as [restart reconciliation](#restart-reconciliation) describes, so each rule keeps or clears its alert. To silence an erroneous alert, [suppress](#enable-and-suppression) its rule or input path.
+Stopping the plugin never clears alerts. Stop runs on every configuration save, on enabling or disabling the plugin in the server and on server shutdown, and the plugin cannot tell them apart; clearing would end every active alert on each of them, and the next start would raise it again. On a server without the alerts API the plugin reports an error and evaluates nothing. Alerts left in core while the plugin is stopped go stale without its heartbeat, and the next start adopts them as [restart reconciliation](#restart-reconciliation) describes, so each rule keeps or clears its alert. To stop a rule raising an erroneous alert, [disable](#disable) the rule.
 
 ## Edits
 
-An edited rule saved through the [REST API](api.md) replaces the running one without restarting the plugin or other rules. A ruleset rule is edited the same way when a parameter change or an upgrade changes it; a rule it does not change is not touched. The API can preview an edit, saying whether it would clear an active alert.
+An edited rule saved through the [REST API](api.md) replaces the running one without restarting the plugin or other rules. The API can preview an edit, saying whether it would clear an active alert.
 
 | Edit | Effect on an active alert |
 |---|---|
 | signal (paths, sources, combinator, `angular`), gates, `latching`, detector `type`; a match's `op` or step values; `direction`; a zone limit's `level`, or a change between steps and a zone limit; an accumulator's `measure`, `while` or `resetOn`; a count's or absence's `event` | cleared, and the rule restarts from nothing; it raises again once its condition holds |
 | step limits and windows, a step added or removed (other than a match's), a zone limit's `path`, `duration`, `clearDuration`, `hysteresis`, `window`, `horizon` | re-evaluated in place; timers and windows are kept, and the current value is checked against the new limits before any timer counts. An added step starts its own detector at the edit and must hold for the duration before the alert climbs to it: a count step counts only events after the edit, an absence step's window starts at the edit, a slope or projection step decides nothing until it has a full window, and an accumulator step starts from the total reached; an alert whose step was removed stays at the furthest step left, at the priority it reached |
 | `message`, step priorities | sent with the next emission. A lowered priority does not lower an active alert's |
-| delete, disable, suppress, accumulator reset, a ruleset disabled or uninstalled, a ruleset upgrade removing the rule | cleared |
+| delete, disable, accumulator reset | cleared |
 
-A restarted accumulator keeps its total when its `measure` is unchanged, also for a ruleset upgrade installed while the plugin was stopped. An edit or delete that discards a total saves the totals at once, so a restart cannot give the old total to the new rule. Each saved total records the measure it was built under, and a total whose measure differs from its rule's is dropped at start and when its ruleset returns, so a rule never takes over a total of another measure, even when that save failed on a full disk.
+A restarted accumulator keeps its total when its `measure` is unchanged. An edit or delete that discards a total saves the totals at once, so a restart cannot give the old total to the new rule. Each saved total records the measure it was built under, and a total whose measure differs from its rule's is dropped at start, so a rule never takes over a total of another measure, even when that save failed on a full disk.
 
 A match's step values and a zone limit's `level` change what the alert means, so they restart the rule. Re-evaluated in place, a match of a value no longer listed would hold until the next sample. For a zone limit, re-evaluated in place, an active alert would report the new level at once, while its detector waits out `clearDuration`, although the value may never have entered that level. After the restart the rule raises at the new level only once the value has been in it for `duration`.
 
-## Enable and suppression
+## Disable
 
-Each rule has operator controls, set through the [REST API](api.md#rule-controls) and kept in the data directory across restarts: whether it is enabled, a note, and a suppression. Paths can be suppressed too. Controls are keyed by rule id, `<origin>.<slug>`, for ruleset rules too; deleting a rule, or an upgrade removing it from its ruleset, deletes its controls. Enables, disables, notes and suppressions are recorded in the [action log](api.md#action-log) with the acting user.
+A rule is enabled or disabled. Disabling stops a rule raising alerts without deleting it: for a sensor known to be faulty, or equipment out of service. It acts on the rule, not on an alert already raised; acknowledging or silencing an alert is core's alert lifecycle, done in the alert console. A rule is disabled or enabled through the [REST API](api.md#rule-controls), by a read/write user or an administrator, with an optional [note](api.md#rule-controls) saying why. The webapp offers Disable in the rule's detail view, with the note in its confirmation.
 
-### Disabled rules
+The rule keeps a record of who disabled it, when, and the note, in the data directory across restarts, and its entry carries the record while it is disabled. Disabling a disabled rule replaces the record; enabling an enabled rule changes nothing. Editing a rule keeps it disabled, and deleting it deletes the record, so a rule created again with its slug starts enabled. Disables and enables are recorded in the [action log](api.md#action-log) with the acting user and the note.
 
-A disabled rule keeps evaluating, so its [state](#state) shows whether its condition holds, but it raises nothing. Disabling it clears its active alerts, as a delete does. Enabling it raises at once when its state shows the condition `present`, as it has held for its duration. A rule enabled while its detector is still timing raises when the duration has run, and one whose condition held when its gate last closed raises once the restarted detector sets (see [State](#state)). An accumulator keeps its total while disabled, and the rule can still be edited, reset and deleted.
-
-### Rule suppression
-
-A suppressed rule goes on evaluating but raises nothing. Suppressing it clears its active alerts, and their heartbeats stop. When the suppression ends, an alert whose condition still holds is raised again as a new alert, so core announces it again.
-
-A suppression ends manually, or by itself once the rule's condition has stayed clear for the suppression's `autoEndAfter` seconds. Clear means, for every instance of the rule, that the rule is in use with a value and its detector not active; an unavailable or never-seen input is not clear, and a wildcard rule with no instance yet never is. While the rule is out of use because a gate does not hold, the count pauses: that time does not count and does not restart the count, so a suppressed fault on an engine-gated rule does not end its suppression overnight with the engine stopped. Only time since the suppression started counts. Any moment the condition holds restarts the count, so an intermittent fault whose clear spells are shorter than `autoEndAfter` keeps the suppression, and one that never clears keeps it indefinitely. Until it ends the rule's status shows the `waitingForClear` sub-label.
-
-### Input suppression
-
-An input suppression names one exact path, without a wildcard. It suppresses, as above:
-
-- every rule whose signal reads the path;
-- every combinator rule with the path among its inputs;
-- for a wildcard rule, only the instance whose path it is: suppressing `propulsion.port.oilPressure` suppresses the `port` instance of a rule on `propulsion.*.oilPressure`.
-
-A [gate](#gates) that reads the path is frozen instead: its rule is not suppressed, and the gate keeps the state it had when the suppression started, per rule instance, as the preview below shows it. A gate that held keeps the rule in use; one that did not keeps it out of use. The states are stored with the suppression, so a gate keeps its state across plugin restarts, disabling and enabling its rule, and edits that leave its rule's gates as they are. An edit that changes the rule's gates in any way, reordering included, drops the rule's stored states, so no gate inherits another's; deleting the rule drops them too, so a rule re-created under the same name starts without them. A rule instance with no stored state, because its rule was not evaluated when the suppression started, was created after, had its gates edited, or the instance first reported after the suppression started, takes its gate input's first reading and keeps the state that reading gives, without waiting out the gate's `duration`. The stored states go when the suppression ends.
-
-An input suppression ends by itself once every rule instance it suppresses directly, those that read the path through their signal, has stayed clear for its `autoEndAfter`, by the same measure as a rule suppression; gated rules do not count. One that suppresses no instance never ends by itself. A rule instance keeps one clear count, shared by every suppression on it: a new suppression, of the rule or of an input it reads, restarts that count, so another suppression's auto-end already counting on the same instance starts over. Each restart delays an auto-end by at most its own `autoEndAfter` and never ends one early. The API can preview, for a path, which rules and instances a suppression would suppress and which gates it would freeze in which state.
+A disabled rule keeps evaluating, so its [state](#state) shows whether its condition holds, but it raises nothing. Disabling it clears its active alerts at once, as a delete does. Nothing enables a rule but the user. Enabling it raises at once, as a new alert, when its state shows the condition `present`, as it has held for its duration. A rule enabled while its detector is still timing raises when the duration has run, and one whose condition held when its gate last closed raises once the restarted detector sets (see [State](#state)). An accumulator keeps counting while its rule is disabled, and the rule can still be edited, reset and deleted.
 
 ## Resource bounds
 
 | Bound | Value |
 |---|---|
-| rules loaded | 500 user rules; 500 per ruleset |
+| rules loaded | 500 |
+| templates per template set | see [the template set file](templates.md#the-template-set-file) |
 | instances per wildcard signal | 64 |
 | gates per rule | 8 |
 | combinator inputs | 16 |
@@ -423,12 +406,11 @@ An input suppression ends by itself once every rule instance it suppresses direc
 | slug | 64 characters |
 | `name`, `message` | 200 and 500 characters |
 | signal path, alert path | 255 characters |
-| ruleset parameters | 32 |
-| ruleset file | 1 MiB; YAML alias expansion capped at 100 |
+| template set file | see [template set limits](templates.md#validation) |
 
 ## State
 
-For each rule SKAR reports its state on two separate axes: the rule is `enabled` or `disabled`, and its condition is one of the conditions below. Each condition comes with a reason code and the facts an explanation is worded from; SKAR sends no prose, so the reader words the explanation. An error in one rule is recorded in its state and does not stop the others. Values are in SI units and times are ISO 8601; converting values to display units is the reader's job.
+For each rule Alert Rules reports its state on two separate axes: the rule is `enabled` or `disabled`, and its condition is one of the conditions below. Each condition comes with a reason code and the facts an explanation is worded from; Alert Rules sends no prose, so the reader words the explanation. An error in one rule is recorded in its state and does not stop the others. Values are in SI units and times are ISO 8601; converting values to display units is the reader's job.
 
 Per rule:
 
@@ -459,7 +441,7 @@ An instance's condition is the first of these that applies:
 | `problem` | `timeoutNotPossible` | a timeout rule whose path the server can never time out | `cause`: `booleanPath`, `stringPath`, `notEnforced` (the server does not enforce timeouts), `updateContract` (with `contract`, the path's update contract other than `periodic`), `timeoutOff` (`meta.timeout` of 0 or less), `noTimeout` (no `meta.timeout` and the server's default timeouts off) |
 | `problem` | `unitsNotRadians` | an angular combination of an input the server reports in other units | `path`, `units` |
 | `problem` | `alertPathInvalid` | the instance's alert path is one core would not accept | |
-| `alerting` | `alertActive` | the alert is active; never for a disabled rule | `priority` and `step` reached (an index from 0; an edit does not lower the priority), `level` for a zone limit, `awaitingInput` when the input has no evidence and the alert is not repeated (see [Heartbeat and input evidence](#heartbeat-and-input-evidence)), `message`, the alert's message with its placeholders filled in as SKAR last sent it, or as it reads now for an alert not sent since start (see [Messages](#messages)) |
+| `alerting` | `alertActive` | the alert is active; never for a disabled rule | `priority` and `step` reached (an index from 0; an edit does not lower the priority), `level` for a zone limit, `awaitingInput` when the input has no evidence and the alert is not repeated (see [Heartbeat and input evidence](#heartbeat-and-input-evidence)), `message`, the alert's message with its placeholders filled in as Alert Rules last sent it, or as it reads now for an alert not sent since start (see [Messages](#messages)) |
 | `normal` | `outsideGate` | a gate does not hold | the gate facts in `gates` |
 | `present` | `conditionPresent` | a disabled rule's condition holds | |
 | `noData` | `inputUnavailable` | the input is unavailable | `lastSeen`, when it last had a value since start |
@@ -496,5 +478,4 @@ Each rule in [`examples/rules`](../examples/rules) runs in `test/examples.test.t
 
 The plan (issue 1) has decided the following; later units implement them.
 
-- **Panel** ([Unit 12](https://github.com/hatlabs/signalk-alert-rules/issues/13), [Unit 13](https://github.com/hatlabs/signalk-alert-rules/issues/14)): a confirmation before any edit that clears an active alert, and a link from the alert to its rule, under a documented key in alert data.
 - **Zone and timeout proposals** ([Unit 10](https://github.com/hatlabs/signalk-alert-rules/issues/11), after the MVP).

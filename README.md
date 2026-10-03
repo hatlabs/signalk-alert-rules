@@ -1,12 +1,19 @@
 # signalk-alert-rules
 
-A Signal K server plugin that raises alerts through the Signal K alerts API from rules over Signal K data. A rule watches one or more paths, detects a condition (a value past a limit for a duration, a trend, a count per window, an absence of events, and so on), can be gated on other paths, and raises an alert at a chosen priority while the condition holds.
+Alert Rules is a Signal K server plugin that raises alerts through the Signal K alerts API from rules over Signal K data. A rule watches one or more paths, detects a condition (a value past a limit for a duration, a trend, a count per window, an absence of events, and so on), can be gated on other paths, and raises an alert while the condition holds, climbing in priority through up to four steps as the condition worsens.
 
-The plugin raises alerts; the server's alerts API owns their lifecycle (acknowledgement, silencing, escalation, persistence), and an alert console displays them.
+The plugin raises alerts; the server's alerts API owns their lifecycle (acknowledgement, silencing, escalation of an unacknowledged alert, persistence), and an alert console displays them.
 
-Rules and template sets are managed in the Alert Rules webapp, under Webapps in the admin UI. The admin UI lists it only while the plugin is enabled; the plugin's configuration page holds just the Enabled switch.
+Rules are managed in the Alert Rules webapp, under Webapps in the admin UI. The admin UI lists it only while the plugin is enabled; the plugin's configuration page holds just the Enabled switch. In the webapp:
 
-[`docs/rules.md`](docs/rules.md) describes the rule model: signals, detectors, gates, limits, and the alerts a rule sends. [`examples/rules`](examples/rules) holds worked example rules covering all seven detectors, gates, a zone limit, latching, and the `absDifference` (plain and angular) and `positionSpread` combinators. [`docs/api.md`](docs/api.md) describes the REST API that manages rules, reports their status and resets accumulators; it is open by role, with the access level of each route given there.
+- The rule list shows every rule, those that need attention first, with its condition: alerting, normal, no data or problem, or disabled.
+- A rule's detail view explains its condition and shows each instance. A rule can be disabled there, with a note saying why: it keeps evaluating but raises nothing until someone enables it again.
+- Add rule starts a rule from a template or from a path. A template leaves the instance, such as which battery bank, or the source open, and the user picks it.
+- For a rule on one concrete path, the editor shows the path's live value and, where it can compare that value with the limits, whether the rule would alert at it; and, while the server has a history provider, a chart of its recorded values with the rule's limits.
+
+Read-only users view the rules, read/write users also disable and enable them, and administrators do everything else.
+
+[`docs/rules.md`](docs/rules.md) describes the rule model: signals, detectors, steps, gates, limits, alert paths, Disable, and the alerts a rule sends. [`examples/rules`](examples/rules) holds worked example rules covering all seven detectors, gates, a zone limit, latching, and the `absDifference` (plain and angular) and `positionSpread` combinators. [`docs/templates.md`](docs/templates.md) describes template sets: the one built in, and those another package provides, as [`examples/template-set-example`](examples/template-set-example) does. [`docs/api.md`](docs/api.md) describes the REST API that manages rules, reports their status, disables and enables them and lists templates; it is open by role, with the access level of each route given there.
 
 ## Requirements
 

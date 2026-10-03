@@ -1,0 +1,9 @@
+{
+  "name": "signalk-alert-templates-example",
+  "version": "1.0.0",
+  "description": "Example template set for Alert Rules.",
+  "private": true,
+  "keywords": ["signalk-alert-templates"],
+  "signalk-alert-templates": "templates.yaml",
+  "license": "Apache-2.0"
+}

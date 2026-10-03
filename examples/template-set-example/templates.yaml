@@ -1,0 +1,56 @@
+# Example template set shipped by an npm package. The package declares this
+# file in its package.json field `signalk-alert-templates`, next to the
+# keyword of the same name. Alert Rules reads it as data and never runs
+# anything in the package.
+name: Example equipment
+id: example
+version: 1.0.0
+description: Templates for the equipment of an example vendor.
+
+templates:
+  # An open instance: the user picks which battery bank the rule watches.
+  # ${instance} stands for that one path segment, and is filled in wherever
+  # it appears in the rule's paths, name and message.
+  - id: battery-discharge-high
+    description: >-
+      A battery bank discharges at more than 100 A for 30 seconds, a warning,
+      and climbs to an alarm above 150 A.
+    open: [instance]
+    # The last segment of the alert path, under electrical.batteries.<pick>.
+    condition: dischargeHigh
+    rule:
+      name: Battery ${instance} discharging hard
+      # {limit} and {value} are filled in each time the alert is sent.
+      message: 'Battery ${instance} discharge beyond {limit}: {value}'
+      signal:
+        path: electrical.batteries.${instance}.current
+      detector:
+        type: sustained
+        direction: below
+        # A discharge is a negative current, in amperes.
+        steps:
+          - { limit: -100, priority: warning }
+          - { limit: -150, priority: alarm }
+        duration: 30
+        hysteresis: 5
+
+  # An open source: the path is fixed, and the user picks which of the
+  # devices reporting it the rule reads, such as one of two depth sounders.
+  - id: sounder-shallow
+    description: >-
+      The chosen depth sounder reads less than 3 m below the transducer for
+      5 seconds, a warning.
+    open: [source]
+    condition: belowTransducerShallow
+    rule:
+      name: Shallow water on the chosen sounder
+      message: 'Depth below {limit}: {value}'
+      signal:
+        path: environment.depth.belowTransducer
+      detector:
+        type: sustained
+        direction: below
+        steps:
+          - { limit: 3, priority: warning }
+        duration: 5
+        hysteresis: 0.3
