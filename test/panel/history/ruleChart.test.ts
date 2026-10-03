@@ -244,4 +244,67 @@ describe('editorChart', () => {
     )
     expect(spec).toMatchObject({ methods: ['average'], side: 'below', limits: [] })
   })
+
+  it('charts an outside rule with both limits of every step, and judges it', () => {
+    const spec = editorChart(
+      form('outside', COOLANT, (f) => {
+        f.steps = [
+          { ...f.steps[0], low: '-25', high: '25', priority: 'warning' },
+          { ...f.steps[0], low: '-35', high: '35,5', priority: 'alarm' }
+        ]
+      }),
+      units
+    )
+    expect(spec).toMatchObject({
+      path: COOLANT,
+      methods: ['min', 'max'],
+      side: 'outside',
+      verdict: true
+    })
+    expect(spec?.limits).toEqual([
+      { value: -25, priority: 'warning', bound: 'low' },
+      { value: 25, priority: 'warning', bound: 'high' },
+      { value: -35, priority: 'alarm', bound: 'low' },
+      { value: 35.5, priority: 'alarm', bound: 'high' }
+    ])
+  })
+
+  it('draws the one limit of a step typed so far, and gives no verdict', () => {
+    const spec = editorChart(
+      form('outside', COOLANT, (f) => {
+        f.steps[0] = { ...f.steps[0], low: '-25', priority: 'warning' }
+      }),
+      units
+    )
+    expect(spec?.limits).toEqual([{ value: -25, priority: 'warning', bound: 'low' }])
+    expect(spec?.verdict).toBe(false)
+  })
+
+  it('draws nothing for an outside step with no limit typed, and still judges the rest', () => {
+    const spec = editorChart(
+      form('outside', COOLANT, (f) => {
+        f.steps = [
+          { ...f.steps[0], low: '-25', high: '25', priority: 'warning' },
+          { ...f.steps[0], priority: 'alarm' }
+        ]
+      }),
+      units
+    )
+    expect(spec?.limits).toHaveLength(2)
+    expect(spec?.verdict).toBe(true)
+  })
+
+  it('charts one side again once the kind changes from outside to below', () => {
+    const outside = form('outside', COOLANT, (f) => {
+      f.steps[0] = { ...f.steps[0], low: '-25', high: '25' }
+    })
+    const below = withKind(outside, 'below')
+    below.steps[0] = { ...below.steps[0], limit: '5' }
+    expect(editorChart(below, units)).toMatchObject({
+      methods: ['min'],
+      side: 'below',
+      limits: [{ value: 5 }],
+      verdict: true
+    })
+  })
 })

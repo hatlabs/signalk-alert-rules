@@ -5,7 +5,13 @@
  */
 import type { RuleInfo } from '../api'
 import type { Aggregate } from './historySource'
-import { isZoneLimited, parsedNumber, signalShape, type RuleForm } from '../editor/formModel'
+import {
+  isZoneLimited,
+  parsedNumber,
+  signalShape,
+  type RuleForm,
+  type StepForm
+} from '../editor/formModel'
 import { signalMeasure, type SignalShape, type UnitLookup } from '../signalUnits'
 import { fromSI } from '../units'
 import type { SummaryLimit } from './chart'
@@ -88,21 +94,35 @@ export function detailChart(rule: RuleInfo, units: UnitLookup): ChartSpec | unde
 export function editorChart(form: RuleForm, units: UnitLookup): ChartSpec | undefined {
   if (form.signal.mode !== 'single') return undefined
   const { detector } = form
+  const outside = detector.type === 'outside'
   const direction = detector.type === 'sustained' ? detector.direction : detector.trend
+  const typed = (step: StepForm, text: string, bound?: 'low' | 'high'): SummaryLimit[] => {
+    const value = parsedNumber(text)
+    if (value === undefined) return []
+    const priority = step.priority === '' ? {} : { priority: step.priority }
+    return [{ value, ...priority, ...(bound === undefined ? {} : { bound }) }]
+  }
   const limits = isZoneLimited(detector)
     ? []
-    : form.steps.flatMap((step) => {
-        const value = parsedNumber(step.limit)
-        if (value === undefined) return []
-        return [{ value, ...(step.priority === '' ? {} : { priority: step.priority }) }]
-      })
+    : form.steps.flatMap((step) =>
+        outside
+          ? [...typed(step, step.low, 'low'), ...typed(step, step.high, 'high')]
+          : typed(step, step.limit)
+      )
   const source = form.signal.slots[0]?.source.trim() ?? ''
-  return specOf(
+  const spec = specOf(
     signalShape(form.signal),
     detector.type,
-    SIDES[detector.type]?.[direction],
+    outside ? 'outside' : SIDES[detector.type]?.[direction],
     limits,
     source === '' ? undefined : source,
     units
   )
+  // With one side of a range missing, a verdict would miss what passing that side does.
+  const halfTyped =
+    outside &&
+    form.steps.some(
+      ({ low, high }) => (parsedNumber(low) === undefined) !== (parsedNumber(high) === undefined)
+    )
+  return spec !== undefined && halfTyped ? { ...spec, verdict: false } : spec
 }
