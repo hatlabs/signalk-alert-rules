@@ -2,6 +2,7 @@
  * What the editor says next to the limits: what the chosen priority means,
  * how the steps climb, and whether the value now would alert.
  */
+import { formatNumber } from '../../format'
 import type { Priority } from '../../model/rule'
 import type { SignalValue } from '../api'
 import { article, formatValue } from '../rules/describe'
@@ -16,7 +17,7 @@ import {
   type RuleForm,
   type StepForm
 } from './formModel'
-import { rangeLimitText, stepLimitText, stepWord } from './words'
+import { durationText, rangeLimitText, stepLimitText, stepWord } from './words'
 
 /**
  * The priorities as the IMO alert management resolutions behind the Signal
@@ -110,19 +111,45 @@ function passedText(
 
 const CLEARS: Readonly<Partial<Record<string, string>>> = { below: 'above', above: 'below' }
 
-/** Where the value must be back for the alert to clear, as typed for the first step. */
+/** A typed number moved by `by`, as the editor shows a number; the text as typed when either is not a number. */
+function shifted(text: string, by: number | undefined): string {
+  const value = parsedNumber(text)
+  return value === undefined || by === undefined ? text : formatNumber(value + by)
+}
+
+/**
+ * Where the value must be back for the alert to clear, as typed for the
+ * first step: past it by the clear margin, for the clear delay.
+ */
 function clearsText(form: RuleForm, measure: Measure): string | undefined {
   const first = form.steps.at(0)
   if (first === undefined) return undefined
   const kind = kindOf(form.detector)
+  const margin = parsedNumber(form.detector.hysteresis)
+  const delay = durationText(form.detector.clearDuration)
+  const eased = (back: string) =>
+    (margin ?? 0) > 0 || delay !== undefined
+      ? `once back ${back}${delay === undefined ? '' : ` for ${delay}`}`
+      : back
   if (kind === 'outside') {
-    const high = rangeLimitText(first, 'high', measure)
-    const low = first.low.trim()
-    return high === undefined || low === '' ? undefined : `between ${low} and ${high}`
+    const narrowed = {
+      ...first,
+      low: shifted(first.low, margin),
+      high: shifted(first.high, margin === undefined ? undefined : -margin)
+    }
+    const high = rangeLimitText(narrowed, 'high', measure)
+    const low = narrowed.low.trim()
+    return high === undefined || low === '' ? undefined : eased(`between ${low} and ${high}`)
   }
   const back = CLEARS[kind ?? '']
-  const limit = stepLimitText(first, stepQuantity(form.detector), measure)
-  return back === undefined || limit === undefined ? undefined : `${back} ${limit}`
+  if (back === undefined) return undefined
+  const by = margin === undefined ? undefined : back === 'above' ? margin : -margin
+  const limit = stepLimitText(
+    { ...first, limit: shifted(first.limit, by) },
+    stepQuantity(form.detector),
+    measure
+  )
+  return limit === undefined ? undefined : eased(`${back} ${limit}`)
 }
 
 /** How the alert climbs through several steps, and when a comparison clears. */

@@ -107,6 +107,41 @@ describe('nowText', () => {
 })
 
 describe('ladderText', () => {
+  it('clears past the first step by the clear margin, after the clear delay', () => {
+    const f = below('12.2', '11.8')
+    f.detector.hysteresis = '0.2'
+    f.detector.clearDuration = { amount: '30', unit: 's' }
+    expect(ladderText(f, units)).toBe(
+      'The alert is raised as a warning below 12.2 V and becomes an alarm below 11.8 V. It clears only once back above 12.4 V for 30 s.'
+    )
+  })
+
+  it('words a clear delay without a margin', () => {
+    const f = below('12.2', '11.8')
+    f.detector.clearDuration = { amount: '30', unit: 's' }
+    expect(ladderText(f, units)).toBe(
+      'The alert is raised as a warning below 12.2 V and becomes an alarm below 11.8 V. It clears only once back above 12.2 V for 30 s.'
+    )
+  })
+
+  it('narrows the range it clears in by the clear margin', () => {
+    const f = outside(['-25', '25'], ['-35', '35'])
+    f.detector.hysteresis = '2'
+    expect(ladderText(f, units)).toBe(
+      'The alert is raised as a warning outside -25 to 25 ° and becomes an alarm outside -35 to 35 °. It clears only once back between -23 and 23 °.'
+    )
+  })
+
+  it('clears below the first limit less the margin, for a rule above it', () => {
+    const f = withKind(emptyForm(), 'above')
+    f.signal.slots[0].path = 'electrical.batteries.house.voltage'
+    f.steps = [step({ limit: '14.4' }), step({ limit: '14.8', priority: 'alarm' })]
+    f.detector.hysteresis = '0.2'
+    expect(ladderText(f, units)).toBe(
+      'The alert is raised as a warning above 14.4 V and becomes an alarm above 14.8 V. It clears only once back below 14.2 V.'
+    )
+  })
+
   it('words the climb and when it clears, for several steps', () => {
     expect(ladderText(below('12.2', '11.8'), units)).toBe(
       'The alert is raised as a warning below 12.2 V and becomes an alarm below 11.8 V. It clears only above 12.2 V.'

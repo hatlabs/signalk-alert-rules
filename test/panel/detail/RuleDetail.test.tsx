@@ -224,6 +224,42 @@ describe('RuleDetail', () => {
       )
     })
 
+    it('clears past the first step by the clear margin, after the clear delay', () => {
+      renderDetail({ ...stepped, rule: { ...stepped.rule, hysteresis: 0.2, clearDuration: 30 } })
+      expect(screen.getByText(/^Clears once/).textContent).toBe(
+        'Clears once the value is back above 12.4 V for 30 s. It stays an alarm until then.'
+      )
+    })
+
+    it('words a clear delay without a margin', () => {
+      renderDetail({
+        ...stepped,
+        rule: { ...stepped.rule, clearDuration: 30 },
+        status: { ...stepped.status, ...ruleEntry().status }
+      })
+      expect(screen.getByText(/^Clears once/).textContent).toBe(
+        'Clears once the value is back above 12.2 V for 30 s.'
+      )
+    })
+
+    it('clears below the first step less the clear margin, for a rule above it', () => {
+      renderDetail({
+        ...stepped,
+        rule: {
+          ...stepped.rule,
+          steps: [
+            { limit: 15, priority: 'warning' },
+            { limit: 15.5, priority: 'alarm' }
+          ],
+          detector: { type: 'sustained', direction: 'above' },
+          hysteresis: 0.1
+        }
+      })
+      expect(screen.getByText(/^Clears once/).textContent).toBe(
+        'Clears once the value is back below 14.9 V. It stays an alarm until then.'
+      )
+    })
+
     it('shows no ladder for a rule with one step', () => {
       renderDetail(houseLow)
       expect(screen.queryByRole('list', { name: 'Steps' })).toBeNull()
@@ -291,6 +327,13 @@ describe('RuleDetail', () => {
       expect(screen.getByText(/^Within limits/).textContent).toBe('Within limits. Now 3 °.')
       expect(screen.getByText(/^Clears when/).textContent).toBe(
         'Clears when the value is back between -25 and 25 °.'
+      )
+    })
+
+    it('narrows the range it clears in by the clear margin on both sides', () => {
+      renderDetail({ ...heel, rule: { ...heel.rule, hysteresis: 2 } }, { units: heelUnits })
+      expect(screen.getByText(/^Clears once/).textContent).toBe(
+        'Clears once the value is back between -23 and 23 °. It stays a warning until then.'
       )
     })
 

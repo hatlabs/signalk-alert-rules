@@ -235,6 +235,8 @@ describe('httpApi', () => {
           message: 'House battery voltage is low',
           steps: [],
           duration: 60,
+          hysteresis: 0.2,
+          clearDuration: 30,
           detector: { type: 'sustained', direction: 'below', zoneLevel: 'warn' },
           signal: { paths: ['electrical.batteries.*.voltage'] },
           gates: [{ paths: ['electrical.chargers.shore.state'] }]
