@@ -174,7 +174,20 @@ export interface RuleInfo {
   source?: string
   /** The template the rule was made from and what was picked for it, as information only. */
   template?: { set: string; id: string; pick: TemplatePick }
-  gates: { paths: string[] }[]
+  gates: RuleGate[]
+}
+
+/** A condition on another signal that puts a rule in use only while it holds. */
+export interface RuleGate {
+  paths: string[]
+  combinator?: string
+  direction?: string
+  /** A fixed limit, in SI; absent for a zone limit. */
+  limit?: number
+  zoneLevel?: string
+  duration?: number
+  hysteresis?: number
+  clearDuration?: number
 }
 
 /** The actor the server records for a request without a login, as it is with security off. */
@@ -549,9 +562,19 @@ export function parseListedRule(body: unknown, what: string): ListedRule {
       signal: signal(input),
       ...optional('source', text(input.source)),
       ...optional('template', templateOf(v.template)),
-      gates: (Array.isArray(v.gates) ? v.gates : []).map((g) => ({
-        paths: signal(record(g).signal).paths
-      }))
+      gates: (Array.isArray(v.gates) ? v.gates : []).map((g): RuleGate => {
+        const gate = record(g)
+        const limit = isRecord(gate.limit) ? gate.limit : {}
+        return {
+          ...signal(gate.signal),
+          ...optional('direction', text(gate.direction)),
+          ...optional('limit', limit.kind === 'fixed' ? num(limit.value) : undefined),
+          ...optional('zoneLevel', limit.kind === 'zone' ? text(limit.level) : undefined),
+          ...optional('duration', num(gate.duration)),
+          ...optional('hysteresis', num(gate.hysteresis)),
+          ...optional('clearDuration', num(gate.clearDuration))
+        }
+      })
     }
   }
 

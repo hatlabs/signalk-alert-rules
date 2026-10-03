@@ -54,7 +54,18 @@ const ruleEntry = {
       {
         signal: { path: 'electrical.chargers.shore.state' },
         direction: 'below',
-        limit: { kind: 'fixed', value: 1 }
+        limit: { kind: 'fixed', value: 1 },
+        duration: 10,
+        hysteresis: 0.5,
+        clearDuration: 20
+      },
+      {
+        signal: {
+          combinator: 'max',
+          inputs: [{ path: 'propulsion.port.revolutions' }, { path: 'propulsion.stbd.revolutions' }]
+        },
+        direction: 'above',
+        limit: { kind: 'zone', level: 'warn' }
       }
     ]
   },
@@ -239,7 +250,22 @@ describe('httpApi', () => {
           clearDuration: 30,
           detector: { type: 'sustained', direction: 'below', zoneLevel: 'warn' },
           signal: { paths: ['electrical.batteries.*.voltage'] },
-          gates: [{ paths: ['electrical.chargers.shore.state'] }]
+          gates: [
+            {
+              paths: ['electrical.chargers.shore.state'],
+              direction: 'below',
+              limit: 1,
+              duration: 10,
+              hysteresis: 0.5,
+              clearDuration: 20
+            },
+            {
+              paths: ['propulsion.port.revolutions', 'propulsion.stbd.revolutions'],
+              combinator: 'max',
+              direction: 'above',
+              zoneLevel: 'warn'
+            }
+          ]
         },
         disabled: {
           since: '2026-09-30T12:00:00.000Z',
@@ -378,6 +404,7 @@ describe('httpApi', () => {
       if (isInvalid(read) || isInvalid(matched) || isInvalid(absent) || isInvalid(counted)) {
         throw new Error('invalid')
       }
+      expect(counted.rule.gates).toEqual([])
       expect(counted.rule.detector).toEqual({
         type: 'count',
         event: { op: 'changesTo', value: true },

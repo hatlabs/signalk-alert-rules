@@ -1,11 +1,9 @@
 import { useId } from 'react'
 import type { RuleEntry, RuleInfo } from '../api'
-import { article, stepCondition, type RuleDisplay } from '../rules/describe'
+import { article, BACK_FROM, stepCondition, type RuleDisplay } from '../rules/describe'
 import { CheckIcon } from './icons'
 import { PriorityBadge } from '../list/PriorityBadge'
 import { formatDuration } from '../../format'
-
-const OPPOSITE: Readonly<Partial<Record<string, string>>> = { below: 'above', above: 'below' }
 
 /**
  * Where the value is back to once the first step no longer holds, for a
@@ -19,7 +17,7 @@ function backTo(rule: RuleInfo, display: RuleDisplay): string | undefined {
       ? undefined
       : `between ${display.range(first.low + margin, first.high - margin, 'and')}`
   }
-  const back = OPPOSITE[rule.detector.direction ?? '']
+  const back = BACK_FROM[rule.detector.direction ?? '']
   if (rule.detector.type !== 'sustained' || back === undefined || first.limit === undefined) {
     return undefined
   }

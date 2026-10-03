@@ -12,6 +12,7 @@ import {
   describeInput,
   discardedTotals,
   formatTime,
+  gateCondition,
   hasInstances,
   MAX_NOTE_LENGTH,
   plural,
@@ -99,7 +100,15 @@ function Fact({ term, children }: { term: string; children: ReactNode }) {
 }
 
 /** What the rule watches, when it alerts and what it sends, as its author set it. */
-function Facts({ entry, display }: { entry: RuleEntry; display: RuleDisplay }) {
+function Facts({
+  entry,
+  display,
+  units
+}: {
+  entry: RuleEntry
+  display: RuleDisplay
+  units: UnitLookup
+}) {
   const { rule, status } = entry
   const combined = rule.signal.combinator !== undefined
   return (
@@ -117,8 +126,8 @@ function Facts({ entry, display }: { entry: RuleEntry; display: RuleDisplay }) {
       {rule.gates.length > 0 && (
         <Fact term="Only while">
           {rule.gates.map((g, n) => (
-            <div key={n} className="skar-mono">
-              {describeInput({ paths: g.paths })}
+            <div key={n}>
+              <span className="skar-mono">{describeInput(g)}</span> {gateCondition(g, units)}
             </div>
           ))}
         </Fact>
@@ -515,7 +524,7 @@ export function RuleDetail({
           linkedRef={instanceRef}
         />
       )}
-      <Facts entry={entry} display={display} />
+      <Facts entry={entry} display={display} units={units} />
       {display.si && <p className="skar-hint">Values are in SI units.</p>}
       <Controls entry={entry} display={display} {...controls} />
       {chip === 'alerting' && <p className="skar-hint">{ALERT_CONSOLE_HINT}</p>}

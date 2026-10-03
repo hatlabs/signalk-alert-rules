@@ -3,6 +3,7 @@ import type {
   InstanceStatus,
   RuleEntry,
   RuleEvent,
+  RuleGate,
   RuleInfo,
   RuleStep,
   SignalValue
@@ -173,6 +174,41 @@ export function alertsWhen(rule: RuleInfo, display: RuleDisplay): string {
   }
   const each = steps.map((s) => `${stepCondition(s, rule, display)} (${s.priority})`).join(', ')
   return held === '' ? each : `${each}, each for at least ${held}`
+}
+
+/** The side a value is back on once it no longer holds past a limit. */
+export const BACK_FROM: Readonly<Partial<Record<string, string>>> = {
+  below: 'above',
+  above: 'below'
+}
+
+/** A difference in the signal's unit: the linear part only, as a clear margin is. */
+function formatInterval(value: number, measure: Measure): string {
+  if (measure.kind === 'ratio') return formatNumber(value)
+  return withUnit(formatNumber(fromSI('interval', value, measure.unit)), measure.unit.symbol)
+}
+
+/**
+ * When a gate holds, after its path: "above 480 rpm for 10 s", and once it
+ * stops, by its clear margin and after its clear delay when it sets them.
+ */
+export function gateCondition(gate: RuleGate, units: UnitLookup): string {
+  const measure = signalMeasure(gate, units)
+  const { direction = '', limit, zoneLevel = '', duration = 0 } = gate
+  const { hysteresis = 0, clearDuration = 0 } = gate
+  const held = duration > 0 ? ` for ${formatDuration(duration)}` : ''
+  const condition =
+    limit === undefined
+      ? `${direction} the ${zoneLevel} zone${held}`
+      : `${direction} ${formatValue(limit, measure)}${held}`
+  const back = BACK_FROM[direction]
+  if ((hysteresis <= 0 && clearDuration <= 0) || back === undefined) return condition
+  const where =
+    limit === undefined
+      ? `${back} the ${zoneLevel} zone${hysteresis > 0 ? ` by ${formatInterval(hysteresis, measure)}` : ''}`
+      : `${back} ${formatValue(back === 'above' ? limit + hysteresis : limit - hysteresis, measure)}`
+  const delay = clearDuration > 0 ? ` for ${formatDuration(clearDuration)}` : ''
+  return `${condition}; stops holding once back ${where}${delay}`
 }
 
 /** How a rule's values, limits and accumulated totals are shown. */

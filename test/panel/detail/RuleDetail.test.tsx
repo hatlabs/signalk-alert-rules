@@ -778,6 +778,109 @@ describe('RuleDetail', () => {
     ).toEqual(['evaluation threw', 'subscription refused'])
   })
 
+  describe('only while', () => {
+    const PORT = 'propulsion.port.revolutions'
+    const STBD = 'propulsion.starboard.revolutions'
+    const rpm = displayUnit({ units: 'Hz', displayUnits: { formula: 'value * 60', symbol: 'rpm' } })
+    const rpmUnits = unitLookup(
+      [
+        { path: PORT, units: 'Hz', unit: rpm },
+        { path: STBD, units: 'Hz', unit: rpm }
+      ],
+      displayUnit({ units: 'm' })
+    )
+    const gated = (gates: RuleEntry['rule']['gates']) =>
+      ruleEntry({
+        rule: {
+          detector: { type: 'sustained', direction: 'above' },
+          signal: { paths: [PORT] },
+          gates
+        }
+      })
+    const conditions = () =>
+      Array.from(screen.getByRole('definition', { name: /only while/i }).children).map(
+        (c) => c.textContent
+      )
+
+    it('words each gate with its comparison and how long it must hold', () => {
+      renderDetail(
+        gated([
+          { paths: [PORT], direction: 'above', limit: 8, duration: 10 },
+          { paths: [STBD], direction: 'above', limit: 8 }
+        ]),
+        { units: rpmUnits }
+      )
+      expect(conditions()).toEqual([`${PORT} above 480 rpm for 10 s`, `${STBD} above 480 rpm`])
+    })
+
+    it('words a gate’s clear margin and delay, as the clear hint does', () => {
+      renderDetail(
+        gated([
+          { paths: [PORT], direction: 'above', limit: 8, hysteresis: 0.5, clearDuration: 30 },
+          { paths: [STBD], direction: 'below', limit: 8, clearDuration: 30 }
+        ]),
+        { units: rpmUnits }
+      )
+      expect(conditions()).toEqual([
+        `${PORT} above 480 rpm; stops holding once back below 450 rpm for 30 s`,
+        `${STBD} below 480 rpm; stops holding once back above 480 rpm for 30 s`
+      ])
+    })
+
+    it('words a gate on a zone', () => {
+      renderDetail(gated([{ paths: [PORT], direction: 'above', zoneLevel: 'warn' }]), {
+        units: rpmUnits
+      })
+      expect(conditions()).toEqual([`${PORT} above the warn zone`])
+    })
+
+    it('words a zone gate’s clear margin as a difference', () => {
+      renderDetail(
+        gated([
+          {
+            paths: [PORT],
+            direction: 'above',
+            zoneLevel: 'warn',
+            hysteresis: 0.5,
+            clearDuration: 30
+          }
+        ]),
+        { units: rpmUnits }
+      )
+      expect(conditions()).toEqual([
+        `${PORT} above the warn zone; stops holding once back below the warn zone by 30 rpm for 30 s`
+      ])
+    })
+
+    it('words a below gate’s clear margin without a delay, above its limit', () => {
+      renderDetail(gated([{ paths: [STBD], direction: 'below', limit: 8, hysteresis: 0.5 }]), {
+        units: rpmUnits
+      })
+      expect(conditions()).toEqual([`${STBD} below 480 rpm; stops holding once back above 510 rpm`])
+    })
+
+    it('words a zone gate’s clear delay without a margin', () => {
+      renderDetail(
+        gated([{ paths: [PORT], direction: 'above', zoneLevel: 'warn', clearDuration: 30 }]),
+        { units: rpmUnits }
+      )
+      expect(conditions()).toEqual([
+        `${PORT} above the warn zone; stops holding once back below the warn zone for 30 s`
+      ])
+    })
+
+    it('words a zone gate’s clear margin in an offset unit as a difference', () => {
+      const COOLANT = 'propulsion.port.coolantTemperature'
+      renderDetail(
+        gated([{ paths: [COOLANT], direction: 'above', zoneLevel: 'warn', hysteresis: 2 }]),
+        { units }
+      )
+      expect(conditions()).toEqual([
+        `${COOLANT} above the warn zone; stops holding once back below the warn zone by 2 °C`
+      ])
+    })
+  })
+
   it('says values are in SI units when no display unit applies', () => {
     renderDetail(ruleEntry())
     expect(screen.getByText(/values are in SI units/i)).toBeTruthy()
