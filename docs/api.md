@@ -1,6 +1,6 @@
 # REST API
 
-Alert Rules serves its rules, their status and its operator actions under the plugin's route on the Signal K server, `/plugins/signalk-alert-rules`. The Alert Rules webapp is its client. Bodies are JSON; values are in SI units, as in [the rule model](rules.md).
+Alert Rules serves its rules, their status and its actions under the plugin's route on the Signal K server, `/plugins/signalk-alert-rules`. The Alert Rules webapp is its client. Bodies are JSON; values are in SI units, as in [the rule model](rules.md).
 
 ## Security
 
@@ -24,7 +24,7 @@ Alert Rules serves its rules, their status and its operator actions under the pl
 | `POST /rules/:slug/reset` | admin | resets an accumulator rule; answers its entry |
 | `POST /rules/:slug/disable` | read/write | disables a rule, with an optional `{ "note": "..." }`; answers its entry |
 | `POST /rules/:slug/enable` | read/write | enables a rule; answers its entry |
-| `GET /log` | read-only | the operator action log, newest first |
+| `GET /log` | read-only | the action log, newest first |
 | `GET /templates` | read-only | the template sets installed now, each with its templates and the ids of those whose notice nobody has dismissed, and the sets that failed to load |
 | `POST /templates/dismiss` | admin | dismisses the notice of the templates the body names, `{ "templates": { "<set id>": ["<template id>", …] } }`: those the notice showed, of the ones installed now; answers as `GET /templates` |
 
