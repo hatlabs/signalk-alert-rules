@@ -110,8 +110,11 @@ interface TextProps {
   extraErrors?: (string | undefined)[]
   prefix?: string
   placeholder?: string
-  /** A number: the keyboard offers digits, and the text is kept as typed. */
-  numeric?: boolean
+  /**
+   * A number that is never negative: a phone offers its decimal keypad,
+   * which has no minus key, so a signed number leaves this off.
+   */
+  nonNegative?: boolean
   readOnly?: boolean
   required?: boolean
 }
@@ -120,7 +123,7 @@ export function TextField({
   label,
   value,
   onChange,
-  numeric,
+  nonNegative,
   readOnly,
   placeholder,
   ...field
@@ -131,7 +134,7 @@ export function TextField({
         <input
           {...control}
           type="text"
-          inputMode={numeric === true ? 'decimal' : undefined}
+          inputMode={nonNegative === true ? 'decimal' : undefined}
           readOnly={readOnly}
           placeholder={placeholder}
           value={value}
@@ -432,7 +435,6 @@ export function ValueControl({ label, value, onChange, unit, kind, control }: Va
         className="skar-input"
         {...control}
         type="text"
-        inputMode={numeric ? 'decimal' : undefined}
         value={value.text}
         onChange={(e) => {
           onChange({

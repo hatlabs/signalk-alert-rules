@@ -1074,6 +1074,45 @@ describe('RuleEditor, outside a range', () => {
   })
 })
 
+describe('RuleEditor, the keyboard a number brings up', () => {
+  afterEach(cleanup)
+
+  // A phone's decimal keypad has no minus key, so only a number that cannot be negative asks for it.
+  const inputMode = (name: string) => textbox(name).getAttribute('inputmode')
+
+  it.each([
+    ['below', ['Limit for step 1']],
+    ['outside', ['Low limit for step 1', 'High limit for step 1']],
+    ['rate', ['Limit for step 1']],
+    ['state', ['State for step 1']]
+  ] as const)('offers a minus for the limits of %s', async (kind, fields) => {
+    renderEditor({ start: { path: HOUSE, kind } })
+    await formShown()
+    for (const field of fields) expect(inputMode(field)).toBeNull()
+  })
+
+  it('offers a minus for a condition limit, and the keypad for its clear margin', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    openMoreOptions()
+    click(button('Add a condition'))
+    expect(inputMode('Condition 1 limit')).toBeNull()
+    expect(inputMode('Condition 1 clear margin')).toBe('decimal')
+  })
+
+  it('offers the keypad for a count, a duration and the clear margin', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'often' } })
+    await formShown()
+    expect(inputMode('Limit for step 1')).toBe('decimal')
+    cleanup()
+    renderEditor({ start: { path: HOUSE, kind: 'outside' } })
+    await formShown()
+    expect(inputMode('For at least')).toBe('decimal')
+    openMoreOptions()
+    expect(inputMode('Clear margin')).toBe('decimal')
+  })
+})
+
 describe('ZONE_PRIORITY', () => {
   it('is the priority the model gives each zone level', () => {
     expect(ZONE_PRIORITY).toEqual(LEVEL_PRIORITY)

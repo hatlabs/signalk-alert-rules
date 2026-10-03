@@ -71,7 +71,6 @@ function LimitFields({
           label={label}
           pointer={`${at}/value`}
           value={limit.value}
-          numeric
           unit={unitLabels(measure).value}
           onChange={(value) => {
             onChange({ ...limit, value })
@@ -168,7 +167,7 @@ export function GateFields({ index, gate, onChange, onRemove, paths, units }: Ga
         label={`${name} clear margin`}
         pointer={`${at}/hysteresis`}
         value={gate.hysteresis}
-        numeric
+        nonNegative
         unit={unitLabels(measure).interval}
         onChange={(hysteresis) => {
           onChange({ ...gate, hysteresis })

@@ -257,10 +257,11 @@ export function StepFields({ form, onChange, measure, units, valueKind, value }:
                   quantity === 'integral' ||
                   quantity === 'count') && (
                   <span className="skar-input-row">
+                    {/* Only a count is never negative; the decimal keypad has no minus key. */}
                     <input
                       {...limitControl}
                       type="text"
-                      inputMode="decimal"
+                      inputMode={quantity === 'count' ? 'decimal' : undefined}
                       value={step.limit}
                       onChange={(e) => {
                         setStep(i, { limit: e.target.value })
@@ -276,7 +277,6 @@ export function StepFields({ form, onChange, measure, units, valueKind, value }:
                     <input
                       {...control('Low limit', 'low')}
                       type="text"
-                      inputMode="decimal"
                       value={step.low}
                       onChange={(e) => {
                         setStep(i, { low: e.target.value })
@@ -286,7 +286,6 @@ export function StepFields({ form, onChange, measure, units, valueKind, value }:
                     <input
                       {...control('High limit', 'high')}
                       type="text"
-                      inputMode="decimal"
                       value={step.high}
                       onChange={(e) => {
                         setStep(i, { high: e.target.value })

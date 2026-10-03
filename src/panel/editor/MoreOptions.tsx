@@ -165,7 +165,7 @@ export function MoreOptions({
               label="Clear margin"
               pointer="/detector/hysteresis"
               value={d.hysteresis}
-              numeric
+              nonNegative
               unit={unitLabels(measure).interval}
               hint={
                 d.type === 'outside'
