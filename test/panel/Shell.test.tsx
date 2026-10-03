@@ -328,12 +328,12 @@ describe('Shell views', () => {
     const history = {
       hasProvider: vi.fn(() => Promise.resolve(true)),
       values: vi.fn(() =>
-        Promise.resolve([
-          [
+        Promise.resolve({
+          min: [
             { time: Date.now() - 1_200_000, value: 250_000 },
             { time: Date.now() - 600_000, value: 240_000 }
           ]
-        ])
+        })
       )
     }
     render(

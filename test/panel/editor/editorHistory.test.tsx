@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 import { cleanup, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { HistoryPoint, HistorySource } from '../../../src/panel/history/historySource'
+import type {
+  HistoryPoint,
+  HistoryQuery,
+  HistorySource
+} from '../../../src/panel/history/historySource'
 import {
   button,
   choose,
@@ -23,7 +27,9 @@ const day: HistoryPoint[] = Array.from({ length: 144 }, (_, i) => ({
 function fakeHistory(provider = true) {
   return {
     hasProvider: vi.fn(() => Promise.resolve(provider)),
-    values: vi.fn(() => Promise.resolve([day]))
+    values: vi.fn((q: HistoryQuery) =>
+      Promise.resolve(Object.fromEntries(q.methods.map((method) => [method, day])))
+    )
   } satisfies HistorySource
 }
 

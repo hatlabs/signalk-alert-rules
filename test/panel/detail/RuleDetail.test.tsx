@@ -3,7 +3,12 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RuleEntry } from '../../../src/panel/api'
 import { RuleDetail, type RuleDetailProps } from '../../../src/panel/detail/RuleDetail'
-import type { HistoryPoint, HistorySource } from '../../../src/panel/history/historySource'
+import type {
+  HistoryPoint,
+  HistoryQuery,
+  HistorySeries,
+  HistorySource
+} from '../../../src/panel/history/historySource'
 import type { PathEntry } from '../../../src/panel/paths/selfPaths'
 import { unitLookup } from '../../../src/panel/signalUnits'
 import { displayUnit } from '../../../src/panel/units'
@@ -293,7 +298,7 @@ describe('RuleDetail', () => {
       const bucket = (i: number) => Date.now() - 86_400_000 + i * 600_000
       const lows = Array.from({ length: 144 }, (_, i) => ({ time: bucket(i), value: -27 }))
       const highs = Array.from({ length: 144 }, (_, i) => ({ time: bucket(i), value: 36 }))
-      const values = vi.fn(() => Promise.resolve([lows, highs]))
+      const values = vi.fn(() => Promise.resolve({ min: lows, max: highs }))
       renderDetail(heel, {
         units: heelUnits,
         history: { hasProvider: () => Promise.resolve(true), values }
@@ -745,7 +750,8 @@ describe('RuleDetail', () => {
       value: 12.5
     }))
     const history = (
-      values: () => Promise<HistoryPoint[][]> = () => Promise.resolve([day])
+      values: (q: HistoryQuery) => Promise<HistorySeries> = (q) =>
+        Promise.resolve(Object.fromEntries(q.methods.map((method) => [method, day])))
     ): HistorySource => ({ hasProvider: () => Promise.resolve(true), values })
 
     async function settle() {

@@ -179,13 +179,13 @@ describe('historySummary', () => {
   })
 
   it('names the lowest value and when, and that a low limit was never passed', () => {
-    expect(historySummary([series], sustained('below', [{ value: 12.8 }]), words)).toBe(
+    expect(historySummary({ min: series }, sustained('below', [{ value: 12.8 }]), words)).toBe(
       'Lowest 13.02 V at 20 min. The rule would not have alerted.'
     )
   })
 
   it('says a single limit was passed, without claiming the duration held', () => {
-    expect(historySummary([series], sustained('below', [{ value: 13.1 }]), words)).toBe(
+    expect(historySummary({ min: series }, sustained('below', [{ value: 13.1 }]), words)).toBe(
       'Lowest 13.02 V at 20 min. It went below the limit.'
     )
   })
@@ -196,36 +196,45 @@ describe('historySummary', () => {
       { value: 13.1, priority: 'alarm' },
       { value: 12, priority: 'emergency' }
     ]
-    expect(historySummary([series], sustained('below', steps), words)).toBe(
+    expect(historySummary({ min: series }, sustained('below', steps), words)).toBe(
       'Lowest 13.02 V at 20 min. It went below the alarm limit.'
     )
   })
 
   it('names the highest value for a high limit', () => {
-    expect(historySummary([series], sustained('above', [{ value: 15 }]), words)).toBe(
+    expect(historySummary({ max: series }, sustained('above', [{ value: 15 }]), words)).toBe(
       'Highest 14.10 V at 60 min. The rule would not have alerted.'
+    )
+  })
+
+  it('reads an averaged series, as a slope chart asks for', () => {
+    expect(historySummary({ average: series }, sustained('above', [{ value: 15 }]), words)).toBe(
+      'Highest 14.10 V at 60 min. The rule would not have alerted.'
+    )
+    expect(historySummary({ average: series }, sustained('below', [{ value: 13.1 }]), words)).toBe(
+      'Lowest 13.02 V at 20 min. It went below the limit.'
     )
   })
 
   it('does not say a projection would not have alerted, as it alerts on a value ahead', () => {
     const projection = { side: 'below' as const, verdict: false }
-    expect(historySummary([series], { ...projection, limits: [{ value: 12.8 }] }, words)).toBe(
-      'Lowest 13.02 V at 20 min.'
-    )
-    expect(historySummary([series], { ...projection, limits: [{ value: 13.1 }] }, words)).toBe(
-      'Lowest 13.02 V at 20 min. It went below the limit.'
-    )
+    expect(
+      historySummary({ min: series }, { ...projection, limits: [{ value: 12.8 }] }, words)
+    ).toBe('Lowest 13.02 V at 20 min.')
+    expect(
+      historySummary({ min: series }, { ...projection, limits: [{ value: 13.1 }] }, words)
+    ).toBe('Lowest 13.02 V at 20 min. It went below the limit.')
   })
 
   it('names only the value while there is no limit to compare with', () => {
-    expect(historySummary([series], sustained('below', []), words)).toBe(
+    expect(historySummary({ min: series }, sustained('below', []), words)).toBe(
       'Lowest 13.02 V at 20 min.'
     )
   })
 
   it('says nothing without values', () => {
     expect(
-      historySummary([[{ time: at(0), value: null }]], sustained('below', []), words)
+      historySummary({ min: [{ time: at(0), value: null }] }, sustained('below', []), words)
     ).toBeUndefined()
   })
 })
@@ -236,20 +245,20 @@ describe('an outside rule’s history', () => {
     time: (ms: number) => `${String(Math.round((ms - FROM) / MINUTE))} min`
   }
   /** Each bucket's lowest and highest heel; the line is broken at 20 min in both. */
-  const range = (lowest: number, highest: number) => [
-    [
+  const range = (lowest: number, highest: number) => ({
+    min: [
       { time: at(0), value: -3 },
       { time: at(10), value: lowest },
       { time: at(20), value: null },
       { time: at(30), value: -1 }
     ],
-    [
+    max: [
       { time: at(0), value: 4 },
       { time: at(10), value: 5 },
       { time: at(20), value: null },
       { time: at(30), value: highest }
     ]
-  ]
+  })
   const steps: SummaryLimit[] = [
     { value: -25, priority: 'warning', bound: 'low' },
     { value: 25, priority: 'warning', bound: 'high' },
@@ -290,7 +299,8 @@ describe('an outside rule’s history', () => {
 
   it('breaks both lines at a gap, and draws both limits of each step', () => {
     const limits = steps.map((l) => ({ value: l.value, label: '', tone: l.priority ?? '' }))
-    const geometry = chartGeometry(range(-27, 36), limits, { ...frame, resolution: 600 })
+    const { min, max } = range(-27, 36)
+    const geometry = chartGeometry([min, max], limits, { ...frame, resolution: 600 })
     expect(geometry.lines.map((runs) => runs.length)).toEqual([2, 2])
     expect(geometry.limits).toHaveLength(4)
   })

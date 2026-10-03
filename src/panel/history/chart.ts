@@ -2,7 +2,7 @@
  * Where the history chart draws its line and limits, and what it says about
  * them, from values already in display units.
  */
-import type { HistoryPoint } from './historySource'
+import type { HistoryPoint, HistorySeries } from './historySource'
 
 /** The chart's height in pixels; its width is the space it is given. */
 export const CHART_HEIGHT = 110
@@ -167,17 +167,16 @@ function furthestPassed(value: number, side: 'below' | 'above', limits: readonly
 
 /**
  * The extreme on the rule's side and when it was, and whether it passed a
- * limit; both extremes for an outside rule, the lowest of the first series
- * and the highest of the second. Passing a limit is not saying the rule
- * would have alerted: the buckets do not tell whether it held for the rule's
- * duration. Not passing one does say it for a rule on the recorded value, as
- * each bucket keeps its extreme.
+ * limit; both extremes for an outside rule. Passing a limit is not saying the
+ * rule would have alerted: the buckets do not tell whether it held for the
+ * rule's duration. Not passing one does say it for a rule on the recorded
+ * value, as each bucket keeps its extreme.
  *
- * @param series the lowest of each bucket for a low limit, the highest for a
- *   high one; both, lowest first, for an outside rule
+ * @param series each bucket's lowest for a low limit and its highest for a
+ *   high one, both for an outside rule; a slope's averages stand for either
  */
 export function historySummary(
-  series: readonly (readonly HistoryPoint[])[],
+  series: HistorySeries,
   { side, limits, verdict }: SummaryRule,
   words: Words
 ): string | undefined {
@@ -185,9 +184,8 @@ export function historySummary(
   const notAlerted = (found: string) =>
     verdict ? `${found} The rule would not have alerted.` : found
   if (side === 'outside') {
-    const [lows = [], highs = lows] = series
-    const lowest = extreme(lows, 'below')
-    const highest = extreme(highs, 'above')
+    const lowest = extreme(series.min ?? [], 'below')
+    const highest = extreme(series.max ?? [], 'above')
     if (lowest === undefined || highest === undefined) return undefined
     const found = `Lowest ${at(lowest)}; highest ${at(highest)}.`
     if (limits.length === 0) return found
@@ -219,7 +217,7 @@ export function historySummary(
       ? `${found} It went below and above the ${first.name}.`
       : `${found} It went below the ${first.name} and above the ${second.name}.`
   }
-  const point = extreme(series[0] ?? [], side)
+  const point = extreme(series[side === 'below' ? 'min' : 'max'] ?? series.average ?? [], side)
   if (point === undefined) return undefined
   const found = `${side === 'below' ? 'Lowest' : 'Highest'} ${at(point)}.`
   if (limits.length === 0) return found

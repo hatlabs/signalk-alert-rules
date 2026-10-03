@@ -14,7 +14,7 @@ import {
   resolutionFor,
   SPANS,
   type Aggregate,
-  type HistoryPoint,
+  type HistorySeries,
   type HistorySource,
   type Span
 } from './historySource'
@@ -73,7 +73,7 @@ type Loaded =
   | { status: 'failed' }
   | {
       status: 'ready'
-      series: HistoryPoint[][]
+      series: HistorySeries
       of: string
       to: number
       seconds: number
@@ -187,16 +187,17 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
 
   const symbol = measure.kind === 'ratio' ? '' : measure.unit.symbol
   const shown = (v: number) => (symbol === '' ? formatNumber(v) : `${formatNumber(v)} ${symbol}`)
-  const series =
-    loaded.status === 'ready'
-      ? loaded.series.map((points) =>
-          points.map((p) => ({
-            time: p.time,
-            value: p.value === null ? null : fromSI(measure.kind, p.value, measure.unit)
-          }))
-        )
-      : []
-  const recorded = series.some((points) => points.some((p) => p.value !== null))
+  const series: HistorySeries = {}
+  if (loaded.status === 'ready') {
+    for (const method of methods) {
+      series[method] = loaded.series[method]?.map((p) => ({
+        time: p.time,
+        value: p.value === null ? null : fromSI(measure.kind, p.value, measure.unit)
+      }))
+    }
+  }
+  const drawn = methods.map((method) => series[method] ?? [])
+  const recorded = drawn.some((points) => points.some((p) => p.value !== null))
   const several = spec.limits.length > 1
   const limits = spec.limits.map((l) => ({
     value: l.value,
@@ -208,7 +209,7 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
   // between answers however often the page around it renders.
   const geometry =
     loaded.status === 'ready'
-      ? chartGeometry(series, limits, {
+      ? chartGeometry(drawn, limits, {
           from: loaded.to - loaded.seconds * 1000,
           to: loaded.to,
           width: drawnWidth,

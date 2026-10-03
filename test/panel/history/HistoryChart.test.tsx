@@ -7,6 +7,7 @@ import {
   httpHistorySource,
   type HistoryPoint,
   type HistoryQuery,
+  type HistorySeries,
   type HistorySource
 } from '../../../src/panel/history/historySource'
 import { displayUnit } from '../../../src/panel/units'
@@ -40,7 +41,7 @@ const series: HistoryPoint[] = Array.from({ length: 144 }, (_, i) => {
 })
 
 function fakeHistory(
-  answer: (q: HistoryQuery) => Promise<HistoryPoint[][]> = () => Promise.resolve([series]),
+  answer: (q: HistoryQuery) => Promise<HistorySeries> = () => Promise.resolve({ max: series }),
   provider = true
 ) {
   return {
@@ -153,7 +154,7 @@ describe('HistoryChart', () => {
     const highs = lows.map((p) => ({ time: p.time, value: p.value === null ? null : p.value + 5 }))
 
     it('asks for each bucket’s lowest and highest in one query', async () => {
-      const history = fakeHistory(() => Promise.resolve([lows, highs]))
+      const history = fakeHistory(() => Promise.resolve({ min: lows, max: highs }))
       render(<HistoryChart history={history} spec={band} />)
       await settle()
       expect(history.values).toHaveBeenCalledTimes(1)
@@ -164,7 +165,10 @@ describe('HistoryChart', () => {
 
     it('draws both limits of each step labelled with its priority, and both lines broken at the gap', async () => {
       render(
-        <HistoryChart history={fakeHistory(() => Promise.resolve([lows, highs]))} spec={band} />
+        <HistoryChart
+          history={fakeHistory(() => Promise.resolve({ min: lows, max: highs }))}
+          spec={band}
+        />
       )
       await settle()
       const chart = screen.getByRole('img', { name: 'Last 24 hours with the limits' })
@@ -176,7 +180,7 @@ describe('HistoryChart', () => {
     })
 
     it('names both extremes, and the furthest limit passed on each side', async () => {
-      const history = fakeHistory(() => Promise.resolve([lows, highs]))
+      const history = fakeHistory(() => Promise.resolve({ min: lows, max: highs }))
       const { rerender } = render(<HistoryChart history={history} spec={band} />)
       await settle()
       expect(screen.getByRole('status').textContent).toMatch(
@@ -198,7 +202,7 @@ describe('HistoryChart', () => {
     })
 
     it('asks again when a one-sided spec becomes an outside one', async () => {
-      const history = fakeHistory(() => Promise.resolve([lows, highs]))
+      const history = fakeHistory(() => Promise.resolve({ min: lows, max: highs }))
       const { rerender } = render(<HistoryChart history={history} spec={coolant} />)
       await settle()
       rerender(<HistoryChart history={history} spec={band} />)
@@ -248,13 +252,13 @@ describe('HistoryChart', () => {
   })
 
   it('says when nothing was recorded in the span', async () => {
-    render(<HistoryChart history={fakeHistory(() => Promise.resolve([]))} spec={coolant} />)
+    render(<HistoryChart history={fakeHistory(() => Promise.resolve({}))} spec={coolant} />)
     await settle()
     expect(screen.getByRole('status').textContent).toBe('Nothing recorded in the last 24 hours.')
   })
 
   it('announces the summary of each span chosen in one status region that stays put', async () => {
-    const history = fakeHistory((q) => Promise.resolve(q.seconds === 86_400 ? [series] : []))
+    const history = fakeHistory((q) => Promise.resolve(q.seconds === 86_400 ? { max: series } : {}))
     render(<HistoryChart history={history} spec={coolant} />)
     await settle()
     const status = screen.getByRole('status')
@@ -285,19 +289,19 @@ describe('HistoryChart', () => {
   })
 
   it('shows the answer to the span chosen last, not to one asked before', async () => {
-    let answerDay: (points: HistoryPoint[][]) => void = () => undefined
+    let answerDay: (points: HistorySeries) => void = () => undefined
     const history = fakeHistory((q) =>
       q.seconds === 86_400
         ? new Promise((resolve) => {
             answerDay = resolve
           })
-        : Promise.resolve([])
+        : Promise.resolve({})
     )
     render(<HistoryChart history={history} spec={coolant} />)
     await settle()
     fireEvent.click(screen.getByRole('button', { name: '1 h' }))
     await settle()
-    answerDay([series])
+    answerDay({ max: series })
     await settle()
     expect(screen.getByText('Nothing recorded in the last hour.')).toBeTruthy()
   })
@@ -367,7 +371,7 @@ describe('HistoryChart', () => {
     it('asks again once a bucket has passed, keeping the line while it asks', async () => {
       const history = fakeHistory()
       history.values
-        .mockImplementationOnce(() => Promise.resolve([series]))
+        .mockImplementationOnce(() => Promise.resolve({ max: series }))
         .mockImplementation(() => new Promise(() => undefined))
       render(<HistoryChart history={history} spec={coolant} />)
       await settle()
@@ -390,8 +394,8 @@ describe('HistoryChart', () => {
         const lower = flat.map((p) => ({ time: p.time, value: 343.15 }))
         const history = fakeHistory()
         history.values
-          .mockImplementationOnce(() => Promise.resolve([flat, flat]))
-          .mockImplementation(() => Promise.resolve([lower, flat]))
+          .mockImplementationOnce(() => Promise.resolve({ min: flat, max: flat }))
+          .mockImplementation(() => Promise.resolve({ min: lower, max: flat }))
         const band: ChartSpec = { ...coolant, methods: ['min', 'max'], side: 'outside' }
         render(<HistoryChart history={history} spec={band} />)
         await settle()
@@ -417,7 +421,7 @@ describe('HistoryChart', () => {
     it('keeps the line drawn when asking again fails', async () => {
       const history = fakeHistory()
       history.values
-        .mockImplementationOnce(() => Promise.resolve([series]))
+        .mockImplementationOnce(() => Promise.resolve({ max: series }))
         .mockImplementation(() => Promise.reject(new Error('provider restarting')))
       render(<HistoryChart history={history} spec={coolant} />)
       await settle()
@@ -480,7 +484,7 @@ describe('HistoryChart', () => {
       .mockImplementation(() => width)
     try {
       const history = fakeHistory((q) =>
-        q.resolution === 600 ? Promise.resolve([series]) : new Promise(() => undefined)
+        q.resolution === 600 ? Promise.resolve({ max: series }) : new Promise(() => undefined)
       )
       render(<HistoryChart history={history} spec={coolant} />)
       await settle()

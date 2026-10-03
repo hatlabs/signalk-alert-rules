@@ -49,12 +49,15 @@ export interface HistoryPoint {
   value: number | null
 }
 
+/** A series per aggregate, by its name. */
+export type HistorySeries = Partial<Record<Aggregate, HistoryPoint[]>>
+
 /** What the chart asks of the server; tests substitute their own. */
 export interface HistorySource {
   /** Whether the server has a history provider; false when it cannot tell. */
   hasProvider(): Promise<boolean>
-  /** One series per aggregate asked, in the order asked. */
-  values(query: HistoryQuery): Promise<HistoryPoint[][]>
+  /** A series for each aggregate asked. */
+  values(query: HistoryQuery): Promise<HistorySeries>
 }
 
 /**
@@ -73,33 +76,36 @@ export function resolutionFor(seconds: number, widthPx: number): number {
 }
 
 /**
- * The rows of `GET /values` for a query of one path, as one series per
- * aggregate asked. The body names each column's aggregate, which places it;
- * without them the columns are taken in the order asked. A value that is not
- * a finite number, or a bucket with no samples, is a gap in the line.
+ * The rows of `GET /values` for a query of one path, as a series per
+ * aggregate asked. The body names each column's aggregate, which places it,
+ * and an aggregate it does not name has no values; only a body naming none
+ * has its columns taken in the order asked. A value that is not a finite
+ * number, or a bucket with no samples, is a gap in the line.
  */
 export function parseValues(
   body: unknown,
   what: string,
   methods: readonly Aggregate[]
-): HistoryPoint[][] {
+): HistorySeries {
   if (!isRecord(body) || !Array.isArray(body.data)) throw malformed(what)
-  const listed = Array.isArray(body.values) ? body.values : []
-  const columns = methods.map((method, asked) => {
-    const at = listed.findIndex((v: unknown) => isRecord(v) && v.method === method)
-    return 1 + (at === -1 ? asked : at)
-  })
+  const listed: unknown[] | undefined = Array.isArray(body.values) ? body.values : undefined
   const rows = body.data.flatMap((row: unknown) => {
     if (!Array.isArray(row) || typeof row[0] !== 'string') return []
     const time = Date.parse(row[0])
     return Number.isNaN(time) ? [] : [{ time, row: row as unknown[] }]
   })
-  return columns.map((column) =>
-    rows.map(({ time, row }) => {
-      const value = row[column]
+  const series: HistorySeries = {}
+  methods.forEach((method, asked) => {
+    const at =
+      listed === undefined
+        ? asked
+        : listed.findIndex((v: unknown) => isRecord(v) && v.method === method)
+    series[method] = rows.map(({ time, row }) => {
+      const value = at === -1 ? undefined : row[1 + at]
       return { time, value: typeof value === 'number' && Number.isFinite(value) ? value : null }
     })
-  )
+  })
+  return series
 }
 
 /** The History API over HTTP, relative to the admin UI's origin. */

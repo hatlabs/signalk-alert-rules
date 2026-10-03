@@ -34,7 +34,7 @@ function fakeFetch(answers: {
 const valuesBody = {
   context: 'vessels.urn:mrn:signalk:uuid:00000000-0000-4000-8000-000000000000',
   range: { from: '2026-09-29T12:00:00.000Z', to: '2026-09-30T12:00:00.000Z' },
-  values: [{ path: 'electrical.batteries.house.voltage', methods: ['min'] }],
+  values: [{ path: 'electrical.batteries.house.voltage', method: 'min' }],
   data: [
     ['2026-09-29T12:00:00.000Z', 13.2],
     ['2026-09-29T12:10:00.000Z', null],
@@ -136,13 +136,13 @@ describe('values', () => {
       seconds: 86_400,
       resolution: 600
     })
-    expect(points).toEqual([
-      [
+    expect(points).toEqual({
+      min: [
         { time: Date.parse('2026-09-29T12:00:00.000Z'), value: 13.2 },
         { time: Date.parse('2026-09-29T12:10:00.000Z'), value: null },
         { time: Date.parse('2026-09-29T12:20:00.000Z'), value: 13.1 }
       ]
-    ])
+    })
   })
 
   it('asks for the lowest and highest of each bucket in one query, the source on each', async () => {
@@ -160,9 +160,9 @@ describe('values', () => {
     )
   })
 
-  it('answers one series per aggregate, in the order asked, whatever the column order', async () => {
+  it('answers one series per aggregate, by its name, whatever the column order', async () => {
     const fetchFn = fakeFetch({ values: { body: rangeBody } })
-    const [lows, highs] = await httpHistorySource(fetchFn).values({
+    const { min: lows = [], max: highs = [] } = await httpHistorySource(fetchFn).values({
       path: 'navigation.heel',
       methods: ['min', 'max'],
       seconds: 3600,
@@ -193,12 +193,42 @@ describe('parseValues', () => {
   })
 
   it('takes the columns in the order asked when the body does not list them', () => {
-    const [lows, highs] = parseValues({ data: [['2026-09-30T00:00:00.000Z', 1, 2]] }, '/values', [
-      'min',
-      'max'
-    ])
+    const { min: lows = [], max: highs = [] } = parseValues(
+      { data: [['2026-09-30T00:00:00.000Z', 1, 2]] },
+      '/values',
+      ['min', 'max']
+    )
     expect(lows[0].value).toBe(1)
     expect(highs[0].value).toBe(2)
+  })
+
+  it('reads an aggregate the body does not list as gaps, not as another aggregate’s column', () => {
+    const answer = parseValues(
+      {
+        values: [
+          { path: 'navigation.heel', method: 'max' },
+          { path: 'navigation.heel', method: 'mean' }
+        ],
+        data: [['2026-09-30T00:00:00.000Z', 4, 1]]
+      },
+      '/values',
+      ['min', 'max']
+    )
+    expect(answer.max?.map((p) => p.value)).toEqual([4])
+    expect(answer.min?.map((p) => p.value)).toEqual([null])
+  })
+
+  it('reads the one column listed as its aggregate only, when two were asked', () => {
+    const answer = parseValues(
+      {
+        values: [{ path: 'navigation.heel', method: 'min' }],
+        data: [['2026-09-30T00:00:00.000Z', -3]]
+      },
+      '/values',
+      ['min', 'max']
+    )
+    expect(answer.min?.map((p) => p.value)).toEqual([-3])
+    expect(answer.max?.map((p) => p.value)).toEqual([null])
   })
 
   it('drops rows without a time and keeps a value that is not a number as a gap', () => {
@@ -214,12 +244,12 @@ describe('parseValues', () => {
       '/values',
       ['average']
     )
-    expect(points).toEqual([
-      [
+    expect(points).toEqual({
+      average: [
         { time: Date.parse('2026-09-30T00:00:00.000Z'), value: null },
         { time: Date.parse('2026-09-30T00:01:00.000Z'), value: null }
       ]
-    ])
+    })
   })
 })
 
