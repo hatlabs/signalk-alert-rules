@@ -163,19 +163,23 @@ export function instanceError(text: string): string | undefined {
   return INSTANCE_PICK.test(text) ? undefined : `The name ${INSTANCE_PICK_MESSAGE}.`
 }
 
-/** An instance typed in, for one that does not report yet. */
+/** An instance typed in, for one that does not report yet, naming the rule it already has from the template. */
 export function typedCandidate(
+  setId: string,
   template: Template,
   instance: string,
-  paths: readonly PathEntry[]
+  paths: readonly PathEntry[],
+  rules: readonly ListedRule[]
 ): Candidate {
   const watched = watchedPath(template, { instance })
   const entry = paths.find((p) => p.path === watched)
+  const ruleName = ruleWatching(setId, template, watched, undefined, rules)
   return {
     pick: { instance },
     label: instance,
     path: watched,
     ...(entry === undefined ? {} : { entry }),
+    ...(ruleName === undefined ? {} : { ruleName }),
     typed: true
   }
 }

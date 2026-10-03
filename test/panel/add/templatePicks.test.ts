@@ -210,12 +210,26 @@ describe('candidates', () => {
 
 describe('typed instances', () => {
   it('makes a pick for an instance nothing reports yet', () => {
-    expect(typedCandidate(lifepo4, 'windlass', boat)).toEqual({
+    expect(typedCandidate('builtin', lifepo4, 'windlass', boat, [])).toEqual({
       pick: { instance: 'windlass' },
       label: 'windlass',
       path: 'electrical.batteries.windlass.voltage',
       typed: true
     })
+  })
+
+  it('names the rule a typed instance already has from the template', () => {
+    const made = ruleEntry({
+      slug: 'battery-voltage-low-lifepo4-windlass',
+      rule: {
+        name: 'Windlass bank voltage low',
+        signal: { paths: ['electrical.batteries.windlass.voltage'] },
+        template: { set: 'builtin', id: lifepo4.id, pick: { instance: 'windlass' } }
+      }
+    })
+    expect(typedCandidate('builtin', lifepo4, 'windlass', boat, [made]).ruleName).toBe(
+      'Windlass bank voltage low'
+    )
   })
 
   it('refuses what is not one path segment', () => {
