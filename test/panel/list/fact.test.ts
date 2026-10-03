@@ -35,6 +35,41 @@ describe('currentFact', () => {
       expect(fact(battery({ ...alert, value: 11.6, limit: 11.8 }))).toBe('11.6 V: below 11.8 V')
     })
 
+    describe('of an outside rule', () => {
+      const HEEL = 'navigation.heel'
+      const heelUnits = unitLookup(
+        [{ path: HEEL, units: '°', unit: displayUnit({ units: '°' }) }],
+        displayUnit({ units: 'm' })
+      )
+      const heel = (status: Partial<RuleStatus>) =>
+        currentFact(
+          ruleEntry({
+            rule: {
+              name: 'Heel',
+              signal: { paths: [HEEL] },
+              detector: { type: 'outside' },
+              steps: [{ low: -25, high: 25, priority: 'warning' }]
+            },
+            status
+          }),
+          heelUnits,
+          NOW
+        )
+
+      it('names the side and the limit passed', () => {
+        expect(heel({ ...alert, value: 27, limit: 25, passed: 'high' })).toBe('27 °: above 25 °')
+        expect(heel({ ...alert, value: -27, limit: -25, passed: 'low' })).toBe('-27 °: below -25 °')
+      })
+
+      it('shows the reading alone when the alert has no side', () => {
+        expect(heel({ ...alert, value: 27, limit: 25 })).toBe('27 °')
+      })
+
+      it('shows the value of a normal state with no limit', () => {
+        expect(heel({ value: 3 })).toBe('3 °')
+      })
+    })
+
     it('shows the reading alone when the alert has no limit', () => {
       expect(fact(battery({ ...alert, value: 11.6 }))).toBe('11.6 V')
     })

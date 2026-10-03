@@ -300,3 +300,87 @@ describe('instanceFact', () => {
     expect(instanceFact(i, rule, display, NOW)).toBe('The path has no warn zone')
   })
 })
+
+describe('an outside rule', () => {
+  const HEEL = 'navigation.heel'
+  const heelUnits = unitLookup(
+    [{ path: HEEL, units: '°', unit: displayUnit({ units: '°' }) }],
+    displayUnit({ units: 'm' })
+  )
+  /** Heel: a warning outside -25 to 25 °, an alarm outside -35 to 35 °. */
+  function heel(status: Partial<RuleEntry['status']>, overrides: Partial<RuleEntry> = {}) {
+    return ruleEntry({
+      ...overrides,
+      rule: {
+        name: 'Heel',
+        priority: 'warning',
+        steps: [
+          { low: -25, high: 25, priority: 'warning' },
+          { low: -35, high: 35, priority: 'alarm' }
+        ],
+        detector: { type: 'outside' },
+        signal: { paths: [HEEL] }
+      },
+      status: { changedAt: ago(4 * MIN), instances: [], ...status }
+    })
+  }
+  const said = (entry: RuleEntry) => sentenceText(explain(entry, heelUnits, NOW))
+  const alert = {
+    condition: 'alerting',
+    reason: 'alertActive',
+    priority: 'warning',
+    step: 0
+  } as const
+
+  it('alertActive above: the range, how long, the limit passed and the value now', () => {
+    expect(said(heel({ ...alert, value: 27, limit: 25, passed: 'high' }))).toBe(
+      'Heel has been outside -25 to 25 ° for 4 min and went above 25 °. Now 27 °.'
+    )
+  })
+
+  it('alertActive below names the low limit', () => {
+    expect(said(heel({ ...alert, value: -27, limit: -25, passed: 'low' }))).toBe(
+      'Heel has been outside -25 to 25 ° for 4 min and went below -25 °. Now -27 °.'
+    )
+  })
+
+  it('alertActive at a further step: the side and limit passed and the escalation', () => {
+    const entry = heel({
+      ...alert,
+      priority: 'alarm',
+      step: 1,
+      value: -37,
+      limit: -35,
+      passed: 'low'
+    })
+    expect(said(entry)).toBe(
+      'Heel has been outside -25 to 25 ° for 4 min and went below -35 °, so the warning became an alarm. Now -37 °.'
+    )
+  })
+
+  it('alertActive without a side gives the message', () => {
+    const entry = heel({ ...alert, value: 27, limit: 25, message: 'Heel 27 °' })
+    expect(said(entry)).toBe('Heel 27 °. Alerting for 4 min. Now 27 °.')
+  })
+
+  it('conditionPresent: the value now, as a disabled rule reports no side', () => {
+    const entry = heel(
+      { ruleState: 'disabled', condition: 'present', reason: 'conditionPresent', value: 27 },
+      { disabled: { since: ago(HOUR), actor: 'skipper' } }
+    )
+    expect(said(entry)).toBe('Condition still present: now 27 °.')
+  })
+
+  it('withinLimits without a limit: the value now', () => {
+    expect(said(heel({ value: 3 }))).toBe('Within limits. Now 3 °.')
+  })
+
+  it('instanceFact: the side and limit passed while alerting, the value alone otherwise', () => {
+    const { rule } = heel({})
+    const display = ruleDisplay(rule, heelUnits)
+    const alerting = instance({ ...alert, value: 27, limit: 25, passed: 'high' })
+    expect(instanceFact(alerting, rule, display, NOW)).toBe('27 °, above 25 °')
+    expect(instanceFact(instance({ value: 3, limit: 25 }), rule, display, NOW)).toBe('3 °')
+    expect(instanceFact(instance({ value: 3 }), rule, display, NOW)).toBe('3 °')
+  })
+})

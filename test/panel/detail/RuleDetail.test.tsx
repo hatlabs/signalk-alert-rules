@@ -225,6 +225,71 @@ describe('RuleDetail', () => {
     })
   })
 
+  describe('an outside rule', () => {
+    const HEEL = 'navigation.heel'
+    const heelUnits = unitLookup(
+      [{ path: HEEL, units: '°', unit: displayUnit({ units: '°' }) }],
+      displayUnit({ units: 'm' })
+    )
+    const heelAlert = {
+      ...alertingStatus,
+      value: 27,
+      limit: 25,
+      passed: 'high',
+      message: 'Heel 27 °'
+    } as const
+    const heel = ruleEntry({
+      slug: 'heel',
+      rule: {
+        name: 'Heel',
+        alertPath: 'navigation.heelOutOfRange',
+        priority: 'warning',
+        steps: [
+          { low: -25, high: 25, priority: 'warning' },
+          { low: -35, high: 35, priority: 'alarm' }
+        ],
+        duration: 10,
+        detector: { type: 'outside' },
+        signal: { paths: [HEEL] }
+      },
+      status: { ...heelAlert, instances: [instance({ ...heelAlert })] }
+    })
+
+    it('explains the side and limit passed while active', () => {
+      renderDetail(heel, { units: heelUnits })
+      expect(screen.getByText(/has been/).closest('p')?.textContent).toBe(
+        'Heel has been outside -25 to 25 ° for 4 min and went above 25 °. Now 27 °.'
+      )
+    })
+
+    it('shows each step’s range, and clears back between the first step’s limits', () => {
+      renderDetail(heel, { units: heelUnits })
+      const rungs = within(screen.getByRole('list', { name: 'Steps' })).getAllByRole('listitem')
+      expect(rungs.map((r) => r.textContent)).toEqual([
+        'Warningoutside -25 to 25 °reached',
+        'Alarmoutside -35 to 35 °'
+      ])
+      expect(fact(/alerts when/i)).toBe(
+        'outside -25 to 25 ° (warning), outside -35 to 35 ° (alarm), each for at least 10 s'
+      )
+      expect(screen.getByText(/^Clears when/).textContent).toBe(
+        'Clears when the value is back between -25 and 25 °. It stays a warning until then.'
+      )
+    })
+
+    it('renders a normal state with no limit', () => {
+      const normal = { ...ruleEntry().status, value: 3 }
+      renderDetail(
+        { ...heel, status: { ...normal, instances: [instance({ value: 3 })] } },
+        { units: heelUnits }
+      )
+      expect(screen.getByText(/^Within limits/).textContent).toBe('Within limits. Now 3 °.')
+      expect(screen.getByText(/^Clears when/).textContent).toBe(
+        'Clears when the value is back between -25 and 25 °.'
+      )
+    })
+  })
+
   describe('disabled', () => {
     it('says who disabled it, when and why, and whether the condition is still present', () => {
       renderDetail(disabledHouse)

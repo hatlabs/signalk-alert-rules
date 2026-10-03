@@ -1,7 +1,15 @@
 import type { InstanceStatus, RuleEntry, RuleInfo, RuleStatus } from '../api'
 import { elapsed, MINUTE, noData, problem, reading } from '../list/fact'
 import { capitalised } from '../list/PriorityBadge'
-import { article, hasInstances, plural, ruleDisplay, type RuleDisplay } from '../rules/describe'
+import {
+  article,
+  hasInstances,
+  passedSide,
+  plural,
+  ruleDisplay,
+  stepCondition,
+  type RuleDisplay
+} from '../rules/describe'
 import { instanceSegment, type UnitLookup } from '../signalUnits'
 
 /** A piece of an explanation; the emphasised pieces carry what the operator scans for. */
@@ -54,6 +62,7 @@ type Facts = Pick<
   | 'clearSince'
   | 'lastSeen'
   | 'side'
+  | 'passed'
   | 'gate'
   | 'cause'
   | 'contract'
@@ -61,11 +70,11 @@ type Facts = Pick<
   | 'units'
 >
 
-/** The value against the limit it passed, which only a sustained rule reads as such. */
+/** The value against the limit it passed, which only a sustained or outside rule reads as such. */
 function passedLimit(facts: Facts, rule: RuleInfo, display: RuleDisplay) {
-  const { direction, type } = rule.detector
+  const direction = passedSide(rule, facts.passed)
   const { value, limit } = facts
-  if (type !== 'sustained' || direction === undefined) return undefined
+  if (direction === undefined) return undefined
   if (typeof value !== 'number' || limit === undefined) return undefined
   return { direction, value: display.value(value), limit: display.value(limit) }
 }
@@ -90,13 +99,15 @@ function alerting(
     ]
   } else {
     const { direction, value, limit } = passed
+    const went: Sentence = [' and went ', strong(`${direction} ${limit}`)]
+    // A zone-limit rule has no steps of its own, so its first condition is the level's.
+    const held = first === undefined ? undefined : stepCondition(first, rule, display)
     let reached: Sentence
-    if (step > 0 && first?.limit !== undefined && facts.priority !== undefined) {
+    if (step > 0 && first !== undefined && held !== undefined && facts.priority !== undefined) {
       reached = [
         `${subject} has been `,
-        strong(`${direction} ${display.value(first.limit)} for ${since}`),
-        ' and went ',
-        strong(`${direction} ${limit}`),
+        strong(`${held} for ${since}`),
+        ...went,
         `, so the ${first.priority} became ${article(facts.priority)} `,
         strong(facts.priority),
         '.'
@@ -107,6 +118,9 @@ function alerting(
         strong(limit),
         `. Alerting for ${since}.`
       ]
+    } else if (rule.detector.type === 'outside' && held !== undefined) {
+      // The range, not the limit passed, is what held: the value may have crossed it.
+      reached = [`${subject} has been `, strong(`${held} for ${since}`), ...went, '.']
     } else {
       reached = [`${subject} has been `, strong(`${direction} ${limit} for ${since}`), '.']
     }
@@ -206,6 +220,18 @@ export function explain(entry: RuleEntry, units: UnitLookup, now: number): Sente
   }
 }
 
+function limitInForce(i: InstanceStatus, rule: RuleInfo, display: RuleDisplay) {
+  if (i.limit === undefined) return undefined
+  // An outside rule's limit is one of two, so it means something only with the side passed.
+  if (rule.detector.type === 'outside') {
+    const side = passedSide(rule, i.passed)
+    return side === undefined ? undefined : `${side} ${display.value(i.limit)}`
+  }
+  // A count or total already reads against its limit.
+  if (i.progress !== undefined || rule.detector.type === 'match') return undefined
+  return `limit ${display.value(i.limit)}`
+}
+
 /** One instance's line in the detail's instance list: its value, or why it has none. */
 export function instanceFact(
   i: InstanceStatus,
@@ -221,11 +247,7 @@ export function instanceFact(
     default: {
       if (i.reason === 'outsideGate') return 'Not watching: a gate is closed'
       const value = reading(i, display)
-      // A count or total already reads against its limit.
-      const limit =
-        i.progress === undefined && i.limit !== undefined && rule.detector.type !== 'match'
-          ? `limit ${display.value(i.limit)}`
-          : undefined
+      const limit = limitInForce(i, rule, display)
       return [value, limit].filter((part) => part !== undefined).join(', ')
     }
   }

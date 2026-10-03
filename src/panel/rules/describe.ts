@@ -1,4 +1,11 @@
-import type { InstanceStatus, RuleEntry, RuleInfo, RuleStep, SignalValue } from '../api'
+import type {
+  ConditionFacts,
+  InstanceStatus,
+  RuleEntry,
+  RuleInfo,
+  RuleStep,
+  SignalValue
+} from '../api'
 import { signalMeasure, type Measure, type UnitLookup } from '../signalUnits'
 import { fromSI } from '../units'
 import { formatDuration, formatNumber } from '../../format'
@@ -88,6 +95,18 @@ function projectedSide(direction: RuleInfo['detector']['direction']): string {
   return direction === 'falling' ? 'below' : 'above'
 }
 
+/**
+ * The side of its limit an alert's value went: a sustained rule's direction,
+ * or the limit an outside rule's alert reports passing. Undefined for the
+ * detectors whose limit is not a bound on the value.
+ */
+export function passedSide(rule: RuleInfo, passed: ConditionFacts['passed']): string | undefined {
+  const { type, direction } = rule.detector
+  if (type === 'sustained') return direction
+  if (type === 'outside' && passed !== undefined) return passed === 'low' ? 'below' : 'above'
+  return undefined
+}
+
 /** The condition one step holds at, as the facts and the step ladder word it. */
 export function stepCondition(step: RuleStep, rule: RuleInfo, display: RuleDisplay): string {
   const { type, direction, op } = rule.detector
@@ -109,6 +128,8 @@ export function stepCondition(step: RuleStep, rule: RuleInfo, display: RuleDispl
       return `${direction ?? ''} faster than ${display.rate(limit ?? 0)}`
     case 'projection':
       return `projected ${projectedSide(direction)} ${display.value(limit ?? 0)}`
+    case 'outside':
+      return `outside ${display.range(step.low ?? 0, step.high ?? 0, 'to')}`
     default:
       return `${direction ?? ''} ${display.value(limit ?? 0)}`
   }
@@ -140,6 +161,8 @@ export function alertsWhen(rule: RuleInfo, display: RuleDisplay): string {
 /** How a rule's values, limits and accumulated totals are shown. */
 export interface RuleDisplay {
   value: (value: SignalValue) => string
+  /** Two values joined by a word, the unit once after both: "-25 to 25 °". */
+  range: (low: number, high: number, joiner: 'to' | 'and') => string
   total: (total: number) => string
   /** A rate of change, per second, through the linear part of the unit. */
   rate: (perSecond: number) => string
@@ -162,8 +185,10 @@ export function ruleDisplay(rule: RuleInfo, units: UnitLookup): RuleDisplay {
             formatNumber(fromSI('interval', v, measure.unit)),
             integral === '' ? '' : `${integral}·s`
           )
+  const shown = (v: number) => formatNumber(fromSI(measure.kind, v, measure.unit))
   return {
     value: (v) => formatValue(v, measure),
+    range: (low, high, joiner) => withUnit(`${shown(low)} ${joiner} ${shown(high)}`, integral),
     total,
     rate: (v) =>
       `${withUnit(formatNumber(fromSI('interval', v, measure.unit)), integral)}/s`.trimStart(),
