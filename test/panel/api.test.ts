@@ -389,6 +389,7 @@ describe('httpApi', () => {
         ...notStartedAccumulator,
         rule: {
           ...notStartedAccumulator.rule,
+          latching: true,
           detector: {
             type: 'count',
             event: { op: 'changesTo', value: true },
@@ -405,6 +406,8 @@ describe('httpApi', () => {
         throw new Error('invalid')
       }
       expect(counted.rule.gates).toEqual([])
+      expect(counted.rule.latching).toBe(true)
+      expect(read.rule.latching).toBeUndefined()
       expect(counted.rule.detector).toEqual({
         type: 'count',
         event: { op: 'changesTo', value: true },

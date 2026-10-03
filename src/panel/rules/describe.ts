@@ -219,7 +219,7 @@ export interface RuleDisplay {
   total: (total: number) => string
   /** A rate of change, stored per second, shown per minute as the editor enters it. */
   rate: (perSecond: number) => string
-  /** No display unit applies to the rule's values, so they are shown in SI. */
+  /** The rule's values are numbers no display unit applies to, so they are shown in SI. */
   si: boolean
 }
 
@@ -239,11 +239,17 @@ export function ruleDisplay(rule: RuleInfo, units: UnitLookup): RuleDisplay {
             integral === '' ? '' : `${integral}·s`
           )
   const shown = (v: number) => formatNumber(fromSI(measure.kind, v, measure.unit))
+  // A rule on text or a boolean has no values a unit applies to.
+  const textual = [
+    ...rule.steps.map((s) => s.value),
+    rule.detector.event?.value,
+    ...rule.signal.paths.map((p) => units.entry(p)?.value)
+  ].some((v) => typeof v === 'string' || typeof v === 'boolean')
   return {
     value: (v) => formatValue(v, measure),
     range: (low, high, joiner) => withUnit(`${shown(low)} ${joiner} ${shown(high)}`, integral),
     total,
     rate: (v) => `${withUnit(formatNumber(fromSI('slope', v, measure.unit)), integral)}/min`,
-    si: measure.kind !== 'ratio' && measure.unit.si
+    si: !textual && measure.kind !== 'ratio' && measure.unit.si
   }
 }

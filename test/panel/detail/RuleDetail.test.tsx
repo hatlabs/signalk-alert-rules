@@ -881,6 +881,65 @@ describe('RuleDetail', () => {
     })
   })
 
+  describe('a rule on a state', () => {
+    const STATE = 'propulsion.port.state'
+    const stateUnits = unitLookup(
+      [{ path: STATE, unit: displayUnit({}), value: 'started' }],
+      displayUnit({ units: 'm' })
+    )
+    const stopped = ruleEntry({
+      rule: {
+        steps: [{ value: 'stopped', priority: 'warning' }],
+        detector: { type: 'match', op: 'changesTo' },
+        signal: { paths: [STATE] },
+        latching: true
+      },
+      status: { value: 'started' }
+    })
+
+    it('says a latching rule keeps its alert until acknowledged', () => {
+      renderDetail(stopped, { units: stateUnits })
+      expect(fact(/latching/i)).toBe('Keeps the alert until acknowledged')
+    })
+
+    it('says nothing of latching for a rule that does not latch', () => {
+      renderDetail({ ...stopped, rule: { ...stopped.rule, latching: undefined } })
+      expect(screen.queryByRole('definition', { name: /latching/i })).toBeNull()
+    })
+
+    it('has no SI note for a match on a text value', () => {
+      // No reported value for the path, so the step's value alone decides.
+      renderDetail(stopped)
+      expect(screen.queryByText(/values are in SI units/i)).toBeNull()
+    })
+
+    it('has no SI note for a count of changes to a boolean', () => {
+      renderDetail(
+        ruleEntry({
+          rule: {
+            steps: [{ limit: 4, priority: 'warning' }],
+            detector: { type: 'count', event: { op: 'changesTo', value: true }, window: 3600 }
+          }
+        })
+      )
+      expect(screen.queryByText(/values are in SI units/i)).toBeNull()
+    })
+
+    it('has no SI note for a rule on a path that reports text', () => {
+      renderDetail(
+        ruleEntry({
+          rule: {
+            steps: [{ priority: 'warning' }],
+            detector: { type: 'match', op: 'timedOut' },
+            signal: { paths: [STATE] }
+          }
+        }),
+        { units: stateUnits }
+      )
+      expect(screen.queryByText(/values are in SI units/i)).toBeNull()
+    })
+  })
+
   it('says values are in SI units when no display unit applies', () => {
     renderDetail(ruleEntry())
     expect(screen.getByText(/values are in SI units/i)).toBeTruthy()

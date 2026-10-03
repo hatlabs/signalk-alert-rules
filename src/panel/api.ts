@@ -172,6 +172,8 @@ export interface RuleInfo {
   signal: { paths: string[]; combinator?: string }
   /** The source a single-path signal is pinned to; absent for the preferred source. */
   source?: string
+  /** The alert is raised once per occurrence and held until acknowledged. */
+  latching?: boolean
   /** The template the rule was made from and what was picked for it, as information only. */
   template?: { set: string; id: string; pick: TemplatePick }
   gates: RuleGate[]
@@ -561,6 +563,7 @@ export function parseListedRule(body: unknown, what: string): ListedRule {
       },
       signal: signal(input),
       ...optional('source', text(input.source)),
+      ...optional('latching', v.latching === true ? true : undefined),
       ...optional('template', templateOf(v.template)),
       gates: (Array.isArray(v.gates) ? v.gates : []).map((g): RuleGate => {
         const gate = record(g)

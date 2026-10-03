@@ -123,6 +123,7 @@ function Facts({
           {rule.priority === undefined ? "From the path's zones" : capitalised(rule.priority)}
         </Fact>
       )}
+      {rule.latching === true && <Fact term="Latching">Keeps the alert until acknowledged</Fact>}
       {rule.gates.length > 0 && (
         <Fact term="Only while">
           {rule.gates.map((g, n) => (
