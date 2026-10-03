@@ -43,14 +43,23 @@ export function useFocusInvalid() {
   const formRef = useRef<HTMLFormElement>(null)
   const pending = useRef(false)
   useEffect(() => {
-    if (!pending.current) return
-    const invalidFields = [
-      ...(formRef.current?.querySelectorAll<HTMLElement>('[aria-invalid="true"]') ?? [])
-    ]
-    const shown = invalidFields.find((el) => el.closest('details:not([open])') === null)
-    if (shown === undefined && invalidFields.length > 0) return
-    pending.current = false
-    shown?.focus()
+    const focusPending = () => {
+      if (!pending.current) return
+      const invalidFields = [
+        ...(formRef.current?.querySelectorAll<HTMLElement>('[aria-invalid="true"]') ?? [])
+      ]
+      const shown = invalidFields.find((el) => el.closest('details:not([open])') === null)
+      if (shown === undefined && invalidFields.length > 0) return
+      pending.current = false
+      shown?.focus()
+    }
+    focusPending()
+    // The fields open More options in a render of their own, which does not run this effect.
+    const form = formRef.current
+    form?.addEventListener('toggle', focusPending, true)
+    return () => {
+      form?.removeEventListener('toggle', focusPending, true)
+    }
   })
   return {
     formRef,
