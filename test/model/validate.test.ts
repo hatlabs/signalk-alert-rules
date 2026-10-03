@@ -557,6 +557,11 @@ describe('validateRule', () => {
       expect(errorsOf(rule({ detector: detector(24.9) }))).toEqual([])
     })
 
+    it('reports only the step error for an inverted first step with a large hysteresis', () => {
+      const detector = { ...outside([30, 25, 'warning']), hysteresis: 10 }
+      expect(paths(errorsOf(rule({ detector })))).toEqual(['/detector/steps/0/high'])
+    })
+
     it('checks hysteresis against the first step only', () => {
       const detector = {
         ...outside([-25, 25, 'warning'], [-25.5, 25.5, 'alarm']),
