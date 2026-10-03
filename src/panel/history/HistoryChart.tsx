@@ -31,9 +31,21 @@ export interface ChartSpec {
 
 export interface HistoryChartProps {
   history: HistorySource
-  spec: ChartSpec
+  /**
+   * Undefined while there is nothing to chart, as while the editor's path is
+   * cleared to type another; the chart then shows nothing but keeps its span.
+   */
+  spec: ChartSpec | undefined
   /** The heading; the span's own when absent. */
   title?: string
+}
+
+interface ChartProps {
+  history: HistorySource
+  spec: ChartSpec
+  title: string | undefined
+  span: Span
+  onSpan: (span: Span) => void
 }
 
 /** The width drawn for until the chart's own is known, as where nothing is laid out. */
@@ -114,13 +126,13 @@ function useProvider(history: HistorySource): boolean | undefined {
  */
 export function HistoryChart({ history, spec, title }: HistoryChartProps) {
   const provider = useProvider(history)
-  if (provider !== true) return null
-  return <Chart history={history} spec={spec} title={title} />
+  const [span, setSpan] = useState<Span>(DEFAULT_SPAN)
+  if (provider !== true || spec === undefined) return null
+  return <Chart history={history} spec={spec} title={title} span={span} onSpan={setSpan} />
 }
 
-function Chart({ history, spec, title }: HistoryChartProps) {
+function Chart({ history, spec, title, span, onSpan }: ChartProps) {
   const titleId = useId()
-  const [span, setSpan] = useState<Span>(DEFAULT_SPAN)
   const [ref, width] = useWidth()
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' })
   const resolution = width === undefined ? undefined : resolutionFor(span.seconds, width)
@@ -213,7 +225,7 @@ function Chart({ history, spec, title }: HistoryChartProps) {
               className="skar-span"
               aria-pressed={s === span}
               onClick={() => {
-                setSpan(s)
+                onSpan(s)
               }}
             >
               <span>{s.label}</span>

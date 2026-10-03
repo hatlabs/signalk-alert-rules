@@ -4,7 +4,11 @@ import { HistoryChart } from './HistoryChart'
 import type { HistorySource } from './historySource'
 import { editorChart } from './ruleChart'
 
-/** The chart beside a rule's form, following its path, kind and limits as they are edited. */
+/**
+ * The chart beside a rule's form, following its path, kind and limits as they
+ * are edited. It stays mounted while the form has nothing to chart, so the
+ * span chosen survives a path cleared to type another.
+ */
 export function FormHistory({
   history,
   form,
@@ -14,7 +18,6 @@ export function FormHistory({
   form: RuleForm
   units: UnitLookup
 }) {
-  const spec = history && editorChart(form, units)
-  if (history === undefined || spec === undefined) return null
-  return <HistoryChart history={history} spec={spec} />
+  if (history === undefined) return null
+  return <HistoryChart history={history} spec={editorChart(form, units)} />
 }

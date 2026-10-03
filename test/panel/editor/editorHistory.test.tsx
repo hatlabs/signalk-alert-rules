@@ -2,7 +2,16 @@
 import { cleanup, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { HistoryPoint, HistorySource } from '../../../src/panel/history/historySource'
-import { choose, formShown, renderEditor, textbox, type } from './editorFixtures'
+import {
+  button,
+  choose,
+  click,
+  formShown,
+  renderEditor,
+  select,
+  textbox,
+  type
+} from './editorFixtures'
 
 const HOUSE = 'electrical.batteries.house.voltage'
 
@@ -58,6 +67,18 @@ describe('the editor’s history chart', () => {
     await waitFor(() => {
       expect(history.values).toHaveBeenLastCalledWith(expect.objectContaining({ method: 'max' }))
     })
+  })
+
+  it('keeps the chosen span while the path is cleared and typed again', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' }, history: fakeHistory() })
+    await formShown()
+    click(await screen.findByRole('button', { name: '7 d' }))
+    click(button('Change the value to watch'))
+    type(select('Search by name or path'), '')
+    expect(screen.queryByRole('group', { name: 'Span' })).toBeNull()
+    type(select('Search by name or path'), HOUSE)
+    const week = await screen.findByRole('button', { name: '7 d' })
+    expect(week.getAttribute('aria-pressed')).toBe('true')
   })
 
   it('has no chart without a provider', async () => {
