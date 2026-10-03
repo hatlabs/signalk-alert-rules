@@ -90,6 +90,13 @@ describe('nowText', () => {
     expect(nowText(f, 3 * DEGREE, units)).toBe('Now 3 °: would not alert.')
   })
 
+  it('says a value exactly on a limit is inside the range, as the detector judges', () => {
+    const f = withKind(below(), 'outside')
+    f.steps = [step({ low: '11.5', high: '14.8' })]
+    expect(nowText(f, 14.8, units)).toBe('Now 14.8 V: would not alert.')
+    expect(nowText(f, 11.5, units)).toBe('Now 11.5 V: would not alert.')
+  })
+
   it('gives only the value while a limit of the range is not typed', () => {
     expect(nowText(outside(['-25', '']), 27 * DEGREE, units)).toBe('Now 27 °.')
   })
@@ -107,6 +114,15 @@ describe('ladderText', () => {
   })
 
   it('words the climb of ranges, clearing between the first range as typed', () => {
+    expect(ladderText(outside(['-25', '25'], ['-35', '35']), units)).toBe(
+      'The alert is raised as a warning outside -25 to 25 ° and becomes an alarm outside -35 to 35 °. It clears only between -25 and 25 °.'
+    )
+  })
+
+  it('holds the place of a range not fully typed, and says when it clears once it is', () => {
+    expect(ladderText(outside(['-25', ''], ['-35', '35']), units)).toBe(
+      'The alert is raised as a warning outside … and becomes an alarm outside -35 to 35 °.'
+    )
     expect(ladderText(outside(['-25', '25'], ['-35', '35']), units)).toBe(
       'The alert is raised as a warning outside -25 to 25 ° and becomes an alarm outside -35 to 35 °. It clears only between -25 and 25 °.'
     )

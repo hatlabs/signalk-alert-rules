@@ -953,7 +953,7 @@ describe('RuleEditor, outside a range', () => {
   })
 
   it('hides the zones for outside a range, and comes back to typed steps', async () => {
-    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    const { api, onSaved } = renderEditor({ start: { path: HOUSE, kind: 'below' } })
     await formShown()
     openMoreOptions()
     click(checkbox(/Use the value's zones/))
@@ -962,7 +962,12 @@ describe('RuleEditor, outside a range', () => {
     expect(textbox('Low limit for step 1')).toBeTruthy()
     choose('Alert when', 'below')
     expect(checkbox(/Use the value's zones/)).toHaveProperty('checked', false)
-    expect(textbox('Limit for step 1')).toBeTruthy()
+    fillBelow()
+    create()
+    await saved(onSaved)
+    const [[rule]] = api.createRule.mock.calls
+    expect(rule.detector).toMatchObject({ type: 'sustained', direction: 'below' })
+    expect(rule.detector).not.toHaveProperty('limit')
   })
 
   it('offers how long it must hold, the clear margin and the clear delay', async () => {
@@ -987,6 +992,21 @@ describe('RuleEditor, outside a range', () => {
     expect(document.activeElement).toBe(textbox('High limit for step 1'))
     expect(screen.getByText('Fill in the high limit to save.')).toBeTruthy()
     expect(api.createRule).not.toHaveBeenCalled()
+  })
+
+  it('says a single range must have its high limit above its low', async () => {
+    const { api } = renderEditor({ start: { path: HOUSE, kind: 'outside' } })
+    rejectWith(api, '/detector/steps/0/high', RANGE_INVERTED)
+    await formShown()
+    choose('Priority for step 1', 'warning')
+    fillRange('14.8', '11.5')
+    create()
+    await waitFor(() => {
+      expect(description(textbox('High limit for step 1'))).toContain(
+        'The high limit must be above the low limit.'
+      )
+    })
+    expect(description(textbox('High limit for step 1'))).not.toContain('Step 1')
   })
 
   it('shows a range whose high limit is not above its low on the high field', async () => {
