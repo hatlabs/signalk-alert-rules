@@ -26,6 +26,7 @@ import type {
 import { alertParent, defaultCondition } from '../../alerts/paths'
 import { isRecord, type FieldError } from '../api'
 import {
+  measureSettled,
   POSITION_KINDS,
   signalMeasure,
   type Measure,
@@ -536,9 +537,33 @@ export function durationFrom(seconds: number | undefined): DurationField {
   return { amount: String(seconds / DURATION_FACTORS[unit]), unit }
 }
 
-function valueFrom(value: number | string | boolean | undefined, measure: Measure): ValueField {
+/**
+ * How a stored signal's numbers show; undefined while it has no path to take
+ * a unit from, as in a stored rule that does not validate. Its numbers are
+ * then left to type again once a path is picked: shown in SI, they would be
+ * read back in that path's display unit.
+ */
+function storedMeasure(signal: SignalForm, units: UnitLookup): Measure | undefined {
+  const shape = signalShape(signal)
+  return measureSettled(shape) ? signalMeasure(shape, units) : undefined
+}
+
+/** A stored number of `quantity` as its field shows it; empty while the measure is unknown. */
+function storedNumber(
+  value: number,
+  quantity: 'value' | 'interval' | 'slope',
+  measure: Measure | undefined
+): { text: string; exact?: Exact } {
+  if (measure === undefined) return { text: '' }
+  return shownNumber(value, kindFor(quantity, measure), measure.unit)
+}
+
+function valueFrom(
+  value: number | string | boolean | undefined,
+  measure: Measure | undefined
+): ValueField {
   if (typeof value === 'number') {
-    const { text, exact } = shownNumber(value, measure.kind, measure.unit)
+    const { text, exact } = storedNumber(value, 'value', measure)
     return { type: 'number', text, ...exacts([['text', exact]]) }
   }
   if (typeof value === 'boolean') return { type: value ? 'true' : 'false', text: '' }
@@ -553,17 +578,17 @@ const EVENT_OP_SET: Readonly<Record<EventOp, true>> = {
 const isEventOp = (op: unknown): op is EventOp =>
   typeof op === 'string' && Object.hasOwn(EVENT_OP_SET, op)
 
-function eventFrom(event: Event, measure: Measure): EventForm {
+function eventFrom(event: Event, measure: Measure | undefined): EventForm {
   if (!isRecord(event)) return { op: '', value: noValue() }
   return { op: isEventOp(event.op) ? event.op : '', value: valueFrom(event.value, measure) }
 }
 
-function limitFrom(limit: Limit, measure: Measure): LimitForm {
+function limitFrom(limit: Limit, measure: Measure | undefined): LimitForm {
   if (!isRecord(limit)) return noLimit()
   if (limit.kind === 'zone') {
     return { kind: 'zone', value: '', level: limit.level, path: limit.path ?? '' }
   }
-  const { text, exact } = shownNumber(limit.value, measure.kind, measure.unit)
+  const { text, exact } = storedNumber(limit.value, 'value', measure)
   return { ...noLimit(), value: text, ...exacts([['value', exact]]) }
 }
 
@@ -597,11 +622,9 @@ function gateList(gates: Rule['gates']): Gate[] {
 function gateFrom(gate: Gate, units: UnitLookup): GateForm {
   if (!isRecord(gate)) return emptyGate()
   const signal = signalFrom(gate.signal)
-  const measure = signalMeasure(signalShape(signal), units)
+  const measure = storedMeasure(signal, units)
   const hysteresis =
-    gate.hysteresis === undefined
-      ? undefined
-      : shownNumber(gate.hysteresis, kindFor('interval', measure), measure.unit)
+    gate.hysteresis === undefined ? undefined : storedNumber(gate.hysteresis, 'interval', measure)
   return {
     signal,
     direction: gate.direction,
@@ -650,18 +673,19 @@ export function fromBody(body: unknown, units: UnitLookup): RuleForm {
  * A stored rule as the form shows it, numbers in the display units of its
  * paths. It also reads the body of a rule that does not validate
  * (`fromBody`): a missing or malformed signal, input, limit, event, step list
- * or gate reads as that part's empty form, left to fill in. Other fields are
- * taken as stored, and `fromBody` catches what this cannot read.
+ * or gate reads as that part's empty form, left to fill in, and so does a
+ * number in the unit of a signal without a path (`storedMeasure`). Other
+ * fields are taken as stored, and `fromBody` catches what this cannot read.
  */
 export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
   const form = emptyForm()
   const signal = signalFrom(rule.signal)
-  const measure = signalMeasure(signalShape(signal), units)
+  const measure = storedMeasure(signal, units)
   const d = form.detector
   const detector = rule.detector
   d.type = detector.type
-  const numberFrom = (value: number, quantity: 'slope' | 'interval') =>
-    shownNumber(value, kindFor(quantity, measure), measure.unit)
+  const numberFrom = (value: number, quantity: 'value' | 'slope' | 'interval') =>
+    storedNumber(value, quantity, measure)
   const hysteresisFrom = (value: number | undefined) => {
     if (value === undefined) return
     const { text, exact } = numberFrom(value, 'interval')
@@ -722,8 +746,8 @@ export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
     if ('value' in step) form.value = valueFrom(step.value, measure)
     if ('within' in step) form.duration = durationFrom(step.within)
     if ('low' in step) {
-      const low = shownNumber(step.low, measure.kind, measure.unit)
-      const high = shownNumber(step.high, measure.kind, measure.unit)
+      const low = numberFrom(step.low, 'value')
+      const high = numberFrom(step.high, 'value')
       form.low = low.text
       form.high = high.text
       Object.assign(
@@ -741,7 +765,7 @@ export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
     }
     switch (quantity) {
       case 'value':
-        limit(shownNumber(step.limit, measure.kind, measure.unit))
+        limit(numberFrom(step.limit, 'value'))
         break
       case 'slope':
         limit(numberFrom(step.limit, 'slope'))

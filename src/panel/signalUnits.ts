@@ -107,6 +107,15 @@ export function signalMeasure(signal: SignalShape, lookup: UnitLookup): Measure 
   return { kind, unit }
 }
 
+/** Whether `signalMeasure` is settled: by the combinator, or by a path the signal has. */
+export function measureSettled(signal: SignalShape): boolean {
+  const { combinator } = signal
+  return (
+    (combinator !== undefined && (POSITION_KINDS.has(combinator) || combinator === 'ratio')) ||
+    signal.paths.some((p) => p !== '')
+  )
+}
+
 /**
  * The Signal K groups whose children are instances, as the specification
  * names them; `null` stands for any one segment, such as a tank's type.

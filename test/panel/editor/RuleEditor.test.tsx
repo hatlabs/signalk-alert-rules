@@ -1001,7 +1001,7 @@ describe('RuleEditor, an invalid stored rule', () => {
     expect(screen.getByText('Fill in the event to save.')).toBeTruthy()
   })
 
-  it('opens a body without a signal keeping its detector, asking only for the value to watch', async () => {
+  it('opens a body without a signal keeping its detector, its limit left to type in the new unit', async () => {
     const coolant = example('coolant-temperature-rising')
     const { signal: _signal, ...body } = coolant
     renderEditor({
@@ -1014,6 +1014,7 @@ describe('RuleEditor, an invalid stored rule', () => {
     })
     await formShown()
     expect(select(/^Alert when/)).not.toHaveProperty('value', '')
+    expect(textbox('Limit for step 1')).toHaveProperty('value', '')
     expect(textbox(/^Message/)).toHaveProperty('value', coolant.message)
     const search = screen.getByRole('combobox', { name: /^Search by name or path/ })
     expect(description(search)).toContain('is required')

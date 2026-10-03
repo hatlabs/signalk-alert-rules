@@ -798,13 +798,13 @@ describe('a stored rule that does not validate', () => {
     return result.ok ? [] : result.errors.map((e) => e.path)
   }
 
-  it('keeps the detector and gates of a body without a signal, asking only for its path', () => {
+  it('keeps the detector and gates of a body without a signal, asking for its path and limit', () => {
     const { signal: _signal, ...body } = example('coolant-temperature-rising')
     const form = fromBody(body, NO_UNITS)
     expect(form.detector).toMatchObject({ type: 'slope', trend: 'rising' })
-    expect(form.steps[0]).toMatchObject({ priority: 'warning', limit: '1.2' })
+    expect(form.steps[0]).toMatchObject({ priority: 'warning', limit: '' })
     expect(form.gates[0]?.signal.slots[0]?.path).toBe('propulsion.*.revolutions')
-    expect(pointers(form)).toEqual(['/signal/path'])
+    expect(pointers(form)).toEqual(['/signal/path', '/detector/steps/0/limit'])
   })
 
   const bilge = example('bilge-pump-cycling')
@@ -836,10 +836,10 @@ describe('a stored rule that does not validate', () => {
     }
   )
 
-  it('asks for the path of a body whose signal has none', () => {
+  it('asks for the path and limit of a body whose signal has no path', () => {
     const form = fromBody({ ...example('coolant-temperature-rising'), signal: {} }, NO_UNITS)
     expect(form.signal.slots[0]?.path).toBe('')
-    expect(pointers(form)).toEqual(['/signal/path'])
+    expect(pointers(form)).toEqual(['/signal/path', '/detector/steps/0/limit'])
   })
 
   it.each(['many', { first: 1 }, [null]])(
@@ -855,9 +855,10 @@ describe('a stored rule that does not validate', () => {
     }
   )
 
+  const noPath = ['/signal/inputs/0/path', '/signal/inputs/1/path', '/detector/steps/0/limit']
   it.each([
-    { inputs: undefined, missing: ['/signal/inputs/0/path', '/signal/inputs/1/path'] },
-    { inputs: 'a.b', missing: ['/signal/inputs/0/path', '/signal/inputs/1/path'] },
+    { inputs: undefined, missing: noPath },
+    { inputs: 'a.b', missing: noPath },
     { inputs: [null, { path: 'a.b' }], missing: ['/signal/inputs/0/path'] }
   ])(
     'keeps the rest of a body whose combined signal has inputs $inputs, asking for each path',
@@ -876,10 +877,11 @@ describe('a stored rule that does not validate', () => {
     const gate = { ...rule.gates?.[0], signal: { combinator: 'difference' } }
     const form = fromBody({ ...rule, gates: [gate] }, NO_UNITS)
     expect(form.signal.slots[0]?.path).toBe('propulsion.*.coolantTemperature')
-    expect(form.gates[0]?.limit.value).toBe('5')
+    expect(form.gates[0]?.limit.value).toBe('')
     expect(pointers(form)).toEqual([
       '/gates/0/signal/inputs/0/path',
-      '/gates/0/signal/inputs/1/path'
+      '/gates/0/signal/inputs/1/path',
+      '/gates/0/limit/value'
     ])
   })
 
@@ -888,12 +890,12 @@ describe('a stored rule that does not validate', () => {
     const gate = rule.gates?.[0]
     const withGates = (gates: unknown) => fromBody({ ...rule, gates }, NO_UNITS)
 
-    it('keeps the limit of a gate without a signal, asking only for its path', () => {
+    it('keeps the rest of a gate without a signal, asking for its path and limit', () => {
       const form = withGates([{ ...gate, signal: undefined }])
       expect(form.signal.slots[0]?.path).toBe('propulsion.*.coolantTemperature')
       expect(form.detector.type).toBe('slope')
-      expect(form.gates[0]?.limit.value).toBe('5')
-      expect(pointers(form)).toEqual(['/gates/0/signal/path'])
+      expect(form.gates[0]).toMatchObject({ direction: 'above', limit: { value: '' } })
+      expect(pointers(form)).toEqual(['/gates/0/signal/path', '/gates/0/limit/value'])
     })
 
     it('keeps the signal of a gate without a limit, asking only for it', () => {
@@ -927,6 +929,80 @@ describe('a stored rule that does not validate', () => {
       expect(form.signal.slots[0]?.path).toBe('propulsion.*.coolantTemperature')
       expect(form.gates).toEqual([emptyGate()])
       expect(pointers(form)).toEqual(['/gates/0/signal/path', '/gates/0/limit/value'])
+    })
+  })
+
+  describe('the numbers of a signal without a path', () => {
+    const withoutSignal = (slug: string, signal?: unknown) =>
+      fromBody({ ...example(slug), signal }, displayed)
+
+    it('asks again for a step limit rather than read it in the unit of the path picked later', () => {
+      // 3 Hz is 180 rpm: shown as 3 before a path is picked, it would save as 3 rpm.
+      const form = withoutSignal('engine-rpm-mismatch', { combinator: 'absDifference' })
+      const picked: RuleForm = {
+        ...form,
+        signal: {
+          ...form.signal,
+          slots: [
+            { path: 'propulsion.port.revolutions', source: '' },
+            { path: 'propulsion.starboard.revolutions', source: '' }
+          ]
+        }
+      }
+      const result = toRule(picked, displayed)
+      expect(!result.ok && result.errors).toEqual([
+        { path: '/detector/steps/0/limit', message: 'is required' }
+      ])
+    })
+
+    it('drops the range and clear margin, keeping the durations', () => {
+      const form = withoutSignal('shore-power-frequency')
+      expect(form.steps.map((s) => [s.low, s.high, s.priority])).toEqual([
+        ['', '', 'warning'],
+        ['', '', 'alarm']
+      ])
+      expect(form.detector).toMatchObject({
+        hysteresis: '',
+        duration: { amount: '10', unit: 's' },
+        clearDuration: { amount: '30', unit: 's' }
+      })
+    })
+
+    it('drops a number to total while, keeping a limit in time', () => {
+      const form = withoutSignal('engine-service-due')
+      expect(form.detector.whileValue).toMatchObject({ type: 'number', text: '' })
+      expect(form.steps[0]?.duration).toEqual({ amount: '250', unit: 'h' })
+    })
+
+    it('keeps a value that is not a number', () => {
+      expect(withoutSignal('engine-stopped').steps[0]?.value).toEqual({
+        type: 'text',
+        text: 'stopped'
+      })
+    })
+
+    it('keeps the limit of a combination whose unit does not come from its paths', () => {
+      const form = withoutSignal('gnss-disagree', { combinator: 'positionSpread' })
+      expect(form.steps[0]?.limit).not.toBe('')
+    })
+
+    it('drops the limit and clear margin of a gate without a signal, keeping its delays', () => {
+      const rule = example('engine-rpm-mismatch')
+      const [gate, other] = rule.gates ?? []
+      const form = fromBody(
+        {
+          ...rule,
+          gates: [{ ...gate, signal: undefined, hysteresis: 1, clearDuration: 5 }, other]
+        },
+        displayed
+      )
+      expect(form.gates[0]).toMatchObject({
+        limit: { value: '' },
+        hysteresis: '',
+        duration: { amount: '10', unit: 's' },
+        clearDuration: { amount: '5', unit: 's' }
+      })
+      expect(form.gates[1]?.limit.value).toBe('480')
     })
   })
 
