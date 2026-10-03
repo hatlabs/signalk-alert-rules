@@ -26,6 +26,11 @@ const SIDES: Readonly<Partial<Record<string, Partial<Record<string, Side>>>>> = 
   slope: { falling: 'below', rising: 'above' }
 }
 
+/** The side a rule alerts on, or undefined for a kind whose condition is not on the value. */
+function sideOf(type: string, direction: string | undefined): Side | undefined {
+  return type === 'outside' ? 'outside' : SIDES[type]?.[direction ?? '']
+}
+
 /** A slope's limit is a rate, which has no place on the value axis. */
 const VALUE_LIMITED = new Set(['sustained', 'projection', 'outside'])
 
@@ -86,8 +91,7 @@ export function detailChart(rule: RuleInfo, units: UnitLookup): ChartSpec | unde
     }
     return limit === undefined ? [] : [{ value: shown(limit), priority }]
   })
-  const side = type === 'outside' ? 'outside' : SIDES[type]?.[direction ?? '']
-  return specOf(rule.signal, type, side, limits, rule.source, units)
+  return specOf(rule.signal, type, sideOf(type, direction), limits, rule.source, units)
 }
 
 /** The chart beside the editor, following the form's path, kind and limits as typed. */
@@ -113,7 +117,7 @@ export function editorChart(form: RuleForm, units: UnitLookup): ChartSpec | unde
   const spec = specOf(
     signalShape(form.signal),
     detector.type,
-    outside ? 'outside' : SIDES[detector.type]?.[direction],
+    sideOf(detector.type, direction),
     limits,
     source === '' ? undefined : source,
     units
