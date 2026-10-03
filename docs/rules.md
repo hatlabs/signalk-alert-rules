@@ -386,7 +386,7 @@ A match's step values and a zone limit's `level` change what the alert means, so
 
 ## Disable
 
-A rule is enabled or disabled. Disabling stops a rule raising alerts without deleting it: for a sensor known to be faulty, or equipment out of service. It acts on the rule, not on an alert already raised; acknowledging or silencing an alert is core's alert lifecycle, done in the alert console. A rule is disabled or enabled through the [REST API](api.md#rule-controls), by a read/write user or an administrator, with an optional note of at most 500 characters saying why. The webapp offers Disable in the rule's detail view, with the note in its confirmation.
+A rule is enabled or disabled. Disabling stops a rule raising alerts without deleting it: for a sensor known to be faulty, or equipment out of service. It acts on the rule, not on an alert already raised; acknowledging or silencing an alert is core's alert lifecycle, done in the alert console. A rule is disabled or enabled through the [REST API](api.md#rule-controls), by a read/write user or an administrator, with an optional [note](api.md#rule-controls) saying why. The webapp offers Disable in the rule's detail view, with the note in its confirmation.
 
 The rule keeps a record of who disabled it, when, and the note, in the data directory across restarts, and its entry carries the record while it is disabled. Disabling a disabled rule replaces the record; enabling an enabled rule changes nothing. Editing a rule keeps it disabled, and deleting it deletes the record, so a rule created again with its slug starts enabled. Disables and enables are recorded in the [action log](api.md#action-log) with the acting user and the note.
 
@@ -397,7 +397,7 @@ A disabled rule keeps evaluating, so its [state](#state) shows whether its condi
 | Bound | Value |
 |---|---|
 | rules loaded | 500 |
-| templates per template set | 500 |
+| templates per template set | see [the template set file](templates.md#the-template-set-file) |
 | instances per wildcard signal | 64 |
 | gates per rule | 8 |
 | combinator inputs | 16 |
@@ -406,7 +406,7 @@ A disabled rule keeps evaluating, so its [state](#state) shows whether its condi
 | slug | 64 characters |
 | `name`, `message` | 200 and 500 characters |
 | signal path, alert path | 255 characters |
-| template set file | 1 MiB; YAML alias expansion capped at 100 |
+| template set file | see [template set limits](templates.md#validation) |
 
 ## State
 

@@ -123,13 +123,13 @@ Template sets are described in [Templates](templates.md). They are discovered ea
 }
 ```
 
-- `sets`: the sets installed now, the built-in set first, then packages and then files, each in name order.
+- `sets`: the sets installed now, in the [set order](templates.md#discovery).
 - `source`: where the set was found: `built-in`, `package <name>`, or `file <name>` for a file in the drop-in directory; `package` and `description` are absent when there is none.
 - `templates`: the set's templates as written, `${instance}` placeholders included.
 - `new`: the ids of the set's templates whose notice nobody has dismissed.
 - `problems`: the sets that could not be loaded, with the reason and, for a YAML error, its `line`. For a set that does not validate, `errors` lists each error as `{ "path", "message" }` with a JSON pointer into the set. A message may name the absolute path of a file on the server.
 
-`POST /templates/dismiss` takes the templates the notice showed, by set id, `{ "templates": { "example": ["battery-discharge-high"] } }`, and records them as seen for every user. Only templates installed now are recorded, so a template the body names that is not installed stays new once it is. It answers as `GET /templates`. A dismissal is not logged.
+`POST /templates/dismiss` takes the templates the notice showed, by set id, `{ "templates": { "example": ["battery-discharge-high"] } }`, and records them as seen for every user. Only templates installed now are recorded; see [New-template notices](templates.md#new-template-notices). It answers as `GET /templates`. A dismissal is not logged.
 
 ### Accumulator reset
 
