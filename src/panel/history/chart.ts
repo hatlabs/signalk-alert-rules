@@ -128,16 +128,27 @@ export interface SummaryLimit {
   priority?: string
 }
 
+/** What the summary compares the history with. */
+export interface SummaryRule {
+  side: 'below' | 'above'
+  limits: readonly SummaryLimit[]
+  /**
+   * Whether a limit never passed says the rule would not have alerted: true
+   * for a rule on the recorded value, false for a projection, which alerts
+   * on a value ahead of it.
+   */
+  verdict: boolean
+}
+
 /**
  * The extreme on the rule's side and when it was, and whether it passed a
  * limit. Passing one is not saying the rule would have alerted: the buckets
  * do not tell whether it held for the rule's duration. Not passing one does
- * say it, as each bucket keeps its extreme.
+ * say it for a rule on the recorded value, as each bucket keeps its extreme.
  */
 export function historySummary(
   points: readonly HistoryPoint[],
-  side: 'below' | 'above',
-  limits: readonly SummaryLimit[],
+  { side, limits, verdict }: SummaryRule,
   words: { value: (v: number) => string; time: (ms: number) => string }
 ): string | undefined {
   const valued = points.filter(hasValue)
@@ -148,7 +159,7 @@ export function historySummary(
   if (limits.length === 0) return found
   const passed = limits.filter((l) => beyond(extreme.value, l.value))
   const furthest = passed.at(-1)
-  if (furthest === undefined) return `${found} The rule would not have alerted.`
+  if (furthest === undefined) return verdict ? `${found} The rule would not have alerted.` : found
   const which = limits.length > 1 && furthest.priority !== undefined ? `${furthest.priority} ` : ''
   return `${found} It went ${side} the ${which}limit.`
 }

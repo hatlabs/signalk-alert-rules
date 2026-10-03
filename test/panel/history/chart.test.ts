@@ -3,7 +3,8 @@ import {
   CHART_HEIGHT,
   chartGeometry,
   historySummary,
-  type ChartFrame
+  type ChartFrame,
+  type SummaryLimit
 } from '../../../src/panel/history/chart'
 
 const FROM = Date.parse('2026-09-30T00:00:00.000Z')
@@ -142,14 +143,21 @@ describe('historySummary', () => {
     { time: at(60), value: 14.1 }
   ]
 
+  /** A rule on the recorded value itself, as a sustained rule is. */
+  const sustained = (side: 'below' | 'above', limits: SummaryLimit[]) => ({
+    side,
+    limits,
+    verdict: true
+  })
+
   it('names the lowest value and when, and that a low limit was never passed', () => {
-    expect(historySummary(series, 'below', [{ value: 12.8 }], words)).toBe(
+    expect(historySummary(series, sustained('below', [{ value: 12.8 }]), words)).toBe(
       'Lowest 13.02 V at 20 min. The rule would not have alerted.'
     )
   })
 
   it('says a single limit was passed, without claiming the duration held', () => {
-    expect(historySummary(series, 'below', [{ value: 13.1 }], words)).toBe(
+    expect(historySummary(series, sustained('below', [{ value: 13.1 }]), words)).toBe(
       'Lowest 13.02 V at 20 min. It went below the limit.'
     )
   })
@@ -160,22 +168,34 @@ describe('historySummary', () => {
       { value: 13.1, priority: 'alarm' },
       { value: 12, priority: 'emergency' }
     ]
-    expect(historySummary(series, 'below', steps, words)).toBe(
+    expect(historySummary(series, sustained('below', steps), words)).toBe(
       'Lowest 13.02 V at 20 min. It went below the alarm limit.'
     )
   })
 
   it('names the highest value for a high limit', () => {
-    expect(historySummary(series, 'above', [{ value: 15 }], words)).toBe(
+    expect(historySummary(series, sustained('above', [{ value: 15 }]), words)).toBe(
       'Highest 14.10 V at 60 min. The rule would not have alerted.'
     )
   })
 
+  it('does not say a projection would not have alerted, as it alerts on a value ahead', () => {
+    const projection = { side: 'below' as const, verdict: false }
+    expect(historySummary(series, { ...projection, limits: [{ value: 12.8 }] }, words)).toBe(
+      'Lowest 13.02 V at 20 min.'
+    )
+    expect(historySummary(series, { ...projection, limits: [{ value: 13.1 }] }, words)).toBe(
+      'Lowest 13.02 V at 20 min. It went below the limit.'
+    )
+  })
+
   it('names only the value while there is no limit to compare with', () => {
-    expect(historySummary(series, 'below', [], words)).toBe('Lowest 13.02 V at 20 min.')
+    expect(historySummary(series, sustained('below', []), words)).toBe('Lowest 13.02 V at 20 min.')
   })
 
   it('says nothing without values', () => {
-    expect(historySummary([{ time: at(0), value: null }], 'below', [], words)).toBeUndefined()
+    expect(
+      historySummary([{ time: at(0), value: null }], sustained('below', []), words)
+    ).toBeUndefined()
   })
 })

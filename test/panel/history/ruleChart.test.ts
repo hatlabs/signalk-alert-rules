@@ -70,7 +70,24 @@ describe('detailChart', () => {
       }),
       units
     )
-    expect(spec).toMatchObject({ method: 'max', side: 'above', limits: [{ value: 100 }] })
+    expect(spec).toMatchObject({
+      method: 'max',
+      side: 'above',
+      limits: [{ value: 100 }],
+      verdict: false
+    })
+  })
+
+  it('lets the summary judge a sustained rule, which alerts on the recorded value', () => {
+    const spec = detailChart(
+      rule({
+        signal: { paths: [COOLANT] },
+        detector: { type: 'sustained', direction: 'above' },
+        steps: [{ limit: 368.15, priority: 'warning' }]
+      }),
+      units
+    )
+    expect(spec?.verdict).toBe(true)
   })
 
   it('charts a rate of change without a limit, as the limit is not a value', () => {

@@ -41,7 +41,8 @@ function specOf(
     method: type === 'slope' ? 'average' : side === 'below' ? 'min' : 'max',
     measure: signalMeasure(signal, units),
     limits: VALUE_LIMITED.has(type) ? limits : [],
-    side
+    side,
+    verdict: type === 'sustained'
   }
 }
 

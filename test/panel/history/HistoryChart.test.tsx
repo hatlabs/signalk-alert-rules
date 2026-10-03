@@ -25,7 +25,8 @@ const coolant: ChartSpec = {
   method: 'max',
   measure: { kind: 'absolute', unit: celsius },
   limits: [{ value: 95 }],
-  side: 'above'
+  side: 'above',
+  verdict: true
 }
 
 const BUCKET = 600_000
@@ -74,6 +75,13 @@ describe('HistoryChart', () => {
       seconds: 86_400,
       resolution: 600
     })
+  })
+
+  it('does not judge a projection rule whose recorded high stays below the limit', async () => {
+    render(<HistoryChart history={fakeHistory()} spec={{ ...coolant, verdict: false }} />)
+    await settle()
+    expect(screen.getByText(/^Highest 90 °C at .+\.$/)).toBeTruthy()
+    expect(screen.queryByText(/would not have alerted/)).toBeNull()
   })
 
   it('labels each step’s limit with its priority', async () => {

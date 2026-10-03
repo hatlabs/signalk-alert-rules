@@ -23,6 +23,8 @@ export interface ChartSpec {
   limits: SummaryLimit[]
   /** The side the rule alerts on, whose extreme the summary names; absent for none. */
   side?: 'below' | 'above'
+  /** Whether the summary may say the rule would not have alerted; see `SummaryRule`. */
+  verdict: boolean
 }
 
 export interface HistoryChartProps {
@@ -159,7 +161,11 @@ function Chart({ history, spec, title }: HistoryChartProps) {
   const summary =
     spec.side === undefined
       ? undefined
-      : historySummary(points, spec.side, spec.limits, { value: shown, time: timeOf(span) })
+      : historySummary(
+          points,
+          { side: spec.side, limits: spec.limits, verdict: spec.verdict },
+          { value: shown, time: timeOf(span) }
+        )
   const withLimits = limits.length === 0 ? '' : several ? ' with the limits' : ' with the limit'
 
   return (
