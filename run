@@ -32,6 +32,16 @@ function build-panel {
 }
 
 ################################################################################
+# Development Commands
+
+function harness {
+  #@ Serve the webapp on a fake server for rendering it: harness [port]
+  #@ Category: Development
+  local port=${1:-5173}
+  npx vite --config harness/vite.config.ts --port "$port" --strictPort
+}
+
+################################################################################
 # Quality Commands
 
 function test {
