@@ -177,6 +177,7 @@ const LABELS: Readonly<Record<string, string>> = {
   '/detector/hysteresis': 'the clear margin',
   '/detector/clearDuration': 'the clear delay',
   '/detector/limit': 'the zones',
+  '/gates': 'the Only while conditions',
   '/latching': 'Keep the alert until acknowledged'
 }
 

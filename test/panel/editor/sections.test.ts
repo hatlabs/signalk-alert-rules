@@ -274,6 +274,17 @@ describe('saveHint', () => {
     )
   })
 
+  it.each([
+    ['/signal', 'the value to watch'],
+    ['/detector/event', 'the event'],
+    ['/detector/event/op', 'the event'],
+    ['/gates/0/signal', 'Only while condition 1'],
+    ['/gates/0', 'Only while condition 1'],
+    ['/gates', 'the Only while conditions']
+  ])('names %s, a part a stored rule can lack, by its field', (pointer, label) => {
+    expect(fieldLabel(pointer, sustained)).toBe(label)
+  })
+
   it('names a gate and a combined input by their numbers', () => {
     expect(fieldLabel('/gates/1/limit/value', sustained)).toBe('Only while condition 2')
     expect(fieldLabel('/signal/inputs/0/path', sustained)).toBe('path 1 to combine')
