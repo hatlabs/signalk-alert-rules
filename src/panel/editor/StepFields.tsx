@@ -15,6 +15,7 @@ import {
 import {
   emptyStep,
   maxSteps,
+  parsedNumber,
   PRIORITY_LEVELS,
   stepLimitFields,
   type StepLimitField,
@@ -93,7 +94,11 @@ function rangeError(
   if (message !== RANGE_ORDER || step === undefined || previous === undefined) return undefined
   if (step.priority === '' || previous.priority === '') return undefined
   const whose = `${article(step.priority)} ${step.priority}'s`
-  const same = step.low.trim() === previous.low.trim() && step.high.trim() === previous.high.trim()
+  const equal = (a: string, b: string) => {
+    const x = parsedNumber(a)
+    return x !== undefined && x === parsedNumber(b)
+  }
+  const same = equal(step.low, previous.low) && equal(step.high, previous.high)
   if (same) {
     const range = stepLimitText(previous, 'range', measure)
     return range === undefined

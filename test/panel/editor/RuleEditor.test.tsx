@@ -1044,6 +1044,25 @@ describe('RuleEditor, outside a range', () => {
     })
   })
 
+  it.each([
+    ['11.5', '14.8', '11.50', '14.80', '11.5 to 14.8 V'],
+    ['11,5', '14.8', '11.5', '14,8', '11,5 to 14.8 V']
+  ])('reads %s to %s and %s to %s as the same range', async (low1, high1, low2, high2, range) => {
+    const { api } = renderEditor({ start: { path: HOUSE, kind: 'outside' } })
+    rejectWith(api, '/detector/steps/1/low', "must not be inside the previous step's range")
+    await formShown()
+    choose('Priority for step 1', 'warning')
+    fillRange(low1, high1)
+    click(button('Escalate at…'))
+    fillRange(low2, high2, 2)
+    create()
+    await waitFor(() => {
+      expect(description(textbox('Low limit for step 2'))).toContain(
+        `Step 2: an alarm's range must be wider than ${range}, the warning's range.`
+      )
+    })
+  })
+
   it('opens More options for a clear margin too wide for the range', async () => {
     const { api } = renderEditor({ start: { path: HOUSE, kind: 'outside' } })
     rejectWith(
