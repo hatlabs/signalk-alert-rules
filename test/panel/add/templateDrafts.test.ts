@@ -132,6 +132,39 @@ describe('copySettings', () => {
     expect(copied?.detector.hysteresis).toBe('2')
   })
 
+  it('carries the exact value of a limit shown rounded', () => {
+    const exact: Template = {
+      ...coolant,
+      rule: {
+        ...coolant.rule,
+        detector: {
+          type: 'sustained',
+          direction: 'above',
+          steps: [{ limit: 368.4567, priority: 'warning' }]
+        }
+      }
+    }
+    const made = drafts(
+      set,
+      exact,
+      [{ instance: 'port' }, { instance: 'starboard' }],
+      new Set(),
+      units
+    )
+    const port = made.at(0)?.form
+    const starboard = made.at(1)?.form
+    if (port === undefined || starboard === undefined) throw new Error('none')
+    expect(port.steps.map((s) => s.limit)).toEqual(['95.31'])
+    const edited = {
+      ...port,
+      detector: { ...port.detector, duration: { amount: '2', unit: 'min' as const } }
+    }
+    const copied = copySettings(edited, starboard, units)
+    if (copied === undefined) throw new Error('not copied')
+    const read = toRule(copied, units)
+    expect(read.ok && read.rule.detector.steps).toEqual([{ limit: 368.4567, priority: 'warning' }])
+  })
+
   it('copies nothing across units while the shown tab cannot be read', () => {
     const all = engines()
     const port = all.at(0)

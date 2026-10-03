@@ -194,6 +194,11 @@ function offset(kind: QuantityKind, unit: DisplayUnit): number {
   return kind === 'absolute' ? unit.offset : 0
 }
 
+/** Whether a field of this kind shows a number other than the SI one. */
+export function converts(kind: QuantityKind, unit: DisplayUnit): boolean {
+  return factor(kind, unit) !== 1 || offset(kind, unit) !== 0
+}
+
 /** The SI value to store for a value entered in the display unit. */
 export function toSI(kind: QuantityKind, value: number, unit: DisplayUnit): number {
   const shift = offset(kind, unit)

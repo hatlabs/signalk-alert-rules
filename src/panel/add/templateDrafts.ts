@@ -57,7 +57,7 @@ export function copySettings(
   const measure = (form: RuleForm) => signalMeasure(signalShape(form.signal), units)
   if (JSON.stringify(measure(from)) === JSON.stringify(measure(to))) {
     const copy = structuredClone({ detector: from.detector, steps: from.steps })
-    return { ...to, ...copy, latching: from.latching, shown: { ...to.shown, ...from.shown } }
+    return { ...to, ...copy, latching: from.latching }
   }
   const slot = to.signal.slots.at(0)
   const read = toRule(from, units)
@@ -68,8 +68,7 @@ export function copySettings(
     ...to,
     detector: moved.detector,
     steps: moved.steps,
-    latching: moved.latching,
-    shown: { ...to.shown, ...moved.shown }
+    latching: moved.latching
   }
 }
 

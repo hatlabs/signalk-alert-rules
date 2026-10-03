@@ -32,7 +32,8 @@ import {
   type SignalShape,
   type UnitLookup
 } from '../signalUnits'
-import { fromSI, toSI, type DisplayUnit, type QuantityKind } from '../units'
+import { formatNumber } from '../../format'
+import { converts, fromSI, toSI, type DisplayUnit, type QuantityKind } from '../units'
 
 export { MAX_SLUG, slugify } from '../../templates/instantiate'
 
@@ -104,6 +105,7 @@ export type ValueType = 'number' | 'text' | 'true' | 'false'
 export interface ValueField {
   type: ValueType
   text: string
+  exact?: Exacts<'text'>
 }
 
 export interface SlotForm {
@@ -126,6 +128,7 @@ export interface LimitForm {
   level: ZoneLevel
   /** A zone limit's path; empty for the signal's own. */
   path: string
+  exact?: Exacts<'value'>
 }
 
 export interface EventForm {
@@ -152,6 +155,7 @@ export interface DetectorForm {
   horizon: DurationField
   hysteresis: string
   clearDuration: DurationField
+  exact?: Exacts<'hysteresis'>
 }
 
 export interface GateForm {
@@ -161,6 +165,7 @@ export interface GateForm {
   duration: DurationField
   hysteresis: string
   clearDuration: DurationField
+  exact?: Exacts<'hysteresis'>
 }
 
 /**
@@ -178,6 +183,7 @@ export interface StepForm {
   duration: DurationField
   /** A match's value. */
   value: ValueField
+  exact?: Exacts<'limit' | 'low' | 'high'>
 }
 
 /** What a step's limit is, which decides how it is entered and stored. */
@@ -219,7 +225,6 @@ export interface RuleForm {
   signal: SignalForm
   detector: DetectorForm
   gates: GateForm[]
-  shown: ShownValues
   /** The template the rule was made from, which the form does not show and an edit keeps. */
   template?: TemplateRecord
 }
@@ -281,8 +286,7 @@ export function emptyForm(): RuleForm {
       hysteresis: '',
       clearDuration: noDuration()
     },
-    gates: [],
-    shown: {}
+    gates: []
   }
 }
 
@@ -442,26 +446,78 @@ function kindFor(quantity: 'value' | 'interval' | 'slope', measure: Measure): Qu
 }
 
 /**
- * The SI value each shown number came from, keyed by how it converts and the
- * text shown. The shown text is rounded, so converting it back would move a
- * stored value the user never touched: 0.1 rad shown in degrees would come
- * back as 0.100000000000031.
+ * The stored SI value behind a number field, kept while the field shows the
+ * text it opened with. A converted value is shown rounded, so converting the
+ * text back would move a stored value the user never touched: 50 m shown as
+ * 0.027 nmi would come back as 50.004 m.
  */
-export type ShownValues = Partial<Record<string, number>>
-
-function shownKey(text: string, kind: QuantityKind, unit: DisplayUnit): string {
-  return [kind, unit.symbol, String(unit.scale), String(unit.offset), text.trim()].join('|')
+export interface Exact {
+  text: string
+  value: number
+  /** How the field converted when it opened; another unit makes the text another value. */
+  conversion: string
 }
 
+/** The exact values of a form object's number fields, by field. */
+export type Exacts<K extends string> = Partial<Record<K, Exact>>
+
+function conversion(kind: QuantityKind, unit: DisplayUnit): string {
+  return [kind, unit.symbol, String(unit.scale), String(unit.offset)].join('|')
+}
+
+/**
+ * A stored value as its field shows it: rounded as the panel shows values
+ * when it converts, else as stored. The exact value is kept only where the
+ * text would not convert back to it.
+ */
 function shownNumber(
   value: number,
   kind: QuantityKind,
-  unit: DisplayUnit,
-  shown: ShownValues
-): string {
-  const text = String(fromSI(kind, value, unit))
-  shown[shownKey(text, kind, unit)] = value
-  return text
+  unit: DisplayUnit
+): { text: string; exact?: Exact } {
+  const display = fromSI(kind, value, unit)
+  const text = converts(kind, unit) ? formatNumber(display) : String(display)
+  if (toSI(kind, Number(text), unit) === value) return { text }
+  return { text, exact: { text, value, conversion: conversion(kind, unit) } }
+}
+
+/** The `exact` of a form object from its fields' exact values, left out when there are none. */
+function exacts<K extends string>(entries: [K, Exact | undefined][]): { exact?: Exacts<K> } {
+  const kept = entries.filter((entry): entry is [K, Exact] => entry[1] !== undefined)
+  return kept.length === 0 ? {} : { exact: Object.fromEntries(kept) as Exacts<K> }
+}
+
+type Holder<K extends string> = Record<K, string> & { exact?: Exacts<K> }
+
+/** `holder` without the exact values of the fields whose text the user has changed. */
+function forget<K extends string, T extends Holder<K>>(holder: T & Holder<K>): T {
+  const { exact } = holder
+  if (exact === undefined) return holder
+  const fields = Object.keys(exact) as K[]
+  const kept = fields.filter((field) => exact[field]?.text === holder[field])
+  if (kept.length === fields.length) return holder
+  return { ...holder, exact: Object.fromEntries(kept.map((field) => [field, exact[field]])) }
+}
+
+/**
+ * The form with the exact value of every field the user has edited
+ * forgotten, so typing the shown text back stores what it converts to. Run
+ * on every change: a field edited and typed back to its text is still edited.
+ */
+export function forgetEdited(form: RuleForm): RuleForm {
+  const d = form.detector
+  const event = (e: EventForm): EventForm => ({ ...e, value: forget(e.value) })
+  return {
+    ...form,
+    steps: form.steps.map((step) => forget({ ...step, value: forget(step.value) })),
+    detector: forget({
+      ...d,
+      whileValue: forget(d.whileValue),
+      resetOn: event(d.resetOn),
+      event: event(d.event)
+    }),
+    gates: form.gates.map((gate) => forget({ ...gate, limit: forget(gate.limit) }))
+  }
 }
 
 /** A number as typed, a decimal comma accepted; undefined while empty or not a number. */
@@ -480,27 +536,25 @@ export function durationFrom(seconds: number | undefined): DurationField {
   return { amount: String(seconds / DURATION_FACTORS[unit]), unit }
 }
 
-function valueFrom(
-  value: number | string | boolean | undefined,
-  measure: Measure,
-  shown: ShownValues
-): ValueField {
+function valueFrom(value: number | string | boolean | undefined, measure: Measure): ValueField {
   if (typeof value === 'number') {
-    return { type: 'number', text: shownNumber(value, measure.kind, measure.unit, shown) }
+    const { text, exact } = shownNumber(value, measure.kind, measure.unit)
+    return { type: 'number', text, ...exacts([['text', exact]]) }
   }
   if (typeof value === 'boolean') return { type: value ? 'true' : 'false', text: '' }
   return { type: value === undefined ? 'number' : 'text', text: value ?? '' }
 }
 
-function eventFrom(event: Event, measure: Measure, shown: ShownValues): EventForm {
-  return { op: event.op, value: valueFrom(event.value, measure, shown) }
+function eventFrom(event: Event, measure: Measure): EventForm {
+  return { op: event.op, value: valueFrom(event.value, measure) }
 }
 
-function limitFrom(limit: Limit, measure: Measure, shown: ShownValues): LimitForm {
+function limitFrom(limit: Limit, measure: Measure): LimitForm {
   if (limit.kind === 'zone') {
     return { kind: 'zone', value: '', level: limit.level, path: limit.path ?? '' }
   }
-  return { ...noLimit(), value: shownNumber(limit.value, measure.kind, measure.unit, shown) }
+  const { text, exact } = shownNumber(limit.value, measure.kind, measure.unit)
+  return { ...noLimit(), value: text, ...exacts([['value', exact]]) }
 }
 
 function signalFrom(signal: Signal): SignalForm {
@@ -514,19 +568,21 @@ function signalFrom(signal: Signal): SignalForm {
   }
 }
 
-function gateFrom(gate: Gate, units: UnitLookup, shown: ShownValues): GateForm {
+function gateFrom(gate: Gate, units: UnitLookup): GateForm {
   const signal = signalFrom(gate.signal)
   const measure = signalMeasure(signalShape(signal), units)
+  const hysteresis =
+    gate.hysteresis === undefined
+      ? undefined
+      : shownNumber(gate.hysteresis, kindFor('interval', measure), measure.unit)
   return {
     signal,
     direction: gate.direction,
-    limit: limitFrom(gate.limit, measure, shown),
+    limit: limitFrom(gate.limit, measure),
     duration: durationFrom(gate.duration),
-    hysteresis:
-      gate.hysteresis === undefined
-        ? ''
-        : shownNumber(gate.hysteresis, kindFor('interval', measure), measure.unit, shown),
-    clearDuration: durationFrom(gate.clearDuration)
+    hysteresis: hysteresis?.text ?? '',
+    clearDuration: durationFrom(gate.clearDuration),
+    ...exacts([['hysteresis', hysteresis?.exact]])
   }
 }
 
@@ -562,14 +618,19 @@ export function fromBody(body: unknown, units: UnitLookup): RuleForm {
 /** A stored rule as the form shows it, numbers in the display units of its paths. */
 export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
   const form = emptyForm()
-  const shown: ShownValues = {}
   const signal = signalFrom(rule.signal)
   const measure = signalMeasure(signalShape(signal), units)
   const d = form.detector
   const detector = rule.detector
   d.type = detector.type
   const numberFrom = (value: number, quantity: 'slope' | 'interval') =>
-    shownNumber(value, kindFor(quantity, measure), measure.unit, shown)
+    shownNumber(value, kindFor(quantity, measure), measure.unit)
+  const hysteresisFrom = (value: number | undefined) => {
+    if (value === undefined) return
+    const { text, exact } = numberFrom(value, 'interval')
+    d.hysteresis = text
+    Object.assign(d, exacts([['hysteresis', exact]]))
+  }
   switch (detector.type) {
     case 'match':
       d.matchOp = detector.op
@@ -577,16 +638,14 @@ export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
       break
     case 'sustained':
       d.direction = detector.direction
-      if (detector.limit !== undefined) d.limit = limitFrom(detector.limit, measure, shown)
+      if (detector.limit !== undefined) d.limit = limitFrom(detector.limit, measure)
       d.duration = durationFrom(detector.duration)
-      d.hysteresis =
-        detector.hysteresis === undefined ? '' : numberFrom(detector.hysteresis, 'interval')
+      hysteresisFrom(detector.hysteresis)
       d.clearDuration = durationFrom(detector.clearDuration)
       break
     case 'outside':
       d.duration = durationFrom(detector.duration)
-      d.hysteresis =
-        detector.hysteresis === undefined ? '' : numberFrom(detector.hysteresis, 'interval')
+      hysteresisFrom(detector.hysteresis)
       d.clearDuration = durationFrom(detector.clearDuration)
       break
     case 'slope':
@@ -595,7 +654,7 @@ export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
       break
     case 'projection':
       d.trend = detector.direction
-      if (detector.limit !== undefined) d.limit = limitFrom(detector.limit, measure, shown)
+      if (detector.limit !== undefined) d.limit = limitFrom(detector.limit, measure)
       d.window = durationFrom(detector.window)
       d.horizon = durationFrom(detector.horizon)
       break
@@ -604,40 +663,53 @@ export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
       if (detector.while !== undefined) {
         d.useWhile = true
         d.whileOp = detector.while.op
-        d.whileValue = valueFrom(detector.while.value, measure, shown)
+        d.whileValue = valueFrom(detector.while.value, measure)
       }
       if (detector.resetOn !== undefined) {
         d.useResetOn = true
-        d.resetOn = eventFrom(detector.resetOn, measure, shown)
+        d.resetOn = eventFrom(detector.resetOn, measure)
       }
       break
     case 'count':
-      d.event = eventFrom(detector.event, measure, shown)
+      d.event = eventFrom(detector.event, measure)
       d.window = durationFrom(detector.window)
       break
     case 'absence':
-      d.event = eventFrom(detector.event, measure, shown)
+      d.event = eventFrom(detector.event, measure)
       break
   }
   const quantity = stepQuantity(d)
   const stepFrom = (step: Step): StepForm => {
     const form = emptyStep(step.priority)
-    if ('value' in step) form.value = valueFrom(step.value, measure, shown)
+    if ('value' in step) form.value = valueFrom(step.value, measure)
     if ('within' in step) form.duration = durationFrom(step.within)
     if ('low' in step) {
-      form.low = shownNumber(step.low, measure.kind, measure.unit, shown)
-      form.high = shownNumber(step.high, measure.kind, measure.unit, shown)
+      const low = shownNumber(step.low, measure.kind, measure.unit)
+      const high = shownNumber(step.high, measure.kind, measure.unit)
+      form.low = low.text
+      form.high = high.text
+      Object.assign(
+        form,
+        exacts([
+          ['low', low.exact],
+          ['high', high.exact]
+        ])
+      )
     }
     if (!('limit' in step)) return form
+    const limit = (shown: { text: string; exact?: Exact }) => {
+      form.limit = shown.text
+      Object.assign(form, exacts([['limit', shown.exact]]))
+    }
     switch (quantity) {
       case 'value':
-        form.limit = shownNumber(step.limit, measure.kind, measure.unit, shown)
+        limit(shownNumber(step.limit, measure.kind, measure.unit))
         break
       case 'slope':
-        form.limit = numberFrom(step.limit, 'slope')
+        limit(numberFrom(step.limit, 'slope'))
         break
       case 'integral':
-        form.limit = numberFrom(step.limit, 'interval')
+        limit(numberFrom(step.limit, 'interval'))
         break
       case 'time':
         form.duration = durationFrom(step.limit)
@@ -663,8 +735,7 @@ export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
     signal,
     detector: d,
     ...(rule.template === undefined ? {} : { template: rule.template }),
-    gates: (rule.gates ?? []).map((g) => gateFrom(g, units, shown)),
-    shown
+    gates: (rule.gates ?? []).map((g) => gateFrom(g, units))
   }
 }
 
@@ -673,8 +744,6 @@ export type ToRuleResult = { ok: true; rule: Rule } | { ok: false; errors: Field
 /** Collects the local errors of one conversion, each at its JSON pointer into the rule. */
 class Reader {
   readonly errors: FieldError[] = []
-
-  constructor(private readonly shown: ShownValues) {}
 
   fail(path: string, message: string): void {
     this.errors.push({ path, message })
@@ -691,14 +760,13 @@ class Reader {
     path: string,
     kind: QuantityKind,
     unit: DisplayUnit,
-    optional = false
+    { optional = false, exact }: { optional?: boolean; exact?: Exact } = {}
   ): number | undefined {
     if (text.trim() === '') {
       if (!optional) this.fail(path, 'is required')
       return undefined
     }
-    const stored = this.shown[shownKey(text, kind, unit)]
-    if (stored !== undefined) return stored
+    if (exact?.text === text && exact.conversion === conversion(kind, unit)) return exact.value
     const value = parsedNumber(text)
     if (value === undefined) {
       this.fail(path, 'must be a number')
@@ -708,7 +776,7 @@ class Reader {
   }
 
   duration(field: DurationField, path: string, optional = false): number | undefined {
-    const value = this.number(field.amount, path, 'ratio', UNIT_ONE, optional)
+    const value = this.number(field.amount, path, 'ratio', UNIT_ONE, { optional })
     // Minutes and hours of a decimal amount leave float noise in the seconds.
     return value === undefined
       ? undefined
@@ -717,8 +785,10 @@ class Reader {
 
   value(field: ValueField, path: string, measure: Measure): number | string | boolean | undefined {
     switch (field.type) {
-      case 'number':
-        return this.number(field.text, path, measure.kind, measure.unit)
+      case 'number': {
+        const exact = field.exact?.text
+        return this.number(field.text, path, measure.kind, measure.unit, { exact })
+      }
       case 'text':
         return field.text
       case 'true':
@@ -774,7 +844,9 @@ function readLimit(form: LimitForm, at: string, measure: Measure, read: Reader):
       path: form.path === '' ? undefined : form.path
     })
   }
-  const value = read.number(form.value, `${at}/value`, measure.kind, measure.unit)
+  const value = read.number(form.value, `${at}/value`, measure.kind, measure.unit, {
+    exact: form.exact?.value
+  })
   return value === undefined ? undefined : { kind: 'fixed', value }
 }
 
@@ -815,9 +887,10 @@ function readSteps(form: RuleForm, measure: Measure, read: Reader): Step[] {
   return form.steps.map((step, i) => {
     const at = stepPointer(i)
     const limitAt = `${at}/${field}`
-    const number = (kind: QuantityKind) => read.number(step.limit, limitAt, kind, measure.unit)
+    const number = (kind: QuantityKind) =>
+      read.number(step.limit, limitAt, kind, measure.unit, { exact: step.exact?.limit })
     const value = (text: string, side: 'low' | 'high') =>
-      read.number(text, `${at}/${side}`, measure.kind, measure.unit)
+      read.number(text, `${at}/${side}`, measure.kind, measure.unit, { exact: step.exact?.[side] })
     const limit = (() => {
       switch (quantity) {
         case 'value':
@@ -848,7 +921,10 @@ function readDetector(form: RuleForm, measure: Measure, read: Reader): Detector 
   const d = form.detector
   const at = '/detector'
   const hysteresis = (text: string) =>
-    read.number(text, `${at}/hysteresis`, kindFor('interval', measure), measure.unit, true)
+    read.number(text, `${at}/hysteresis`, kindFor('interval', measure), measure.unit, {
+      optional: true,
+      exact: d.exact?.hysteresis
+    })
   const steps = () => readSteps(form, measure, read)
   // A zone limit takes the place of the steps.
   const valueLimit = () =>
@@ -938,7 +1014,7 @@ function readGate(form: GateForm, at: string, units: UnitLookup, read: Reader): 
       `${at}/hysteresis`,
       kindFor('interval', measure),
       measure.unit,
-      true
+      { optional: true, exact: form.exact?.hysteresis }
     ),
     clearDuration: read.duration(form.clearDuration, `${at}/clearDuration`, true)
   }) as Gate
@@ -975,7 +1051,7 @@ export function formAlertPrefix(form: RuleForm): string {
  * checks when the rule is saved.
  */
 export function toRule(form: RuleForm, units: UnitLookup): ToRuleResult {
-  const read = new Reader(form.shown)
+  const read = new Reader()
   const measure = signalMeasure(signalShape(form.signal), units)
   const name = read.text(form.name, '/name')
   const slug = read.text(form.slug, '/slug')
