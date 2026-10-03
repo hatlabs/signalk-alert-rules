@@ -132,7 +132,7 @@ export interface LimitForm {
 }
 
 export interface EventForm {
-  op: EventOp
+  op: EventOp | ''
   value: ValueField
 }
 
@@ -545,11 +545,21 @@ function valueFrom(value: number | string | boolean | undefined, measure: Measur
   return { type: value === undefined ? 'number' : 'text', text: value ?? '' }
 }
 
+const EVENT_OP_SET: Readonly<Record<EventOp, true>> = {
+  changes: true,
+  changesTo: true,
+  decreases: true
+}
+const isEventOp = (op: unknown): op is EventOp =>
+  typeof op === 'string' && Object.hasOwn(EVENT_OP_SET, op)
+
 function eventFrom(event: Event, measure: Measure): EventForm {
-  return { op: event.op, value: valueFrom(event.value, measure) }
+  if (!isRecord(event)) return { op: '', value: noValue() }
+  return { op: isEventOp(event.op) ? event.op : '', value: valueFrom(event.value, measure) }
 }
 
 function limitFrom(limit: Limit, measure: Measure): LimitForm {
+  if (!isRecord(limit)) return noLimit()
   if (limit.kind === 'zone') {
     return { kind: 'zone', value: '', level: limit.level, path: limit.path ?? '' }
   }
@@ -558,17 +568,34 @@ function limitFrom(limit: Limit, measure: Measure): LimitForm {
 }
 
 function signalFrom(signal: Signal): SignalForm {
-  const slot = (input: PathInput): SlotForm => ({ path: input.path, source: input.source ?? '' })
+  if (!isRecord(signal)) return emptySignal()
+  // An input of a rule that does not validate may be anything, its path and source too.
+  const slot = (input: unknown): SlotForm => {
+    if (!isRecord(input)) return noSlot()
+    const text = (value: unknown) => (typeof value === 'string' ? value : '')
+    return { path: text(input.path), source: text(input.source) }
+  }
   if (!('combinator' in signal)) return { ...emptySignal(), slots: [slot(signal)] }
+  const inputs: unknown = signal.inputs
+  const stored: unknown[] | undefined = Array.isArray(inputs) ? inputs : undefined
   return {
     mode: 'combine',
     combinator: signal.combinator,
     angular: signal.angular === true,
-    slots: signal.inputs.map(slot)
+    slots: stored?.map(slot) ?? fitSlots([], slotBounds(signal.combinator))
   }
 }
 
+/** A rule's gates; a lone gate stored without its list is read as the list of it. */
+function gateList(gates: Rule['gates']): Gate[] {
+  const stored: unknown = gates
+  if (Array.isArray(stored)) return stored as Gate[]
+  // Anything else stored there was meant as a gate: dropping it would save the rule without one.
+  return stored === undefined ? [] : [stored as Gate]
+}
+
 function gateFrom(gate: Gate, units: UnitLookup): GateForm {
+  if (!isRecord(gate)) return emptyGate()
   const signal = signalFrom(gate.signal)
   const measure = signalMeasure(signalShape(signal), units)
   const hysteresis =
@@ -608,6 +635,7 @@ export function fromBody(body: unknown, units: UnitLookup): RuleForm {
       detector: { ...form.detector, type }
     }
   } catch {
+    // Damage the readers do not check, such as a detector's `while` that is null.
     return {
       ...emptyForm(),
       ...texts,
@@ -618,7 +646,13 @@ export function fromBody(body: unknown, units: UnitLookup): RuleForm {
   }
 }
 
-/** A stored rule as the form shows it, numbers in the display units of its paths. */
+/**
+ * A stored rule as the form shows it, numbers in the display units of its
+ * paths. It also reads the body of a rule that does not validate
+ * (`fromBody`): a missing or malformed signal, input, limit, event, step list
+ * or gate reads as that part's empty form, left to fill in. Other fields are
+ * taken as stored, and `fromBody` catches what this cannot read.
+ */
 export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
   const form = emptyForm()
   const signal = signalFrom(rule.signal)
@@ -683,6 +717,7 @@ export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
   }
   const quantity = stepQuantity(d)
   const stepFrom = (step: Step): StepForm => {
+    if (!isRecord(step)) return emptyStep()
     const form = emptyStep(step.priority)
     if ('value' in step) form.value = valueFrom(step.value, measure)
     if ('within' in step) form.duration = durationFrom(step.within)
@@ -722,7 +757,7 @@ export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
     }
     return form
   }
-  const steps: Step[] = detector.steps ?? []
+  const steps: Step[] = Array.isArray(detector.steps) ? detector.steps : []
   return {
     ...form,
     name: rule.name,
@@ -738,7 +773,7 @@ export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
     signal,
     detector: d,
     ...(rule.template === undefined ? {} : { template: rule.template }),
-    gates: (rule.gates ?? []).map((g) => gateFrom(g, units))
+    gates: gateList(rule.gates).map((g) => gateFrom(g, units))
   }
 }
 
@@ -855,9 +890,9 @@ function readLimit(form: LimitForm, at: string, measure: Measure, read: Reader):
 
 function readEvent(form: EventForm, at: string, measure: Measure, read: Reader): Event {
   return defined({
-    op: form.op,
+    op: read.choice(form.op, `${at}/op`),
     value: form.op === 'changesTo' ? read.value(form.value, `${at}/value`, measure) : undefined
-  })
+  }) as Event
 }
 
 export type StepLimitField = 'limit' | 'low' | 'high' | 'within' | 'value'

@@ -978,6 +978,49 @@ describe('RuleEditor, an invalid stored rule', () => {
     expect(screen.getByText('Fill in what should alert to save.')).toBeTruthy()
   })
 
+  it('opens a count body without an event keeping the rest, asking only for the event', async () => {
+    const bilge = example('bilge-pump-cycling')
+    const { event: _event, ...detector } = bilge.detector as Extract<
+      Rule['detector'],
+      { type: 'count' }
+    >
+    renderEditor({
+      invalid: {
+        slug: bilge.slug,
+        name: bilge.name,
+        body: { ...bilge, detector },
+        errors: [{ path: '/detector/event', message: 'is required' }]
+      }
+    })
+    await formShown()
+    const event = select(/^Count each time the value/)
+    expect(event).toHaveProperty('value', '')
+    expect(event.querySelector('option[value=""]')?.textContent).toBe('Choose…')
+    expect(textbox(/^Message/)).toHaveProperty('value', bilge.message)
+    expect(document.querySelectorAll('[aria-invalid="true"]')).toHaveLength(1)
+    expect(screen.getByText('Fill in the event to save.')).toBeTruthy()
+  })
+
+  it('opens a body without a signal keeping its detector, asking only for the value to watch', async () => {
+    const coolant = example('coolant-temperature-rising')
+    const { signal: _signal, ...body } = coolant
+    renderEditor({
+      invalid: {
+        slug: coolant.slug,
+        name: coolant.name,
+        body,
+        errors: [{ path: '/signal', message: 'is required' }]
+      }
+    })
+    await formShown()
+    expect(select(/^Alert when/)).not.toHaveProperty('value', '')
+    expect(textbox(/^Message/)).toHaveProperty('value', coolant.message)
+    const search = screen.getByRole('combobox', { name: /^Search by name or path/ })
+    expect(description(search)).toContain('is required')
+    expect(document.querySelectorAll('[aria-invalid="true"]')).toHaveLength(1)
+    expect(screen.getByText('Fill in the value to watch to save.')).toBeTruthy()
+  })
+
   it('opens a rule-shaped body without a message, asking for one', async () => {
     const { message: _message, ...body } = battery
     renderEditor({
