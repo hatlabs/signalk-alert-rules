@@ -13,7 +13,7 @@ Rules are managed in the Alert Rules webapp, under Webapps in the admin UI. The 
 
 Read-only users view the rules, read/write users also disable and enable them, and administrators do everything else.
 
-[`docs/rules.md`](docs/rules.md) describes the rule model: signals, detectors, steps, gates, limits, alert paths, Disable, and the alerts a rule sends. [`examples/rules`](examples/rules) holds worked example rules covering all seven detectors, gates, a zone limit, latching, and the `absDifference` (plain and angular) and `positionSpread` combinators. [`docs/templates.md`](docs/templates.md) describes template sets: the one built in, and those another package provides, as [`examples/template-set-example`](examples/template-set-example) does. [`docs/api.md`](docs/api.md) describes the REST API that manages rules, reports their status, disables and enables them and lists templates; it is open by role, with the access level of each route given there.
+[`docs/rules.md`](docs/rules.md) describes the rule model: signals, detectors, steps, gates, limits, alert paths, Disable, and the alerts a rule sends. [`examples/rules`](examples/rules) holds worked example rules covering all eight detectors, gates, a zone limit, latching, and the `absDifference` (plain and angular) and `positionSpread` combinators. [`docs/templates.md`](docs/templates.md) describes template sets: the one built in, and those another package provides, as [`examples/template-set-example`](examples/template-set-example) does. [`docs/api.md`](docs/api.md) describes the REST API that manages rules, reports their status, disables and enables them and lists templates; it is open by role, with the access level of each route given there.
 
 ## Requirements
 

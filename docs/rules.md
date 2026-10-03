@@ -50,7 +50,7 @@ Every numeric field is tagged in the schema (`x-quantity`) with how it converts 
 
 | Quantity | Fields | Conversion |
 |---|---|---|
-| `absolute` | a sustained or projection step's `limit`; a gate's fixed limit `value`; the numeric `value` of a match step, state condition or event | the display unit's full formula |
+| `absolute` | a sustained or projection step's `limit`; an outside step's `low` and `high`; a gate's fixed limit `value`; the numeric `value` of a match step, state condition or event | the display unit's full formula |
 | `interval` | `hysteresis`; a slope step's `limit` (per second) | the linear part only, so 2 °C of hysteresis is 2 K, not 275.15 K |
 | `duration` | `duration`, `clearDuration`, `window`, `horizon`, an absence step's `within` | seconds |
 | `count` | a count step's `limit` | unitless |
@@ -136,6 +136,29 @@ A replayed value only sets the baseline. An unavailable reading leaves the basel
 
 Active once the value has been beyond the limit (strictly above or below it) for `duration`. Ends once it has been back past the limit by `hysteresis`, at or below `limit - hysteresis` for `above`, for `clearDuration`. All three default to 0. The timer restarts whenever the value leaves the side it is timing and pauses while the input is unavailable. The limits are the steps' or come from zones (see [Zone limits](#zone-limits)).
 
+### outside
+
+`steps` (each a `low` and a `high` limit), `duration`, `hysteresis`, `clearDuration`.
+
+A sustained comparison on both sides of a range, for a value that matters in either direction, such as shore power frequency outside 49-51 Hz:
+
+```json
+{
+  "type": "outside",
+  "steps": [
+    { "low": 49, "high": 51, "priority": "warning" },
+    { "low": 48, "high": 52, "priority": "alarm" }
+  ],
+  "duration": 10,
+  "hysteresis": 0.2,
+  "clearDuration": 30
+}
+```
+
+Active once the value has been beyond the range, strictly below `low` or above `high`, for `duration`. A value that moves from one side to the other within `duration` is still beyond, so the timer keeps running. Ends once the value has been inside the range narrowed by `hysteresis` on both sides, at or above `low + hysteresis` and at or below `high - hysteresis`, for `clearDuration`. A value inside the range but within `hysteresis` of either limit neither raises nor clears. All three default to 0, and the timer pauses while the input is unavailable, as for [sustained](#sustained). `hysteresis` must be less than half the first step's range (`high - low`), or the alert could never clear. Its steps are typed: an outside rule takes no zone limit. The rule raises one alert, whichever side the value goes out on.
+
+The limit an outside rule reports, in its alert's `data`, its message's `{limit}` and its state, is the one the value last went past: `high` above the range, `low` below it. A move to the other side while the alert lasts changes the message's `{limit}` at the next repeat and sends no event; the alert's `data` keeps the limit sent with the last raise, climb or edit (see [What Alert Rules sends](#what-alert-rules-sends)). The rule state names the side in `passed` (see [State](#conditions-and-reasons)).
+
 ### slope
 
 `direction` (`rising` or `falling`), `window`, `steps` (each a `limit`, per second, above 0).
@@ -178,7 +201,7 @@ A gate puts a rule in use only while a condition on another signal holds, such a
 
 ## Limits
 
-Every gate has a `limit`, and a sustained or projection detector has either steps or a zone `limit`, never both:
+Every gate has a `limit`, and a sustained or projection detector has either steps or a zone `limit`, never both. An outside detector has steps only, and a zone `limit` on it is refused (`is not a known property` at `/detector/limit`). A limit is one of:
 
 - `{ "kind": "fixed", "value": 3 }`: an SI value; gates only, since a detector's fixed limits are its steps.
 - `{ "kind": "zone", "level": "warn", "path": "..." }`: taken from `meta.zones`. `path` is optional and defaults to the signal's path; a combined signal has no single path, so it must name one. `path` may hold the rule's wildcard.
@@ -187,7 +210,7 @@ Alert Rules only reads `meta.zones`; it never writes meta.
 
 ### Zone limits
 
-A zone limit takes a rule's threshold from the `meta.zones` of a path instead of a fixed value. It names the least severe zone level the rule watches: `alert`, `warn`, `alarm` or `emergency`. The rule covers that level and every more severe level the zones define. Zones in `normal`, `nominal` or any other state raise nothing, give no threshold and play no part in resolving one.
+A zone limit takes a sustained, projection or gate threshold from the `meta.zones` of a path instead of a fixed value; an outside rule takes none. It names the least severe zone level the rule watches: `alert`, `warn`, `alarm` or `emergency`. The rule covers that level and every more severe level the zones define. Zones in `normal`, `nominal` or any other state raise nothing, give no threshold and play no part in resolving one.
 
 #### Runs
 
@@ -239,16 +262,17 @@ A rule raises one alert at one alert path, and that alert climbs in priority whi
 }
 ```
 
-A step's limit depends on the detector: a `limit` for sustained, projection, slope, accumulator and count; a `value` for a match; a window `within` for absence. A rule has one to four steps, one per priority. Validation refuses anything else, with the error on the offending step:
+A step's limit depends on the detector: a `limit` for sustained, projection, slope, accumulator and count; a `low` and a `high` for outside; a `value` for a match; a window `within` for absence. A rule has one to four steps, one per priority. Validation refuses anything else, with the error on the offending step:
 
 - Priorities strictly increase.
 - Limits strictly move in the condition's direction: down for `below` and a falling projection, up for `above`, a rising projection, a slope, a total and a count.
+- An outside step's `low` is below its `high` (the error is on `high`), and each later step's range is wider: neither limit moves inward and at least one moves outward, such as 49-51 Hz at warning and 48-52 Hz or 49-52 Hz at alarm. The error is on the limit that moved inward, or on `high` for an unchanged range.
 - An `equals` or `changesTo` match takes a different value at each step, such as `fault` at warning and `critical` at alarm. A `notEquals`, `decreases` or `timedOut` match takes one step: an alert left unacknowledged too long is core's to escalate.
 - An absence rule's windows grow, such as no heartbeat for 10 min at warning and for 30 min at alarm.
 
 A step's condition holds at that step or beyond it: a value below 11.7 V is beyond both steps, and a match step holds for its own value and every later step's. Each step must hold for the rule's `duration` before the alert climbs to it, so a momentary dip does not escalate, and a value that passes several steps at once raises at the furthest of them. Reaching a further step sends that step's priority and limit at once, with the message filled in from that step's limit (see [Messages](#messages)); a latching rule sends a latching raise at the new priority. A pulse of a `changesTo` match is raised at the furthest step it reaches.
 
-Nothing lowers the priority. Between steps the alert keeps the highest priority it reached, because core never lowers one, while its message and value keep updating. An edit that removes the reached step or lowers its priority does not lower it either: Alert Rules keeps sending and reporting the priority reached until the alert ends. The alert ends only when the condition is back past the first step: for a sustained rule, by its `hysteresis` for its `clearDuration`.
+Nothing lowers the priority. Between steps the alert keeps the highest priority it reached, because core never lowers one, while its message and value keep updating. An edit that removes the reached step or lowers its priority does not lower it either: Alert Rules keeps sending and reporting the priority reached until the alert ends. The alert ends only when the condition is back past the first step: for a sustained or outside rule, by its `hysteresis` for its `clearDuration`.
 
 A zone-limit rule has no steps of its own: its steps come from the path's zones, from its named level upwards (see [Escalation](#escalation)), each at its level's priority:
 
@@ -276,7 +300,7 @@ A rule's alert lives in the data model, at a condition name under the parent the
 - For a single input path, it is the path's parent. When the path ends in a wildcard, it is the whole path, so that each instance has an alert of its own.
 - For a combined signal, it is the longest run of leading segments the parents of all its inputs share: `propulsion.port.revolutions` and `propulsion.starboard.revolutions` give `propulsion`. When they share none, the alert path is the condition name alone.
 
-Only the condition name is the rule's to choose, in its optional `condition` field. Left out, it is the input's leaf, camel-cased, plus a suffix for the detector: `High` or `Low` for a sustained comparison, `ProjectedHigh` or `ProjectedLow` for a projection, `Rising` or `Falling` for a slope, `Match`, `Mismatch`, `Changed`, `Decreased` or `TimedOut` for a match, `Accumulated`, `Frequent` and `Missing` for an accumulator, count and absence. That default follows every edit of the input and detector; a stored name is kept through them. A combined signal and an input ending in a wildcard have no leaf to name the condition by, so they need a stored name.
+Only the condition name is the rule's to choose, in its optional `condition` field. Left out, it is the input's leaf, camel-cased, plus a suffix for the detector: `High` or `Low` for a sustained comparison, `OutOfRange` for an outside rule (`electrical.ac.shore.phase.single.frequencyOutOfRange`), `ProjectedHigh` or `ProjectedLow` for a projection, `Rising` or `Falling` for a slope, `Match`, `Mismatch`, `Changed`, `Decreased` or `TimedOut` for a match, `Accumulated`, `Frequent` and `Missing` for an accumulator, count and absence. That default follows every edit of the input and detector; a stored name is kept through them. A combined signal and an input ending in a wildcard have no leaf to name the condition by, so they need a stored name.
 
 A wildcard rule's alert path keeps the `*`, and each instance's alert fills it with the instance's segment: `alerts.propulsion.port.coolantTemperatureHigh`. No two rules may have alert paths that could name the same alert, a wildcard overlapping every segment it could take: a create or edit that would is refused (409 on `/condition`), and a stored rule that would does not run. An edit that changes the alert path clears the rule's alerts at the old path and raises at the new one once the condition holds.
 
@@ -313,7 +337,7 @@ The keys of `data`, written at each raise:
 | `rule` | always | the rule's `slug` |
 | `name` | always | the rule's `name` |
 | `instance` | wildcard rules | the instance name as the path has it, before sanitising |
-| `limit` | sustained and projection rules | the SI limit of the step the alert has reached, updated as it climbs and when an edit changes that step's limit while that step still has the alert's priority; for a zone limit, that level's threshold. It names a step the alert reached: an edit that inserts a step ahead of the reached one, or an adopted alert, keeps the limit core holds until the next climb. An edit to the reached step's limit sends the new limit even if the value has not crossed it, since the alert keeps that step's priority |
+| `limit` | sustained, outside and projection rules | the SI limit of the step the alert has reached, updated as it climbs and when an edit changes that step's limit while that step still has the alert's priority; for a zone limit, that level's threshold; for an outside rule, the step's limit on the side the value had last gone past when the raise, climb or edit sent it. A move to the other side while the alert lasts sends no new `limit`. It names a step the alert reached: an edit that inserts a step ahead of the reached one, or an adopted alert, keeps the limit core holds until the next climb. An edit to the reached step's limit sends the new limit even if the value has not crossed it, since the alert keeps that step's priority |
 | `valueAtRaise` | when the input had a value | the signal's value at the raise: a number, string, boolean or position |
 | `raisedAt` | always | the wall-clock time of the raise, ISO 8601 |
 
@@ -326,7 +350,7 @@ A rule's `message` is a template. Alert Rules fills in its placeholders when it 
 | Placeholder | Filled in with |
 |---|---|
 | `{instance}` | the wildcard instance's name; empty for a rule without a wildcard |
-| `{limit}` | the limit of the step the alert has reached: a sustained or projection step's value (for a zone limit, the level's threshold), a slope's rate per second, a count's number of events, an accumulator's total (a duration for `time`), an absence step's window, or a match step's value. When no step of the rule set the alert's priority, as for an alert adopted at restart above its first step or after an edit inserting a step ahead of the reached one, the `limit` Alert Rules last sent in the alert's data, or, when the data holds none, the limit of the step at the alert's index |
+| `{limit}` | the limit of the step the alert has reached: a sustained or projection step's value (for a zone limit, the level's threshold), an outside step's limit on the side the value last went past (rendered afresh at each repeat, so it follows the value to the other side, while the alert's data keeps the `limit` last sent), a slope's rate per second, a count's number of events, an accumulator's total (a duration for `time`), an absence step's window, or a match step's value. When no step of the rule set the alert's priority, as for an alert adopted at restart above its first step or after an edit inserting a step ahead of the reached one, the `limit` Alert Rules last sent in the alert's data, or, when the data holds none, the limit of the step at the alert's index |
 | `{duration}` | the rule's `duration`, for a sustained or match rule |
 | `{value}` | the input's last value, a combined signal's combined value |
 
@@ -334,7 +358,7 @@ A rule's `message` is a template. Alert Rules fills in its placeholders when it 
 
 Values are in SI, labelled with the unit the input path's `meta.units` names: for a combined signal, its first input's that has one, metres for `distance` and `positionSpread`, and none for `ratio`. A ratio is shown as a percentage. The server's display-unit preferences are resolved per user when the server answers a client and are not readable by a plugin, and a message reads the same for everyone. Durations are in seconds, minutes or hours: 30 s, 5 min, 2 h.
 
-A placeholder with nothing to fill it in reads as a dash, "–": `{duration}` on a rule without one, `{value}` before the input has reported since start, or `{limit}` of a zone limit whose zones have not been read. Any other text in braces stays as written.
+A placeholder with nothing to fill it in reads as a dash, "–": `{duration}` on a rule without one, `{value}` before the input has reported since start, `{limit}` of a zone limit whose zones have not been read, or `{limit}` of an outside rule whose value has not gone past either limit, when the alert's data holds no `limit`. Any other text in braces stays as written.
 
 A changed value is sent with the next repeat, so the message is at most one heartbeat behind the value, and a burst of changes adds no emissions: Alert Rules sends a changed message at most once per repeat. A message without placeholders is sent unchanged. The rule state's `message` is the message Alert Rules last sent for the alert, or, for an alert not sent since start, such as one adopted while already stale, the message as it reads now (see [State](#state)).
 
@@ -427,7 +451,7 @@ Per instance, its `condition`, `reason` and the reason's facts, and:
 |---|---|
 | `instance` | `name` and `segment`, for a wildcard rule |
 | `value` | the signal's current value, while it has one; a combined signal's combined value |
-| `limit` | a sustained or projection rule's limit in force: the reached step's while the alert is active, else the first step's; for a zone limit, the matching level's threshold |
+| `limit` | a sustained, outside or projection rule's limit in force: the reached step's while the alert is active, else the first step's; for a zone limit, the matching level's threshold; for an outside rule, that step's limit on the side the value last went past, absent until the value has gone past either |
 | `progress` | `{ "kind": "events", "count", "limit" }`, a count's events in its window, which sets when `count` exceeds the first step's `limit`; or `{ "kind": "total", "total", "limit" }`, an accumulator's total and its first step's limit. Absent for other detectors: timers toward a transition are not reported |
 | `gates` | per gate, in the rule's order: `path` (the path it reads for this instance; absent for a combined signal), `value` while it has one, `holds`, and `input` (`value`, `unavailable` or `neverSeen`). An unavailable gate input keeps the gate's last state |
 
@@ -441,7 +465,7 @@ An instance's condition is the first of these that applies:
 | `problem` | `timeoutNotPossible` | a timeout rule whose path the server can never time out | `cause`: `booleanPath`, `stringPath`, `notEnforced` (the server does not enforce timeouts), `updateContract` (with `contract`, the path's update contract other than `periodic`), `timeoutOff` (`meta.timeout` of 0 or less), `noTimeout` (no `meta.timeout` and the server's default timeouts off) |
 | `problem` | `unitsNotRadians` | an angular combination of an input the server reports in other units | `path`, `units` |
 | `problem` | `alertPathInvalid` | the instance's alert path is one core would not accept | |
-| `alerting` | `alertActive` | the alert is active; never for a disabled rule | `priority` and `step` reached (an index from 0; an edit does not lower the priority), `level` for a zone limit, `awaitingInput` when the input has no evidence and the alert is not repeated (see [Heartbeat and input evidence](#heartbeat-and-input-evidence)), `message`, the alert's message with its placeholders filled in as Alert Rules last sent it, or as it reads now for an alert not sent since start (see [Messages](#messages)) |
+| `alerting` | `alertActive` | the alert is active; never for a disabled rule | `priority` and `step` reached (an index from 0; an edit does not lower the priority), `level` for a zone limit, `passed` (`low` or `high`) for an outside rule, the side of the range the value last went past, whose limit the instance's `limit` gives, `awaitingInput` when the input has no evidence and the alert is not repeated (see [Heartbeat and input evidence](#heartbeat-and-input-evidence)), `message`, the alert's message with its placeholders filled in as Alert Rules last sent it, or as it reads now for an alert not sent since start (see [Messages](#messages)) |
 | `normal` | `outsideGate` | a gate does not hold | the gate facts in `gates` |
 | `present` | `conditionPresent` | a disabled rule's condition holds | |
 | `noData` | `inputUnavailable` | the input is unavailable | `lastSeen`, when it last had a value since start |
@@ -473,6 +497,7 @@ Each rule in [`examples/rules`](../examples/rules) runs in `test/examples.test.t
 | `compasses-disagree` | Sustained angular difference of two named compass sources above 0.1 rad for 60 s, caution. | 358° and 3° (5° apart across north); compass B at 5° from 30 s, at 1° from 150 s. | 90 s raise caution; 150 s clear. |
 | `engine-stopped` | Match: each engine's state changes to `stopped`, warning, latching. | Port reports `started`; starboard first reports `stopped`; port `stopped` at 600 s. | 600 s latching raise warning on `.port`; no clear. Starboard's first report raises nothing. |
 | `depth-sensor-silent` | Timeout: depth timed out for 30 s, warning. | Depth every 10 s; core marks it timed out at 30 s; depth again from 90 s. | 60 s raise warning; 90 s clear. |
+| `shore-power-frequency` | Outside: shore power frequency outside 49-51 Hz for 10 s, warning; outside 48-52 Hz, alarm; clearing 0.2 Hz inside 49-51 Hz after 30 s. | 50 Hz, 51.4 Hz at 10 s, 52.5 Hz at 60 s, 47.6 Hz at 120 s, 50.9 Hz at 180 s, 50.1 Hz at 240 s. | 20 s raise warning; 70 s priority alarm; 270 s clear. The move to 47.6 Hz sends no event: the message's `{limit}` reads 48 Hz from the next repeat. 50.9 Hz is inside 49-51 Hz but within the 0.2 Hz hysteresis, so only 50.1 Hz clears. |
 
 ## Decided, not yet implemented
 
