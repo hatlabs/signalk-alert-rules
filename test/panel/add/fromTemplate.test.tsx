@@ -330,6 +330,108 @@ describe('Add rule from a template', () => {
     ])
   })
 
+  /** The server's refusal of a slug a stored rule has. */
+  const slugTaken = () =>
+    new RuleRejectedError('a rule with this slug exists', [
+      {
+        path: '/slug',
+        message:
+          'is taken by another rule. If an earlier attempt to create this rule timed out, it may have saved this rule: check the rule list before renaming.'
+      }
+    ])
+
+  it('keeps a slug the user typed, refusing it rather than trying another', async () => {
+    const server = fresh()
+    server.refuse = (rule) => (rule.slug === 'my-house' ? slugTaken() : undefined)
+    const api = renderShell(server)
+    await openLifepo4()
+    pick(/^House bank/)
+    await continueWith('Continue with 1 rule')
+    change(screen.getByRole('textbox', { name: /^Slug/ }), 'my-house')
+    fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+    expect(await screen.findByText(/is taken by another rule/)).toBeTruthy()
+    expect(createdRules(api).map((r) => r.slug)).toEqual(['my-house'])
+  })
+
+  it('stops trying slugs after a few, showing the refusal', async () => {
+    const server = fresh()
+    server.refuse = (rule) =>
+      rule.slug.startsWith('battery-voltage-low-lifepo4-house') ? slugTaken() : undefined
+    const api = renderShell(server)
+    await openLifepo4()
+    pick(/^House bank/)
+    await continueWith('Continue with 1 rule')
+    fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+    expect(await screen.findByText(/is taken by another rule/)).toBeTruthy()
+    expect(createdRules(api).map((r) => r.slug)).toEqual([
+      'battery-voltage-low-lifepo4-house',
+      'battery-voltage-low-lifepo4-house-2',
+      'battery-voltage-low-lifepo4-house-3',
+      'battery-voltage-low-lifepo4-house-4',
+      'battery-voltage-low-lifepo4-house-5'
+    ])
+  })
+
+  it('tries no other slug for a rule whose earlier create got no answer, as it may have saved', async () => {
+    const server = fresh()
+    server.refuse = (rule) =>
+      server.rules.some((r) => r.slug === rule.slug) ? slugTaken() : undefined
+    const api = renderShell(server)
+    const store = api.createRule.getMockImplementation()
+    api.createRule.mockImplementationOnce(async (rule: Rule) => {
+      await store?.(rule)
+      throw new Error('The request timed out')
+    })
+    await openLifepo4()
+    pick(/^House bank/)
+    await continueWith('Continue with 1 rule')
+    fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+    expect(await screen.findByText(/The request timed out/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+    expect(await screen.findByText(/is taken by another rule/)).toBeTruthy()
+    expect(createdRules(api).map((r) => r.slug)).toEqual([
+      'battery-voltage-low-lifepo4-house',
+      'battery-voltage-low-lifepo4-house'
+    ])
+  })
+
+  it('keeps the edits made while Save runs', async () => {
+    const server = fresh()
+    server.refuse = (rule) =>
+      rule.slug.endsWith('starter')
+        ? new RuleRejectedError('another rule has this alert path', [
+            {
+              path: '/condition',
+              message:
+                'makes an alert path overlapping that of rule old-starter; each rule needs its own'
+            }
+          ])
+        : undefined
+    const api = renderShell(server)
+    const store = api.createRule.getMockImplementation()
+    let answer: (() => void) | undefined
+    api.createRule.mockImplementationOnce(
+      (rule: Rule) =>
+        new Promise<RuleEntry>((resolve, reject) => {
+          answer = () => {
+            store?.(rule).then(resolve, reject)
+          }
+        })
+    )
+    await openLifepo4()
+    pick(/^House bank/)
+    pick(/^starter/)
+    await continueWith('Continue with 2 rules')
+    fireEvent.click(screen.getByRole('button', { name: 'Create 2 rules' }))
+    fireEvent.click(tab(/starter/))
+    change(limit(), '12.3')
+    act(() => {
+      answer?.()
+    })
+    expect(await screen.findByText(/Created 1 rule/)).toBeTruthy()
+    expect(limit().value).toBe('12.3')
+  })
+
   it('marks a battery that already has a rule from the template, and still lets it be kept', async () => {
     const made = ruleEntry({
       slug: 'battery-voltage-low-lifepo4-house',

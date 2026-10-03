@@ -79,6 +79,11 @@ interface Tab {
   existing?: string
   /** The user chose to create the rule though one exists. */
   kept: boolean
+  /**
+   * A create got no answer, as when it timed out; it may have saved the rule,
+   * so its slug being taken is not a reason to try the next one.
+   */
+  unanswered?: true
 }
 
 /** Whether Save creates the tab's rule: one that already exists only once the user keeps it. */
@@ -203,7 +208,10 @@ function TabsForm(props: FormProps) {
     )
   }
 
-  /** Creates the rule, proposing the next slug while a rule that is not listed holds the one tried. */
+  /**
+   * Creates the rule, proposing the next slug while a rule that is not
+   * listed holds the one tried; never for a slug the user typed.
+   */
   const create = async (tab: Tab, rule: Rule): Promise<RuleEntry> => {
     const tried = new Set([...props.rules.map((r) => r.slug), ...tabs.map((t) => t.form.slug)])
     let attempt = rule
@@ -211,7 +219,12 @@ function TabsForm(props: FormProps) {
       try {
         return await api.createRule(attempt)
       } catch (err) {
-        if (!isSlugTaken(err) || rule.slug !== tab.proposed || n >= SLUG_ATTEMPTS) throw err
+        const retry =
+          isSlugTaken(err) &&
+          tab.unanswered === undefined &&
+          rule.slug === tab.proposed &&
+          n < SLUG_ATTEMPTS
+        if (!retry) throw err
         tried.add(attempt.slug)
         attempt = { ...attempt, slug: proposeSlug(template.id, tab.pick.instance, tried) }
       }
@@ -234,7 +247,9 @@ function TabsForm(props: FormProps) {
     }
     setBusy(true)
     const done = [...created]
-    let remaining = tabs.map((t) => ({ ...t, errors: [] as FieldError[] }))
+    const made = new Set<string>()
+    // What befell the tab Save stopped at, applied over the tabs as they are by then.
+    let stopped: { key: string; patch: Partial<Tab> } | undefined
     try {
       for (const { tab, result } of read) {
         if (!result.ok) continue
@@ -242,21 +257,27 @@ function TabsForm(props: FormProps) {
           done.push(await create(tab, result.rule))
         } catch (err) {
           if (err instanceof RuleRejectedError && err.errors.length > 0) {
-            remaining = remaining.map((t) => (t.key === tab.key ? { ...t, errors: err.errors } : t))
+            stopped = { key: tab.key, patch: { errors: err.errors } }
           } else {
+            stopped = { key: tab.key, patch: { unanswered: true } }
             setFailure(`${tab.label}: ${failureMessage(err)}`)
           }
           setActiveKey(tab.key)
           return
         }
-        remaining = remaining.filter((t) => t.key !== tab.key)
+        made.add(tab.key)
         props.onCreated()
       }
       guard.release()
       props.onSaved(done)
     } finally {
       setCreated(done)
-      setTabs(remaining)
+      // Edits made while Save ran are kept: only its outcome is applied.
+      setTabs((last) =>
+        last
+          .filter((t) => !made.has(t.key))
+          .map((t) => (t.key === stopped?.key ? { ...t, ...stopped.patch } : t))
+      )
       setBusy(false)
     }
   }
