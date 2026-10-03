@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LEVEL_PRIORITY, type Rule } from '../../../src/model/rule'
 import { RuleRejectedError, type EditPreview } from '../../../src/panel/api'
 import { ZONE_PRIORITY } from '../../../src/panel/editor/MoreOptions'
+import type { PathSource } from '../../../src/panel/paths/selfPaths'
 import { instance, ruleEntry } from '../fixtures'
 import {
   button,
@@ -11,11 +12,13 @@ import {
   choose,
   click,
   description,
+  distance,
   example,
   formShown,
   noChange,
   openMoreOptions,
   renderEditor,
+  reported,
   saved,
   select,
   textbox,
@@ -676,6 +679,83 @@ describe('RuleEditor, an invalid stored rule', () => {
     click(button('Save'))
     await saved(onSaved)
     expect(api.updateRule).toHaveBeenCalledWith('battery-old', { ...battery, slug: 'battery-old' })
+  })
+})
+
+describe('RuleEditor, a unit reported after it opens', () => {
+  const COOLANT = 'propulsion.port.coolantTemperature'
+  /** Reports the coolant temperature, in °C, from the second read on. */
+  const later = (): { source: PathSource; reads: () => number } => {
+    let reads = 0
+    return {
+      source: {
+        selfPaths: () => {
+          reads++
+          return Promise.resolve(
+            reads === 1 ? reported.filter((p) => p.path !== COOLANT) : reported
+          )
+        },
+        distanceUnit: () => Promise.resolve(distance)
+      },
+      reads: () => reads
+    }
+  }
+  const polled = async (reads: () => number) => {
+    await vi.advanceTimersByTimeAsync(5000)
+    await waitFor(() => {
+      expect(reads()).toBeGreaterThan(1)
+    })
+    await waitFor(() => {
+      expect(screen.getByText(/^Now /)).toBeTruthy()
+    })
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+  })
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
+
+  it('saves a stored limit unchanged', async () => {
+    const rule: Rule = {
+      name: 'Coolant hot',
+      slug: 'coolant-hot',
+      message: 'Coolant {value}',
+      signal: { path: COOLANT },
+      detector: {
+        type: 'sustained',
+        direction: 'above',
+        steps: [{ limit: 368.15, priority: 'alarm' }]
+      }
+    }
+    const { source, reads } = later()
+    const { api, onSaved } = renderEditor({
+      paths: source,
+      editing: { entry: ruleEntry({ slug: rule.slug }), rule }
+    })
+    await formShown()
+    await polled(reads)
+    click(button('Save'))
+    await saved(onSaved)
+    expect(api.updateRule).toHaveBeenCalledWith(rule.slug, rule)
+  })
+
+  it('keeps a typed limit in the unit it was typed in', async () => {
+    const { source, reads } = later()
+    const { api, onSaved } = renderEditor({
+      paths: source,
+      start: { path: COOLANT, kind: 'above' }
+    })
+    await formShown()
+    choose('Priority for step 1', 'alarm')
+    type(textbox('Limit for step 1'), '368.15')
+    await polled(reads)
+    create()
+    await saved(onSaved)
+    const [[rule]] = api.createRule.mock.calls
+    expect(rule.detector).toMatchObject({ steps: [{ limit: 368.15, priority: 'alarm' }] })
   })
 })
 

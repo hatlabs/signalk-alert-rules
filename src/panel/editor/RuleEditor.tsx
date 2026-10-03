@@ -68,16 +68,17 @@ export interface RuleEditorProps {
 export function RuleEditor(props: RuleEditorProps) {
   const { paths, units, ready } = useUnits(props.paths, LIVE_POLL_MS)
   if (!ready) return <div role="status">Loading paths…</div>
-  return <EditorForm {...props} paths={paths} units={units} />
+  return <EditorForm {...props} paths={paths} live={units} />
 }
 
 interface FormProps extends Omit<RuleEditorProps, 'paths'> {
   paths: PathList
-  units: UnitLookup
+  /** The paths as last read, for their values and sources now. */
+  live: UnitLookup
 }
 
-function initialForm(props: FormProps): RuleForm {
-  const { editing, invalid, start, units } = props
+function initialForm(props: FormProps, units: UnitLookup): RuleForm {
+  const { editing, invalid, start } = props
   if (editing !== undefined) return fromRule(editing.rule, units)
   // Saved to the slug it is stored under, which the form does not show for an edit.
   if (invalid !== undefined) return { ...fromBody(invalid.body, units), slug: invalid.slug }
@@ -124,10 +125,13 @@ function withNamedClash(
 type Destination = { hash: string } | 'close'
 
 function EditorForm(props: FormProps) {
-  const { api, paths, units, editing, invalid, back, onSaved, onClose } = props
+  const { api, paths, live, editing, invalid, back, onSaved, onClose } = props
   const ruleName = props.ruleName ?? (() => undefined)
   const isNew = editing === undefined && invalid === undefined
-  const [initial] = useState<RuleForm>(() => initialForm(props))
+  // The form's numbers are text in the units it opened with, so every
+  // conversion keeps those units; a unit reported later would rescale them.
+  const [units] = useState(live)
+  const [initial] = useState<RuleForm>(() => initialForm(props, units))
   const [form, setForm] = useState<RuleForm>(initial)
   const [errors, setErrors] = useState<FieldError[]>(invalid?.errors ?? [])
   const [failure, setFailure] = useState<string | undefined>(undefined)
@@ -177,7 +181,7 @@ function EditorForm(props: FormProps) {
   const measure = signalMeasure(signalShape(form.signal), units)
   const single = form.signal.mode === 'single'
   const slot = form.signal.slots[0] ?? { path: '', source: '' }
-  const entry = single ? units.entry(slot.path) : undefined
+  const entry = single ? live.entry(slot.path) : undefined
   const wildcard = hasWildcard(form.signal)
   // A wildcard's first instance is not the rule's value, nor one input a combination's.
   const liveValue = single && !wildcard ? entry?.value : undefined
@@ -312,7 +316,7 @@ function EditorForm(props: FormProps) {
                       onChange={(path) => {
                         update({
                           ...form,
-                          signal: { ...form.signal, slots: [withPath(slot, path, units)] }
+                          signal: { ...form.signal, slots: [withPath(slot, path, live)] }
                         })
                       }}
                     />
@@ -366,7 +370,7 @@ function EditorForm(props: FormProps) {
                 label="Source"
                 pointer="/signal/source"
                 value={slot.source}
-                options={sourceOptions(slot, units)}
+                options={sourceOptions(slot, live)}
                 hint={sourceHint(entry?.sources?.length ?? 0)}
                 onChange={(source) => {
                   update({ ...form, signal: { ...form.signal, slots: [{ ...slot, source }] } })
