@@ -1,8 +1,8 @@
 /**
  * What the rule editor and the template's tabs share around their fields:
- * the wait for the paths, and the errors no field shows.
+ * the wait for the paths, focus on a field in error, and the errors no field shows.
  */
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import type { FieldError } from '../api'
 import type { PathList, PathSource } from '../paths/selfPaths'
 import { useUnits, type UnitLookup } from '../signalUnits'
@@ -36,4 +36,29 @@ export function UnattachedErrors({ errors }: { errors: readonly FieldError[] }) 
       ))}
     </ul>
   )
+}
+
+/**
+ * Moves focus to the first field in error once Save finds one. A field under
+ * More options shows only once it opens, so focus waits for it to show.
+ */
+export function useFocusInvalid() {
+  const formRef = useRef<HTMLFormElement>(null)
+  const pending = useRef(false)
+  useEffect(() => {
+    if (!pending.current) return
+    const invalidFields = [
+      ...(formRef.current?.querySelectorAll<HTMLElement>('[aria-invalid="true"]') ?? [])
+    ]
+    const shown = invalidFields.find((el) => el.closest('details:not([open])') === null)
+    if (shown === undefined && invalidFields.length > 0) return
+    pending.current = false
+    shown?.focus()
+  })
+  return {
+    formRef,
+    focusInvalid: () => {
+      pending.current = true
+    }
+  }
 }

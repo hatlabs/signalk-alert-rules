@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import type { Rule, TemplatePick } from '../../model/rule'
 import type { Template } from '../../model/template'
 import { proposeSlug } from '../../templates/instantiate'
@@ -13,7 +13,7 @@ import {
 } from '../api'
 import { BackIcon } from '../detail/icons'
 import { toRule, type RuleForm } from '../editor/formModel'
-import { UnattachedErrors, WithPaths } from '../editor/editorFrame'
+import { UnattachedErrors, useFocusInvalid, WithPaths } from '../editor/editorFrame'
 import { useLeaveGuard } from '../editor/leaveGuard'
 import { checkedErrors, RuleFields } from '../editor/RuleFields'
 import { joined } from '../editor/words'
@@ -138,10 +138,18 @@ function TabsForm(props: FormProps) {
   const [note, setNote] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const headingRef = useRef<HTMLHeadingElement>(null)
+  const tabRefs = useRef(new Map<string, HTMLButtonElement>())
+  const { formRef, focusInvalid } = useFocusInvalid()
 
   useEffect(() => {
     headingRef.current?.focus()
   }, [])
+
+  // On a phone the tabs scroll sideways; Save may switch to one out of sight.
+  useEffect(() => {
+    if (activeKey !== undefined)
+      tabRefs.current.get(activeKey)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [activeKey])
 
   const dirty = useMemo(
     () =>
@@ -243,6 +251,7 @@ function TabsForm(props: FormProps) {
     const firstRefused = refused.at(0)
     if (firstRefused !== undefined) {
       setActiveKey(firstRefused.tab.key)
+      focusInvalid()
       return
     }
     setBusy(true)
@@ -258,6 +267,7 @@ function TabsForm(props: FormProps) {
         } catch (err) {
           if (err instanceof RuleRejectedError && err.errors.length > 0) {
             stopped = { key: tab.key, patch: { errors: err.errors } }
+            focusInvalid()
           } else {
             stopped = { key: tab.key, patch: { unanswered: true } }
             setFailure(`${tab.label}: ${failureMessage(err)}`)
@@ -288,9 +298,28 @@ function TabsForm(props: FormProps) {
       ? undefined
       : `Created ${rulesWord(created.length)}; ${created.length === 1 ? 'it is' : 'they are'} in the rule list.`
   const heading =
-    tabs.length + created.length === 1
-      ? `New rule from “${title}”`
-      : `${String(tabs.length + created.length)} new rules from “${title}”`
+    created.length > 0
+      ? `${rulesWord(tabs.length)} left from “${title}”${tabs.length === 1 && active !== undefined ? `: ${active.label}` : ''}`
+      : tabs.length === 1
+        ? `New rule from “${title}”`
+        : `${String(tabs.length)} new rules from “${title}”`
+
+  /** Arrow keys, Home and End move along the tabs, selecting as they go. */
+  const onTabKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    const at = tabs.findIndex((t) => t.key === active?.key)
+    const to = new Map([
+      ['ArrowRight', at + 1],
+      ['ArrowLeft', at - 1],
+      ['Home', 0],
+      ['End', tabs.length - 1]
+    ]).get(event.key)
+    if (to === undefined) return
+    event.preventDefault()
+    const next = tabs.at((to + tabs.length) % tabs.length)
+    if (next === undefined) return
+    setActiveKey(next.key)
+    tabRefs.current.get(next.key)?.focus()
+  }
   const creating = tabs.filter(included).length
   const otherLabel = tabs.length === 2 ? tabs.find((t) => t.key !== active?.key)?.label : undefined
 
@@ -305,15 +334,25 @@ function TabsForm(props: FormProps) {
       </h2>
       {tabs.length > 1 && (
         <div className="skar-tabs-row">
-          <div className="skar-tabs" role="tablist" aria-label="Rules being created">
+          <div
+            className="skar-tabs"
+            role="tablist"
+            aria-label="Rules being created"
+            onKeyDown={onTabKey}
+          >
             {tabs.map((t) => (
               <button
                 key={t.key}
                 id={`${id}-tab-${t.key}`}
+                ref={(el) => {
+                  if (el === null) tabRefs.current.delete(t.key)
+                  else tabRefs.current.set(t.key, el)
+                }}
                 type="button"
                 role="tab"
                 className="skar-tab"
                 aria-selected={t.key === active?.key}
+                tabIndex={t.key === active?.key ? 0 : -1}
                 aria-controls={`${id}-panel`}
                 onClick={() => {
                   setActiveKey(t.key)
@@ -352,6 +391,7 @@ function TabsForm(props: FormProps) {
       {active !== undefined && checked !== undefined && (
         <div className="skar-editor-grid">
           <form
+            ref={formRef}
             id={`${id}-panel`}
             className="skar-card skar-editor-form"
             {...(tabs.length > 1

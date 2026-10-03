@@ -152,8 +152,9 @@ const tab = (name: RegExp) => screen.getByRole('tab', { name })
 const createdRules = (api: ReturnType<typeof serverApi>): Rule[] =>
   api.createRule.mock.calls.map(([rule]) => rule)
 
+const scrollIntoView = vi.fn()
 beforeAll(() => {
-  Element.prototype.scrollIntoView = vi.fn()
+  Element.prototype.scrollIntoView = scrollIntoView
 })
 
 describe('Add rule from a template', () => {
@@ -228,6 +229,34 @@ describe('Add rule from a template', () => {
     ])
   })
 
+  it('moves between the tabs with the arrow keys, Home and End, one tab in the tab order', async () => {
+    renderShell(fresh())
+    await openLifepo4()
+    pick(/^House bank/)
+    pick(/^starter/)
+    pick(/^ruuvi-cockpit/)
+    await continueWith('Continue with 3 rules')
+    const tabs = screen.getAllByRole('tab')
+    expect(tabs.map((t) => t.tabIndex)).toEqual([0, -1, -1])
+    const press = (key: string) => {
+      fireEvent.keyDown(document.activeElement ?? document.body, { key })
+    }
+    tabs[0]?.focus()
+    press('ArrowRight')
+    expect(document.activeElement).toBe(tab(/ruuvi-cockpit/))
+    expect(tab(/ruuvi-cockpit/).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getAllByRole('tab').map((t) => t.tabIndex)).toEqual([-1, 0, -1])
+    press('End')
+    expect(document.activeElement).toBe(tab(/starter/))
+    press('ArrowRight')
+    expect(document.activeElement).toBe(tab(/House bank/))
+    press('ArrowLeft')
+    expect(document.activeElement).toBe(tab(/starter/))
+    press('Home')
+    expect(document.activeElement).toBe(tab(/House bank/))
+    expect(tab(/House bank/).getAttribute('aria-selected')).toBe('true')
+  })
+
   it('copies the shown tab’s settings to the others, keeping their names and values', async () => {
     const api = renderShell(fresh())
     await openLifepo4()
@@ -266,6 +295,10 @@ describe('Add rule from a template', () => {
     expect(await screen.findByText('Fill in step 1 on starter to save.')).toBeTruthy()
     expect(tab(/starter/).getAttribute('aria-selected')).toBe('true')
     expect(tab(/starter/).textContent).toContain('needs fixing')
+    expect(scrollIntoView.mock.contexts).toContain(tab(/starter/))
+    await waitFor(() => {
+      expect(document.activeElement).toBe(limit())
+    })
     expect(api.createRule).not.toHaveBeenCalled()
     fireEvent.click(tab(/House bank/))
     expect(limit().value).toBe('12.9')
@@ -291,6 +324,11 @@ describe('Add rule from a template', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create 2 rules' }))
     expect(await screen.findByText(/Created 1 rule/)).toBeTruthy()
     expect(screen.queryByRole('tab')).toBeNull()
+    expect(
+      screen.getByRole('heading', {
+        name: '1 rule left from “Battery voltage low (LiFePO4)”: starter'
+      })
+    ).toBeTruthy()
     expect(screen.getByText(/Another rule uses this alert path: old-starter/)).toBeTruthy()
     server.refuse = undefined
     change(screen.getByRole('textbox', { name: /^Condition name/ }), 'starterVoltageLow')

@@ -9,7 +9,7 @@ import { discardedTotals, ruleDisplay } from '../rules/describe'
 import type { UnitLookup } from '../signalUnits'
 import { withKind, type ConditionKind } from './conditionKinds'
 import { editConsequences } from './consequences'
-import { UnattachedErrors, WithPaths } from './editorFrame'
+import { UnattachedErrors, useFocusInvalid, WithPaths } from './editorFrame'
 import { useLeaveGuard } from './leaveGuard'
 import { emptyForm, fromBody, fromRule, toRule, type RuleForm } from './formModel'
 import { withGenerated } from './message'
@@ -83,9 +83,7 @@ function EditorForm(props: FormProps) {
   const confirming = useSheet<{ form: RuleForm; rule: Rule; lines: string[] }>()
   const pending = confirming.value
   const headingRef = useRef<HTMLHeadingElement>(null)
-  const formRef = useRef<HTMLFormElement>(null)
-  // Set by a failed save; the field in error may only show once More options opens.
-  const focusInvalid = useRef(false)
+  const { formRef, focusInvalid } = useFocusInvalid()
 
   // The form only ever opens on the operator's action and replaces the view
   // that held focus, so focus moves to its heading.
@@ -100,19 +98,9 @@ function EditorForm(props: FormProps) {
     unsaved: 'The changes to this rule have not been saved.'
   })
 
-  useEffect(() => {
-    if (!focusInvalid.current) return
-    const invalidFields = [
-      ...(formRef.current?.querySelectorAll<HTMLElement>('[aria-invalid="true"]') ?? [])
-    ]
-    const shown = invalidFields.find((el) => el.closest('details:not([open])') === null)
-    if (shown === undefined && invalidFields.length > 0) return
-    focusInvalid.current = false
-    shown?.focus()
-  })
   const showErrors = (next: FieldError[]) => {
     setErrors(next)
-    focusInvalid.current = true
+    focusInvalid()
   }
 
   const checked = checkedErrors(form, errors, isNew, ruleName)
