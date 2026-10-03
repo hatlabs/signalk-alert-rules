@@ -450,19 +450,8 @@ describe('Add rule from a template', () => {
     ])
   })
 
-  it('keeps the edits made while Save runs', async () => {
-    const server = fresh()
-    server.refuse = (rule) =>
-      rule.slug.endsWith('starter')
-        ? new RuleRejectedError('another rule has this alert path', [
-            {
-              path: '/condition',
-              message:
-                'makes an alert path overlapping that of rule old-starter; each rule needs its own'
-            }
-          ])
-        : undefined
-    const api = renderShell(server)
+  it('locks the settings while Save runs, so a rule is created as shown', async () => {
+    const api = renderShell(fresh())
     const store = api.createRule.getMockImplementation()
     let answer: (() => void) | undefined
     api.createRule.mockImplementationOnce(
@@ -478,13 +467,20 @@ describe('Add rule from a template', () => {
     pick(/^starter/)
     await continueWith('Continue with 2 rules')
     fireEvent.click(screen.getByRole('button', { name: 'Create 2 rules' }))
+    expect(limit().matches(':disabled')).toBe(true)
+    expect(
+      screen.getByRole<HTMLButtonElement>('button', { name: /^Copy these settings/ }).disabled
+    ).toBe(true)
     fireEvent.click(tab(/starter/))
-    change(limit(), '12.3')
+    expect(limit().matches(':disabled')).toBe(true)
     act(() => {
       answer?.()
     })
-    expect(await screen.findByText(/Created 1 rule/)).toBeTruthy()
-    expect(limit().value).toBe('12.3')
+    await screen.findByRole('heading', { name: 'Alert rules' })
+    expect(createdRules(api).map((r) => r.signal)).toEqual([
+      { path: 'electrical.batteries.house.voltage' },
+      { path: 'electrical.batteries.starter.voltage' }
+    ])
   })
 
   it('marks a battery that already has a rule from the template, and still lets it be kept', async () => {
@@ -538,6 +534,9 @@ describe('Add rule from a template', () => {
     it('names the rule a pick already has and leaves it out of Save', async () => {
       const api = renderShell(fresh([houseRule]))
       await openEditLink()
+      expect(
+        screen.getByRole('heading', { name: '1 new rule from “Battery voltage low (LiFePO4)”' })
+      ).toBeTruthy()
       expect(tab(/House bank/).textContent).toContain('already has a rule')
       fireEvent.click(tab(/House bank/))
       expect(
@@ -555,6 +554,9 @@ describe('Add rule from a template', () => {
       await openEditLink()
       fireEvent.click(tab(/House bank/))
       fireEvent.click(screen.getByRole('button', { name: 'Create another rule for it' }))
+      expect(
+        screen.getByRole('heading', { name: '2 new rules from “Battery voltage low (LiFePO4)”' })
+      ).toBeTruthy()
       fireEvent.click(screen.getByRole('button', { name: 'Create 2 rules' }))
       await screen.findByRole('heading', { name: 'Alert rules' })
       expect(createdRules(api).map((r) => r.slug)).toEqual([

@@ -278,7 +278,7 @@ function TabsForm(props: FormProps) {
       props.onSaved(done)
     } finally {
       setCreated(done)
-      // Edits made while Save ran are kept: only its outcome is applied.
+      // Only Save's outcome is applied, over the tabs as they are by then.
       setTabs((last) =>
         last
           .filter((t) => !made.has(t.key))
@@ -293,12 +293,13 @@ function TabsForm(props: FormProps) {
     created.length === 0
       ? undefined
       : `Created ${rulesWord(created.length)}; ${created.length === 1 ? 'it is' : 'they are'} in the rule list.`
+  const creating = tabs.filter(included).length
   const heading =
     created.length > 0
       ? `${rulesWord(tabs.length)} left from “${title}”${tabs.length === 1 && active !== undefined ? `: ${active.label}` : ''}`
       : tabs.length === 1
         ? `New rule from “${title}”`
-        : `${String(tabs.length)} new rules from “${title}”`
+        : `${creating === 0 ? 'No' : String(creating)} new ${creating === 1 ? 'rule' : 'rules'} from “${title}”`
 
   /** Arrow keys, Home and End move along the tabs, selecting as they go. */
   const onTabKey = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -316,7 +317,6 @@ function TabsForm(props: FormProps) {
     setActiveKey(next.key)
     tabRefs.current.get(next.key)?.focus()
   }
-  const creating = tabs.filter(included).length
   const ready =
     creating > 1 &&
     hint === undefined &&
@@ -370,7 +370,12 @@ function TabsForm(props: FormProps) {
               </button>
             ))}
           </div>
-          <button type="button" className="skar-link-btn skar-link-small" onClick={copyToOthers}>
+          <button
+            type="button"
+            className="skar-link-btn skar-link-small"
+            disabled={busy}
+            onClick={copyToOthers}
+          >
             {otherLabel === undefined
               ? `Copy these settings to the other ${String(tabs.length - 1)} rules`
               : `Copy these settings to ${otherLabel}`}
@@ -407,25 +412,28 @@ function TabsForm(props: FormProps) {
               event.preventDefault()
             }}
           >
-            <RuleFields
-              key={active.key}
-              form={active.form}
-              onChange={(form) => {
-                replaceTab(active.key, { form })
-              }}
-              paths={paths}
-              onStepsShifted={() => {
-                replaceTab(active.key, {
-                  errors: active.errors.filter((e) => !e.path.startsWith('/detector/steps/'))
-                })
-              }}
-              units={units}
-              live={live}
-              isNew
-              checked={checked}
-              ruleName={ruleName}
-              {...(props.editHref === undefined ? {} : { editHref: props.editHref })}
-            />
+            {/* Save creates each rule from the settings it read, so they cannot change meanwhile. */}
+            <fieldset className="skar-editor-fields" disabled={busy}>
+              <RuleFields
+                key={active.key}
+                form={active.form}
+                onChange={(form) => {
+                  replaceTab(active.key, { form })
+                }}
+                paths={paths}
+                onStepsShifted={() => {
+                  replaceTab(active.key, {
+                    errors: active.errors.filter((e) => !e.path.startsWith('/detector/steps/'))
+                  })
+                }}
+                units={units}
+                live={live}
+                isNew
+                checked={checked}
+                ruleName={ruleName}
+                {...(props.editHref === undefined ? {} : { editHref: props.editHref })}
+              />
+            </fieldset>
           </form>
           {/* The history chart's place, beside the form on a tablet. */}
         </div>

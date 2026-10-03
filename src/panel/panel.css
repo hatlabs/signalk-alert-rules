@@ -926,6 +926,10 @@
   gap: 1rem;
 }
 
+.skar-editor-fields {
+  display: contents;
+}
+
 .skar-editor-actions {
   position: sticky;
   bottom: 0;
