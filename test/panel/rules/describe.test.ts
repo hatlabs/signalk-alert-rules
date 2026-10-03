@@ -117,11 +117,12 @@ describe('alertsWhen', () => {
       { limit: 7200, priority: 'caution' },
       'a total of 2 h'
     ],
-    // A rate converts through the unit's scale alone: 0.5 K/s is 0.5 °C/s, not -272.65.
+    // A rate is per minute, as the editor enters it, through the unit's scale
+    // alone: 0.02 K/s is 1.2 °C/min, not an offset absolute temperature.
     [
       { type: 'slope', direction: 'rising' },
-      { limit: 0.5, priority: 'warning' },
-      'rising faster than 0.5 °C/s'
+      { limit: 0.02, priority: 'warning' },
+      'rising faster than 1.2 °C/min'
     ],
     [
       { type: 'projection', direction: 'rising' },

@@ -181,7 +181,7 @@ export interface RuleDisplay {
   /** Two values joined by a word, the unit once after both: "-25 to 25 °". */
   range: (low: number, high: number, joiner: 'to' | 'and') => string
   total: (total: number) => string
-  /** A rate of change, per second, through the linear part of the unit. */
+  /** A rate of change, stored per second, shown per minute as the editor enters it. */
   rate: (perSecond: number) => string
   /** No display unit applies to the rule's values, so they are shown in SI. */
   si: boolean
@@ -207,8 +207,7 @@ export function ruleDisplay(rule: RuleInfo, units: UnitLookup): RuleDisplay {
     value: (v) => formatValue(v, measure),
     range: (low, high, joiner) => withUnit(`${shown(low)} ${joiner} ${shown(high)}`, integral),
     total,
-    rate: (v) =>
-      `${withUnit(formatNumber(fromSI('interval', v, measure.unit)), integral)}/s`.trimStart(),
+    rate: (v) => `${withUnit(formatNumber(fromSI('slope', v, measure.unit)), integral)}/min`,
     si: measure.kind !== 'ratio' && measure.unit.si
   }
 }
