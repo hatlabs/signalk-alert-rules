@@ -18,7 +18,9 @@ const xs = (line: string) => line.split(' ').map((p) => Number(p.split(',')[0]))
 
 describe('chartGeometry', () => {
   it('spans the width with the time and puts higher values higher', () => {
-    const { lines } = chartGeometry(
+    const {
+      lines: [lines]
+    } = chartGeometry(
       [
         [
           { time: at(0), value: 13 },
@@ -41,7 +43,9 @@ describe('chartGeometry', () => {
   })
 
   it('breaks the line at a bucket without a value', () => {
-    const { lines } = chartGeometry(
+    const {
+      lines: [lines]
+    } = chartGeometry(
       [
         [
           { time: at(0), value: 13 },
@@ -58,7 +62,9 @@ describe('chartGeometry', () => {
   })
 
   it('breaks the line where buckets are missing, as while nothing was recorded', () => {
-    const { lines } = chartGeometry(
+    const {
+      lines: [lines]
+    } = chartGeometry(
       [
         [
           { time: at(0), value: 13 },
@@ -74,7 +80,9 @@ describe('chartGeometry', () => {
   })
 
   it('draws a lone value between gaps as a dot rather than nothing', () => {
-    const { lines } = chartGeometry(
+    const {
+      lines: [lines]
+    } = chartGeometry(
       [
         [
           { time: at(0), value: null },
@@ -90,7 +98,10 @@ describe('chartGeometry', () => {
   })
 
   it('keeps a limit far from the values inside the chart', () => {
-    const { lines, limits } = chartGeometry(
+    const {
+      lines: [lines],
+      limits
+    } = chartGeometry(
       [
         [
           { time: at(0), value: 13.4 },
@@ -105,7 +116,10 @@ describe('chartGeometry', () => {
   })
 
   it('draws a flat series and its limit without dividing by zero', () => {
-    const { lines, limits } = chartGeometry(
+    const {
+      lines: [lines],
+      limits
+    } = chartGeometry(
       [
         [
           { time: at(0), value: 13 },
@@ -277,7 +291,7 @@ describe('an outside rule’s history', () => {
   it('breaks both lines at a gap, and draws both limits of each step', () => {
     const limits = steps.map((l) => ({ value: l.value, label: '', tone: l.priority ?? '' }))
     const geometry = chartGeometry(range(-27, 36), limits, { ...frame, resolution: 600 })
-    expect(geometry.lines).toHaveLength(4)
+    expect(geometry.lines.map((runs) => runs.length)).toEqual([2, 2])
     expect(geometry.limits).toHaveLength(4)
   })
 })

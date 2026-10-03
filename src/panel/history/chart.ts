@@ -42,8 +42,8 @@ export interface PlacedLimit extends ChartLimit {
 }
 
 export interface ChartGeometry {
-  /** Each unbroken run of values of each series, as a polyline's points. */
-  lines: string[]
+  /** Each series' unbroken runs of values, each as a polyline's points. */
+  lines: string[][]
   limits: PlacedLimit[]
 }
 
@@ -95,9 +95,8 @@ export function chartGeometry(
   const x = (t: number) =>
     round(Math.min(frame.width, Math.max(0, ((t - frame.from) / span) * frame.width)))
 
-  const lines = series
-    .flatMap((points) => runs(points, frame.resolution))
-    .map((run) => {
+  const lines = series.map((points) =>
+    runs(points, frame.resolution).map((run) => {
       const vertices = run.map((p) => `${String(x(p.time))},${String(y(p.value))}`)
       // A polyline of one vertex draws nothing; a value alone between gaps shows as a dot.
       if (run.length === 1) {
@@ -106,6 +105,7 @@ export function chartGeometry(
       }
       return vertices.join(' ')
     })
+  )
 
   // Labels go above their lines, top first; one that would overlap the
   // label before it goes below its line instead.

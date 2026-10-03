@@ -273,9 +273,16 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
                 <line x1={0} y1={l.y} x2={drawnWidth} y2={l.y} />
               </g>
             ))}
-            {geometry.lines.map((line) => (
-              <polyline key={line} className="skar-history-line" points={line} />
-            ))}
+            {/* An outside rule's lowest and highest can draw the same points, so they key by place. */}
+            {geometry.lines.map((runs, s) =>
+              runs.map((line, r) => (
+                <polyline
+                  key={`${String(s)}-${String(r)}`}
+                  className="skar-history-line"
+                  points={line}
+                />
+              ))
+            )}
             {/* The labels go over the line, so it never hides one. */}
             {geometry.limits.map((l, i) => (
               <g key={i} className={`skar-history-limit skar-history-limit-${l.tone}`}>

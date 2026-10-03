@@ -383,6 +383,37 @@ describe('HistoryChart', () => {
       expect(screen.queryByText('Loading history…')).toBeNull()
     })
 
+    it('draws identical lowest and highest lines as two, and redraws both on a refresh', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      try {
+        const flat = series.map((p) => ({ time: p.time, value: 353.15 }))
+        const lower = flat.map((p) => ({ time: p.time, value: 343.15 }))
+        const history = fakeHistory()
+        history.values
+          .mockImplementationOnce(() => Promise.resolve([flat, flat]))
+          .mockImplementation(() => Promise.resolve([lower, flat]))
+        const band: ChartSpec = { ...coolant, methods: ['min', 'max'], side: 'outside' }
+        render(<HistoryChart history={history} spec={band} />)
+        await settle()
+        const points = () =>
+          [...screen.getByRole('img').querySelectorAll('polyline')].map((l) =>
+            l.getAttribute('points')
+          )
+        const [first, second] = points()
+        expect(points()).toHaveLength(2)
+        expect(first).toBe(second)
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(BUCKET)
+        })
+        const [low, high] = points()
+        expect(points()).toHaveLength(2)
+        expect(low).not.toBe(high)
+        expect(consoleError).not.toHaveBeenCalled()
+      } finally {
+        consoleError.mockRestore()
+      }
+    })
+
     it('keeps the line drawn when asking again fails', async () => {
       const history = fakeHistory()
       history.values
