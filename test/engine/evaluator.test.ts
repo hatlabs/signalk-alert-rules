@@ -1442,6 +1442,35 @@ describe('rule edits', () => {
 })
 
 describe('adopted alerts', () => {
+  const STATE = 'propulsion.main.state'
+  const unchanged = valid({
+    name: 'Engine state unchanged',
+    slug: 'engine-state-unchanged',
+    message: 'Engine state unchanged',
+    signal: { path: STATE },
+    detector: {
+      type: 'absence',
+      event: { op: 'changes' },
+      steps: [{ within: 900, priority: 'warning' }]
+    }
+  })
+
+  it("an adopted absence alert takes its input's first live value as the baseline", () => {
+    const { at, log } = setup(unchanged, { adopted: [{}] })
+    at(1, STATE, 'stopped')
+    at(1000)
+    at(1100, STATE, 'started')
+    expect(log).toEqual([[1100, 'clear', '']])
+  })
+
+  it("an absence rule without an adopted alert counts its input's first live value", () => {
+    const { at, log } = setup(unchanged)
+    at(1, STATE, 'stopped')
+    at(900)
+    at(901)
+    expect(log).toEqual([[901, 'raise', '', 'warning']])
+  })
+
   it('an adopted alert cleared by its gate does not raise again when the rule returns to use', () => {
     const rule = {
       ...oilPressure,

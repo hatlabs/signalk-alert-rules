@@ -17,7 +17,9 @@ type AbsenceSpec = Extract<DetectorSpec, { type: 'absence' }>
  * event. The window runs from start while the input has not been seen,
  * because silence is what this detector looks for, and pauses while the input
  * is unavailable. A value seen live for the first time counts as an event, so
- * the first acknowledgement after a restart is not lost.
+ * the first acknowledgement after a restart is not lost, except for an adopted
+ * condition: the delta cache is empty after a server restart, so a source
+ * re-sending its unchanged value would otherwise end the alert.
  */
 export class AbsenceDetector extends ConditionDetector<AbsenceSpec> {
   private readonly events: EventWatcher
@@ -25,7 +27,7 @@ export class AbsenceDetector extends ConditionDetector<AbsenceSpec> {
 
   constructor(spec: AbsenceSpec, options: DetectorOptions) {
     super(spec, options)
-    this.events = new EventWatcher(spec.event, true)
+    this.events = new EventWatcher(spec.event, !this.active)
     this.timer.start(options.start)
   }
 

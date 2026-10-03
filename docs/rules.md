@@ -120,7 +120,7 @@ A detector turns a signal into a condition that is active or not. Its `steps` ho
 | `changesTo` | the value changes to `value` | required |
 | `decreases` | a number lower than the previous one | none |
 
-A replayed value only sets the baseline. An unavailable reading leaves the baseline alone. For count and absence a value seen live for the first time after start counts as a change from nothing (never as a decrease), so the first pump start or acknowledgment after a restart is not lost; for match and `resetOn` it only sets the baseline.
+A replayed value only sets the baseline. An unavailable reading leaves the baseline alone. For count and absence a value seen live for the first time after start counts as a change from nothing (never as a decrease), so the first pump start or acknowledgment after a restart is not lost; for match and `resetOn` it only sets the baseline. An absence rule whose alert was adopted at restart also takes that first live value as its baseline: after a server restart the delta cache is empty, so a source re-sending the value it had before the restart would otherwise end the alert, and the alert stands until the next event. Only the first step's detector does so; a further step's window restarts at that value.
 
 ### match
 
@@ -187,7 +187,7 @@ Active while more than `limit` events fall within the last `window` seconds: wit
 
 `event`, `steps` (each a window `within`, in seconds).
 
-Active once no event has arrived for `within` seconds; ends at the next event. The window starts when the rule comes into use and pauses while the input is unavailable.
+Active once no event has arrived for `within` seconds; ends at the next event. The window starts when the rule comes into use and pauses while the input is unavailable. For an alert adopted at restart, the first value seen live sets the baseline rather than counting as an event (see [Events](#detectors)).
 
 ## Gates
 
@@ -386,7 +386,7 @@ Alerts whose condition has ended, latching alerts among them, are core's until a
 An adopted alert ends by its rule's clear criterion or a gate not holding, like any other. Until then:
 
 - Unavailable and never-seen inputs, gate inputs and wildcard instances hold it, so sensors that report late cannot clear it. A wildcard instance is gone only when its rule cannot have it at all, not when it has not reported yet.
-- A count detector does not end it before one full window has passed since start, because events before start are unknown. Slope and projection detectors decide nothing until they have a full window of available time. An absence detector ends it at the first event.
+- A count detector does not end it before one full window has passed since start, because events before start are unknown. Slope and projection detectors decide nothing until they have a full window of available time. An absence detector ends it at the first event; a value seen live for the first time after start only sets the baseline, so a source re-sending an unchanged value does not end it.
 - An adopted alert stays at the first step until a further step's own condition has held for its duration. It then climbs as any alert does, and only then is the `limit` in core's data changed, to that step's.
 
 ### Stopping
