@@ -304,6 +304,21 @@ describe('HistoryChart', () => {
       expect(screen.getByRole('img').querySelectorAll('polyline')).toHaveLength(1)
       expect(screen.queryByText('Loading history…')).toBeNull()
     })
+
+    it('keeps the line drawn when asking again fails', async () => {
+      const history = fakeHistory()
+      history.values
+        .mockImplementationOnce(() => Promise.resolve(series))
+        .mockImplementation(() => Promise.reject(new Error('provider restarting')))
+      render(<HistoryChart history={history} spec={coolant} />)
+      await settle()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(BUCKET)
+      })
+      expect(history.values).toHaveBeenCalledTimes(2)
+      expect(screen.getByRole('img').querySelectorAll('polyline')).toHaveLength(1)
+      expect(screen.queryByText('History unavailable.')).toBeNull()
+    })
   })
 
   it('observes its width once, not again on each render, as each keystroke in the editor', async () => {

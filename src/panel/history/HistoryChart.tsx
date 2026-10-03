@@ -161,7 +161,10 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
         },
         () => {
           if (cancelled) return
-          setLoaded({ status: 'failed' })
+          // A refresh that fails leaves the line already drawn: its data still holds.
+          setLoaded((last) =>
+            last.status === 'ready' && last.of === of ? last : { status: 'failed' }
+          )
           again()
         }
       )
