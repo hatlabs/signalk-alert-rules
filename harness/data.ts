@@ -49,7 +49,7 @@ const extraPaths: PathEntry[] = [
 ]
 
 /** The source of a path the shared fixtures give a value but no source, as one device reports it. */
-const SOURCE = 'n2k.1'
+const SOURCE = 'example'
 
 /** Every path with a value has a source, as on a server, so the editors offer one to pick. */
 export const paths: PathEntry[] = [...reported, ...extraPaths].map((entry) =>
