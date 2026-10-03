@@ -722,6 +722,162 @@ describe('escalation steps', () => {
   })
 })
 
+const HEEL = 'navigation.attitude.roll'
+const heel = valid({
+  name: 'Heel',
+  slug: 'heel',
+  message: 'Heel past {limit}',
+  signal: { path: HEEL },
+  detector: {
+    type: 'outside',
+    steps: [
+      { low: -25, high: 25, priority: 'warning' },
+      { low: -35, high: 35, priority: 'alarm' }
+    ],
+    duration: 10,
+    hysteresis: 2,
+    clearDuration: 5
+  }
+})
+
+describe('outside rules', () => {
+  it('raises above the high limit at the step priority with the high limit', () => {
+    const { at, events } = setup(heel)
+    at(0, HEEL, 27)
+    at(9)
+    expect(events).toEqual([])
+    at(10)
+    expect(events).toEqual([
+      { type: 'raise', instance: undefined, priority: 'warning', rule: heel, value: 27, limit: 25 }
+    ])
+  })
+
+  it('raises below the low limit with the low limit', () => {
+    const { at, events, evaluator } = setup(heel)
+    at(0, HEEL, -27)
+    at(10)
+    expect(events).toMatchObject([{ type: 'raise', priority: 'warning', limit: -25 }])
+    expect(evaluator.status().instances[0]).toMatchObject({ limit: -25, passed: 'low' })
+  })
+
+  it('escalates to the wider step and keeps its priority when the value falls back', () => {
+    const { at, events, log } = setup(heel)
+    at(0, HEEL, 30)
+    at(10)
+    at(11, HEEL, 37)
+    at(21)
+    at(22, HEEL, 30)
+    at(100)
+    expect(log).toEqual([
+      [10, 'raise', '', 'warning'],
+      [21, 'priority', '', 'alarm']
+    ])
+    expect(events[1]).toEqual({
+      type: 'priority',
+      instance: undefined,
+      priority: 'alarm',
+      limit: 35
+    })
+  })
+
+  it('clears only inside the range narrowed by the hysteresis, after the clear duration', () => {
+    const { at, log } = setup(heel)
+    at(0, HEEL, 27)
+    at(10)
+    at(11, HEEL, 24)
+    at(100)
+    at(101, HEEL, 22.9)
+    at(105)
+    expect(log).toEqual([[10, 'raise', '', 'warning']])
+    at(106)
+    expect(log.at(-1)).toEqual([106, 'clear', ''])
+  })
+
+  it('a jump from one side to the other within the duration raises on time, with the side reached', () => {
+    const { at, events } = setup(heel)
+    at(0, HEEL, -27)
+    at(5, HEEL, 27)
+    at(10)
+    expect(events).toMatchObject([{ type: 'raise', value: 27, limit: 25 }])
+  })
+
+  it('unavailable input pauses the duration', () => {
+    const { at, log } = setup(heel)
+    at(0, HEEL, 27)
+    at(4, HEEL, null)
+    at(100)
+    at(100, HEEL, 27)
+    at(105)
+    expect(log).toEqual([])
+    at(106)
+    expect(log).toEqual([[106, 'raise', '', 'warning']])
+  })
+
+  it('an edit that narrows the range checks the last value against it', () => {
+    const { at, events, evaluator } = setup(heel)
+    at(0, HEEL, 20)
+    at(50)
+    const narrowed = valid({
+      ...heel,
+      detector: { ...heel.detector, steps: [{ low: -15, high: 15, priority: 'warning' }] }
+    })
+    expect(structuralChanges(heel, narrowed)).toEqual([])
+    evaluator.update(narrowed)
+    at(59)
+    expect(events).toEqual([])
+    at(60)
+    expect(events).toMatchObject([{ type: 'raise', value: 20, limit: 15 }])
+  })
+
+  it('a switch to or from outside restarts the rule', () => {
+    const above = valid({
+      ...heel,
+      detector: {
+        type: 'sustained',
+        direction: 'above',
+        steps: [{ limit: 25, priority: 'warning' }]
+      }
+    })
+    expect(structuralChanges(above, heel)).toContain('detector.type')
+    expect(structuralChanges(heel, above)).toContain('detector.type')
+  })
+
+  describe('the limit passed', () => {
+    it('follows a move to the other side while alerting, without an event', () => {
+      const { at, events, evaluator } = setup(heel)
+      at(0, HEEL, 27)
+      at(10)
+      expect(evaluator.reached('')).toMatchObject({ step: 0, limit: 25 })
+      at(11, HEEL, -27)
+      at(30)
+      expect(events).toHaveLength(1)
+      expect(evaluator.reached('')).toMatchObject({ value: -27, step: 0, limit: -25 })
+      expect(evaluator.status().instances[0]).toMatchObject({ limit: -25, passed: 'low' })
+      expect(evaluator.revisions()).toEqual([
+        { instance: undefined, priority: 'warning', limit: -25 }
+      ])
+    })
+
+    it("stays the reached step's side when the value falls back inside it", () => {
+      const { at, events, evaluator } = setup(heel)
+      at(0, HEEL, -37)
+      at(10)
+      at(11, HEEL, -30)
+      at(100)
+      expect(events).toMatchObject([{ type: 'raise', priority: 'alarm', limit: -35 }])
+      expect(evaluator.reached('')).toMatchObject({ value: -30, step: 1, limit: -35 })
+    })
+
+    it('is absent for a unit never beyond either limit', () => {
+      const { at, evaluator } = setup(heel)
+      at(0, HEEL, 3)
+      expect(evaluator.status().instances[0]?.limit).toBeUndefined()
+      expect(evaluator.status().instances[0]?.passed).toBeUndefined()
+      expect(evaluator.reached('')).toEqual({ value: 3, index: 0, step: 0, limit: undefined })
+    })
+  })
+})
+
 const RPM = 'propulsion.main.revolutions'
 const OIL = 'propulsion.main.oilPressure'
 const oilPressure = valid({

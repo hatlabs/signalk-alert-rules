@@ -9,17 +9,27 @@ import {
   type Transition
 } from './detector.js'
 
-type SustainedSpec = Extract<DetectorSpec, { type: 'sustained' }>
+type SustainedSpec = Extract<DetectorSpec, { type: 'sustained' | 'outside' }>
+
+/** The limit a value went past: an outside step's low or high one. */
+export type Side = 'low' | 'high'
 
 /**
  * Sets once the value has been beyond the limit for the duration, and clears
  * once it has been back past the limit by the hysteresis margin for the clear
- * duration. The timer runs toward whichever transition is next and pauses
- * while the input is unavailable.
+ * duration. An outside detector has two limits: the value is beyond either,
+ * and back only inside both by the margin. The timer runs toward whichever
+ * transition is next and pauses while the input is unavailable.
  */
 export class SustainedDetector extends ConditionDetector<SustainedSpec> {
   private readonly timer = new Stopwatch()
   private last: number | undefined
+  private side: Side | undefined
+
+  /** The side the value was last found beyond, kept while it is back inside. */
+  get passed(): Side | undefined {
+    return this.side
+  }
 
   sample(reading: Reading, _replayed: boolean, now: number): Transition | undefined {
     const value = numeric(reading)
@@ -39,9 +49,12 @@ export class SustainedDetector extends ConditionDetector<SustainedSpec> {
   }
 
   private follow(value: number, now: number): Transition | undefined {
+    const beyond = this.beyond(value)
+    if (beyond !== undefined) this.side = beyond
     // A value inside the recovery margin is no evidence either way.
     if (this.cleared(value)) this.refuted = true
-    const toward = this.active ? this.cleared(value) : this.beyond(value)
+    // A jump from one side to the other is still beyond, so the timer runs on.
+    const toward = this.active ? this.cleared(value) : beyond !== undefined
     if (!toward) {
       this.timer.reset()
       return undefined
@@ -60,15 +73,28 @@ export class SustainedDetector extends ConditionDetector<SustainedSpec> {
       : timerProgress(this.timer, 'set', this.spec.duration, now)
   }
 
-  private beyond(value: number): boolean {
-    return this.spec.direction === 'above' ? value > this.spec.limit : value < this.spec.limit
+  private beyond(value: number): Side | undefined {
+    const spec = this.spec
+    switch (spec.type) {
+      case 'outside':
+        return value < spec.low ? 'low' : value > spec.high ? 'high' : undefined
+      case 'sustained':
+        if (spec.direction === 'above') return value > spec.limit ? 'high' : undefined
+        return value < spec.limit ? 'low' : undefined
+    }
   }
 
   private cleared(value: number): boolean {
-    const margin = this.spec.hysteresis ?? 0
-    return this.spec.direction === 'above'
-      ? value <= this.spec.limit - margin
-      : value >= this.spec.limit + margin
+    const spec = this.spec
+    const margin = spec.hysteresis ?? 0
+    switch (spec.type) {
+      case 'outside':
+        return value >= spec.low + margin && value <= spec.high - margin
+      case 'sustained':
+        return spec.direction === 'above'
+          ? value <= spec.limit - margin
+          : value >= spec.limit + margin
+    }
   }
 
   private evaluate(now: number): Transition | undefined {

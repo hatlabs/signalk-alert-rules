@@ -7,13 +7,15 @@ import { ProjectionDetector, SlopeDetector } from './slope.js'
 import { SustainedDetector } from './sustained.js'
 
 export type { Detector, DetectorOptions, DetectorSpec, Progress, Transition } from './detector.js'
-export { AccumulatorDetector }
+export type { Side } from './sustained.js'
+export { AccumulatorDetector, SustainedDetector }
 
 export function createDetector(spec: DetectorSpec, options: DetectorOptions): Detector {
   switch (spec.type) {
     case 'match':
       return new MatchDetector(spec, options)
     case 'sustained':
+    case 'outside':
       return new SustainedDetector(spec, options)
     case 'slope':
       return new SlopeDetector(spec, options)

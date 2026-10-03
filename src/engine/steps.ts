@@ -31,7 +31,10 @@ export function stepSpec(d: Detector, i: number): DetectorSpec | undefined {
       const step = steps.at(i)
       return step === undefined ? undefined : { ...rest, within: step.within }
     }
-    case 'outside':
-      throw new Error('outside detector not implemented')
+    case 'outside': {
+      const { steps, ...rest } = d
+      const step = steps.at(i)
+      return step === undefined ? undefined : { ...rest, low: step.low, high: step.high }
+    }
   }
 }
