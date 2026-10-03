@@ -200,8 +200,19 @@ export function fieldLabel(pointer: string, form: RuleForm): string {
     if (field === 'low' || field === 'high') return `the ${field} limit`
     return stepQuantity(form.detector) === 'match' ? 'the state' : 'the limit'
   }
-  const gate = /^\/gates\/(\d+)/.exec(pointer)
-  if (gate !== null) return `Only while condition ${String(Number(gate[1]) + 1)}`
+  const gate = /^\/gates\/(\d+)(.*)$/.exec(pointer)
+  if (gate !== null) {
+    const index = Number(gate[1])
+    const condition = `Only while condition ${String(index + 1)}`
+    const within = gate[2]
+    const paths = `the paths of ${condition}`
+    const path = `the path of ${condition}`
+    if (/^\/limit(\/|$)/.test(within)) return `the limit of ${condition}`
+    if (/^\/signal\/inputs(\/\d+(\/path)?)?$/.test(within)) return paths
+    if (within === '/signal/path') return path
+    if (within === '/signal') return form.gates[index]?.signal.mode === 'combine' ? paths : path
+    return condition
+  }
   const input = /^\/signal\/inputs\/(\d+)/.exec(pointer)
   if (input !== null) return `path ${String(Number(input[1]) + 1)} to combine`
   const keys = Object.keys(LABELS)
