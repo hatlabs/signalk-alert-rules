@@ -117,8 +117,12 @@ export function RuleFields(props: RuleFieldsProps) {
   const pathFocus = useRef<'search' | 'change' | undefined>(undefined)
 
   useEffect(() => {
-    if (pathFocus.current === 'search') searchRef.current?.focus()
-    if (pathFocus.current === 'change') changeRef.current?.focus()
+    if (pathFocus.current === undefined) return
+    const target = pathFocus.current === 'search' ? searchRef.current : changeRef.current
+    // A click before the form's first effects ran finds no target yet; its own changingPath
+    // render runs this effect again once the target is in the page.
+    if (target === null) return
+    target.focus()
     pathFocus.current = undefined
   }, [changingPath])
 

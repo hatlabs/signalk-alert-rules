@@ -7,7 +7,7 @@ import { validateRule } from '../../../src/model/validate'
 import { RuleRejectedError, type EditPreview } from '../../../src/panel/api'
 import { ZONE_PRIORITY } from '../../../src/panel/editor/MoreOptions'
 import type { PathSource } from '../../../src/panel/paths/selfPaths'
-import { instance, ruleEntry } from '../fixtures'
+import { instance, onceShown, ruleEntry } from '../fixtures'
 import {
   button,
   checkbox,
@@ -458,6 +458,32 @@ describe('RuleEditor, from a path', () => {
     expect(document.activeElement).toBe(select('Search by name or path'))
     click(button('Done'))
     expect(document.activeElement).toBe(button('Change the value to watch'))
+  })
+
+  it('moves focus into the path search on a Change clicked as the form appears', async () => {
+    const clicked = onceShown(
+      () => screen.queryByRole('button', { name: 'Change the value to watch' }),
+      click
+    )
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await clicked
+    await waitFor(() => {
+      expect(document.activeElement).toBe(select('Search by name or path'))
+    })
+  })
+
+  it('keeps focus on a field focused as the form appears', async () => {
+    const focused = onceShown(
+      () => screen.queryByRole('textbox', { name: /^Name/ }),
+      (name) => {
+        name.focus()
+      }
+    )
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await focused
+    await formShown()
+    type(textbox(/^Name/), 'House low')
+    expect(document.activeElement).toBe(textbox(/^Name/))
   })
 
   it('focuses the first field in error when Save finds the form incomplete', async () => {

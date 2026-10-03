@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Rule } from '../../model/rule'
 import { RuleRejectedError, type FieldError, type PanelApi, type RuleEntry } from '../api'
 import { BackIcon } from '../detail/icons'
@@ -89,9 +89,11 @@ function EditorForm(props: FormProps) {
   const headingRef = useRef<HTMLHeadingElement>(null)
   const { formRef, focusInvalid } = useFocusInvalid()
 
-  // The form only ever opens on the operator's action and replaces the view
-  // that held focus, so focus moves to its heading.
-  useEffect(() => {
+  // The form only ever opens on the operator's action and replaces the view that held focus, so
+  // focus moves to its heading. A layout effect, because the form mounts in a default-priority
+  // update once its data has loaded, whose passive effects React runs in a later task, after the
+  // operator could already have moved focus.
+  useLayoutEffect(() => {
     headingRef.current?.focus()
   }, [])
 

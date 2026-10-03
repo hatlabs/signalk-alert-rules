@@ -1,4 +1,12 @@
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent
+} from 'react'
 import type { Rule, TemplatePick } from '../../model/rule'
 import type { Template } from '../../model/template'
 import { proposeSlug } from '../../templates/instantiate'
@@ -141,7 +149,11 @@ function TabsForm(props: FormProps) {
   const tabRefs = useRef(new Map<string, HTMLButtonElement>())
   const { formRef, focusInvalid } = useFocusInvalid()
 
-  useEffect(() => {
+  // The form only ever opens on the operator's action and replaces the view that held focus, so
+  // focus moves to its heading. A layout effect, because the form mounts in a default-priority
+  // update once its data has loaded, whose passive effects React runs in a later task, after the
+  // operator could already have moved focus.
+  useLayoutEffect(() => {
     headingRef.current?.focus()
   }, [])
 
