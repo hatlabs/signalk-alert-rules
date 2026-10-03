@@ -230,6 +230,28 @@ describe('saveHint', () => {
     ).toBe('Fill in the limit and the message and fix the condition name to save.')
   })
 
+  it('names a missing group by its first field, as its error is shown there', () => {
+    expect(saveHint([{ path: '/detector', message: 'is required' }], form())).toBe(
+      'Fill in what should alert to save.'
+    )
+  })
+
+  it('names an error on the steps as a whole by the first step, where it is shown', () => {
+    const one = form((f) => {
+      f.detector.type = 'sustained'
+    })
+    expect(
+      saveHint([{ path: '/detector/steps', message: 'a rule needs at least one step' }], one)
+    ).toBe('Fix the priority to save.')
+    const two = form((f) => {
+      f.detector.type = 'sustained'
+      f.steps = [emptyStep('warning'), emptyStep('alarm')]
+    })
+    expect(
+      saveHint([{ path: '/detector/steps', message: 'a rule needs at least one step' }], two)
+    ).toBe('Fix step 1 to save.')
+  })
+
   it('names a step by its number once there are several', () => {
     const f = form((f) => {
       f.detector.type = 'sustained'

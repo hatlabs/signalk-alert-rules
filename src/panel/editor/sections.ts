@@ -182,21 +182,29 @@ const LABELS: Readonly<Record<string, string>> = {
 
 /** A field in words, as Save names it. */
 export function fieldLabel(pointer: string, form: RuleForm): string {
-  const step = /^\/detector\/steps\/(\d+)(?:\/(\w+))?/.exec(pointer)
+  // An error on the steps as a whole is shown on the first step's priority.
+  const step = /^\/detector\/steps(?:\/(\d+)(?:\/(\w+))?)?/.exec(pointer)
   if (step !== null) {
-    if (form.steps.length > 1) return `step ${String(Number(step[1]) + 1)}`
-    if (step[2] === 'priority') return 'the priority'
-    if (step[2] === 'low' || step[2] === 'high') return `the ${step[2]} limit`
+    const whole = pointer === '/detector/steps'
+    const index = whole ? '0' : step[1]
+    const field = whole ? 'priority' : step[2]
+    if (form.steps.length > 1) return `step ${String(Number(index) + 1)}`
+    if (field === 'priority') return 'the priority'
+    if (field === 'low' || field === 'high') return `the ${field} limit`
     return stepQuantity(form.detector) === 'match' ? 'the state' : 'the limit'
   }
   const gate = /^\/gates\/(\d+)/.exec(pointer)
   if (gate !== null) return `Only while condition ${String(Number(gate[1]) + 1)}`
   const input = /^\/signal\/inputs\/(\d+)/.exec(pointer)
   if (input !== null) return `path ${String(Number(input[1]) + 1)} to combine`
-  const known = Object.keys(LABELS)
-    .filter((key) => pointer === key || pointer.startsWith(`${key}/`))
-    .sort((a, b) => b.length - a.length)
-    .at(0)
+  const keys = Object.keys(LABELS)
+  const known =
+    keys
+      .filter((key) => pointer === key || pointer.startsWith(`${key}/`))
+      .sort((a, b) => b.length - a.length)
+      .at(0) ??
+    // A whole missing group is named by its first field, where attachErrors shows its error.
+    keys.find((key) => key.startsWith(`${pointer}/`))
   return known === undefined ? 'a field under More options' : (LABELS[known] ?? '')
 }
 
