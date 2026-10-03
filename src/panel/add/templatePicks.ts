@@ -78,16 +78,30 @@ export function pickKey(pick: TemplatePick): string {
   return JSON.stringify([pick.instance ?? null, pick.source ?? null])
 }
 
-/** The rules made from this template, by the key of their pick. */
-function madeFrom(setId: string, template: Template, rules: readonly ListedRule[]) {
-  const made = new Map<string, string>()
+/**
+ * The name of a rule made from this template that watches the path, from
+ * the source when one is picked. Matched on what the rule watches now: its
+ * pick is only what it was made with, and its path may have been changed since.
+ */
+export function ruleWatching(
+  setId: string,
+  template: Template,
+  watched: string,
+  source: string | undefined,
+  rules: readonly ListedRule[]
+): string | undefined {
   for (const entry of rules) {
     if (isInvalid(entry)) continue
-    const from = entry.rule.template
-    if (from?.set === setId && from.id === template.id)
-      made.set(pickKey(from.pick), entry.rule.name)
+    const { template: from, signal } = entry.rule
+    if (
+      from?.set === setId &&
+      from.id === template.id &&
+      signal.paths.includes(watched) &&
+      entry.rule.source === source
+    )
+      return entry.rule.name
   }
-  return made
+  return undefined
 }
 
 /**
@@ -106,10 +120,10 @@ export function candidates(
   if (path === undefined) return []
   const open = template.open ?? []
   const byPath = new Map(paths.map((p) => [p.path, p]))
-  const made = madeFrom(setId, template, rules)
   const found: Candidate[] = []
   const add = (candidate: Candidate) => {
-    const ruleName = made.get(pickKey(candidate.pick))
+    const { path: watched, pick } = candidate
+    const ruleName = ruleWatching(setId, template, watched, pick.source, rules)
     found.push(ruleName === undefined ? candidate : { ...candidate, ruleName })
   }
   const instances = open.includes('instance')

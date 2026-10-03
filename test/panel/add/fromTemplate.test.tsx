@@ -334,6 +334,7 @@ describe('Add rule from a template', () => {
       slug: 'battery-voltage-low-lifepo4-house',
       rule: {
         name: 'House bank voltage low',
+        signal: { paths: ['electrical.batteries.house.voltage'] },
         template: { set: 'builtin', id: LIFEPO4, pick: { instance: 'house' } }
       }
     })

@@ -80,6 +80,7 @@ describe('candidates', () => {
       slug: 'battery-voltage-low-lifepo4-house',
       rule: {
         name: 'House bank voltage low',
+        signal: { paths: ['electrical.batteries.house.voltage'] },
         template: { set: 'builtin', id: lifepo4.id, pick: { instance: 'house' } }
       }
     })
@@ -87,6 +88,7 @@ describe('candidates', () => {
       slug: 'x',
       rule: {
         name: 'Other',
+        signal: { paths: ['electrical.batteries.starter.voltage'] },
         template: { set: 'extra', id: lifepo4.id, pick: { instance: 'starter' } }
       }
     })
@@ -96,6 +98,22 @@ describe('candidates', () => {
       undefined,
       undefined,
       undefined
+    ])
+  })
+
+  it('names the rule by the path it watches now, not the pick it was made with', () => {
+    const moved = ruleEntry({
+      slug: 'battery-voltage-low-lifepo4-house',
+      rule: {
+        name: 'Starter voltage low',
+        signal: { paths: ['electrical.batteries.starter.voltage'] },
+        template: { set: 'builtin', id: lifepo4.id, pick: { instance: 'house' } }
+      }
+    })
+    const found = candidates('builtin', lifepo4, boat, [moved])
+    const named = found.filter((c) => c.ruleName !== undefined)
+    expect(named.map((c) => [c.pick.instance, c.ruleName])).toEqual([
+      ['starter', 'Starter voltage low']
     ])
   })
 
@@ -125,6 +143,18 @@ describe('candidates', () => {
     expect(candidates('builtin', heading, paths, []).map((c) => [c.label, c.pick])).toEqual([
       ['a.1', { source: 'a.1' }],
       ['b.2', { source: 'b.2' }]
+    ])
+    const pinned = ruleEntry({
+      rule: {
+        name: 'Heading from b.2',
+        signal: { paths: ['navigation.headingMagnetic'] },
+        source: 'b.2',
+        template: { set: 'builtin', id: 'heading', pick: { source: 'a.1' } }
+      }
+    })
+    expect(candidates('builtin', heading, paths, [pinned]).map((c) => c.ruleName)).toEqual([
+      undefined,
+      'Heading from b.2'
     ])
   })
 
