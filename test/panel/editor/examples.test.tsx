@@ -32,8 +32,6 @@ import {
 const SLUGS = readdirSync(join(import.meta.dirname, '../../../examples/rules'))
   .filter((f) => f.endsWith('.json'))
   .map((f) => f.slice(0, -'.json'.length))
-  // The editor has no outside condition kind until issue 88's Unit 4.
-  .filter((slug) => slug !== 'shore-power-frequency')
 
 function duration(label: string, value: DurationField) {
   if (value.amount === '') return
@@ -122,7 +120,10 @@ function steps(form: RuleForm) {
     choose(`Priority for step ${n}`, step.priority)
     if (quantity === 'time' || quantity === 'within') duration(`Limit for step ${n}`, step.duration)
     else if (quantity === 'match') value(`State for step ${n}`, step.value)
-    else if (quantity !== 'none') type(textbox(`Limit for step ${n}`), step.limit)
+    else if (quantity === 'range') {
+      type(textbox(`Low limit for step ${n}`), step.low)
+      type(textbox(`High limit for step ${n}`), step.high)
+    } else if (quantity !== 'none') type(textbox(`Limit for step ${n}`), step.limit)
   })
 }
 

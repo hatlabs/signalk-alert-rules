@@ -76,9 +76,10 @@ export const ANGULAR_KINDS: ReadonlySet<CombinatorKind> = new Set([
   'spread'
 ])
 
-export type DetectorType = Exclude<Detector['type'], 'outside'>
+export type DetectorType = Detector['type']
 const DETECTOR_TYPES: Readonly<Record<DetectorType, true>> = {
   sustained: true,
+  outside: true,
   slope: true,
   projection: true,
   match: true,
@@ -170,6 +171,9 @@ export interface StepForm {
   priority: Priority | ''
   /** A number in the unit its quantity is shown in. */
   limit: string
+  /** A range's limits, numbers in the value's display unit. */
+  low: string
+  high: string
   /** An accumulated time, or an absence's window. */
   duration: DurationField
   /** A match's value. */
@@ -179,6 +183,8 @@ export interface StepForm {
 /** What a step's limit is, which decides how it is entered and stored. */
 export type StepQuantity =
   | 'value'
+  /** A low and a high value. */
+  | 'range'
   | 'slope'
   | 'count'
   | 'integral'
@@ -226,7 +232,7 @@ const noLimit = (): LimitForm => ({ kind: 'fixed', value: '', level: 'warn', pat
 const noSlot = (): SlotForm => ({ path: '', source: '' })
 
 export function emptyStep(priority: Priority | '' = ''): StepForm {
-  return { priority, limit: '', duration: noDuration(), value: noValue() }
+  return { priority, limit: '', low: '', high: '', duration: noDuration(), value: noValue() }
 }
 
 export function emptySignal(): SignalForm {
@@ -365,7 +371,11 @@ export function matchTakesDuration(op: MatchOp | ''): boolean {
 
 /** Whether the condition must hold for a while before a step is reached. */
 export function holdsFor(d: DetectorForm): boolean {
-  return d.type === 'sustained' || (d.type === 'match' && matchTakesDuration(d.matchOp))
+  return (
+    d.type === 'sustained' ||
+    d.type === 'outside' ||
+    (d.type === 'match' && matchTakesDuration(d.matchOp))
+  )
 }
 
 /** What the detector's step limits are; undefined until the detector is chosen. */
@@ -376,6 +386,8 @@ export function stepQuantity(d: DetectorForm): StepQuantity | undefined {
     case 'sustained':
     case 'projection':
       return 'value'
+    case 'outside':
+      return 'range'
     case 'slope':
       return 'slope'
     case 'count':
@@ -555,7 +567,7 @@ export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
   const measure = signalMeasure(signalShape(signal), units)
   const d = form.detector
   const detector = rule.detector
-  d.type = detector.type === 'outside' ? '' : detector.type
+  d.type = detector.type
   const numberFrom = (value: number, quantity: 'slope' | 'interval') =>
     shownNumber(value, kindFor(quantity, measure), measure.unit, shown)
   switch (detector.type) {
@@ -566,6 +578,12 @@ export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
     case 'sustained':
       d.direction = detector.direction
       if (detector.limit !== undefined) d.limit = limitFrom(detector.limit, measure, shown)
+      d.duration = durationFrom(detector.duration)
+      d.hysteresis =
+        detector.hysteresis === undefined ? '' : numberFrom(detector.hysteresis, 'interval')
+      d.clearDuration = durationFrom(detector.clearDuration)
+      break
+    case 'outside':
       d.duration = durationFrom(detector.duration)
       d.hysteresis =
         detector.hysteresis === undefined ? '' : numberFrom(detector.hysteresis, 'interval')
@@ -606,6 +624,10 @@ export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
     const form = emptyStep(step.priority)
     if ('value' in step) form.value = valueFrom(step.value, measure, shown)
     if ('within' in step) form.duration = durationFrom(step.within)
+    if ('low' in step) {
+      form.low = shownNumber(step.low, measure.kind, measure.unit, shown)
+      form.high = shownNumber(step.high, measure.kind, measure.unit, shown)
+    }
     if (!('limit' in step)) return form
     switch (quantity) {
       case 'value':
@@ -763,20 +785,22 @@ function readEvent(form: EventForm, at: string, measure: Measure, read: Reader):
   })
 }
 
-/** The step field its limit is stored in; none for a step that is its priority alone. */
-export function stepLimitField(
-  quantity: StepQuantity | undefined
-): 'limit' | 'within' | 'value' | undefined {
+export type StepLimitField = 'limit' | 'low' | 'high' | 'within' | 'value'
+
+/** The step fields its limit is stored in, in the order shown; none for a step that is its priority alone. */
+export function stepLimitFields(quantity: StepQuantity | undefined): readonly StepLimitField[] {
   switch (quantity) {
     case undefined:
     case 'none':
-      return undefined
+      return []
     case 'within':
-      return 'within'
+      return ['within']
     case 'match':
-      return 'value'
+      return ['value']
+    case 'range':
+      return ['low', 'high']
     default:
-      return 'limit'
+      return ['limit']
   }
 }
 
@@ -787,15 +811,19 @@ export function stepPointer(index: number): string {
 
 function readSteps(form: RuleForm, measure: Measure, read: Reader): Step[] {
   const quantity = stepQuantity(form.detector)
-  const field = stepLimitField(quantity) ?? ''
+  const field = stepLimitFields(quantity).at(0) ?? ''
   return form.steps.map((step, i) => {
     const at = stepPointer(i)
     const limitAt = `${at}/${field}`
     const number = (kind: QuantityKind) => read.number(step.limit, limitAt, kind, measure.unit)
+    const value = (text: string, side: 'low' | 'high') =>
+      read.number(text, `${at}/${side}`, measure.kind, measure.unit)
     const limit = (() => {
       switch (quantity) {
         case 'value':
           return { limit: number(measure.kind) }
+        case 'range':
+          return { low: value(step.low, 'low'), high: value(step.high, 'high') }
         case 'slope':
           return { limit: number(kindFor('slope', measure)) }
         case 'integral':
@@ -845,6 +873,14 @@ function readDetector(form: RuleForm, measure: Measure, read: Reader): Detector 
         type: 'sustained',
         direction: read.choice(d.direction, `${at}/direction`),
         ...valueLimit(),
+        duration: read.duration(d.duration, `${at}/duration`, true),
+        hysteresis: hysteresis(d.hysteresis),
+        clearDuration: read.duration(d.clearDuration, `${at}/clearDuration`, true)
+      }) as Detector
+    case 'outside':
+      return defined({
+        type: 'outside',
+        steps: steps(),
         duration: read.duration(d.duration, `${at}/duration`, true),
         hysteresis: hysteresis(d.hysteresis),
         clearDuration: read.duration(d.clearDuration, `${at}/clearDuration`, true)

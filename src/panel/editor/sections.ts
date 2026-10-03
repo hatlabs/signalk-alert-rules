@@ -9,7 +9,7 @@ import {
   canLatch,
   isZoneLimited,
   holdsFor,
-  stepLimitField,
+  stepLimitFields,
   stepPointer,
   stepQuantity,
   type DetectorForm,
@@ -50,6 +50,8 @@ function conditionPointers(d: DetectorForm): string[] {
       return [p('op')]
     case 'sustained':
       return [p('direction')]
+    case 'outside':
+      return []
     case 'slope':
       return [p('direction'), p('window')]
     case 'projection':
@@ -71,10 +73,10 @@ function conditionPointers(d: DetectorForm): string[] {
 
 function stepPointers(form: RuleForm): string[] {
   if (isZoneLimited(form.detector)) return []
-  const field = stepLimitField(stepQuantity(form.detector))
+  const fields = stepLimitFields(stepQuantity(form.detector))
   return form.steps.flatMap((_, i) => {
     const at = stepPointer(i)
-    return field === undefined ? [`${at}/priority`] : [`${at}/priority`, `${at}/${field}`]
+    return [`${at}/priority`, ...fields.map((field) => `${at}/${field}`)]
   })
 }
 
@@ -82,7 +84,9 @@ function stepPointers(form: RuleForm): string[] {
 function moreOptionsPointers(form: RuleForm, isNew: boolean): string[] {
   const d = form.detector
   return [
-    ...(d.type === 'sustained' ? ['/detector/hysteresis', '/detector/clearDuration'] : []),
+    ...(d.type === 'sustained' || d.type === 'outside'
+      ? ['/detector/hysteresis', '/detector/clearDuration']
+      : []),
     ...(canLatch(d) ? ['/latching'] : []),
     ...form.gates.flatMap((gate, i) => {
       const at = `/gates/${String(i)}`
@@ -182,6 +186,7 @@ export function fieldLabel(pointer: string, form: RuleForm): string {
   if (step !== null) {
     if (form.steps.length > 1) return `step ${String(Number(step[1]) + 1)}`
     if (step[2] === 'priority') return 'the priority'
+    if (step[2] === 'low' || step[2] === 'high') return `the ${step[2]} limit`
     return stepQuantity(form.detector) === 'match' ? 'the state' : 'the limit'
   }
   const gate = /^\/gates\/(\d+)/.exec(pointer)

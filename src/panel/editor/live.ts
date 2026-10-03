@@ -16,7 +16,7 @@ import {
   type RuleForm,
   type StepForm
 } from './formModel'
-import { stepLimitText, stepWord } from './words'
+import { rangeLimitText, stepLimitText, stepWord } from './words'
 
 /**
  * The priorities as the IMO alert management resolutions behind the Signal
@@ -36,8 +36,8 @@ export function priorityMeaning(priority: Priority): string {
   return PRIORITY_MEANINGS[priority]
 }
 
-function siLimit(step: StepForm, measure: Measure): number | undefined {
-  const value = parsedNumber(step.limit)
+function siValue(text: string, measure: Measure): number | undefined {
+  const value = parsedNumber(text)
   return value === undefined ? undefined : toSI(measure.kind, value, measure.unit)
 }
 
@@ -49,16 +49,21 @@ function reachedStep(form: RuleForm, value: SignalValue, measure: Measure): numb
   const kind = kindOf(form.detector)
   const holds = (step: StepForm): boolean | undefined => {
     if (kind === 'below' || kind === 'above') {
-      const limit = siLimit(step, measure)
+      const limit = siValue(step.limit, measure)
       if (limit === undefined || typeof value !== 'number') return undefined
       return kind === 'below' ? value < limit : value > limit
+    }
+    if (kind === 'outside') {
+      const [low, high] = [siValue(step.low, measure), siValue(step.high, measure)]
+      if (low === undefined || high === undefined || typeof value !== 'number') return undefined
+      return value < low || value > high
     }
     if (kind === 'state' && form.detector.matchOp === 'equals') {
       const { value: wanted } = step
       if (wanted.type === 'true' || wanted.type === 'false')
         return value === (wanted.type === 'true')
       if (wanted.type === 'text') return value === wanted.text
-      const limit = siLimit({ ...step, limit: wanted.text }, measure)
+      const limit = siValue(wanted.text, measure)
       return limit === undefined ? undefined : value === limit
     }
     return undefined
@@ -82,10 +87,43 @@ export function nowText(
   if (reached === undefined) return `${now}.`
   const priority = reached < 0 ? undefined : form.steps.at(reached)?.priority
   if (priority === undefined || priority === '') return `${now}: would not alert.`
-  return `${now}: would alert as ${article(priority)} ${priority}.`
+  const passed = passedText(form, reached, value, measure)
+  return `${now}: would alert as ${article(priority)} ${priority}${passed === undefined ? '' : ` (${passed})`}.`
+}
+
+/** For a range, the side of step `index` the value is past, and its limit: "above 25 °". */
+function passedText(
+  form: RuleForm,
+  index: number,
+  value: SignalValue,
+  measure: Measure
+): string | undefined {
+  const step = form.steps.at(index)
+  if (kindOf(form.detector) !== 'outside' || step === undefined || typeof value !== 'number') {
+    return undefined
+  }
+  const low = siValue(step.low, measure)
+  const side = low !== undefined && value < low ? 'low' : 'high'
+  const limit = rangeLimitText(step, side, measure)
+  return limit === undefined ? undefined : `${side === 'low' ? 'below' : 'above'} ${limit}`
 }
 
 const CLEARS: Readonly<Partial<Record<string, string>>> = { below: 'above', above: 'below' }
+
+/** Where the value must be back for the alert to clear, as typed for the first step. */
+function clearsText(form: RuleForm, measure: Measure): string | undefined {
+  const first = form.steps.at(0)
+  if (first === undefined) return undefined
+  const kind = kindOf(form.detector)
+  if (kind === 'outside') {
+    const high = rangeLimitText(first, 'high', measure)
+    const low = first.low.trim()
+    return high === undefined || low === '' ? undefined : `between ${low} and ${high}`
+  }
+  const back = CLEARS[kind ?? '']
+  const limit = stepLimitText(first, stepQuantity(form.detector), measure)
+  return back === undefined || limit === undefined ? undefined : `${back} ${limit}`
+}
 
 /** How the alert climbs through several steps, and when a comparison clears. */
 export function ladderText(form: RuleForm, units: UnitLookup): string | undefined {
@@ -100,10 +138,6 @@ export function ladderText(form: RuleForm, units: UnitLookup): string | undefine
   })
   const [first, ...later] = parts
   const climb = `The alert is raised as ${first} and becomes ${later.join(', then ')}.`
-  const kind = kindOf(form.detector)
-  const back = CLEARS[kind ?? '']
-  const firstLimit = form.steps[0] && stepLimitText(form.steps[0], quantity, measure)
-  return back === undefined || firstLimit === undefined
-    ? climb
-    : `${climb} It clears only ${back} ${firstLimit}.`
+  const clears = clearsText(form, measure)
+  return clears === undefined ? climb : `${climb} It clears only ${clears}.`
 }

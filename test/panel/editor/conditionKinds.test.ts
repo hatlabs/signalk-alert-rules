@@ -6,11 +6,17 @@ import {
   withKind,
   type ConditionKind
 } from '../../../src/panel/editor/conditionKinds'
-import { emptyForm, emptyStep, type RuleForm } from '../../../src/panel/editor/formModel'
+import {
+  emptyForm,
+  emptyStep,
+  isZoneLimited,
+  type RuleForm
+} from '../../../src/panel/editor/formModel'
 
 const DETECTORS: [ConditionKind, Partial<RuleForm['detector']>][] = [
   ['below', { type: 'sustained', direction: 'below' }],
   ['above', { type: 'sustained', direction: 'above' }],
+  ['outside', { type: 'outside' }],
   ['rate', { type: 'slope' }],
   ['projection', { type: 'projection' }],
   ['silent', { type: 'match', matchOp: 'timedOut' }],
@@ -48,6 +54,38 @@ describe('condition kinds', () => {
     below.steps = [{ ...emptyStep('warning'), limit: '12' }]
     expect(withKind(below, 'above').steps).toEqual(below.steps)
     expect(withKind(below, 'often').steps).toEqual([emptyStep('warning')])
+  })
+
+  it('offers outside a range among the main kinds, after above a limit', () => {
+    const main = CONDITION_KINDS.filter((k) => k.main).map((k) => k.kind)
+    expect(main.slice(0, 3)).toEqual(['below', 'above', 'outside'])
+    expect(CONDITION_KINDS.find((k) => k.kind === 'outside')).toMatchObject({
+      label: 'Outside a range',
+      example: 'e.g. heel more than 25° either way',
+      numeric: true
+    })
+  })
+
+  it('starts outside a range afresh with one empty step, and below again', () => {
+    const below = withKind(emptyForm(), 'below')
+    below.steps = [
+      { ...emptyStep('warning'), limit: '12.2' },
+      { ...emptyStep('alarm'), limit: '11.8' }
+    ]
+    const outside = withKind(below, 'outside')
+    expect(outside.steps).toEqual([emptyStep('warning')])
+    outside.steps = [{ ...emptyStep('warning'), low: '11', high: '15' }]
+    expect(withKind(outside, 'below').steps).toEqual([emptyStep('warning')])
+  })
+
+  it('turns the zones off for outside a range, so below comes back typed', () => {
+    const below = withKind(emptyForm(), 'below')
+    below.detector.limit = { ...below.detector.limit, kind: 'zone' }
+    expect(isZoneLimited(below.detector)).toBe(true)
+    const outside = withKind(below, 'outside')
+    expect(outside.detector.limit.kind).toBe('fixed')
+    expect(isZoneLimited(outside.detector)).toBe(false)
+    expect(isZoneLimited(withKind(outside, 'below').detector)).toBe(false)
   })
 
   it('offers every kind for a number, and those that need no number otherwise', () => {

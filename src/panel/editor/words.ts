@@ -99,6 +99,8 @@ export function stepWord(d: DetectorForm): string {
   switch (d.type) {
     case 'sustained':
       return d.direction
+    case 'outside':
+      return 'outside'
     case 'slope':
       return 'faster than'
     case 'projection':
@@ -156,7 +158,20 @@ export function valueText(value: ValueField, measure: Measure): string | undefin
   }
 }
 
-/** A step's limit as typed, with its unit; undefined while empty or for a step without one. */
+/** One limit of a range step as typed, with its unit: `25 °`. */
+export function rangeLimitText(
+  step: StepForm,
+  side: 'low' | 'high',
+  measure: Measure
+): string | undefined {
+  return stepLimitText({ ...step, limit: step[side] }, 'value', measure)
+}
+
+/**
+ * A step's limit as typed, with its unit, a range as `-25 to 25 °`;
+ * undefined while empty, a range while either limit is, or for a step
+ * without one.
+ */
 export function stepLimitText(
   step: StepForm,
   quantity: StepQuantity | undefined,
@@ -169,6 +184,12 @@ export function stepLimitText(
   switch (quantity) {
     case 'value':
       return plain(labels.value)
+    case 'range': {
+      const [low, high] = [step.low.trim(), step.high.trim()]
+      return low === '' || high === ''
+        ? undefined
+        : withUnit(`${low} to ${high}`, labels.value.replace(/ \(SI\)$/, ''))
+    }
     case 'slope':
       return plain(labels.slope)
     case 'integral':

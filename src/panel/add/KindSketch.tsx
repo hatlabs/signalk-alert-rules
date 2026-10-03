@@ -17,6 +17,18 @@ const SKETCHES: Readonly<Record<ConditionKind, React.ReactNode>> = {
       <polyline points="2,29 18,27 32,22 44,10 62,7" fill="none" stroke={VALUE} strokeWidth="2" />
     </>
   ),
+  outside: (
+    <>
+      <line x1="0" y1="11" x2="64" y2="11" stroke={LIMIT} strokeWidth="1.5" strokeDasharray="4 3" />
+      <line x1="0" y1="25" x2="64" y2="25" stroke={LIMIT} strokeWidth="1.5" strokeDasharray="4 3" />
+      <polyline
+        points="2,18 10,16 18,5 26,4 36,18 46,31 62,32"
+        fill="none"
+        stroke={VALUE}
+        strokeWidth="2"
+      />
+    </>
+  ),
   rate: (
     <>
       <polyline points="2,8 26,9 40,16 62,32" fill="none" stroke={VALUE} strokeWidth="2" />

@@ -900,6 +900,180 @@ describe('RuleEditor, a unit reported after it opens', () => {
   })
 })
 
+describe('RuleEditor, outside a range', () => {
+  afterEach(cleanup)
+
+  const COOLANT = 'propulsion.port.coolantTemperature'
+
+  function fillRange(low: string, high: string, n = 1) {
+    type(textbox(`Low limit for step ${String(n)}`), low)
+    type(textbox(`High limit for step ${String(n)}`), high)
+  }
+
+  function rejectWith(api: FakeApi, path: string, message: string) {
+    api.createRule.mockRejectedValueOnce(
+      new RuleRejectedError('invalid request body', [{ path, message }])
+    )
+  }
+
+  it('saves a range typed in display units in SI, and opens it as typed', async () => {
+    const { api, onSaved } = renderEditor({ start: { path: COOLANT, kind: 'outside' } })
+    await formShown()
+    choose('Priority for step 1', 'warning')
+    fillRange('60', '95')
+    create()
+    await saved(onSaved)
+    const [[rule]] = api.createRule.mock.calls
+    expect(rule.detector.type).toBe('outside')
+    const step = rule.detector.type === 'outside' ? rule.detector.steps[0] : undefined
+    expect(step?.priority).toBe('warning')
+    expect(step?.low).toBeCloseTo(333.15)
+    expect(step?.high).toBeCloseTo(368.15)
+    cleanup()
+    renderEditor({ editing: { entry: ruleEntry({ slug: rule.slug }), rule } })
+    await formShown()
+    expect(select('Alert when')).toHaveProperty('value', 'outside')
+    expect(textbox('Low limit for step 1')).toHaveProperty('value', '60')
+    expect(textbox('High limit for step 1')).toHaveProperty('value', '95')
+  })
+
+  it('starts afresh with one empty step when the kind changes to outside a range', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    fillBelow('12.2')
+    click(button('Escalate at…'))
+    type(textbox('Limit for step 2'), '11.8')
+    choose('Alert when', 'outside')
+    expect(screen.queryByRole('combobox', { name: 'Priority for step 2' })).toBeNull()
+    expect(textbox('Low limit for step 1')).toHaveProperty('value', '')
+    expect(textbox('High limit for step 1')).toHaveProperty('value', '')
+    expect(select('Priority for step 1')).toHaveProperty('value', 'warning')
+  })
+
+  it('hides the zones for outside a range, and comes back to typed steps', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    openMoreOptions()
+    click(checkbox(/Use the value's zones/))
+    choose('Alert when', 'outside')
+    expect(screen.queryByRole('checkbox', { name: /Use the value's zones/ })).toBeNull()
+    expect(textbox('Low limit for step 1')).toBeTruthy()
+    choose('Alert when', 'below')
+    expect(checkbox(/Use the value's zones/)).toHaveProperty('checked', false)
+    expect(textbox('Limit for step 1')).toBeTruthy()
+  })
+
+  it('offers how long it must hold, the clear margin and the clear delay', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'outside' } })
+    await formShown()
+    expect(textbox('For at least')).toBeTruthy()
+    openMoreOptions()
+    expect(textbox('Clear margin')).toBeTruthy()
+    expect(textbox('Clear delay')).toBeTruthy()
+  })
+
+  it('asks for a missing high limit on its field, and moves focus there', async () => {
+    const { api } = renderEditor({ start: { path: HOUSE, kind: 'outside' } })
+    await formShown()
+    choose('Priority for step 1', 'warning')
+    type(textbox('Low limit for step 1'), '11.5')
+    create()
+    expect(description(textbox('High limit for step 1'))).toContain('Fill in the high limit')
+    expect(textbox('Low limit for step 1').getAttribute('aria-invalid')).toBeNull()
+    expect(document.activeElement).toBe(textbox('High limit for step 1'))
+    expect(screen.getByText('Fill in the high limit to save.')).toBeTruthy()
+    expect(api.createRule).not.toHaveBeenCalled()
+  })
+
+  it('shows a range whose high limit is not above its low on the high field', async () => {
+    const { api } = renderEditor({ start: { path: HOUSE, kind: 'outside' } })
+    rejectWith(api, '/detector/steps/1/high', 'must be above the low limit')
+    await formShown()
+    choose('Priority for step 1', 'warning')
+    fillRange('11.5', '14.8')
+    click(button('Escalate at…'))
+    fillRange('11', '10', 2)
+    create()
+    await waitFor(() => {
+      expect(textbox('High limit for step 2').getAttribute('aria-invalid')).toBe('true')
+    })
+    expect(description(textbox('High limit for step 2'))).toContain(
+      'Step 2: the high limit must be above the low limit.'
+    )
+    expect(screen.queryByText(/detector\/steps/)).toBeNull()
+  })
+
+  it('names a narrower later range by the limit it moved inside', async () => {
+    const { api } = renderEditor({ start: { path: HOUSE, kind: 'outside' } })
+    rejectWith(api, '/detector/steps/1/low', "must not be inside the previous step's range")
+    await formShown()
+    choose('Priority for step 1', 'warning')
+    fillRange('11.5', '14.8')
+    click(button('Escalate at…'))
+    fillRange('11.8', '15', 2)
+    create()
+    await waitFor(() => {
+      expect(textbox('Low limit for step 2').getAttribute('aria-invalid')).toBe('true')
+    })
+    expect(description(textbox('Low limit for step 2'))).toContain(
+      "Step 2: an alarm's low limit must not be above 11.5 V, the warning's low limit."
+    )
+  })
+
+  it('names a high limit moved inside, and a range no wider than the last', async () => {
+    const { api } = renderEditor({ start: { path: HOUSE, kind: 'outside' } })
+    rejectWith(api, '/detector/steps/1/high', "must not be inside the previous step's range")
+    await formShown()
+    choose('Priority for step 1', 'warning')
+    fillRange('11.5', '14.8')
+    click(button('Escalate at…'))
+    fillRange('11', '14.5', 2)
+    create()
+    await waitFor(() => {
+      expect(description(textbox('High limit for step 2'))).toContain(
+        "Step 2: an alarm's high limit must not be below 14.8 V, the warning's high limit."
+      )
+    })
+    rejectWith(api, '/detector/steps/1/high', "must not be inside the previous step's range")
+    fillRange('11.5', '14.8', 2)
+    create()
+    await waitFor(() => {
+      expect(description(textbox('High limit for step 2'))).toContain(
+        "Step 2: an alarm's range must be wider than 11.5 to 14.8 V, the warning's range."
+      )
+    })
+  })
+
+  it('opens More options for a clear margin too wide for the range', async () => {
+    const { api } = renderEditor({ start: { path: HOUSE, kind: 'outside' } })
+    rejectWith(
+      api,
+      '/detector/hysteresis',
+      "must be less than half the first step's range, or the alert could never clear"
+    )
+    await formShown()
+    choose('Priority for step 1', 'warning')
+    fillRange('11.5', '14.8')
+    const more = screen.getByText('More options').closest('details')
+    expect(more?.open).toBe(false)
+    create()
+    await waitFor(() => {
+      expect(more?.open).toBe(true)
+    })
+    expect(description(textbox('Clear margin'))).toContain("half the first step's range")
+  })
+
+  it('says whether the value now would alert, and past which limit', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'outside' } })
+    await formShown()
+    choose('Priority for step 1', 'warning')
+    fillRange('11.5', '13')
+    expect(screen.getByText(/Now 13\.31 V: would alert as a warning \(above 13 V\)\./)).toBeTruthy()
+    fillRange('11.5', '14.8')
+    expect(screen.getByText(/Now 13\.31 V: would not alert\./)).toBeTruthy()
+  })
+})
+
 describe('ZONE_PRIORITY', () => {
   it('is the priority the model gives each zone level', () => {
     expect(ZONE_PRIORITY).toEqual(LEVEL_PRIORITY)

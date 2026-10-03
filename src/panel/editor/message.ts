@@ -54,6 +54,12 @@ export function generatedMessage(form: RuleForm, units: UnitLookup): string {
       const held = durationText(d.duration)
       return `${subject} ${kind} ${limit}${held === undefined ? '' : ` for ${held}`}: {value}`
     }
+    case 'outside': {
+      // {limit} is the one limit passed, not the range, so only a typed range is written.
+      const range = limit === '{limit}' ? '' : ` ${limit}`
+      const held = durationText(d.duration)
+      return `${subject} out of range${range}${held === undefined ? '' : ` for ${held}`}: {value}`
+    }
     case 'rate':
       return `${subject} ${d.trend === '' ? 'changing' : d.trend} faster than ${limit}: {value}`
     case 'projection':
@@ -85,6 +91,7 @@ export function generatedMessage(form: RuleForm, units: UnitLookup): string {
 const NAME_WORDS: Readonly<Record<string, string>> = {
   below: 'low',
   above: 'high',
+  outside: 'out of range',
   silent: 'not reporting',
   often: 'changing often',
   total: 'total reached',

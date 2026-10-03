@@ -159,7 +159,7 @@ export function MoreOptions({
     >
       <summary className="skar-more-summary">More options</summary>
       <div className="skar-more-body">
-        {d.type === 'sustained' && (
+        {(d.type === 'sustained' || d.type === 'outside') && (
           <>
             <TextField
               label="Clear margin"
@@ -167,7 +167,11 @@ export function MoreOptions({
               value={d.hysteresis}
               numeric
               unit={unitLabels(measure).interval}
-              hint="How far back past the limit the value must go to clear. Empty is none."
+              hint={
+                d.type === 'outside'
+                  ? 'How far inside the range the value must come back to clear. Empty is none.'
+                  : 'How far back past the limit the value must go to clear. Empty is none.'
+              }
               onChange={(hysteresis) => {
                 onChange(withDetector(form, { hysteresis }))
               }}

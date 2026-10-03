@@ -22,13 +22,9 @@ import { NO_UNITS } from '../../../src/panel/signalUnits'
 const EXAMPLES = join(import.meta.dirname, '../../../examples/rules')
 
 function examples(): [string, Rule][] {
-  return (
-    readdirSync(EXAMPLES)
-      .filter((f) => f.endsWith('.json'))
-      .map((f): [string, Rule] => [f, JSON.parse(readFileSync(join(EXAMPLES, f), 'utf8')) as Rule])
-      // The editor has no outside condition kind until issue 88's Unit 4.
-      .filter(([, rule]) => rule.detector.type !== 'outside')
-  )
+  return readdirSync(EXAMPLES)
+    .filter((f) => f.endsWith('.json'))
+    .map((f): [string, Rule] => [f, JSON.parse(readFileSync(join(EXAMPLES, f), 'utf8')) as Rule])
 }
 
 /** The JSON pointer of every value in `value` that holds no other value. */
@@ -104,6 +100,30 @@ describe('fieldPointers', () => {
     ])
   })
 
+  it('lists an outside rule with a low and a high limit per step, and no zones', () => {
+    const f = form((f) => {
+      f.detector.type = 'outside'
+      f.steps = [emptyStep('warning'), emptyStep('alarm')]
+    })
+    expect(fieldPointers(f, false)).toEqual([
+      '/name',
+      '/signal/path',
+      '/signal/source',
+      '/detector/type',
+      '/detector/steps/0/priority',
+      '/detector/steps/0/low',
+      '/detector/steps/0/high',
+      '/detector/steps/1/priority',
+      '/detector/steps/1/low',
+      '/detector/steps/1/high',
+      '/detector/duration',
+      '/message',
+      '/condition',
+      '/detector/hysteresis',
+      '/detector/clearDuration'
+    ])
+  })
+
   it('has a priority and a limit for every step', () => {
     const f = form((f) => {
       f.detector.type = 'sustained'
@@ -165,6 +185,15 @@ describe('underMoreOptions', () => {
     }
   })
 
+  it('places the clear margin and delay of an outside rule under More options', () => {
+    const outside = form((f) => {
+      f.detector.type = 'outside'
+    })
+    for (const p of ['/detector/hysteresis', '/detector/clearDuration']) {
+      expect(underMoreOptions(outside, false, p)).toBe(true)
+    }
+  })
+
   it('places latching under More options where the condition can latch', () => {
     const count = form((f) => {
       f.detector.type = 'count'
@@ -209,6 +238,17 @@ describe('saveHint', () => {
     expect(fieldLabel('/detector/steps/1/limit', f)).toBe('step 2')
     expect(saveHint([{ path: '/detector/steps/1/limit', message: 'is required' }], f)).toBe(
       'Fill in step 2 to save.'
+    )
+  })
+
+  it("names an outside rule's limits by their side", () => {
+    const f = form((f) => {
+      f.detector.type = 'outside'
+    })
+    expect(fieldLabel('/detector/steps/0/low', f)).toBe('the low limit')
+    expect(fieldLabel('/detector/steps/0/high', f)).toBe('the high limit')
+    expect(saveHint([{ path: '/detector/steps/0/high', message: 'is required' }], f)).toBe(
+      'Fill in the high limit to save.'
     )
   })
 
