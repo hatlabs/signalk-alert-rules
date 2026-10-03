@@ -19,6 +19,7 @@ import {
   formShown,
   noChange,
   openMoreOptions,
+  pathSource,
   renderEditor,
   reported,
   saved,
@@ -104,6 +105,97 @@ describe('RuleEditor, from a path', () => {
     )
     type(textbox(/^Message/), 'Low {volts}')
     expect(description(textbox(/^Message/))).toContain('{volts} is sent as written.')
+  })
+
+  it('previews a wildcard rule with the first instance reporting, by name', async () => {
+    const rule = example('coolant-temperature-rising')
+    renderEditor({ editing: { entry: ruleEntry({ slug: rule.slug }), rule } })
+    await formShown()
+    await waitFor(() => {
+      expect(description(textbox(/^Message/))).toContain(
+        'Sends now: “Coolant temperature is rising fast on port”'
+      )
+    })
+  })
+
+  it('previews a wildcard rule with no instance reporting with {instance} as written', async () => {
+    const rule = example('coolant-temperature-rising')
+    const silent: PathSource = { ...pathSource, selfPaths: () => Promise.resolve([]) }
+    renderEditor({ paths: silent, editing: { entry: ruleEntry({ slug: rule.slug }), rule } })
+    await formShown()
+    await waitFor(() => {
+      expect(description(textbox(/^Message/))).toContain(
+        'Sends now: “Coolant temperature is rising fast on {instance}”'
+      )
+    })
+  })
+
+  it('previews a wildcard rule pinned to a source with an instance that source reports', async () => {
+    const coolant = example('coolant-temperature-rising')
+    const rule: Rule = { ...coolant, signal: { ...coolant.signal, source: 'n2k.starboard' } }
+    const bySource: PathSource = {
+      ...pathSource,
+      selfPaths: () =>
+        Promise.resolve(
+          reported.map((p) =>
+            p.path === 'propulsion.port.coolantTemperature'
+              ? { ...p, sources: ['n2k.port'] }
+              : p.path === 'propulsion.starboard.coolantTemperature'
+                ? { ...p, sources: ['n2k.starboard'] }
+                : p
+          )
+        )
+    }
+    renderEditor({ paths: bySource, editing: { entry: ruleEntry({ slug: rule.slug }), rule } })
+    await formShown()
+    await waitFor(() => {
+      expect(description(textbox(/^Message/))).toContain(
+        'Sends now: “Coolant temperature is rising fast on starboard”'
+      )
+    })
+  })
+
+  it('previews nothing for a wildcard rule while the paths load, showing no form yet', async () => {
+    const rule = example('coolant-temperature-rising')
+    renderEditor({
+      paths: { ...pathSource, selfPaths: () => new Promise<never>(() => undefined) },
+      editing: { entry: ruleEntry({ slug: rule.slug }), rule }
+    })
+    expect(await screen.findByRole('status')).toHaveProperty('textContent', 'Loading paths…')
+    expect(screen.queryByText(/Sends now/)).toBeNull()
+  })
+
+  it('previews a wildcard rule with {instance} as written when the paths fail to load', async () => {
+    const rule = example('coolant-temperature-rising')
+    renderEditor({
+      paths: { ...pathSource, selfPaths: () => Promise.reject(new Error('unreachable')) },
+      editing: { entry: ruleEntry({ slug: rule.slug }), rule }
+    })
+    await formShown()
+    await waitFor(() => {
+      expect(description(textbox(/^Message/))).toContain(
+        'Sends now: “Coolant temperature is rising fast on {instance}”'
+      )
+    })
+  })
+
+  it('previews {instance} as empty for a rule without a wildcard, as the server sends it', async () => {
+    const rule: Rule = {
+      name: 'Port coolant hot',
+      slug: 'port-coolant-hot',
+      message: 'Coolant hot{instance}',
+      signal: { path: 'propulsion.port.coolantTemperature' },
+      detector: {
+        type: 'sustained',
+        direction: 'above',
+        steps: [{ limit: 368.15, priority: 'alarm' }]
+      }
+    }
+    renderEditor({ editing: { entry: ruleEntry({ slug: rule.slug }), rule } })
+    await formShown()
+    await waitFor(() => {
+      expect(description(textbox(/^Message/))).toContain('Sends now: “Coolant hot”')
+    })
   })
 
   it('says whether the value now would alert, and at which priority', async () => {
