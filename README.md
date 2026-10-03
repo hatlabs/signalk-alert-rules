@@ -2,7 +2,7 @@
 
 Alert Rules is a Signal K server plugin that raises alerts through the Signal K alerts API from rules over Signal K data. A rule watches one or more paths, detects a condition (a value past a limit for a duration, a trend, a count per window, an absence of events, and so on), can be gated on other paths, and raises an alert while the condition holds, climbing in priority through up to four steps as the condition worsens.
 
-The plugin raises alerts; the server's alerts API owns their lifecycle (acknowledgement, silencing, persistence), and an alert console displays them.
+The plugin raises alerts; the server's alerts API owns their lifecycle (acknowledgement, silencing, escalation of an unacknowledged alert, persistence), and an alert console displays them.
 
 Rules are managed in the Alert Rules webapp, under Webapps in the admin UI. The admin UI lists it only while the plugin is enabled; the plugin's configuration page holds just the Enabled switch. In the webapp:
 

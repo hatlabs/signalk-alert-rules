@@ -4,7 +4,7 @@ Alert Rules is a Signal K server plugin (npm `signalk-alert-rules`; code and com
 
 ## Boundaries
 
-- SKAR decides when a condition starts and ends, and which step of its rule it has reached, and emits `alerts.*` deltas. The server's alerts API owns the lifecycle: acknowledgement, silencing, escalation of an unacknowledged alert, persistence. SKAR never acknowledges, silences or escalates an alert on time; a rule's steps raise its priority only as the condition worsens.
+- SKAR decides when a condition starts and ends, and which step of its rule it has reached, and emits `alerts.*` deltas. The server's alerts API owns the lifecycle: acknowledgement, silencing, escalation of an unacknowledged alert, persistence. SKAR never acknowledges or silences an alert, and never escalates one on time; a rule's steps raise its priority only as the condition worsens.
 - SKAR is a generic Signal K plugin. Code and documentation contain no dependency on or reference to specific hardware or distributions; `signalk-halpi` may appear as an example template set provider.
 - Stopping the plugin never clears alerts: stop also runs on every configuration save.
 
