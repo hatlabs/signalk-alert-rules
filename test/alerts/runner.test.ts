@@ -1697,6 +1697,39 @@ describe('message placeholders', () => {
     })
   })
 
+  it("an outside alert's limit follows the value to the other side at the next heartbeat, with no new event", () => {
+    const HEEL = 'navigation.attitude.roll'
+    const heel = valid({
+      name: 'Heel',
+      slug: 'heel',
+      message: 'Heel {value}, past {limit}',
+      signal: { path: HEEL },
+      detector: {
+        type: 'outside',
+        steps: [{ low: -25, high: 25, priority: 'warning' }],
+        duration: 5
+      }
+    })
+    const { at, run, sent, runner } = setup([heel], { meta: { [HEEL]: { units: 'deg' } } })
+    at(0, HEEL, 27)
+    run(1, 5)
+    expect(sent).toHaveLength(1)
+    expect(sent[0]).toMatchObject([
+      'navigation.attitude.rollOutOfRange',
+      { priority: 'warning', message: 'Heel 27 deg, past 25 deg', data: { limit: 25 } }
+    ])
+    expect(runner.state('heel')?.instances[0]).toMatchObject({ limit: 25, passed: 'high' })
+    at(6, HEEL, -27)
+    run(7, 5 + HEARTBEAT_S)
+    expect(sent).toHaveLength(2)
+    expect(sent[1]?.[1]).toMatchObject({
+      priority: 'warning',
+      message: 'Heel -27 deg, past -25 deg',
+      data: { limit: 25 }
+    })
+    expect(runner.state('heel')?.instances[0]).toMatchObject({ limit: -25, passed: 'low' })
+  })
+
   it('a value change while alerting is sent with the next heartbeat, at the same priority and with the data of the raise', () => {
     const { at, run, sent, runner } = raised()
     at(6, HOUSE, 12.1)
