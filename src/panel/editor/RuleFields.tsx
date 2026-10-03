@@ -8,6 +8,7 @@ import { ConditionFields, HoldField, KindField } from './ConditionFields'
 import { FieldErrors, Required, SelectField, TextField, valueKindOf } from './fields'
 import {
   defaultFormCondition,
+  forgetEdited,
   formAlertPrefix,
   hasWildcard,
   isZoneLimited,
@@ -133,7 +134,7 @@ export function RuleFields(props: RuleFieldsProps) {
   }, [checked.set])
 
   const update = (next: RuleForm) => {
-    props.onChange(withGenerated(next, units))
+    props.onChange(withGenerated(forgetEdited(next), units))
   }
   const measure = signalMeasure(signalShape(form.signal), units)
   const single = form.signal.mode === 'single'

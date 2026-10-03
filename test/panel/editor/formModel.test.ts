@@ -9,6 +9,7 @@ import {
   PRIORITIES,
   ZONE_LEVELS,
   type Detector,
+  type Event,
   type Rule
 } from '../../../src/model/rule'
 import {
@@ -24,6 +25,7 @@ import {
   defaultFormCondition,
   emptyForm,
   emptyStep,
+  forgetEdited,
   formAlertPrefix,
   fromBody,
   fromRule,
@@ -593,7 +595,7 @@ describe('unit storage', () => {
       }
     }
     const form = fromRule(rule, displayed)
-    expect(form.steps[0].limit).toBe('5.72957795131')
+    expect(form.steps[0].limit).toBe('5.73')
     expect(saved(form)).toEqual(rule)
     form.steps[0].limit = '6'
     expect(firstLimit(saved(form))).toBeCloseTo(0.10472, 5)
@@ -783,5 +785,296 @@ describe('local checks', () => {
     const form = fromRule(example('engine-stopped'), NO_UNITS)
     form.detector.matchOp = 'equals'
     expect(saved(form, NO_UNITS).latching).toBeUndefined()
+  })
+})
+
+describe('a converted value shown rounded', () => {
+  /** Degrees per radian, as the heading's display unit converts. */
+  const DEGREES = 57.29577951308232
+  const heading = (detector: Partial<Detector>, gates?: Rule['gates']): Rule => ({
+    name: 'r',
+    slug: 'r',
+    message: 'm',
+    signal: { path: 'navigation.headingMagnetic' },
+    detector: {
+      type: 'sustained',
+      direction: 'above',
+      steps: [{ limit: 0.1, priority: 'caution' }],
+      ...detector
+    } as Detector,
+    ...(gates === undefined ? {} : { gates })
+  })
+
+  /** The form after the user has edited it through the editor, which forgets what they changed. */
+  const edit = (form: RuleForm, change: (f: RuleForm) => void): RuleForm => {
+    const next = structuredClone(form)
+    change(next)
+    return forgetEdited(next)
+  }
+
+  it("shows the worked examples' limits to the precision the panel shows values in", () => {
+    expect(fromRule(example('gnss-disagree'), displayed).steps[0].limit).toBe('0.027')
+    expect(fromRule(example('compasses-disagree'), displayed).steps[0].limit).toBe('5.73')
+  })
+
+  it('stores the exact value of a limit the user did not touch', () => {
+    for (const slug of ['gnss-disagree', 'compasses-disagree']) {
+      const form = edit(fromRule(example(slug), displayed), (f) => {
+        f.message = 'Edited'
+      })
+      expect(saved(form)).toEqual({ ...example(slug), message: 'Edited' })
+    }
+  })
+
+  it('converts the rounded value when the user types it into that field', () => {
+    let form = fromRule(example('gnss-disagree'), displayed)
+    form = edit(form, (f) => {
+      f.steps[0].limit = '0.02'
+    })
+    form = edit(form, (f) => {
+      f.steps[0].limit = '0.027'
+    })
+    expect(firstLimit(saved(form))).toBeCloseTo(50.004, 3)
+    expect(firstLimit(saved(form))).not.toBe(50)
+  })
+
+  it('converts the same rounded text typed into another field', () => {
+    const form = edit(fromRule(heading({}), displayed), (f) => {
+      f.steps.push({ ...emptyStep('warning'), limit: '5.73' })
+    })
+    const steps = saved(form).detector.steps as { limit: number }[]
+    expect(steps[0].limit).toBe(0.1)
+    expect(steps[1].limit).toBeCloseTo(0.100007, 6)
+    expect(steps[1].limit).not.toBe(0.1)
+  })
+
+  it('keeps the exact value of a step that moves when an earlier one is removed', () => {
+    const rule = heading({
+      steps: [
+        { limit: 0.1, priority: 'caution' },
+        { limit: 0.2, priority: 'warning' }
+      ]
+    })
+    const form = edit(fromRule(rule, displayed), (f) => {
+      f.steps = f.steps.slice(1)
+    })
+    expect(form.steps[0].limit).toBe('11.46')
+    expect(saved(form).detector.steps).toEqual([{ limit: 0.2, priority: 'warning' }])
+  })
+
+  it('rounds and keeps a clear margin, a slope and a gate limit and margin', () => {
+    const rule = heading({ hysteresis: 0.01 }, [
+      {
+        signal: { path: 'navigation.headingMagnetic' },
+        direction: 'above',
+        limit: { kind: 'fixed', value: 0.3 },
+        hysteresis: 0.02
+      }
+    ])
+    const form = fromRule(rule, displayed)
+    expect(form.detector.hysteresis).toBe('0.573')
+    expect(form.gates[0].limit.value).toBe('17.19')
+    expect(form.gates[0].hysteresis).toBe('1.146')
+    expect(saved(form)).toEqual(rule)
+
+    const slope = heading({
+      type: 'slope',
+      direction: 'rising',
+      window: 60,
+      steps: [{ limit: 0.001, priority: 'caution' }]
+    })
+    const sloped = fromRule(slope, displayed)
+    expect(sloped.steps[0].limit).toBe('3.438')
+    expect(saved(sloped)).toEqual(slope)
+  })
+
+  it('shows a value in its SI unit unrounded', () => {
+    const rule: Rule = {
+      ...heading({ steps: [{ limit: 13.125, priority: 'caution' }] }),
+      signal: { path: 'electrical.batteries.house.voltage' }
+    }
+    expect(fromRule(rule, displayed).steps[0].limit).toBe('13.125')
+    const si = fromRule(heading({ steps: [{ limit: 0.123456, priority: 'caution' }] }), NO_UNITS)
+    expect(si.steps[0].limit).toBe('0.123456')
+  })
+
+  it('converts the shown text once the field shows another unit', () => {
+    const form = edit(fromRule(example('compasses-disagree'), displayed), (f) => {
+      f.signal = setCombinator({ ...f.signal, angular: false }, 'ratio')
+    })
+    expect(form.steps[0].limit).toBe('5.73')
+    expect(firstLimit(saved(form))).toBeCloseTo(5.73, 12)
+  })
+
+  it('keeps the exact value of the other bound when one bound is edited', () => {
+    const rule = heading({
+      type: 'outside',
+      steps: [{ low: 0.1, high: 0.2, priority: 'caution' }]
+    })
+    const form = edit(fromRule(rule, displayed), (f) => {
+      f.steps[0].low = '6'
+    })
+    expect(form.steps[0].high).toBe('11.46')
+    const step = saved(form).detector.steps?.[0] as { low: number; high: number }
+    expect(step.low).toBeCloseTo(6 / DEGREES, 12)
+    expect(step.high).toBe(0.2)
+  })
+
+  describe('converts the shown text typed back into a field the user edited', () => {
+    const gated: Rule['gates'] = [
+      {
+        signal: { path: 'navigation.headingMagnetic' },
+        direction: 'above',
+        limit: { kind: 'fixed', value: 0.1 },
+        hysteresis: 0.1
+      }
+    ]
+    type AccumulatorDetector = Extract<Detector, { type: 'accumulator' }>
+    const accumulator = (extra: Pick<AccumulatorDetector, 'while' | 'resetOn'>) =>
+      heading({
+        type: 'accumulator',
+        measure: 'time',
+        steps: [{ limit: 600, priority: 'caution' }],
+        ...extra
+      })
+    const counted = heading({
+      type: 'count',
+      event: { op: 'changesTo', value: 0.1 },
+      window: 600,
+      steps: [{ limit: 3, priority: 'caution' }]
+    })
+    const outside = heading({
+      type: 'outside',
+      steps: [{ low: 0.1, high: 0.2, priority: 'caution' }]
+    })
+    const step = (rule: Rule) => rule.detector.steps?.[0] as Record<string, unknown>
+    const detector = (rule: Rule) => rule.detector as Record<string, unknown>
+    const gate = (rule: Rule) => {
+      const first = rule.gates?.at(0)
+      if (first === undefined) throw new Error('no gate')
+      return first
+    }
+
+    interface Holder {
+      field: string
+      rule: Rule
+      text: (form: RuleForm) => string
+      type: (form: RuleForm, text: string) => void
+      stored: (rule: Rule) => unknown
+    }
+    const holders: Holder[] = [
+      {
+        field: 'step limit',
+        rule: heading({}),
+        text: (f) => f.steps[0].limit,
+        type: (f, t) => {
+          f.steps[0].limit = t
+        },
+        stored: (r) => step(r).limit
+      },
+      {
+        field: 'step low',
+        rule: outside,
+        text: (f) => f.steps[0].low,
+        type: (f, t) => {
+          f.steps[0].low = t
+        },
+        stored: (r) => step(r).low
+      },
+      {
+        field: 'step high',
+        rule: heading({
+          type: 'outside',
+          steps: [{ low: 0.05, high: 0.1, priority: 'caution' }]
+        }),
+        text: (f) => f.steps[0].high,
+        type: (f, t) => {
+          f.steps[0].high = t
+        },
+        stored: (r) => step(r).high
+      },
+      {
+        field: 'step value',
+        rule: heading({
+          type: 'match',
+          op: 'equals',
+          steps: [{ value: 0.1, priority: 'caution' }]
+        }),
+        text: (f) => f.steps[0].value.text,
+        type: (f, t) => {
+          f.steps[0].value.text = t
+        },
+        stored: (r) => step(r).value
+      },
+      {
+        field: 'clear margin',
+        rule: heading({ hysteresis: 0.1 }),
+        text: (f) => f.detector.hysteresis,
+        type: (f, t) => {
+          f.detector.hysteresis = t
+        },
+        stored: (r) => detector(r).hysteresis
+      },
+      {
+        field: 'while value',
+        rule: accumulator({ while: { op: 'above', value: 0.1 } }),
+        text: (f) => f.detector.whileValue.text,
+        type: (f, t) => {
+          f.detector.whileValue.text = t
+        },
+        stored: (r) => (r.detector as { while: { value: number } }).while.value
+      },
+      {
+        field: 'reset value',
+        rule: accumulator({ resetOn: { op: 'changesTo', value: 0.1 } }),
+        text: (f) => f.detector.resetOn.value.text,
+        type: (f, t) => {
+          f.detector.resetOn.value.text = t
+        },
+        stored: (r) => (r.detector as { resetOn: Event }).resetOn.value
+      },
+      {
+        field: 'event value',
+        rule: counted,
+        text: (f) => f.detector.event.value.text,
+        type: (f, t) => {
+          f.detector.event.value.text = t
+        },
+        stored: (r) => (r.detector as { event: Event }).event.value
+      },
+      {
+        field: 'gate limit',
+        rule: heading({}, gated),
+        text: (f) => f.gates[0].limit.value,
+        type: (f, t) => {
+          f.gates[0].limit.value = t
+        },
+        stored: (r) => (gate(r).limit as { value: number }).value
+      },
+      {
+        field: 'gate clear margin',
+        rule: heading({}, gated),
+        text: (f) => f.gates[0].hysteresis,
+        type: (f, t) => {
+          f.gates[0].hysteresis = t
+        },
+        stored: (r) => gate(r).hysteresis
+      }
+    ]
+
+    it.each(holders)('$field', ({ rule, text, type, stored }) => {
+      let form = fromRule(rule, displayed)
+      const shownText = text(form)
+      expect(shownText).toBe('5.73')
+      expect(stored(saved(form))).toBe(0.1)
+      form = edit(form, (f) => {
+        type(f, '7')
+      })
+      form = edit(form, (f) => {
+        type(f, shownText)
+      })
+      expect(stored(saved(form))).toBeCloseTo(5.73 / DEGREES, 12)
+      expect(stored(saved(form))).not.toBe(0.1)
+    })
   })
 })

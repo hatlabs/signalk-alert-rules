@@ -22,7 +22,7 @@ Numbers are typed in the display unit the server's unit preferences give the pat
 | Distance between positions | nmi | 0.026997840172786176 nmi | 50 m |
 | Angle | ° | 5.729577951308232° | 0.1 rad |
 
-The shore power frequency in the screenshots shows in Hz because its path's display unit is set to the base unit; under the preset alone the server shows frequency in rpm. A limit that is a round number in SI but not in the display unit has to be typed in full to store exactly that number: 0.027 nmi stores 50.004 m ([issue 97](https://github.com/hatlabs/signalk-alert-rules/issues/97)).
+The shore power frequency in the screenshots shows in Hz because its path's display unit is set to the base unit; under the preset alone the server shows frequency in rpm. A limit that is a round number in SI but not in the display unit has to be typed in full to store exactly that number: 0.027 nmi stores 50.004 m. A stored rule opens with each converted number rounded as the rule detail shows values, 50 m as 0.027 nmi and 0.1 rad as 5.73°, and saves the stored number unchanged unless its field is edited.
 
 Durations take a number and a unit (s, min or h) and are stored in seconds.
 
@@ -135,7 +135,7 @@ Warns when the positions of three named GNSS receivers spread more than 50 m apa
 2. More options: check **Combine with other paths**. Combination: **Largest distance between positions**. Add path until there are three, each `navigation.position`, with the sources `gnss.bow`, `gnss.stern` and `gnss.mast`.
 3. Alert when: **Above a limit**. The combined value is a distance, so every kind is now offered.
 4. Name: `GNSS receivers disagree`. Message: `GNSS positions disagree`.
-5. Priority and limit: Warning, above 50 m, typed in nmi as 0.026997840172786176. For at least: 20 s.
+5. Priority and limit: Warning, above 50 m, typed in nmi as 0.026997840172786176; the rule opens again showing 0.027. For at least: 20 s.
 6. Condition name: `gnssDisagree`. Slug: `gnss-disagree`, which differs from the one the name gives.
 
 ![The editor for GNSS receivers disagree](images/examples/gnss-disagree-editor.png)
@@ -163,7 +163,7 @@ Raises a caution when two named compasses differ by more than 0.1 rad for 60 s, 
 2. More options: check **Combine with other paths**. Combination: **Absolute difference of two**. Combined path 2: `navigation.headingMagnetic`. Sources: `compass.a` and `compass.b`.
 3. Check **Values are angles, wrapping at a full turn**.
 4. Name: `Compasses disagree`. Message: `Compass headings disagree`.
-5. Priority and limit: Caution, above 0.1 rad, typed in degrees as 5.729577951308232. For at least: 60 s.
+5. Priority and limit: Caution, above 0.1 rad, typed in degrees as 5.729577951308232; the rule opens again showing 5.73. For at least: 60 s.
 6. Condition name: `compassesDisagree`.
 
 ![The editor for Compasses disagree](images/examples/compasses-disagree-editor.png)

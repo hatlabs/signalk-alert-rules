@@ -609,6 +609,39 @@ describe('RuleEditor, editing', () => {
     })
   })
 
+  describe('a limit shown rounded in its display unit', () => {
+    const revolutions: Rule = {
+      ...battery,
+      signal: { path: 'propulsion.port.revolutions' },
+      detector: {
+        type: 'sustained',
+        direction: 'above',
+        steps: [{ limit: 3.0123, priority: 'warning' }]
+      }
+    }
+
+    it('shows it rounded and saves the stored value while it is not edited', async () => {
+      const { api, onSaved } = renderEditor({ editing: { entry: active, rule: revolutions } })
+      await formShown()
+      expect(textbox('Limit for step 1')).toHaveProperty('value', '180.7')
+      type(textbox(/^Message/), 'Edited')
+      click(button('Save'))
+      await saved(onSaved)
+      expect(api.updateRule.mock.calls[0]?.[1]).toEqual({ ...revolutions, message: 'Edited' })
+    })
+
+    it('saves what the shown text converts to once it is typed back in', async () => {
+      const { api, onSaved } = renderEditor({ editing: { entry: active, rule: revolutions } })
+      await formShown()
+      type(textbox('Limit for step 1'), '180.8')
+      type(textbox('Limit for step 1'), '180.7')
+      click(button('Save'))
+      await saved(onSaved)
+      const steps = api.updateRule.mock.calls[0]?.[1].detector.steps as { limit: number }[]
+      expect(steps[0].limit).toBeCloseTo(180.7 / 60, 12)
+    })
+  })
+
   it.each(['engine-stopped', 'coolant-temperature-rising'])(
     'opens More options on the latching or gate of %s and saves it unchanged',
     async (slug) => {
