@@ -23,8 +23,11 @@ import {
   COMBINATOR_KINDS,
   defaultFormCondition,
   emptyForm,
+  emptyStep,
   formAlertPrefix,
+  fromBody,
   fromRule,
+  maxSteps,
   MAX_GATES,
   MAX_INPUTS,
   MAX_SLUG,
@@ -34,6 +37,7 @@ import {
   slugify,
   toRule,
   TWO_INPUT_KINDS,
+  withDetector,
   ZONE_LEVEL_NAMES,
   type RuleForm
 } from '../../../src/panel/editor/formModel'
@@ -184,11 +188,12 @@ describe('the condition name of a form', () => {
 
   it("saves only a typed name, the default staying the input and detector's", () => {
     const form = authored((f) => {
-      Object.assign(f, { name: 'r', slug: 'r', message: 'm', priority: 'warning' })
+      Object.assign(f, { name: 'r', slug: 'r', message: 'm' })
+      f.steps[0].priority = 'warning'
       f.signal.slots = [{ path: INPUT, source: '' }]
       f.detector.type = 'sustained'
       f.detector.direction = 'below'
-      f.detector.limit.value = '12'
+      f.steps[0].limit = '12'
     })
     expect(defaultFormCondition(form)).toBe('voltageLow')
     expect(saved(form, NO_UNITS)).not.toHaveProperty('condition')
@@ -303,37 +308,73 @@ describe('a rule with escalation steps', () => {
     expect(saved(fromRule(rule, displayed))).toEqual(rule)
   })
 
-  it('shows the first step as the limit and priority, keeping the later steps on save', () => {
+  it('shows every step and saves an edit to any of them', () => {
     const form = fromRule(stepped, displayed)
-    expect(form.detector.limit.value).toBe('12.2')
-    expect(form.priority).toBe('warning')
-    form.detector.limit.value = '12.4'
-    form.priority = 'caution'
+    expect(form.steps.map((step) => [step.limit, step.priority])).toEqual([
+      ['12.2', 'warning'],
+      ['11.8', 'alarm']
+    ])
+    form.steps[1].limit = '11.5'
+    form.steps[0].priority = 'caution'
     expect(saved(form).detector.steps).toEqual([
-      { limit: 12.4, priority: 'caution' },
-      { limit: 11.8, priority: 'alarm' }
+      { limit: 12.2, priority: 'caution' },
+      { limit: 11.5, priority: 'alarm' }
     ])
   })
 
-  it('drops the later steps once the detector type or match operator changes', () => {
-    const retyped = fromRule(stepped, displayed)
-    retyped.detector.type = 'projection'
-    retyped.detector.trend = 'falling'
-    retyped.detector.window = { amount: '10', unit: 'min' }
-    retyped.detector.horizon = { amount: '1', unit: 'h' }
-    expect(saved(retyped).detector.steps).toEqual([{ limit: 12.2, priority: 'warning' }])
-
-    const reop = fromRule(matching, displayed)
-    reop.detector.matchOp = 'notEquals'
-    expect(saved(reop).detector.steps).toEqual([{ value: 'fault', priority: 'warning' }])
+  it('saves a step added after the first', () => {
+    const form = fromRule(stepped, displayed)
+    form.steps.push({ ...emptyStep('emergency'), limit: '11' })
+    expect(saved(form).detector.steps).toHaveLength(3)
   })
 
-  it('drops the steps for a zone limit', () => {
+  it('keeps the steps through a change of detector whose limits mean the same', () => {
+    const form = withDetector(fromRule(stepped, displayed), {
+      type: 'projection',
+      trend: 'falling',
+      window: { amount: '10', unit: 'min' },
+      horizon: { amount: '1', unit: 'h' }
+    })
+    expect(saved(form).detector.steps).toEqual(stepped.detector.steps)
+  })
+
+  it('starts the steps afresh, keeping the first priority, when their limits change meaning', () => {
+    const form = withDetector(fromRule(stepped, displayed), {
+      type: 'count',
+      window: { amount: '1', unit: 'h' }
+    })
+    expect(form.steps).toEqual([emptyStep('warning')])
+  })
+
+  it('keeps one step for a match that takes no value', () => {
+    const form = withDetector(fromRule(matching, displayed), { matchOp: 'notEquals' })
+    expect(saved(form).detector.steps).toEqual([{ value: 'fault', priority: 'warning' }])
+    expect(maxSteps(form.detector)).toBe(1)
+  })
+
+  it('keeps the typed steps while zones stand in for them', () => {
+    const form = fromRule(stepped, displayed)
+    const zoned = withDetector(form, { limit: { ...form.detector.limit, kind: 'zone' } })
+    const back = withDetector(zoned, { limit: { ...form.detector.limit, kind: 'fixed' } })
+    expect(back.steps).toEqual(form.steps)
+  })
+
+  it('saves no steps for a zone limit', () => {
     const form = fromRule(stepped, displayed)
     form.detector.limit.kind = 'zone'
     const detector = saved(form).detector
     expect(detector.steps).toBeUndefined()
     expect(detector).toMatchObject({ limit: { kind: 'zone', level: 'warn' } })
+    expect(maxSteps(form.detector)).toBe(0)
+  })
+
+  it('names a missing limit by its step', () => {
+    const form = fromRule(stepped, displayed)
+    form.steps[1].limit = ''
+    const result = toRule(form, displayed)
+    expect(!result.ok && result.errors).toEqual([
+      { path: '/detector/steps/1/limit', message: 'is required' }
+    ])
   })
 })
 
@@ -343,11 +384,11 @@ describe('unit storage', () => {
       f.name = 'r'
       f.slug = 'r'
       f.message = 'm'
-      f.priority = 'warning'
+      f.steps[0].priority = 'warning'
       f.signal.slots[0].path = path
       f.detector.type = 'sustained'
       f.detector.direction = 'above'
-      f.detector.limit.value = value
+      f.steps[0].limit = value
       f.detector.hysteresis = hysteresis
     })
   }
@@ -365,11 +406,12 @@ describe('unit storage', () => {
   it('stores a 0.5 °C/min slope as the equivalent K/s', () => {
     const rule = saved(
       authored((f) => {
-        Object.assign(f, { name: 'r', slug: 'r', message: 'm', priority: 'warning' })
+        Object.assign(f, { name: 'r', slug: 'r', message: 'm' })
+        f.steps[0].priority = 'warning'
         f.signal.slots[0].path = 'propulsion.port.coolantTemperature'
         f.detector.type = 'slope'
         f.detector.trend = 'rising'
-        f.detector.slopeLimit = '0.5'
+        f.steps[0].limit = '0.5'
         f.detector.window = { amount: '5', unit: 'min' }
       })
     )
@@ -383,35 +425,37 @@ describe('unit storage', () => {
 
   it('stores a ratio slope of 0.6 /min as 0.01 per second, and shows it back per minute', () => {
     const form = authored((f) => {
-      Object.assign(f, { name: 'r', slug: 'r', message: 'm', priority: 'warning' })
+      Object.assign(f, { name: 'r', slug: 'r', message: 'm' })
+      f.steps[0].priority = 'warning'
       f.signal = setCombinator(setMode(f.signal, 'combine'), 'ratio')
       f.signal.slots[0].path = 'propulsion.port.revolutions'
       f.signal.slots[1].path = 'propulsion.starboard.revolutions'
       f.detector.type = 'slope'
       f.detector.trend = 'rising'
-      f.detector.slopeLimit = '0.6'
+      f.steps[0].limit = '0.6'
       f.detector.window = { amount: '1', unit: 'min' }
     })
     const rule = saved(form)
     expect(rule.detector).toMatchObject({ steps: [{ limit: 0.01 }] })
-    expect(fromRule(rule, displayed).detector.slopeLimit).toBe('0.6')
+    expect(fromRule(rule, displayed).steps[0].limit).toBe('0.6')
   })
 
   describe('an accumulator on coolant temperature', () => {
     const accumulator = (edit: (f: RuleForm) => void) =>
       authored((f) => {
-        Object.assign(f, { name: 'r', slug: 'r', message: 'm', priority: 'warning' })
+        Object.assign(f, { name: 'r', slug: 'r', message: 'm' })
+        f.steps[0].priority = 'warning'
         f.signal.slots[0].path = 'propulsion.port.coolantTemperature'
         f.detector.type = 'accumulator'
         f.detector.measure = 'integral'
-        f.detector.integralLimit = '10'
+        f.steps[0].limit = '10'
         edit(f)
       })
 
     it('stores an integral limit of 10 °C·s as 10 K·s, without the offset', () => {
       const rule = saved(accumulator(() => undefined))
       expect(rule.detector).toMatchObject({ steps: [{ limit: 10 }] })
-      expect(fromRule(rule, displayed).detector.integralLimit).toBe('10')
+      expect(fromRule(rule, displayed).steps[0].limit).toBe('10')
     })
 
     it('stores a reset on reaching 20 °C as 293.15 K', () => {
@@ -474,21 +518,21 @@ describe('unit storage', () => {
       }
     }
     const form = fromRule(rule, displayed)
-    expect(form.detector.limit.value).toBe('5.72957795131')
+    expect(form.steps[0].limit).toBe('5.72957795131')
     expect(saved(form)).toEqual(rule)
-    form.detector.limit.value = '6'
+    form.steps[0].limit = '6'
     expect(firstLimit(saved(form))).toBeCloseTo(0.10472, 5)
   })
 
   it('shows a stored limit in the display unit', () => {
     const rule = saved(sustained('environment.outside.temperature', '212'))
     expect(rule.detector).toMatchObject({ steps: [{ limit: 373.15 }] })
-    expect(fromRule(rule, displayed).detector.limit.value).toBe('212')
+    expect(fromRule(rule, displayed).steps[0].limit).toBe('212')
   })
 
   it('shows durations in the largest whole unit', () => {
     const form = fromRule(example('engine-service-due'), displayed)
-    expect(form.detector.timeLimit).toEqual({ amount: '250', unit: 'h' })
+    expect(form.steps[0].duration).toEqual({ amount: '250', unit: 'h' })
   })
 })
 
@@ -499,13 +543,13 @@ describe('authoring the worked scenarios', () => {
       f.slug = slugify(f.name)
       f.condition = 'revolutionsMismatch'
       f.message = 'Port and starboard engine speeds differ'
-      f.priority = 'caution'
+      f.steps[0].priority = 'caution'
       f.signal = setCombinator(setMode(f.signal, 'combine'), 'absDifference')
       f.signal.slots[0].path = 'propulsion.port.revolutions'
       f.signal.slots[1].path = 'propulsion.starboard.revolutions'
       f.detector.type = 'sustained'
       f.detector.direction = 'above'
-      f.detector.limit.value = '180'
+      f.steps[0].limit = '180'
       f.detector.duration = { amount: '30', unit: 's' }
     })
     const rule = saved(form)
@@ -529,9 +573,9 @@ describe('authoring the worked scenarios', () => {
         name: 'GNSS',
         slug: 'gnss',
         condition: 'gnssDisagree',
-        message: 'm',
-        priority: 'warning'
+        message: 'm'
       })
+      f.steps[0].priority = 'warning'
       f.signal = setCombinator(setMode(f.signal, 'combine'), 'positionSpread')
       f.signal.slots = ['gnss.bow', 'gnss.stern', 'gnss.mast'].map((source) => ({
         path: 'navigation.position',
@@ -539,7 +583,7 @@ describe('authoring the worked scenarios', () => {
       }))
       f.detector.type = 'sustained'
       f.detector.direction = 'above'
-      f.detector.limit.value = '0.027'
+      f.steps[0].limit = '0.027'
     })
     const rule = saved(form)
     expect(rule.signal).toMatchObject({
@@ -559,7 +603,7 @@ describe('authoring the worked scenarios', () => {
       authored((f) => {
         Object.assign(f, { name: 'Battery low', slug: 'battery-low' })
         f.message = 'Battery {instance} low'
-        f.priority = 'alarm'
+        f.steps[0].priority = 'alarm'
         f.signal.slots[0].path = 'electrical.batteries.*.voltage'
         f.detector.type = 'sustained'
         f.detector.direction = 'below'
@@ -594,13 +638,14 @@ describe('combinator slots', () => {
 
   it('rejects combining inputs whose units differ', () => {
     const form = authored((f) => {
-      Object.assign(f, { name: 'x', slug: 'x', message: 'm', priority: 'warning' })
+      Object.assign(f, { name: 'x', slug: 'x', message: 'm' })
+      f.steps[0].priority = 'warning'
       f.signal = setCombinator(setMode(f.signal, 'combine'), 'difference')
       f.signal.slots[0].path = 'propulsion.port.revolutions'
       f.signal.slots[1].path = 'electrical.batteries.house.voltage'
       f.detector.type = 'sustained'
       f.detector.direction = 'above'
-      f.detector.limit.value = '1'
+      f.steps[0].limit = '1'
     })
     const result = toRule(form, displayed)
     expect(result.ok).toBe(false)
@@ -610,12 +655,43 @@ describe('combinator slots', () => {
   })
 })
 
+describe('a stored rule that does not validate', () => {
+  it('opens as stored when its shape is a rule, so it saves unchanged once fixed', () => {
+    const rule = example('house-battery-low')
+    expect(saved(fromBody(rule, NO_UNITS), NO_UNITS)).toEqual(rule)
+  })
+
+  it('keeps what it can read of a body that is not a rule', () => {
+    const form = fromBody({ name: 'Coolant high', slug: 'coolant-high', detector: 7 }, NO_UNITS)
+    expect(form).toMatchObject({ name: 'Coolant high', slug: 'coolant-high', nameFollows: false })
+    expect(form.detector.type).toBe('')
+    expect(fromBody('junk', NO_UNITS).name).toBe('')
+  })
+
+  it('opens a rule-shaped body missing its texts with them empty, to be filled in', () => {
+    const { name: _name, message: _message, ...body } = example('house-battery-low')
+    const form = fromBody(body, NO_UNITS)
+    expect(form).toMatchObject({ name: '', message: '', condition: '' })
+    const result = toRule(form, NO_UNITS)
+    expect(!result.ok && result.errors.map((e) => e.path)).toEqual(['/name', '/message'])
+  })
+
+  it('asks for the kind of a detector it does not know', () => {
+    const rule = example('house-battery-low')
+    const form = fromBody({ ...rule, detector: { type: 'nonsense' } }, NO_UNITS)
+    const result = toRule(form, NO_UNITS)
+    expect(!result.ok && result.errors).toEqual([
+      { path: '/detector/type', message: 'is required' }
+    ])
+  })
+})
+
 describe('local checks', () => {
   it('names each missing or malformed field by its pointer', () => {
     const form = authored((f) => {
       f.detector.type = 'sustained'
       f.detector.direction = 'above'
-      f.detector.limit.value = 'abc'
+      f.steps[0].limit = 'abc'
     })
     const result = toRule(form, NO_UNITS)
     expect(!result.ok && result.errors.map((e) => e.path)).toEqual([

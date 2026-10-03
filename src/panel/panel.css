@@ -1,8 +1,8 @@
 /*
  * The look follows the admin UI's own variables: its primary blue, blue-grey
  * greys and system font. State colours are darkened from its palette so
- * chip text keeps a 4.5:1 contrast. The views later units rebuild still use
- * the admin UI's Bootstrap classes.
+ * chip text keeps a 4.5:1 contrast. A few notices outside the rebuilt views
+ * still use the admin UI's Bootstrap classes.
  */
 .skar-panel {
   --skar-primary: #003399;
@@ -81,6 +81,11 @@
   font-size: 1.375rem;
   font-weight: 650;
   color: var(--skar-text);
+}
+
+/* A view focuses its title only to move the screen reader there; it is not a control. */
+.skar-title:focus {
+  outline: none;
 }
 
 .skar-summary {
@@ -440,41 +445,6 @@
   margin: 0;
 }
 
-/* Paths are long and have no spaces; let them break at the dots' neighbours. */
-.skar-path {
-  overflow-wrap: anywhere;
-}
-
-/* Section headings otherwise look and sit like the field labels below them,
-   and the form reads as one run of fields. */
-.skar-form-section + .skar-form-section {
-  margin-top: 1.25rem;
-  padding-top: 1rem;
-  border-top: 1px solid rgba(0, 0, 0, 0.125);
-}
-
-.skar-section-heading {
-  margin-bottom: 0.75rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--bs-secondary-color, #6c757d);
-}
-
-details:not([open]) > .skar-section-heading {
-  margin-bottom: 0;
-}
-
-.skar-field {
-  margin-bottom: 0.75rem;
-}
-
-.skar-actions,
-.skar-confirm {
-  margin-top: 1rem;
-}
-
 /* A rule's detail: cards stacked in one column, the controls at the bottom. */
 
 .skar-detail {
@@ -821,4 +791,497 @@ details:not([open]) > .skar-section-heading {
 .skar-input:focus-visible {
   outline: var(--skar-focus);
   outline-offset: 1px;
+}
+
+/* Add rule, and From a path's first two steps. */
+
+.skar-page {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 44rem;
+}
+
+.skar-lead {
+  margin: 4px 0 0;
+  color: var(--skar-muted-on-ground);
+}
+
+.skar-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.skar-search > svg {
+  position: absolute;
+  left: 12px;
+  color: var(--skar-muted);
+  pointer-events: none;
+}
+
+.skar-search > .skar-input {
+  padding-left: 40px;
+}
+
+.skar-row-value {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.skar-kind-set {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.skar-kinds {
+  display: flex;
+  flex-direction: column;
+}
+
+.skar-kinds > .skar-kind + .skar-kind {
+  border-top: 1px solid var(--skar-divider);
+}
+
+.skar-kind {
+  cursor: pointer;
+}
+
+.skar-kind:has(input:checked) {
+  background: #eef2fa;
+  box-shadow: inset 3px 0 0 var(--skar-primary);
+}
+
+.skar-kind:has(input:focus-visible) {
+  outline: var(--skar-focus);
+  outline-offset: -2px;
+}
+
+.skar-kind input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--skar-primary);
+}
+
+.skar-sketch {
+  flex-shrink: 0;
+}
+
+.skar-more-kinds {
+  padding: 0;
+}
+
+.skar-more-kinds > summary {
+  min-height: 48px;
+  padding: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.skar-more-kinds > .skar-kinds {
+  border-width: 1px 0 0;
+  border-radius: 0 0 6px 6px;
+}
+
+.skar-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The editor: the form in one card, the actions held at the bottom of the view. */
+
+.skar-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.skar-editor-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+
+@media (min-width: 768px) {
+  .skar-editor-grid {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  }
+}
+
+.skar-editor-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.skar-editor-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 12px 14px;
+  background: var(--skar-surface);
+  border: 1px solid var(--skar-border);
+  border-radius: 6px;
+  box-shadow: 0 -4px 12px rgba(21, 27, 30, 0.08);
+}
+
+.skar-editor-status {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+
+.skar-editor-status ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.skar-editor-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* A focused control scrolls clear of the sticky actions bar: its buttons and a two-line status. */
+.skar-editor-form :is(input, select, textarea, button, summary, a) {
+  scroll-margin-bottom: 9rem;
+}
+
+/* Fields. */
+
+.skar-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.skar-field > legend {
+  margin-bottom: 6px;
+  padding: 0;
+}
+
+.skar-required {
+  margin-left: 2px;
+  color: var(--skar-danger);
+}
+
+.skar-input-invalid {
+  border-color: var(--skar-danger);
+  box-shadow: inset 0 0 0 1px var(--skar-danger);
+}
+
+select.skar-input {
+  padding-right: 8px;
+}
+
+.skar-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.skar-input-row > .skar-input {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.skar-wrap {
+  flex-wrap: wrap;
+}
+
+.skar-wrap > .skar-input {
+  flex-basis: 8rem;
+}
+
+.skar-unit,
+.skar-prefix {
+  flex-shrink: 0;
+  color: var(--skar-muted);
+}
+
+/* An alert path prefix is long; on a phone the field drops under it rather than shrink to nothing. */
+.skar-input-row:has(> .skar-prefix) {
+  flex-wrap: wrap;
+}
+
+.skar-input-row > .skar-prefix {
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.skar-input-row:has(> .skar-prefix) > .skar-input {
+  flex-basis: 10rem;
+}
+
+.skar-error {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--skar-danger);
+}
+
+.skar-warning {
+  display: block;
+  color: #7a4a00;
+}
+
+.skar-preview {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.skar-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.skar-check > input {
+  width: 20px;
+  height: 20px;
+  margin: 2px 0 0;
+  flex-shrink: 0;
+  accent-color: var(--skar-primary);
+}
+
+.skar-check-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.skar-check-text > .skar-hint {
+  display: block;
+}
+
+.skar-radios > .skar-check + .skar-check {
+  margin-top: 6px;
+}
+
+.skar-duration,
+.skar-value {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.skar-duration > .skar-input,
+.skar-value > .skar-input-row {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.skar-duration > .skar-duration-unit,
+.skar-value > .skar-value-type {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+.skar-link-btn {
+  align-self: flex-start;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--skar-primary);
+  cursor: pointer;
+}
+
+.skar-link-btn:hover {
+  color: var(--skar-primary-hover);
+  text-decoration: underline;
+}
+
+.skar-link-btn:focus-visible,
+.skar-icon-btn:focus-visible {
+  outline: var(--skar-focus);
+  outline-offset: 2px;
+}
+
+.skar-link-small {
+  flex-shrink: 0;
+  font-size: 0.875rem;
+}
+
+.skar-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--skar-muted);
+  cursor: pointer;
+}
+
+.skar-icon-btn:hover {
+  background: var(--skar-hover);
+  color: var(--skar-danger);
+}
+
+/* Steps: number, priority, the condition's word, limit, remove. On a phone the limit takes its own line. */
+
+.skar-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.skar-step {
+  display: grid;
+  grid-template-columns: 1.5rem minmax(0, 1fr) auto 44px;
+  grid-template-areas:
+    'number priority word remove'
+    '. limit limit .';
+  align-items: center;
+  gap: 8px;
+}
+
+@media (min-width: 560px) {
+  .skar-step {
+    grid-template-columns: 1.5rem minmax(7rem, 9rem) auto minmax(0, 1fr) 44px;
+    grid-template-areas: 'number priority word limit remove';
+  }
+}
+
+.skar-step-number {
+  grid-area: number;
+  font-weight: 650;
+  color: var(--skar-muted);
+  text-align: center;
+}
+
+.skar-step > select {
+  grid-area: priority;
+}
+
+.skar-step-word {
+  grid-area: word;
+  color: var(--skar-muted);
+}
+
+.skar-step-limit {
+  grid-area: limit;
+  min-width: 0;
+}
+
+.skar-step > :last-child {
+  grid-area: remove;
+}
+
+.skar-priority-hint {
+  font-style: italic;
+}
+
+/* The value watched, and what changes it. */
+
+.skar-watch,
+.skar-watch-change,
+.skar-signal,
+.skar-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skar-watch {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--skar-hover);
+  border: 1px solid var(--skar-divider);
+  border-radius: 6px;
+}
+
+.skar-slot + .skar-slot {
+  padding-top: 8px;
+  border-top: 1px solid var(--skar-divider);
+}
+
+.skar-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* More options. */
+
+.skar-more {
+  border-top: 1px solid var(--skar-divider);
+}
+
+.skar-more-summary {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  font-weight: 600;
+  color: var(--skar-primary);
+  cursor: pointer;
+}
+
+.skar-more-summary:focus-visible {
+  outline: var(--skar-focus);
+  outline-offset: 2px;
+}
+
+.skar-more-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding-top: 4px;
+}
+
+.skar-subsection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 1rem;
+  border-top: 1px solid var(--skar-divider);
+}
+
+.skar-gate {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--skar-divider);
+  border-radius: 6px;
+}
+
+.skar-zones {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--skar-hover);
 }

@@ -1,70 +1,59 @@
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Rule } from '../../model/rule'
+import { renderMessage } from '../../alerts/message'
 import { RuleRejectedError, type FieldError, type PanelApi, type RuleEntry } from '../api'
+import { BackIcon } from '../detail/icons'
 import { failureMessage } from '../failure'
+import { PathPicker } from '../paths/PathPicker'
 import type { PathList, PathSource } from '../paths/selfPaths'
-import { Confirm } from '../rules/Confirm'
+import { ConfirmSheet, useSheet } from '../rules/Confirm'
 import { discardedTotals, ruleDisplay } from '../rules/describe'
 import { signalMeasure, useUnits, type UnitLookup } from '../signalUnits'
+import { withKind, type ConditionKind } from './conditionKinds'
+import { ConditionFields, HoldField, KindField } from './ConditionFields'
 import { editConsequences } from './consequences'
-import {
-  AdvancedFields,
-  DetectFields,
-  LaterStepsNotice,
-  LimitSectionFields,
-  TimingFields
-} from './DetectorFields'
-import { Field, FieldErrors, SelectField, TextField } from './fields'
+import { FieldErrors, Required, SelectField, TextField, valueKindOf } from './fields'
+import { useLeaveGuard } from './leaveGuard'
 import {
   defaultFormCondition,
   emptyForm,
-  emptyGate,
-  FIRST_STEP,
   formAlertPrefix,
+  fromBody,
   fromRule,
   hasWildcard,
   isZoneLimited,
-  keptLaterSteps,
-  MAX_GATES,
-  PRIORITY_LEVELS,
   signalShape,
-  slugify,
   toRule,
-  type DetectorForm,
   type RuleForm
 } from './formModel'
-import { GateFields } from './GateFields'
-import {
-  attachErrors,
-  fieldPointers,
-  revealedSections,
-  sectionApplies,
-  SECTIONS,
-  type SectionId
-} from './sections'
-import { SignalFields } from './SignalFields'
+import { strayBraces, withGenerated } from './message'
+import { MoreOptions } from './MoreOptions'
+import { attachErrors, fieldPointers, saveHint, underMoreOptions } from './sections'
+import { sourceOptions, withPath } from './SignalFields'
+import { StepFields } from './StepFields'
+import { subjectOf } from './words'
 
-const INSTANCE_PLACEHOLDER = '{instance}'
-const ADVANCED_POINTERS = ['/detector/hysteresis', '/detector/clearDuration', '/latching']
+/** How often the values shown next to the limits are read again. */
+const LIVE_POLL_MS = 5000
 
-const PRIORITIES = PRIORITY_LEVELS.map((value) => ({ value, label: value }))
-
-const HEADINGS: Readonly<Record<SectionId, string>> = {
-  inputs: 'Inputs',
-  detect: 'What to detect',
-  limit: 'Limit',
-  timing: 'Timing',
-  advanced: 'Advanced',
-  message: 'Priority and message',
-  gates: 'Gates',
-  name: 'Name'
-}
+/** The server's refusal of an alert path another rule holds (src/application.ts, alertPathOverlap). */
+const OVERLAP = /^makes an alert path overlapping that of rule (\S+); each rule needs its own$/
 
 export interface RuleEditorProps {
   api: PanelApi
   paths: PathSource
   /** The rule to edit, with its current entry; absent for a new rule. */
   editing?: { entry: RuleEntry; rule: Rule }
+  /** A stored rule that does not run, to fix: its slug, name, body as stored and errors. */
+  invalid?: { slug: string; name: string; body: unknown; errors: FieldError[] }
+  /** A new rule's value and condition kind, as From a path chose them. */
+  start?: { path: string; kind: ConditionKind }
+  /** Where the back link goes, and what it says. */
+  back: { href: string; label: string }
+  /** A listed rule's name by its slug, for the rule whose alert path a save clashes with. */
+  ruleName?: (slug: string) => string | undefined
+  /** The link that opens a rule's editor. */
+  editHref?: (slug: string) => string
   /** The rule was saved; the form is done. */
   onSaved: (entry: RuleEntry) => void
   /** The operator left the form, having confirmed any unsaved changes are lost. */
@@ -72,134 +61,171 @@ export interface RuleEditorProps {
 }
 
 /**
- * The rule authoring form: one scrolling form whose sections a new rule
- * reveals in order and an edited rule shows at once. Stored values are
- * converted to display units, so an edit waits for the units to load.
+ * The rule editor: one form whose fields follow the choices made, with what
+ * most rules leave alone under More options. Stored values are converted to
+ * display units and a new rule's message is written from the path's display
+ * name, so the form waits for the paths to load.
  */
 export function RuleEditor(props: RuleEditorProps) {
-  const { paths, units, ready } = useUnits(props.paths)
-  if (props.editing !== undefined && !ready) return <div role="status">Loading paths…</div>
-  return <EditorForm {...props} paths={paths} units={units} />
+  const { paths, units, ready } = useUnits(props.paths, LIVE_POLL_MS)
+  if (!ready) return <div role="status">Loading paths…</div>
+  return <EditorForm {...props} paths={paths} live={units} />
 }
 
 interface FormProps extends Omit<RuleEditorProps, 'paths'> {
   paths: PathList
-  units: UnitLookup
+  /** The paths as last read, for their values and sources now. */
+  live: UnitLookup
 }
 
-function Section({ id, children }: { id: SectionId; children: ReactNode }) {
-  const headingId = useId()
-  // The name section holds a single field labelled Name; a heading of the
-  // same word straight above it would read as a stray label.
-  if (id === 'name') {
-    return (
-      <section className="skar-form-section" aria-label={HEADINGS[id]}>
-        {children}
-      </section>
-    )
-  }
+function initialForm(props: FormProps, units: UnitLookup): RuleForm {
+  const { editing, invalid, start } = props
+  if (editing !== undefined) return fromRule(editing.rule, units)
+  // Saved to the slug it is stored under, which the form does not show for an edit.
+  if (invalid !== undefined) return { ...fromBody(invalid.body, units), slug: invalid.slug }
+  if (start === undefined) return emptyForm()
+  const form = withKind(emptyForm(), start.kind)
+  form.signal.slots[0] = { path: start.path, source: '' }
+  return withGenerated(form, units)
+}
+
+function hasMoreOptions(form: RuleForm): boolean {
+  const d = form.detector
   return (
-    <section className="skar-form-section" aria-labelledby={headingId}>
-      <h4 id={headingId} className="skar-section-heading">
-        {HEADINGS[id]}
-      </h4>
-      {children}
-    </section>
+    d.hysteresis !== '' ||
+    d.clearDuration.amount !== '' ||
+    form.latching ||
+    form.gates.length > 0 ||
+    form.signal.mode === 'combine' ||
+    hasWildcard(form.signal) ||
+    isZoneLimited(d)
   )
 }
 
-/** Remembers the furthest section reached, so a later edit never hides a section again. */
-function useRevealed(form: RuleForm, units: UnitLookup, all: boolean): Set<SectionId> {
-  const reached = SECTIONS.indexOf(revealedSections(form, units).at(-1) ?? 'inputs')
-  const [furthest, setFurthest] = useState(all ? SECTIONS.length - 1 : reached)
-  if (reached > furthest) setFurthest(reached)
-  return new Set(
-    SECTIONS.filter((id, i) => i <= Math.max(furthest, reached) && sectionApplies(form, id))
-  )
+/** An overlap refusal in the user's words, naming the rule that holds the alert path. */
+function withNamedClash(
+  errors: FieldError[],
+  ruleName: (slug: string) => string | undefined
+): { errors: FieldError[]; holder?: string } {
+  let holder: string | undefined
+  const named = errors.map((e) => {
+    const overlap = e.path === '/condition' ? OVERLAP.exec(e.message) : null
+    if (overlap === null) return e
+    const slug = overlap[1]
+    holder = slug
+    const name = ruleName(slug) ?? slug
+    return {
+      ...e,
+      message: `Another rule uses this alert path: ${name}. Give this condition its own name.`
+    }
+  })
+  return { errors: named, ...(holder === undefined ? {} : { holder }) }
 }
 
-function hasAdvancedValues(d: DetectorForm, latching: boolean): boolean {
-  return d.hysteresis !== '' || d.clearDuration.amount !== '' || latching
-}
-
-function EditorForm({ api, paths, units, editing, onSaved, onClose }: FormProps) {
-  const [initial] = useState<RuleForm>(() =>
-    editing === undefined ? emptyForm() : fromRule(editing.rule, units)
-  )
+function EditorForm(props: FormProps) {
+  const { api, paths, live, editing, invalid, back, onSaved, onClose } = props
+  const ruleName = props.ruleName ?? (() => undefined)
+  const isNew = editing === undefined && invalid === undefined
+  // The form's numbers are text in the units it opened with, so every
+  // conversion keeps those units; a unit reported later would rescale them.
+  const [units] = useState(live)
+  const [initial] = useState<RuleForm>(() => initialForm(props, units))
   const [form, setForm] = useState<RuleForm>(initial)
-  const [errors, setErrors] = useState<FieldError[]>([])
+  const [errors, setErrors] = useState<FieldError[]>(invalid?.errors ?? [])
   const [failure, setFailure] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   // Held with the form it was previewed for: a field changed under the
   // confirmation would otherwise be dropped from the rule it stores.
-  const [pending, setPending] = useState<
-    { form: RuleForm; rule: Rule; lines: string[] } | undefined
-  >(undefined)
-  const [leaving, setLeaving] = useState(false)
-  const [advancedOpen, setAdvancedOpen] = useState(
-    editing !== undefined && hasAdvancedValues(initial.detector, initial.latching)
-  )
-  const messageRef = useRef<HTMLTextAreaElement>(null)
-  // Each gate keeps what it remembers, such as the instance its wildcard
-  // replaced, only while its key stays with it through a removal.
-  const gateCount = useRef(initial.gates.length)
-  const [gateKeys, setGateKeys] = useState(() => initial.gates.map((_, i) => i))
+  const confirming = useSheet<{ form: RuleForm; rule: Rule; lines: string[] }>()
+  const pending = confirming.value
+  // Open from the start on a rule with no value yet, so the first keystroke does not close it.
+  const [changingPath, setChangingPath] = useState(() => initial.signal.slots[0]?.path === '')
+  const [moreOpen, setMoreOpen] = useState(() => hasMoreOptions(initial))
   const headingRef = useRef<HTMLHeadingElement>(null)
+  const formRef = useRef<HTMLFormElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const changeRef = useRef<HTMLButtonElement>(null)
+  // Where focus goes once the path search opens or closes, which replaces the control that had it.
+  const pathFocus = useRef<'search' | 'change' | undefined>(undefined)
+  // Set by a failed save; the field in error may only show once More options opens.
+  const focusInvalid = useRef(false)
 
   // The form only ever opens on the operator's action and replaces the view
-  // that held focus, so focus moves to its heading; an edit gets here only
-  // once its rule has loaded.
+  // that held focus, so focus moves to its heading.
   useEffect(() => {
     headingRef.current?.focus()
   }, [])
 
   const dirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(initial), [form, initial])
-  useEffect(() => {
-    if (!dirty) return undefined
-    // The browser asks before a reload or closing the tab drops the changes.
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault()
-    }
-    window.addEventListener('beforeunload', warn)
-    return () => {
-      window.removeEventListener('beforeunload', warn)
-    }
-  }, [dirty])
+  const guard = useLeaveGuard({
+    dirty,
+    onClose,
+    unsaved: 'The changes to this rule have not been saved.'
+  })
 
-  const shown = useRevealed(form, units, editing !== undefined)
-  const attached = attachErrors(errors, fieldPointers(form))
   useEffect(() => {
-    if (ADVANCED_POINTERS.some((p) => attached.byField.has(p))) setAdvancedOpen(true)
+    if (pathFocus.current === 'search') searchRef.current?.focus()
+    if (pathFocus.current === 'change') changeRef.current?.focus()
+    pathFocus.current = undefined
+  }, [changingPath])
+
+  useEffect(() => {
+    if (!focusInvalid.current) return
+    const invalidFields = [
+      ...(formRef.current?.querySelectorAll<HTMLElement>('[aria-invalid="true"]') ?? [])
+    ]
+    const shown = invalidFields.find((el) => el.closest('details:not([open])') === null)
+    if (shown === undefined && invalidFields.length > 0) return
+    focusInvalid.current = false
+    shown?.focus()
+  })
+  const showErrors = (next: FieldError[]) => {
+    setErrors(next)
+    focusInvalid.current = true
+  }
+
+  const clash = withNamedClash(errors, ruleName)
+  const attached = attachErrors(clash.errors, fieldPointers(form, isNew))
+  useEffect(() => {
+    if ([...attached.byField.keys()].some((p) => underMoreOptions(form, isNew, p))) {
+      setMoreOpen(true)
+    }
   }, [errors])
 
-  const update = (patch: Partial<RuleForm>) => {
-    setForm((f) => ({ ...f, ...patch }))
-  }
-  const updateDetector = (patch: Partial<DetectorForm>) => {
-    setForm((f) => ({ ...f, detector: { ...f.detector, ...patch } }))
+  const update = (next: RuleForm) => {
+    setForm(withGenerated(next, units))
   }
   const measure = signalMeasure(signalShape(form.signal), units)
-  const singlePath = form.signal.mode === 'single' ? form.signal.slots[0]?.path : undefined
+  const single = form.signal.mode === 'single'
+  const slot = form.signal.slots[0] ?? { path: '', source: '' }
+  const entry = single ? live.entry(slot.path) : undefined
   const wildcard = hasWildcard(form.signal)
+  // A wildcard's first instance is not the rule's value, nor one input a combination's.
+  const liveValue = single && !wildcard ? entry?.value : undefined
+  const valueKind = single ? valueKindOf(entry?.value) : 'number'
+  const pathErrors = attached.byField.get('/signal/path') ?? []
 
   const refused = (err: unknown) => {
-    if (err instanceof RuleRejectedError && err.errors.length > 0) setErrors(err.errors)
+    if (err instanceof RuleRejectedError && err.errors.length > 0) showErrors(err.errors)
     else setFailure(failureMessage(err))
   }
 
   const store = async (rule: Rule) => {
-    const entry =
-      editing === undefined
-        ? await api.createRule(rule)
-        : await api.updateRule(editing.entry.slug, rule)
-    onSaved(entry)
+    const saved =
+      editing !== undefined
+        ? await api.updateRule(editing.entry.slug, rule)
+        : invalid !== undefined
+          ? await api.updateRule(invalid.slug, rule)
+          : await api.createRule(rule)
+    guard.release()
+    onSaved(saved)
   }
 
   const save = async () => {
     setFailure(undefined)
     const result = toRule(form, units)
     if (!result.ok) {
-      setErrors(result.errors)
+      showErrors(result.errors)
       return
     }
     setErrors([])
@@ -213,7 +239,7 @@ function EditorForm({ api, paths, units, editing, onSaved, onClose }: FormProps)
         ).map(({ name, total }) => (name === '' ? total : `${name}: ${total}`))
         const lines = editConsequences(preview, totals)
         if (lines.length > 0) {
-          setPending({ form, rule: result.rule, lines })
+          confirming.show({ form, rule: result.rule, lines })
           return
         }
       }
@@ -225,324 +251,329 @@ function EditorForm({ api, paths, units, editing, onSaved, onClose }: FormProps)
     }
   }
 
-  const insertInstance = () => {
-    const area = messageRef.current
-    const start = area?.selectionStart ?? form.message.length
-    const end = area?.selectionEnd ?? start
-    update({
-      message: form.message.slice(0, start) + INSTANCE_PLACEHOLDER + form.message.slice(end)
+  const title =
+    editing !== undefined
+      ? `Edit “${editing.entry.rule.name}”`
+      : invalid !== undefined
+        ? `Fix “${invalid.name}”`
+        : 'New rule'
+  const defaultCondition = defaultFormCondition(form)
+  const stray = strayBraces(form.message)
+  const preview = (() => {
+    const result = toRule(form, units)
+    if (!result.ok || form.message === '') return undefined
+    return renderMessage(result.rule, {
+      step: 0,
+      ...(liveValue === undefined ? {} : { value: liveValue }),
+      ...(entry?.units === undefined ? {} : { units: entry.units })
     })
-  }
+  })()
+  const hint = saveHint(clash.errors, form)
 
   return (
     <FieldErrors.Provider value={attached.byField}>
-      <form
-        className="skar-rule-form"
-        aria-label={editing === undefined ? 'New rule' : `Edit ${editing.entry.rule.name}`}
-        noValidate
-        // Enter in a field, or a tablet keyboard's Go, submits a form; a rule
-        // half edited would be saved and the form closed, so only the button saves.
-        onSubmit={(event) => {
-          event.preventDefault()
-        }}
-      >
-        <h3 ref={headingRef} tabIndex={-1} className="h5">
-          {editing === undefined ? 'New rule' : `Edit ${editing.entry.rule.name}`}
-        </h3>
-
-        <Section id="inputs">
-          <SignalFields
-            label="Input"
-            at="/signal"
-            signal={form.signal}
-            paths={paths}
-            units={units}
-            onChange={(signal) => {
-              update({ signal })
-            }}
-          />
-        </Section>
-
-        {shown.has('detect') && (
-          <Section id="detect">
-            <DetectFields detector={form.detector} update={updateDetector} measure={measure} />
-          </Section>
+      <div className="skar-editor">
+        <a className="skar-back" href={back.href}>
+          <BackIcon />
+          <span>{back.label}</span>
+        </a>
+        <h2 ref={headingRef} tabIndex={-1} className="skar-title">
+          {title}
+        </h2>
+        {invalid !== undefined && (
+          <p className="skar-hint">
+            The stored rule is not valid, so it does not run. Fix the fields marked below and save.
+          </p>
         )}
-
-        {shown.has('limit') && (
-          <Section id="limit">
-            <LimitSectionFields
-              detector={form.detector}
-              update={updateDetector}
-              measure={measure}
-              signalPath={singlePath}
-              paths={paths}
-              units={units}
-            />
-          </Section>
-        )}
-
-        {shown.has('timing') && (
-          <Section id="timing">
-            <TimingFields detector={form.detector} update={updateDetector} measure={measure} />
-          </Section>
-        )}
-
-        {shown.has('advanced') && (
-          <details
-            className="skar-form-section"
-            open={advancedOpen}
-            onToggle={(event) => {
-              setAdvancedOpen(event.currentTarget.open)
+        <div className="skar-editor-grid">
+          <form
+            ref={formRef}
+            className="skar-card skar-editor-form"
+            aria-label={title}
+            noValidate
+            // Enter in a field, or a tablet keyboard's Go, submits a form; a
+            // rule half edited would be saved, so only the button saves.
+            onSubmit={(event) => {
+              event.preventDefault()
             }}
           >
-            <summary className="skar-section-heading">{HEADINGS.advanced}</summary>
-            <AdvancedFields
-              detector={form.detector}
-              update={updateDetector}
-              measure={measure}
-              latching={form.latching}
-              setLatching={(latching) => {
-                update({ latching })
-              }}
-            />
-          </details>
-        )}
-
-        {shown.has('message') && (
-          <Section id="message">
-            {isZoneLimited(form.detector) ? (
-              <p className="form-text">
-                The priority follows the zone level the input is in: alert is caution, warn is
-                warning, alarm is alarm and emergency is emergency.
-              </p>
-            ) : (
-              <SelectField
-                label="Priority"
-                pointer={`${FIRST_STEP}/priority`}
-                value={form.priority}
-                options={PRIORITIES}
-                onChange={(priority) => {
-                  update({ priority })
-                }}
-              />
-            )}
-            <LaterStepsNotice
-              detector={form.detector}
-              steps={keptLaterSteps(form)}
-              measure={measure}
-            />
-            <Field
-              label="Message"
-              pointer="/message"
-              hint={
-                wildcard
-                  ? `${INSTANCE_PLACEHOLDER} is replaced with the instance's name.`
-                  : undefined
-              }
-            >
-              {(control) => (
-                <textarea
-                  {...control}
-                  ref={messageRef}
-                  className="form-control form-control-sm"
-                  rows={2}
-                  value={form.message}
-                  onChange={(e) => {
-                    update({ message: e.target.value })
-                  }}
-                />
-              )}
-            </Field>
-            {wildcard && (
-              <button
-                type="button"
-                className="btn btn-outline-secondary btn-sm"
-                onClick={insertInstance}
-              >
-                Insert {INSTANCE_PLACEHOLDER}
-              </button>
-            )}
-          </Section>
-        )}
-
-        {shown.has('gates') && (
-          <Section id="gates">
-            <p className="form-text">
-              Optional. The rule is in use only while every gate holds; a gate that stops holding
-              clears the rule&apos;s alert.
-            </p>
-            {form.gates.map((gate, i) => (
-              <GateFields
-                key={gateKeys[i]}
-                index={i}
-                gate={gate}
-                paths={paths}
-                units={units}
-                onChange={(next) => {
-                  update({ gates: form.gates.map((g, n) => (n === i ? next : g)) })
-                }}
-                onRemove={() => {
-                  update({ gates: form.gates.filter((_, n) => n !== i) })
-                  setGateKeys((keys) => keys.filter((_, n) => n !== i))
-                }}
-              />
-            ))}
-            {form.gates.length < MAX_GATES && (
-              <button
-                type="button"
-                className="btn btn-outline-secondary btn-sm"
-                onClick={() => {
-                  update({ gates: [...form.gates, emptyGate()] })
-                  const key = gateCount.current
-                  gateCount.current = key + 1
-                  setGateKeys((keys) => [...keys, key])
-                }}
-              >
-                Add gate
-              </button>
-            )}
-          </Section>
-        )}
-
-        {shown.has('name') && (
-          <Section id="name">
             <TextField
               label="Name"
               pointer="/name"
+              required
               value={form.name}
               onChange={(name) => {
-                update(
-                  form.slugFollowsName && editing === undefined
-                    ? { name, slug: slugify(name) }
-                    : { name }
-                )
+                update({ ...form, name, nameFollows: false })
               }}
             />
+
+            {single ? (
+              <div className="skar-field">
+                <span className="skar-label">
+                  Watches
+                  <Required />
+                </span>
+                {changingPath || slot.path === '' || pathErrors.length > 0 ? (
+                  <div className="skar-watch-change">
+                    <PathPicker
+                      label="Search by name or path"
+                      value={slot.path}
+                      paths={paths}
+                      errors={pathErrors}
+                      inputRef={searchRef}
+                      onChange={(path) => {
+                        update({
+                          ...form,
+                          signal: { ...form.signal, slots: [withPath(slot, path, live)] }
+                        })
+                      }}
+                    />
+                    {slot.path !== '' && (
+                      <div>
+                        <button
+                          type="button"
+                          className="skar-btn skar-btn-ghost skar-btn-small"
+                          onClick={() => {
+                            pathFocus.current = 'change'
+                            setChangingPath(false)
+                          }}
+                        >
+                          Done
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="skar-watch">
+                    <div className="skar-row-main">
+                      <span>{subjectOf(form.signal, units)}</span>
+                      <span className="skar-mono">{slot.path}</span>
+                    </div>
+                    <button
+                      ref={changeRef}
+                      type="button"
+                      className="skar-link-btn skar-link-small"
+                      aria-label="Change the value to watch"
+                      onClick={() => {
+                        pathFocus.current = 'search'
+                        setChangingPath(true)
+                      }}
+                    >
+                      Change
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="skar-field">
+                <span className="skar-label">Watches</span>
+                <div className="skar-watch">
+                  <div className="skar-row-main">
+                    <span>{subjectOf(form.signal, units)}</span>
+                    <span className="skar-hint">Set under More options.</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {single && (
+              <SelectField
+                label="Source"
+                pointer="/signal/source"
+                value={slot.source}
+                options={sourceOptions(slot, live)}
+                hint={sourceHint(entry?.sources?.length ?? 0)}
+                onChange={(source) => {
+                  update({ ...form, signal: { ...form.signal, slots: [{ ...slot, source }] } })
+                }}
+              />
+            )}
+
+            <KindField
+              form={form}
+              onChange={update}
+              measure={measure}
+              valueKind={valueKind}
+              value={liveValue}
+            />
+            <ConditionFields
+              form={form}
+              onChange={update}
+              measure={measure}
+              valueKind={valueKind}
+              value={liveValue}
+            />
+            {form.detector.type !== '' &&
+              (isZoneLimited(form.detector) ? (
+                <div className="skar-field">
+                  <span className="skar-label">Priority and limit</span>
+                  <p className="skar-hint">Set by the value&apos;s zones, under More options.</p>
+                </div>
+              ) : (
+                <StepFields
+                  form={form}
+                  onChange={(steps) => {
+                    // A step's errors are held by its index, which a removed or added step shifts.
+                    if (steps.length !== form.steps.length) {
+                      setErrors(errors.filter((e) => !e.path.startsWith('/detector/steps/')))
+                    }
+                    update({ ...form, steps })
+                  }}
+                  measure={measure}
+                  units={units}
+                  valueKind={valueKind}
+                  value={liveValue}
+                />
+              ))}
+            <HoldField form={form} onChange={update} />
+
             <TextField
-              label="Slug"
-              pointer="/slug"
-              value={form.slug}
-              readOnly={editing !== undefined}
+              label="Message"
+              pointer="/message"
+              required
+              value={form.message}
               hint={
-                editing === undefined
-                  ? 'Identifies the rule in links. Fixed once the rule is saved.'
-                  : 'Fixed.'
+                <>
+                  {form.messageFollows && 'Written from the rule until you edit it. '}
+                  {
+                    '{value} is the value when it alerts, {limit} the limit reached, {duration} how long it held'
+                  }
+                  {wildcard ? ' and {instance} the instance.' : '.'}
+                  {stray.length > 0 && (
+                    <span className="skar-warning">
+                      {` ${stray.join(', ')} ${stray.length === 1 ? 'is' : 'are'} sent as written.`}
+                    </span>
+                  )}
+                  {preview !== undefined && (
+                    <span className="skar-preview">{`Sends now: “${preview}”`}</span>
+                  )}
+                </>
               }
-              onChange={(slug) => {
-                update({ slug, slugFollowsName: false })
+              onChange={(message) => {
+                update({ ...form, message, messageFollows: false })
               }}
             />
+
             <TextField
-              label="Alert path"
+              label="Condition name"
               pointer="/condition"
+              required={defaultCondition === undefined}
               prefix={formAlertPrefix(form)}
               value={form.condition}
               // Shown, never filled in: a keystroke after a cleared name would extend the default.
-              placeholder={defaultFormCondition(form)}
-              hint={`The input gives the path; the last segment names the condition.${
-                wildcard ? ' * stands for each instance.' : ''
-              } ${
-                form.condition !== ''
-                  ? 'Kept as written. Clear it to follow the input and detector again.'
-                  : defaultFormCondition(form) === undefined
-                    ? 'There is no default name here; type one.'
-                    : 'Follows the input and detector until you type a name.'
-              } A new name on a saved rule clears the alert at the old path.`}
+              placeholder={defaultCondition}
+              hint={
+                <>
+                  {form.condition !== ''
+                    ? 'Kept as written. Clear it to follow the value and the condition again.'
+                    : defaultCondition === undefined
+                      ? 'There is no default name here; type one.'
+                      : 'Follows the value and the condition until you type a name.'}
+                  {clash.holder !== undefined && props.editHref !== undefined && (
+                    <span className="skar-preview">
+                      To raise the same alert at a higher priority, add a step to{' '}
+                      <a href={props.editHref(clash.holder)}>
+                        {ruleName(clash.holder) ?? clash.holder}
+                      </a>{' '}
+                      instead.
+                    </span>
+                  )}
+                </>
+              }
               onChange={(condition) => {
-                update({ condition })
+                update({ ...form, condition })
               }}
             />
-          </Section>
-        )}
 
-        {attached.unattached.length > 0 && (
-          <div className="alert alert-danger" role="alert">
-            <ul className="mb-0">
-              {attached.unattached.map((e) => (
-                <li key={`${e.path} ${e.message}`}>
-                  {e.path === '' ? e.message : `${e.path}: ${e.message}`}
-                </li>
-              ))}
-            </ul>
+            <MoreOptions
+              form={form}
+              onChange={update}
+              measure={measure}
+              paths={paths}
+              units={units}
+              isNew={isNew}
+              open={moreOpen}
+              onToggle={setMoreOpen}
+            />
+          </form>
+          {/* The history chart's place, beside the form on a tablet. */}
+        </div>
+
+        <div className="skar-editor-actions">
+          <div className="skar-editor-status">
+            {attached.unattached.length > 0 && (
+              <ul className="skar-error" role="alert">
+                {attached.unattached.map((e) => (
+                  <li key={`${e.path} ${e.message}`}>
+                    {e.path === '' ? e.message : `${e.path}: ${e.message}`}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {failure !== undefined && (
+              <p className="skar-error" role="alert">
+                {failure}
+              </p>
+            )}
+            {hint !== undefined && (
+              <p className="skar-hint" role="status">
+                {hint}
+              </p>
+            )}
           </div>
-        )}
-        {errors.length > 0 && attached.unattached.length === 0 && (
-          <div className="alert alert-danger" role="alert">
-            The rule was not saved; the fields marked above need attention.
+          <div className="skar-editor-buttons">
+            <button
+              type="button"
+              className="skar-btn skar-btn-ghost"
+              disabled={busy}
+              onClick={() => {
+                guard.leave()
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="skar-btn skar-btn-primary"
+              disabled={busy}
+              onClick={() => void save()}
+            >
+              {isNew ? 'Create rule' : 'Save'}
+            </button>
           </div>
-        )}
-        {failure !== undefined && (
-          <div className="alert alert-danger" role="alert">
-            {failure}
-          </div>
-        )}
+        </div>
 
         {pending?.form === form && (
-          <Confirm
-            title={`Save ${form.name}?`}
+          <ConfirmSheet
+            title={`Save “${form.name}”?`}
             confirmLabel="Save"
+            tone="dark"
             onConfirm={async () => {
               try {
                 await store(pending.rule)
               } catch (err) {
                 if (!(err instanceof RuleRejectedError) || err.errors.length === 0) throw err
-                setPending(undefined)
-                setErrors(err.errors)
+                confirming.close(false)
+                showErrors(err.errors)
               }
             }}
             onCancel={() => {
-              setPending(undefined)
+              confirming.close()
             }}
           >
             {pending.lines.map((line) => (
               <p key={line}>{line}</p>
             ))}
-          </Confirm>
+          </ConfirmSheet>
         )}
-        {leaving && (
-          <Confirm
-            title="Discard your changes?"
-            confirmLabel="Discard changes"
-            onConfirm={() => {
-              onClose()
-              return Promise.resolve()
-            }}
-            onCancel={() => {
-              setLeaving(false)
-            }}
-          >
-            <p className="mb-0">The changes to this rule have not been saved.</p>
-          </Confirm>
-        )}
-
-        <div className="skar-actions">
-          {shown.has('name') && (
-            <button
-              type="button"
-              className="btn btn-primary btn-sm me-2"
-              disabled={busy}
-              onClick={() => void save()}
-            >
-              {editing === undefined ? 'Create rule' : 'Save changes'}
-            </button>
-          )}
-          <button
-            type="button"
-            className="btn btn-outline-secondary btn-sm"
-            disabled={busy}
-            onClick={() => {
-              if (dirty) setLeaving(true)
-              else onClose()
-            }}
-          >
-            Cancel
-          </button>
-          {editing === undefined && shown.has('name') && (
-            <div className="form-text">The rule starts enabled once created.</div>
-          )}
-        </div>
-      </form>
+        {guard.prompt}
+      </div>
     </FieldErrors.Provider>
   )
+}
+
+function sourceHint(reporting: number): string {
+  if (reporting === 0) return 'Nothing reports this value yet.'
+  if (reporting === 1) return 'One device reports this value.'
+  return `${String(reporting)} devices report this value.`
 }

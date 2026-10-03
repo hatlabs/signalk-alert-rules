@@ -1,22 +1,17 @@
 import { useEffect, useState } from 'react'
 import type { Rule } from '../../model/rule'
-import type { PanelApi, RuleEntry } from '../api'
-import type { PathSource } from '../paths/selfPaths'
-import { RuleEditor } from './RuleEditor'
+import type { RuleEntry } from '../api'
+import { RuleEditor, type RuleEditorProps } from './RuleEditor'
 
-export interface EditRuleProps {
-  api: PanelApi
-  paths: PathSource
+export interface EditRuleProps extends Omit<RuleEditorProps, 'editing' | 'invalid' | 'start'> {
   /** The rule's current entry; the rule list abbreviates the rule, so it is read in full. */
   entry: RuleEntry
-  onSaved: (entry: RuleEntry) => void
-  onClose: () => void
 }
 
 type Loaded =
   { status: 'loading' } | { status: 'ready'; rule: Rule } | { status: 'failed'; error: string }
 
-/** The authoring form on a stored rule, once the whole rule has been read. */
+/** The editor on a stored rule, once the whole rule has been read. */
 export function EditRule({ api, entry, onClose, ...rest }: EditRuleProps) {
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' })
   const { slug } = entry
@@ -43,9 +38,13 @@ export function EditRule({ api, entry, onClose, ...rest }: EditRuleProps) {
       return <div role="status">Loading the rule…</div>
     case 'failed':
       return (
-        <div className="alert alert-danger" role="alert">
-          <p>The rule could not be read: {loaded.error}</p>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>
+        <div className="skar-banner" role="alert">
+          <span>The rule could not be read: {loaded.error}</span>
+          <button
+            type="button"
+            className="skar-btn skar-btn-ghost skar-btn-small"
+            onClick={onClose}
+          >
             Back
           </button>
         </div>

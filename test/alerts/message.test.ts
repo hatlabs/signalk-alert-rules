@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { renderMessage, signalUnits } from '../../src/alerts/message.js'
+import { renderMessage } from '../../src/alerts/message.js'
+import { signalUnits } from '../../src/alerts/messageUnits.js'
 import type { Rule } from '../../src/model/rule.js'
 import { validateRule } from '../../src/model/validate.js'
 

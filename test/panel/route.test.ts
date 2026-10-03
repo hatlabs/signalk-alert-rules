@@ -60,6 +60,29 @@ describe('parseRoute', () => {
     expect(parseRoute(`${ADMIN}#add=path&later=1`)).toEqual({ kind: 'add', from: 'path' })
   })
 
+  it('reads the value and condition kind chosen From a path', () => {
+    expect(parseRoute(`${ADMIN}#add=path&path=electrical.batteries.house.voltage`)).toEqual({
+      kind: 'add',
+      from: 'path',
+      path: 'electrical.batteries.house.voltage'
+    })
+    expect(parseRoute(`${ADMIN}#add=path&path=a.b&when=below`)).toEqual({
+      kind: 'add',
+      from: 'path',
+      path: 'a.b',
+      when: 'below'
+    })
+  })
+
+  it('drops a condition kind it does not know, or one without a path', () => {
+    expect(parseRoute(`${ADMIN}#add=path&path=a.b&when=sideways`)).toEqual({
+      kind: 'add',
+      from: 'path',
+      path: 'a.b'
+    })
+    expect(parseRoute(`${ADMIN}#add=path&when=below`)).toEqual({ kind: 'add', from: 'path' })
+  })
+
   it('reads Add rule from an unknown starting point as the list', () => {
     expect(parseRoute(`${ADMIN}#add=elsewhere`)).toEqual({ kind: 'list' })
   })
@@ -101,7 +124,9 @@ describe('hashWithRoute', () => {
     { kind: 'edit', slug: 'x' },
     { kind: 'add' },
     { kind: 'add', from: 'path' },
-    { kind: 'add', from: 'template' }
+    { kind: 'add', from: 'template' },
+    { kind: 'add', from: 'path', path: 'a.*.b c' },
+    { kind: 'add', from: 'path', path: 'a.b', when: 'often' }
   ])('reads back what it writes: %o', (route) => {
     expect(parseRoute(hashWithRoute(ADMIN, route))).toEqual(route)
   })

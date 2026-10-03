@@ -5,7 +5,9 @@
  * the path they apply to, durations as an amount and a unit. `toRule` turns
  * that into an SI rule, and `fromRule` shows a stored rule the same way, so a
  * rule survives the round trip. Every detector's fields live side by side,
- * so switching the detector type does not lose what was typed for another.
+ * and saving reads only those of the detector chosen. The steps are the
+ * exception: what a step's limit means depends on the detector, so a change
+ * of detector that changes it starts the steps afresh (`withDetector`).
  */
 import type {
   CombinatorKind,
@@ -22,7 +24,7 @@ import type {
   ZoneLevel
 } from '../../model/rule'
 import { alertParent, defaultCondition } from '../../alerts/paths'
-import type { FieldError } from '../api'
+import { isRecord, type FieldError } from '../api'
 import {
   POSITION_KINDS,
   signalMeasure,
@@ -75,6 +77,15 @@ export const ANGULAR_KINDS: ReadonlySet<CombinatorKind> = new Set([
 ])
 
 export type DetectorType = Detector['type']
+const DETECTOR_TYPES: Readonly<Record<DetectorType, true>> = {
+  sustained: true,
+  slope: true,
+  projection: true,
+  match: true,
+  accumulator: true,
+  count: true,
+  absence: true
+}
 export type MatchOp = Extract<Detector, { type: 'match' }>['op']
 export type EventOp = Event['op']
 type StateOp = 'above' | 'below' | 'equals' | 'notEquals'
@@ -124,25 +135,20 @@ export interface EventForm {
 export interface DetectorForm {
   type: DetectorType | ''
   matchOp: MatchOp | ''
-  matchValue: ValueField
   direction: 'above' | 'below' | ''
   trend: 'rising' | 'falling' | ''
+  /** A zone limit, in place of the steps, while its kind is `zone`; `fixed` means the steps. */
   limit: LimitForm
-  slopeLimit: string
   measure: 'time' | 'integral' | ''
   useWhile: boolean
   whileOp: StateOp
   whileValue: ValueField
   useResetOn: boolean
   resetOn: EventForm
-  timeLimit: DurationField
-  integralLimit: string
   event: EventForm
-  countLimit: string
   duration: DurationField
   window: DurationField
   horizon: DurationField
-  within: DurationField
   hysteresis: string
   clearDuration: DurationField
 }
@@ -157,15 +163,33 @@ export interface GateForm {
 }
 
 /**
- * A stored rule's steps after the first, as stored. They belong to the
- * detector they were made for, so they are saved again only while the form
- * still has that detector type and match operator and no zone limit.
+ * One step of the climb: a priority and the limit it is reached at. Which
+ * field holds the limit depends on the detector (`stepQuantity`).
  */
-export interface LaterSteps {
-  type: DetectorType
-  matchOp?: MatchOp
-  steps: Step[]
+export interface StepForm {
+  priority: Priority | ''
+  /** A number in the unit its quantity is shown in. */
+  limit: string
+  /** An accumulated time, or an absence's window. */
+  duration: DurationField
+  /** A match's value. */
+  value: ValueField
 }
+
+/** What a step's limit is, which decides how it is entered and stored. */
+export type StepQuantity =
+  | 'value'
+  | 'slope'
+  | 'count'
+  | 'integral'
+  | 'time'
+  | 'within'
+  | 'match'
+  /** A match that takes no value: the step is its priority alone. */
+  | 'none'
+
+/** A rule has one to four steps, one per priority; see docs/rules.md. */
+export const MAX_STEPS = 4
 
 export interface RuleForm {
   name: string
@@ -179,10 +203,12 @@ export interface RuleForm {
    */
   condition: string
   message: string
-  /** The first step's priority; its limit is the detector's limit field. */
-  priority: Priority | ''
-  /** The steps after the first, which the form does not show and an edit keeps. */
-  laterSteps?: LaterSteps
+  /** The message is still written from the rule: a new rule whose message nobody edited. */
+  messageFollows: boolean
+  /** Likewise the name. */
+  nameFollows: boolean
+  /** The climb, in order; unused while the detector has a zone limit. */
+  steps: StepForm[]
   latching: boolean
   signal: SignalForm
   detector: DetectorForm
@@ -198,6 +224,10 @@ const noDuration = (): DurationField => ({ amount: '', unit: 's' })
 const noValue = (): ValueField => ({ type: 'number', text: '' })
 const noLimit = (): LimitForm => ({ kind: 'fixed', value: '', level: 'warn', path: '' })
 const noSlot = (): SlotForm => ({ path: '', source: '' })
+
+export function emptyStep(priority: Priority | '' = ''): StepForm {
+  return { priority, limit: '', duration: noDuration(), value: noValue() }
+}
 
 export function emptySignal(): SignalForm {
   return { mode: 'single', combinator: 'difference', angular: false, slots: [noSlot()] }
@@ -221,31 +251,27 @@ export function emptyForm(): RuleForm {
     slugFollowsName: true,
     condition: '',
     message: '',
-    priority: '',
+    messageFollows: true,
+    nameFollows: true,
+    steps: [emptyStep()],
     latching: false,
     signal: emptySignal(),
     detector: {
       type: '',
       matchOp: '',
-      matchValue: noValue(),
       direction: '',
       trend: '',
       limit: noLimit(),
-      slopeLimit: '',
       measure: '',
       useWhile: false,
       whileOp: 'above',
       whileValue: noValue(),
       useResetOn: false,
       resetOn: { op: 'changes', value: noValue() },
-      timeLimit: noDuration(),
-      integralLimit: '',
       event: { op: 'changes', value: noValue() },
-      countLimit: '',
       duration: noDuration(),
       window: noDuration(),
       horizon: noDuration(),
-      within: noDuration(),
       hysteresis: '',
       clearDuration: noDuration()
     },
@@ -335,6 +361,60 @@ export function matchTakesValue(op: MatchOp | ''): boolean {
 
 export function matchTakesDuration(op: MatchOp | ''): boolean {
   return op === 'equals' || op === 'notEquals' || op === 'timedOut'
+}
+
+/** Whether the condition must hold for a while before a step is reached. */
+export function holdsFor(d: DetectorForm): boolean {
+  return d.type === 'sustained' || (d.type === 'match' && matchTakesDuration(d.matchOp))
+}
+
+/** What the detector's step limits are; undefined until the detector is chosen. */
+export function stepQuantity(d: DetectorForm): StepQuantity | undefined {
+  switch (d.type) {
+    case '':
+      return undefined
+    case 'sustained':
+    case 'projection':
+      return 'value'
+    case 'slope':
+      return 'slope'
+    case 'count':
+      return 'count'
+    case 'absence':
+      return 'within'
+    case 'accumulator':
+      return d.measure === 'time' ? 'time' : d.measure === 'integral' ? 'integral' : undefined
+    case 'match':
+      if (d.matchOp === '') return undefined
+      return matchTakesValue(d.matchOp) ? 'match' : 'none'
+  }
+}
+
+/**
+ * How many steps the detector takes: none while a zone limit sets them, and
+ * one for a match other than `equals` and `changesTo`, which have no
+ * further values to climb through.
+ */
+export function maxSteps(d: DetectorForm): number {
+  if (isZoneLimited(d)) return 0
+  if (d.type === 'match' && d.matchOp !== 'equals' && d.matchOp !== 'changesTo') return 1
+  return MAX_STEPS
+}
+
+/**
+ * The form with the detector changed. A change of what a step's limit is
+ * drops the limits typed for the old one, keeping the first step's priority;
+ * a detector that takes fewer steps keeps the first ones.
+ */
+export function withDetector(form: RuleForm, patch: Partial<DetectorForm>): RuleForm {
+  const detector = { ...form.detector, ...patch }
+  const kept =
+    stepQuantity(detector) === stepQuantity(form.detector)
+      ? form.steps
+      : [emptyStep(form.steps[0]?.priority ?? '')]
+  // Zones stand in for the steps without replacing them, so turning zones off brings them back.
+  const max = maxSteps(detector)
+  return { ...form, detector, steps: max === 0 ? kept : kept.slice(0, max) }
 }
 
 // ---- conversions ----
@@ -437,6 +517,35 @@ function gateFrom(gate: Gate, units: UnitLookup, shown: ShownValues): GateForm {
   }
 }
 
+/**
+ * A stored rule that does not validate, as the form shows it to be fixed:
+ * as `fromRule` shows it while its body has the shape of a rule, else with
+ * what can be read of it, so the user can fill in the rest.
+ */
+export function fromBody(body: unknown, units: UnitLookup): RuleForm {
+  const text = (key: string) => (isRecord(body) && typeof body[key] === 'string' ? body[key] : '')
+  const texts = { name: text('name'), slug: text('slug'), message: text('message') }
+  try {
+    const form = fromRule(body as Rule, units)
+    // A detector the form has no fields for is shown unchosen, to be chosen again.
+    const type = Object.hasOwn(DETECTOR_TYPES, form.detector.type) ? form.detector.type : ''
+    return {
+      ...form,
+      ...texts,
+      condition: text('condition'),
+      detector: { ...form.detector, type }
+    }
+  } catch {
+    return {
+      ...emptyForm(),
+      ...texts,
+      slugFollowsName: false,
+      nameFollows: false,
+      messageFollows: false
+    }
+  }
+}
+
 /** A stored rule as the form shows it, numbers in the display units of its paths. */
 export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
   const form = emptyForm()
@@ -446,39 +555,28 @@ export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
   const d = form.detector
   const detector = rule.detector
   d.type = detector.type
-  // A zone-limit rule's priority follows its zone levels, so it has no first step.
-  const fixedLimit = (zone: Limit | undefined, first: { limit: number } | undefined) => {
-    if (zone !== undefined) return limitFrom(zone, measure, shown)
-    return first === undefined
-      ? noLimit()
-      : limitFrom({ kind: 'fixed', value: first.limit }, measure, shown)
-  }
-  const numberFrom = (value: number | undefined, quantity: 'slope' | 'interval') =>
-    value === undefined ? '' : shownNumber(value, kindFor(quantity, measure), measure.unit, shown)
+  const numberFrom = (value: number, quantity: 'slope' | 'interval') =>
+    shownNumber(value, kindFor(quantity, measure), measure.unit, shown)
   switch (detector.type) {
     case 'match':
       d.matchOp = detector.op
-      d.matchValue = valueFrom(detector.steps.at(0)?.value, measure, shown)
       d.duration = durationFrom(detector.duration)
       break
     case 'sustained':
       d.direction = detector.direction
-      d.limit = fixedLimit(detector.limit, detector.steps?.at(0))
+      if (detector.limit !== undefined) d.limit = limitFrom(detector.limit, measure, shown)
       d.duration = durationFrom(detector.duration)
       d.hysteresis =
-        detector.hysteresis === undefined
-          ? ''
-          : shownNumber(detector.hysteresis, kindFor('interval', measure), measure.unit, shown)
+        detector.hysteresis === undefined ? '' : numberFrom(detector.hysteresis, 'interval')
       d.clearDuration = durationFrom(detector.clearDuration)
       break
     case 'slope':
       d.trend = detector.direction
       d.window = durationFrom(detector.window)
-      d.slopeLimit = numberFrom(detector.steps.at(0)?.limit, 'slope')
       break
     case 'projection':
       d.trend = detector.direction
-      d.limit = fixedLimit(detector.limit, detector.steps?.at(0))
+      if (detector.limit !== undefined) d.limit = limitFrom(detector.limit, measure, shown)
       d.window = durationFrom(detector.window)
       d.horizon = durationFrom(detector.horizon)
       break
@@ -493,19 +591,40 @@ export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
         d.useResetOn = true
         d.resetOn = eventFrom(detector.resetOn, measure, shown)
       }
-      if (detector.measure === 'time') d.timeLimit = durationFrom(detector.steps.at(0)?.limit)
-      else d.integralLimit = numberFrom(detector.steps.at(0)?.limit, 'interval')
       break
     case 'count':
       d.event = eventFrom(detector.event, measure, shown)
       d.window = durationFrom(detector.window)
-      d.countLimit = String(detector.steps.at(0)?.limit ?? '')
       break
     case 'absence':
       d.event = eventFrom(detector.event, measure, shown)
-      d.within = durationFrom(detector.steps.at(0)?.within)
       break
   }
+  const quantity = stepQuantity(d)
+  const stepFrom = (step: Step): StepForm => {
+    const form = emptyStep(step.priority)
+    if ('value' in step) form.value = valueFrom(step.value, measure, shown)
+    if ('within' in step) form.duration = durationFrom(step.within)
+    if (!('limit' in step)) return form
+    switch (quantity) {
+      case 'value':
+        form.limit = shownNumber(step.limit, measure.kind, measure.unit, shown)
+        break
+      case 'slope':
+        form.limit = numberFrom(step.limit, 'slope')
+        break
+      case 'integral':
+        form.limit = numberFrom(step.limit, 'interval')
+        break
+      case 'time':
+        form.duration = durationFrom(step.limit)
+        break
+      default:
+        form.limit = String(step.limit)
+    }
+    return form
+  }
+  const steps: Step[] = detector.steps ?? []
   return {
     ...form,
     name: rule.name,
@@ -513,8 +632,10 @@ export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
     slugFollowsName: false,
     condition: rule.condition ?? '',
     message: rule.message,
-    priority: detector.steps?.at(0)?.priority ?? '',
-    ...laterStepsOf(detector),
+    messageFollows: false,
+    nameFollows: false,
+    // A zone limit's steps are its zones; an empty row stands ready for typed ones.
+    steps: steps.length === 0 ? [emptyStep()] : steps.map(stepFrom),
     latching: rule.latching === true,
     signal,
     detector: d,
@@ -522,13 +643,6 @@ export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
     gates: (rule.gates ?? []).map((g) => gateFrom(g, units, shown)),
     shown
   }
-}
-
-function laterStepsOf(detector: Detector): { laterSteps?: LaterSteps } {
-  const steps: Step[] = detector.steps?.slice(1) ?? []
-  if (steps.length === 0) return {}
-  const matchOp = detector.type === 'match' ? detector.op : undefined
-  return { laterSteps: defined({ type: detector.type, matchOp, steps }) }
 }
 
 export type ToRuleResult = { ok: true; rule: Rule } | { ok: false; errors: FieldError[] }
@@ -648,55 +762,83 @@ function readEvent(form: EventForm, at: string, measure: Measure, read: Reader):
   })
 }
 
-/** Where the first step is, whose limit and priority the form shows. */
-export const FIRST_STEP = '/detector/steps/0'
+/** The step field its limit is stored in; none for a step that is its priority alone. */
+export function stepLimitField(
+  quantity: StepQuantity | undefined
+): 'limit' | 'within' | 'value' | undefined {
+  switch (quantity) {
+    case undefined:
+    case 'none':
+      return undefined
+    case 'within':
+      return 'within'
+    case 'match':
+      return 'value'
+    default:
+      return 'limit'
+  }
+}
 
-/**
- * The steps after the first that saving the form keeps: those of the rule's
- * own detector type and match operator, while it has no zone limit.
- */
-export function keptLaterSteps(form: RuleForm): Step[] {
-  const d = form.detector
-  const later = form.laterSteps
-  const same =
-    later?.type === d.type && later.matchOp === (d.type === 'match' ? d.matchOp : undefined)
-  return same && !isZoneLimited(d) ? later.steps : []
+/** Where step `index` is in the rule. */
+export function stepPointer(index: number): string {
+  return `/detector/steps/${String(index)}`
+}
+
+function readSteps(form: RuleForm, measure: Measure, read: Reader): Step[] {
+  const quantity = stepQuantity(form.detector)
+  const field = stepLimitField(quantity) ?? ''
+  return form.steps.map((step, i) => {
+    const at = stepPointer(i)
+    const limitAt = `${at}/${field}`
+    const number = (kind: QuantityKind) => read.number(step.limit, limitAt, kind, measure.unit)
+    const limit = (() => {
+      switch (quantity) {
+        case 'value':
+          return { limit: number(measure.kind) }
+        case 'slope':
+          return { limit: number(kindFor('slope', measure)) }
+        case 'integral':
+          return { limit: number(kindFor('interval', measure)) }
+        case 'count':
+          return { limit: number('ratio') }
+        case 'time':
+          return { limit: read.duration(step.duration, limitAt) }
+        case 'within':
+          return { within: read.duration(step.duration, limitAt) }
+        case 'match':
+          return { value: read.value(step.value, limitAt, measure) }
+        default:
+          return {}
+      }
+    })()
+    return defined({ ...limit, priority: read.choice(step.priority, `${at}/priority`) }) as Step
+  })
 }
 
 function readDetector(form: RuleForm, measure: Measure, read: Reader): Detector | undefined {
   const d = form.detector
   const at = '/detector'
-  const interval = kindFor('interval', measure)
   const hysteresis = (text: string) =>
-    read.number(text, `${at}/hysteresis`, interval, measure.unit, true)
-  const steps = (first: Record<string, unknown>) => [
-    { ...first, priority: read.choice(form.priority, `${FIRST_STEP}/priority`) },
-    ...keptLaterSteps(form)
-  ]
+    read.number(text, `${at}/hysteresis`, kindFor('interval', measure), measure.unit, true)
+  const steps = () => readSteps(form, measure, read)
   // A zone limit takes the place of the steps.
-  const valueLimit = () => {
-    if (d.limit.kind === 'zone') return { limit: readLimit(d.limit, `${at}/limit`, measure, read) }
-    const limit = read.number(d.limit.value, `${FIRST_STEP}/limit`, measure.kind, measure.unit)
-    return { steps: steps({ limit }) }
-  }
+  const valueLimit = () =>
+    d.limit.kind === 'zone'
+      ? { limit: readLimit(d.limit, `${at}/limit`, measure, read) }
+      : { steps: steps() }
   switch (d.type) {
     case '':
       read.fail(`${at}/type`, 'is required')
       return undefined
-    case 'match': {
-      const op = read.choice(d.matchOp, `${at}/op`)
-      const value = matchTakesValue(d.matchOp)
-        ? read.value(d.matchValue, `${FIRST_STEP}/value`, measure)
-        : undefined
+    case 'match':
       return defined({
         type: 'match',
-        op,
-        steps: steps(defined({ value })),
+        op: read.choice(d.matchOp, `${at}/op`),
+        steps: steps(),
         duration: matchTakesDuration(d.matchOp)
           ? read.duration(d.duration, `${at}/duration`, d.matchOp !== 'timedOut')
           : undefined
       }) as Detector
-    }
     case 'sustained':
       return defined({
         type: 'sustained',
@@ -711,14 +853,7 @@ function readDetector(form: RuleForm, measure: Measure, read: Reader): Detector 
         type: 'slope',
         direction: read.choice(d.trend, `${at}/direction`),
         window: read.duration(d.window, `${at}/window`),
-        steps: steps({
-          limit: read.number(
-            d.slopeLimit,
-            `${FIRST_STEP}/limit`,
-            kindFor('slope', measure),
-            measure.unit
-          )
-        })
+        steps: steps()
       }) as Detector
     case 'projection':
       return defined({
@@ -728,37 +863,28 @@ function readDetector(form: RuleForm, measure: Measure, read: Reader): Detector 
         window: read.duration(d.window, `${at}/window`),
         horizon: read.duration(d.horizon, `${at}/horizon`)
       }) as Detector
-    case 'accumulator': {
-      const measured = read.choice(d.measure, `${at}/measure`)
+    case 'accumulator':
       return defined({
         type: 'accumulator',
-        measure: measured,
+        measure: read.choice(d.measure, `${at}/measure`),
         while: d.useWhile
           ? { op: d.whileOp, value: read.value(d.whileValue, `${at}/while/value`, measure) }
           : undefined,
         resetOn: d.useResetOn ? readEvent(d.resetOn, `${at}/resetOn`, measure, read) : undefined,
-        steps: steps({
-          limit:
-            measured === 'time'
-              ? read.duration(d.timeLimit, `${FIRST_STEP}/limit`)
-              : read.number(d.integralLimit, `${FIRST_STEP}/limit`, interval, measure.unit)
-        })
+        steps: steps()
       }) as Detector
-    }
     case 'count':
       return defined({
         type: 'count',
         event: readEvent(d.event, `${at}/event`, measure, read),
         window: read.duration(d.window, `${at}/window`),
-        steps: steps({
-          limit: read.number(d.countLimit, `${FIRST_STEP}/limit`, 'ratio', measure.unit)
-        })
+        steps: steps()
       }) as Detector
     case 'absence':
       return defined({
         type: 'absence',
         event: readEvent(d.event, `${at}/event`, measure, read),
-        steps: steps({ within: read.duration(d.within, `${FIRST_STEP}/within`) })
+        steps: steps()
       }) as Detector
   }
 }

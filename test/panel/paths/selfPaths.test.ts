@@ -6,6 +6,7 @@ import {
   httpPathSource,
   parseSelfPaths,
   useSelfPaths,
+  type PathEntry,
   type PathSource
 } from '../../../src/panel/paths/selfPaths'
 
@@ -165,7 +166,43 @@ describe('parseSelfPaths', () => {
     const paths = parseSelfPaths({
       a: { value: 1, meta: { units: 3, displayName: {}, displayUnits: { formula: 4 } } }
     })
-    expect(paths).toEqual([{ path: 'a', unit: { symbol: '', scale: 1, offset: 0, si: true } }])
+    expect(paths).toEqual([
+      { path: 'a', value: 1, unit: { symbol: '', scale: 1, offset: 0, si: true } }
+    ])
+  })
+
+  it('keeps the current value and the source the server prefers', () => {
+    const paths = parseSelfPaths(selfTree)
+    const coolant = paths.find((p) => p.path === 'propulsion.port.coolantTemperature')
+    expect(coolant).toMatchObject({ value: 355.2, preferredSource: 'n2k.1' })
+    expect(paths.find((p) => p.path === 'navigation.position')?.value).toEqual({
+      latitude: 60.1,
+      longitude: 24.9
+    })
+    expect(paths.find((p) => p.path === 'navigation.state')?.value).toBe('motoring')
+    // null is a reading that is unavailable now: there is no value to show.
+    expect(paths.find((p) => p.path === 'electrical.batteries.house.voltage')).not.toHaveProperty(
+      'value'
+    )
+  })
+
+  it('names NMEA 2000 sources by CAN name, as rules store them, when the sources tree knows it', () => {
+    const sources = {
+      can0: { label: 'can0', type: 'NMEA2000', '10': { n2k: { canName: 'c0ffee' } } },
+      gnss: { label: 'gnss' }
+    }
+    const [voltage] = parseSelfPaths(
+      {
+        v: {
+          value: 12.4,
+          $source: 'can0.10',
+          values: { 'can0.10': { value: 12.4 }, 'can0.c0ffee': { value: 12.4 }, 'gnss.a': {} }
+        }
+      },
+      sources
+    )
+    expect(voltage.sources).toEqual(['can0.c0ffee', 'gnss.a'])
+    expect(voltage.preferredSource).toBe('can0.c0ffee')
   })
 
   it('rejects a body that is not a tree', () => {
@@ -191,6 +228,23 @@ describe('httpPathSource', () => {
       '/signalk/v1/api/vessels/self': { status: 500, body: { error: 'tree unavailable' } }
     })
     await expect(httpPathSource(fetchFn).selfPaths()).rejects.toThrow('tree unavailable')
+  })
+
+  it('reads the sources tree to name sources canonically', async () => {
+    const fetchFn = fakeFetch({
+      '/signalk/v1/api/vessels/self': { body: { v: { value: 1, $source: 'can0.10' } } },
+      '/signalk/v1/api/sources': { body: { can0: { '10': { n2k: { canName: 'c0ffee' } } } } }
+    })
+    const [entry] = await httpPathSource(fetchFn).selfPaths()
+    expect(entry.sources).toEqual(['can0.c0ffee'])
+  })
+
+  it('names sources as reported when the sources tree cannot be read', async () => {
+    const fetchFn = fakeFetch({
+      '/signalk/v1/api/vessels/self': { body: { v: { value: 1, $source: 'can0.10' } } }
+    })
+    const [entry] = await httpPathSource(fetchFn).selfPaths()
+    expect(entry.sources).toEqual(['can0.10'])
   })
 
   it('fails with the status when the server refuses the tree', async () => {
@@ -262,6 +316,62 @@ describe('useSelfPaths', () => {
     await waitFor(() => {
       expect(result.current.status).toBe('ready')
     })
+  })
+
+  it('reads the paths again every poll interval, keeping the last list meanwhile', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      let reads = 0
+      const source: PathSource = {
+        selfPaths: () => {
+          reads++
+          return reads === 2
+            ? Promise.reject(new Error('timed out'))
+            : Promise.resolve([
+                { path: 'v', value: reads, unit: { symbol: '', scale: 1, offset: 0, si: true } }
+              ])
+        },
+        distanceUnit
+      }
+      const { result } = renderHook(() => useSelfPaths(source, 1000))
+      await waitFor(() => {
+        expect(result.current.status).toBe('ready')
+      })
+      await vi.advanceTimersByTimeAsync(1000)
+      // A failed refresh keeps the paths read before.
+      expect(result.current).toMatchObject({ status: 'ready', paths: [{ value: 1 }] })
+      await vi.advanceTimersByTimeAsync(1000)
+      await waitFor(() => {
+        expect(result.current).toMatchObject({ status: 'ready', paths: [{ value: 3 }] })
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('waits for a slow read to answer before polling again', async () => {
+    vi.useFakeTimers()
+    try {
+      let reads = 0
+      let answer: (paths: PathEntry[]) => void = () => undefined
+      const source: PathSource = {
+        selfPaths: () => {
+          reads++
+          return new Promise<PathEntry[]>((resolve) => {
+            answer = resolve
+          })
+        },
+        distanceUnit
+      }
+      renderHook(() => useSelfPaths(source, 1000))
+      await vi.advanceTimersByTimeAsync(3500)
+      expect(reads).toBe(1)
+      answer([])
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(reads).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('reports why the paths could not be loaded', async () => {

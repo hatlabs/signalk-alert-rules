@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { getJson, isRecord } from '../api'
+import { canonicalSourceRef } from '../../engine/sourceRefs'
+import { getJson, isRecord, type SignalValue } from '../api'
 import { displayUnit, type DisplayUnit, type UnitMeta } from '../units'
 
 /** A `vessels.self` path the server has a value for, as the picker lists it. */
@@ -10,8 +11,15 @@ export interface PathEntry {
   /** The SI unit from meta, when the path declares one. */
   units?: string
   unit: DisplayUnit
-  /** The `$source`s reporting the path, for a rule input restricted to one. */
+  /**
+   * The `$source`s reporting the path, for a rule input restricted to one,
+   * in the canonical form rules store them in (src/engine/sourceRefs.ts).
+   */
   sources?: string[]
+  /** The source whose value the server reports as the path's, canonical as well. */
+  preferredSource?: string
+  /** The value when the paths were read, in SI; absent while it is unavailable. */
+  value?: SignalValue
   /** `meta.zones`, in SI; an absent bound is open. */
   zones?: Zone[]
 }
@@ -38,16 +46,20 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined
 }
 
+function isSignalValue(value: unknown): value is SignalValue {
+  if (['number', 'string', 'boolean'].includes(typeof value)) return true
+  return (
+    isRecord(value) && typeof value.latitude === 'number' && typeof value.longitude === 'number'
+  )
+}
+
 /**
  * Only values a rule can read (docs/rules.md, Signals) are listed: numbers,
  * strings, booleans and positions. `null` is a reading that is currently
  * unavailable. Other objects, such as notifications or attitude, never are.
  */
 function isReadable(value: unknown): boolean {
-  if (value === null || ['number', 'string', 'boolean'].includes(typeof value)) return true
-  return (
-    isRecord(value) && typeof value.latitude === 'number' && typeof value.longitude === 'number'
-  )
+  return value === null || isSignalValue(value)
 }
 
 function unitMeta(meta: Record<string, unknown>): UnitMeta {
@@ -61,12 +73,17 @@ function unitMeta(meta: Record<string, unknown>): UnitMeta {
   }
 }
 
-function entry(path: string, node: Record<string, unknown>): PathEntry {
+function entry(
+  path: string,
+  node: Record<string, unknown>,
+  canonical: (ref: string) => string
+): PathEntry {
   const meta = isRecord(node.meta) ? node.meta : {}
   const units = unitMeta(meta)
   const displayName = optionalString(meta.displayName)
   const description = optionalString(meta.description)
-  const sources = sourcesOf(node)
+  const sources = [...new Set(sourcesOf(node).map(canonical))].sort()
+  const preferred = optionalString(node.$source)
   const zones = zonesOf(meta.zones)
   return {
     path,
@@ -75,6 +92,8 @@ function entry(path: string, node: Record<string, unknown>): PathEntry {
     ...(units.units === undefined ? {} : { units: units.units }),
     unit: displayUnit(units),
     ...(sources.length === 0 ? {} : { sources }),
+    ...(preferred === undefined ? {} : { preferredSource: canonical(preferred) }),
+    ...(isSignalValue(node.value) ? { value: node.value } : {}),
     ...(zones.length === 0 ? {} : { zones })
   }
 }
@@ -106,13 +125,17 @@ function sourcesOf(node: Record<string, unknown>): string[] {
   return only === undefined ? [] : [only]
 }
 
-/** The readable paths in a `GET /signalk/v1/api/vessels/self` body, sorted by path. */
-export function parseSelfPaths(tree: unknown): PathEntry[] {
+/**
+ * The readable paths in a `GET /signalk/v1/api/vessels/self` body, sorted by
+ * path, their sources named canonically through the `GET
+ * /signalk/v1/api/sources` body when there is one.
+ */
+export function parseSelfPaths(tree: unknown, sources?: unknown): PathEntry[] {
   if (!isRecord(tree)) throw new Error('unexpected response from /signalk/v1/api/vessels/self')
   const paths: PathEntry[] = []
   const walk = (node: Record<string, unknown>, prefix: string[]) => {
     if ('value' in node && prefix.length > 0 && isReadable(node.value)) {
-      paths.push(entry(prefix.join('.'), node))
+      paths.push(entry(prefix.join('.'), node, (ref) => canonicalSourceRef(sources, ref)))
     }
     for (const [key, child] of Object.entries(node)) {
       if (!LEAF_KEYS.has(key) && isRecord(child)) walk(child, [...prefix, key])
@@ -166,7 +189,14 @@ async function loadDistanceUnit(fetchFn: Fetch): Promise<DisplayUnit> {
 /** The source over HTTP, relative to the admin UI's origin. */
 export function httpPathSource(fetchFn: Fetch = (input, init) => fetch(input, init)): PathSource {
   return {
-    selfPaths: async () => parseSelfPaths(await getJson(fetchFn, '/signalk/v1/api/vessels/self')),
+    selfPaths: async () => {
+      // Without the sources tree, sources are named as reported.
+      const [tree, sources] = await Promise.all([
+        getJson(fetchFn, '/signalk/v1/api/vessels/self'),
+        getJson(fetchFn, '/signalk/v1/api/sources').catch(() => undefined)
+      ])
+      return parseSelfPaths(tree, sources)
+    },
     distanceUnit: () => loadDistanceUnit(fetchFn)
   }
 }
@@ -176,28 +206,46 @@ export type PathList =
   | { status: 'ready'; paths: PathEntry[] }
   | { status: 'failed'; error: string }
 
-/** Loads the self paths once per source, for every picker on a form to share. */
-export function useSelfPaths(source: PathSource): PathList {
+/**
+ * Loads the self paths once per source, for every picker on a form to share,
+ * and again `pollMs` after each read answers when given, so the values shown
+ * stay current without slow reads overlapping. A read that fails after the
+ * paths have loaded keeps the paths read before.
+ */
+export function useSelfPaths(source: PathSource, pollMs?: number): PathList {
   const [list, setList] = useState<PathList>({ status: 'loading' })
   useEffect(() => {
     let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
     setList({ status: 'loading' })
-    source.selfPaths().then(
-      (paths) => {
-        if (!cancelled) setList({ status: 'ready', paths })
-      },
-      (error: unknown) => {
-        if (!cancelled) {
-          setList({
-            status: 'failed',
-            error: error instanceof Error ? error.message : String(error)
-          })
-        }
-      }
-    )
+    const read = () => {
+      source
+        .selfPaths()
+        .then(
+          (paths) => {
+            if (!cancelled) setList({ status: 'ready', paths })
+          },
+          (error: unknown) => {
+            if (cancelled) return
+            setList((last) =>
+              last.status === 'ready'
+                ? last
+                : {
+                    status: 'failed',
+                    error: error instanceof Error ? error.message : String(error)
+                  }
+            )
+          }
+        )
+        .finally(() => {
+          if (!cancelled && pollMs !== undefined) timer = setTimeout(read, pollMs)
+        })
+    }
+    read()
     return () => {
       cancelled = true
+      clearTimeout(timer)
     }
-  }, [source])
+  }, [source, pollMs])
   return list
 }

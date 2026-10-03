@@ -1,14 +1,112 @@
-import type { PathList } from '../paths/selfPaths'
-import { signalMeasure, type UnitLookup } from '../signalUnits'
-import { LimitFields, unitLabels } from './DetectorFields'
-import { DurationInput, SelectField, TextField } from './fields'
-import { signalShape, type GateForm } from './formModel'
+import { PathPicker } from '../paths/PathPicker'
+import type { PathList, Zone } from '../paths/selfPaths'
+import { formatValue } from '../rules/describe'
+import { signalMeasure, type Measure, type UnitLookup } from '../signalUnits'
+import { DurationInput, RadioGroup, SelectField, TextField, useFieldErrors } from './fields'
+import { signalShape, ZONE_LEVEL_NAMES, type GateForm, type LimitForm } from './formModel'
 import { SignalFields } from './SignalFields'
+import { unitLabels } from './words'
 
 const DIRECTIONS = [
   { value: 'above', label: 'above' },
   { value: 'below', label: 'below' }
 ] as const
+
+const LIMIT_KINDS = [
+  { value: 'fixed', label: 'A fixed value' },
+  { value: 'zone', label: "A zone level of the path's zones" }
+] as const
+
+const LEVELS = ZONE_LEVEL_NAMES.map((value) => ({ value, label: value }))
+
+/** A zone as the editor lists it: its state and range, in the display unit. */
+export function zoneText(zone: Zone, measure: Measure): string {
+  const show = (v: number) => formatValue(v, { kind: 'absolute', unit: measure.unit })
+  if (zone.lower === undefined && zone.upper === undefined) return `${zone.state}: everywhere`
+  if (zone.lower === undefined) return `${zone.state}: below ${show(zone.upper ?? 0)}`
+  if (zone.upper === undefined) return `${zone.state}: above ${show(zone.lower)}`
+  return `${zone.state}: ${show(zone.lower)} to ${show(zone.upper)}`
+}
+
+interface LimitProps {
+  label: string
+  at: string
+  limit: LimitForm
+  onChange: (limit: LimitForm) => void
+  measure: Measure
+  /** The path whose zones a zone limit uses by default; none for a combined signal. */
+  signalPath: string | undefined
+  paths: PathList
+  units: UnitLookup
+}
+
+/** A gate's limit: a fixed value in the display unit, or a zone level with the path's zones. */
+function LimitFields({
+  label,
+  at,
+  limit,
+  onChange,
+  measure,
+  signalPath,
+  paths,
+  units
+}: LimitProps) {
+  const zonePathErrors = useFieldErrors(`${at}/path`)
+  const zonePath = limit.path === '' ? signalPath : limit.path
+  const zones = zonePath === undefined ? undefined : units.entry(zonePath)?.zones
+  const zoneMeasure = { ...measure, unit: units.entry(zonePath ?? '')?.unit ?? measure.unit }
+  return (
+    <>
+      <RadioGroup
+        legend={`${label} is`}
+        pointer={`${at}/kind`}
+        value={limit.kind}
+        options={LIMIT_KINDS}
+        onChange={(kind) => {
+          onChange({ ...limit, kind })
+        }}
+      />
+      {limit.kind === 'fixed' ? (
+        <TextField
+          label={label}
+          pointer={`${at}/value`}
+          value={limit.value}
+          numeric
+          unit={unitLabels(measure).value}
+          onChange={(value) => {
+            onChange({ ...limit, value })
+          }}
+        />
+      ) : (
+        <>
+          <SelectField
+            label="Zone level"
+            pointer={`${at}/level`}
+            value={limit.level}
+            options={LEVELS}
+            onChange={(level) => {
+              onChange({ ...limit, level })
+            }}
+            hint={
+              zones === undefined
+                ? 'The path reports no zones yet.'
+                : `Zones now: ${zones.map((z) => zoneText(z, zoneMeasure)).join('; ')}`
+            }
+          />
+          <PathPicker
+            label={signalPath === undefined ? 'Zones from path' : 'Zones from path (optional)'}
+            value={limit.path}
+            paths={paths}
+            errors={zonePathErrors}
+            onChange={(path) => {
+              onChange({ ...limit, path })
+            }}
+          />
+        </>
+      )}
+    </>
+  )
+}
 
 export interface GateFieldsProps {
   index: number
@@ -19,14 +117,14 @@ export interface GateFieldsProps {
   units: UnitLookup
 }
 
-/** One gate: the rule is in use only while its input stays past its limit. */
+/** One condition under Only while: the rule is in use only while its input stays past its limit. */
 export function GateFields({ index, gate, onChange, onRemove, paths, units }: GateFieldsProps) {
-  const name = `Gate ${String(index + 1)}`
+  const name = `Condition ${String(index + 1)}`
   const at = `/gates/${String(index)}`
   const measure = signalMeasure(signalShape(gate.signal), units)
   return (
     <fieldset className="skar-gate">
-      <legend className="h6">{name}</legend>
+      <legend className="skar-label">{`Only while, condition ${String(index + 1)}`}</legend>
       <SignalFields
         label={`${name} input`}
         at={`${at}/signal`}
@@ -66,30 +164,29 @@ export function GateFields({ index, gate, onChange, onRemove, paths, units }: Ga
           onChange({ ...gate, duration })
         }}
       />
-      <details open={gate.hysteresis !== '' || gate.clearDuration.amount !== ''}>
-        <summary>{name} advanced</summary>
-        <TextField
-          label={`${name} hysteresis`}
-          pointer={`${at}/hysteresis`}
-          value={gate.hysteresis}
-          numeric
-          unit={unitLabels(measure).interval}
-          onChange={(hysteresis) => {
-            onChange({ ...gate, hysteresis })
-          }}
-        />
-        <DurationInput
-          label={`${name}: stops holding after`}
-          pointer={`${at}/clearDuration`}
-          value={gate.clearDuration}
-          onChange={(clearDuration) => {
-            onChange({ ...gate, clearDuration })
-          }}
-        />
-      </details>
-      <button type="button" className="btn btn-outline-secondary btn-sm" onClick={onRemove}>
-        Remove {name.toLowerCase()}
-      </button>
+      <TextField
+        label={`${name} clear margin`}
+        pointer={`${at}/hysteresis`}
+        value={gate.hysteresis}
+        numeric
+        unit={unitLabels(measure).interval}
+        onChange={(hysteresis) => {
+          onChange({ ...gate, hysteresis })
+        }}
+      />
+      <DurationInput
+        label={`${name}: stops holding after`}
+        pointer={`${at}/clearDuration`}
+        value={gate.clearDuration}
+        onChange={(clearDuration) => {
+          onChange({ ...gate, clearDuration })
+        }}
+      />
+      <div>
+        <button type="button" className="skar-btn skar-btn-ghost skar-btn-small" onClick={onRemove}>
+          Remove condition {String(index + 1)}
+        </button>
+      </div>
     </fieldset>
   )
 }

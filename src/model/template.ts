@@ -107,7 +107,9 @@ function unknownPlaceholderErrors(uses: PlaceholderUse[], ruleAt: string): Valid
     .filter((use) => use.name !== INSTANCE_PLACEHOLDER)
     .map((use) => ({
       path: ruleAt + use.at,
-      message: `unknown placeholder \${${use.name}}; only \${instance} is substituted`
+      message:
+        `\${${use.name}} is not a template parameter; \${instance} is the only one` +
+        ' (message placeholders such as {value} are written without $)'
     }))
 }
 

@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useId,
   useRef,
@@ -41,6 +42,44 @@ export function useConfirmation(): Confirmation {
     },
     trigger
   }
+}
+
+export interface Sheet<T> {
+  /** What the sheet is open for; undefined while it is closed. */
+  value: T | undefined
+  show: (value: T) => void
+  /** Closes it, returning focus to what had it when it opened unless told otherwise. */
+  close: (returnFocus?: boolean) => void
+}
+
+/**
+ * A sheet opened for a value, such as where the operator asked to go.
+ * Closing it returns focus to whatever had focus when it opened, as
+ * `useConfirmation` does for a sheet with a single trigger.
+ */
+export function useSheet<T>(): Sheet<T> {
+  const [value, setValue] = useState<T | undefined>(undefined)
+  const isOpen = useRef(false)
+  const opener = useRef<HTMLElement | null>(null)
+  const refocus = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    refocus.current?.focus()
+    refocus.current = null
+  }, [value])
+  const show = useCallback((next: T) => {
+    // Taken before the sheet renders: its Cancel takes focus as it appears.
+    if (!isOpen.current && document.activeElement instanceof HTMLElement)
+      opener.current = document.activeElement
+    isOpen.current = true
+    setValue(next)
+  }, [])
+  const close = useCallback((returnFocus = true) => {
+    refocus.current = returnFocus ? opener.current : null
+    opener.current = null
+    isOpen.current = false
+    setValue(undefined)
+  }, [])
+  return { value, show, close }
 }
 
 export interface ConfirmProps {
@@ -163,58 +202,6 @@ export function ConfirmSheet({
           >
             {confirmIcon}
             {confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/**
- * An inline confirmation for an action that cannot be undone. The admin UI
- * shows no modal of its own for a plugin panel, so this stays in the page
- * next to the action it confirms; Cancel takes focus so a stray Enter does
- * nothing destructive.
- */
-export function Confirm({ title, children, confirmLabel, onConfirm, onCancel }: ConfirmProps) {
-  const { busy, error, run: confirm } = useAction(onConfirm)
-  const titleId = useId()
-  const bodyId = useId()
-
-  return (
-    <div
-      role="alertdialog"
-      aria-labelledby={titleId}
-      aria-describedby={bodyId}
-      className="card border-danger skar-confirm"
-    >
-      <div className="card-body">
-        <h4 id={titleId} className="h6 card-title">
-          {title}
-        </h4>
-        <div id={bodyId}>{children}</div>
-        {error !== undefined && (
-          <div className="alert alert-danger mt-2 mb-0" role="alert">
-            {error}
-          </div>
-        )}
-        <div className="mt-2">
-          <button
-            type="button"
-            className="btn btn-danger btn-sm me-2"
-            disabled={busy}
-            onClick={() => void confirm()}
-          >
-            {confirmLabel}
-          </button>
-          <button
-            type="button"
-            className="btn btn-outline-secondary btn-sm"
-            disabled={busy}
-            onClick={onCancel}
-            autoFocus
-          >
-            Cancel
           </button>
         </div>
       </div>

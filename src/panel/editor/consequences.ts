@@ -3,6 +3,7 @@
  * confirmation shown before an edit that clears an alert or discards a total.
  */
 import type { EditPreview } from '../api'
+import { joined } from './words'
 
 const CHANGE_WORDS: Readonly<Partial<Record<string, string>>> = {
   alertPath: 'alert path',
@@ -23,11 +24,6 @@ const CHANGE_WORDS: Readonly<Partial<Record<string, string>>> = {
 
 function changeWord(change: string): string {
   return CHANGE_WORDS[change] ?? change.replace(/^detector\./, '')
-}
-
-function joined(words: string[]): string {
-  if (words.length <= 1) return words.join('')
-  return `${words.slice(0, -1).join(', ')} and ${words.at(-1) ?? ''}`
 }
 
 /** One sentence per consequence the operator must confirm; none for an edit applied in place. */

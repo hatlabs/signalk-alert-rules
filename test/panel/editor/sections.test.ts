@@ -5,15 +5,17 @@ import type { Rule } from '../../../src/model/rule'
 import {
   emptyForm,
   emptyGate,
+  emptyStep,
   fromRule,
   setMode,
   type RuleForm
 } from '../../../src/panel/editor/formModel'
 import {
   attachErrors,
+  fieldLabel,
   fieldPointers,
-  revealedSections,
-  sectionApplies
+  saveHint,
+  underMoreOptions
 } from '../../../src/panel/editor/sections'
 import { NO_UNITS } from '../../../src/panel/signalUnits'
 
@@ -37,76 +39,18 @@ function form(edit: (f: RuleForm) => void = () => undefined): RuleForm {
   return f
 }
 
-describe('revealedSections', () => {
-  it('shows only the inputs of a new rule', () => {
-    expect(revealedSections(form(), NO_UNITS)).toEqual(['inputs'])
-  })
-
-  it('reveals each section once the ones before it are complete', () => {
-    const f = form((f) => {
-      f.signal.slots[0].path = 'electrical.batteries.house.voltage'
-    })
-    expect(revealedSections(f, NO_UNITS)).toEqual(['inputs', 'detect'])
-    f.detector.type = 'sustained'
-    expect(revealedSections(f, NO_UNITS)).toEqual(['inputs', 'detect'])
-    f.detector.direction = 'below'
-    expect(revealedSections(f, NO_UNITS)).toEqual(['inputs', 'detect', 'limit'])
-    f.detector.limit.value = '11.8'
-    // Timing has only optional fields for a sustained rule, so it reveals what follows.
-    expect(revealedSections(f, NO_UNITS)).toEqual([
-      'inputs',
-      'detect',
-      'limit',
-      'timing',
-      'advanced',
-      'message'
-    ])
-    f.message = 'Low'
-    f.priority = 'warning'
-    expect(revealedSections(f, NO_UNITS)).toEqual([
-      'inputs',
-      'detect',
-      'limit',
-      'timing',
-      'advanced',
-      'message',
-      'gates',
-      'name'
-    ])
-  })
-
-  it('skips sections that do not apply to the detector', () => {
-    const f = form((f) => {
-      f.signal.slots[0].path = 'propulsion.*.state'
-      f.detector.type = 'match'
-      f.detector.matchOp = 'decreases'
-    })
-    expect(sectionApplies(f, 'limit')).toBe(false)
-    expect(sectionApplies(f, 'timing')).toBe(false)
-    expect(revealedSections(f, NO_UNITS)).toEqual(['inputs', 'detect', 'advanced', 'message'])
-  })
-
-  it('holds back at an incomplete combined input', () => {
-    const f = form((f) => {
-      f.signal = setMode(f.signal, 'combine')
-      f.signal.slots[0].path = 'propulsion.port.revolutions'
-    })
-    expect(revealedSections(f, NO_UNITS)).toEqual(['inputs'])
-  })
-})
-
 describe('attachErrors', () => {
-  const fields = ['/name', '/detector/limit/value', '/signal/inputs/0/path', '/signal/combinator']
+  const fields = ['/name', '/detector/steps/0/limit', '/signal/inputs/0/path', '/signal/combinator']
 
   it('attaches an error to its field, or to the field it lies under', () => {
     const { byField, unattached } = attachErrors(
       [
-        { path: '/detector/limit/value', message: 'must be a number' },
+        { path: '/detector/steps/0/limit', message: 'must be a number' },
         { path: '/name/0', message: 'odd' }
       ],
       fields
     )
-    expect(byField.get('/detector/limit/value')).toEqual(['must be a number'])
+    expect(byField.get('/detector/steps/0/limit')).toEqual(['must be a number'])
     expect(byField.get('/name')).toEqual(['odd'])
     expect(unattached).toEqual([])
   })
@@ -128,30 +72,56 @@ describe('attachErrors', () => {
 describe('fieldPointers', () => {
   // A stored value with no field would take a server error the form cannot show on its field.
   it.each(examples())('has a field for every value of %s', (_, rule) => {
-    const fields = fieldPointers(fromRule(rule, NO_UNITS))
+    const fields = fieldPointers(fromRule(rule, NO_UNITS), true)
     expect(leafPointers(rule).filter((p) => !fields.includes(p))).toEqual([])
   })
 
-  it('lists the fields a sustained fixed-limit rule shows', () => {
+  it('lists a below-a-limit rule in the order the form shows it', () => {
     const f = form((f) => {
       f.detector.type = 'sustained'
+      f.detector.direction = 'below'
     })
-    expect(fieldPointers(f)).toEqual([
+    expect(fieldPointers(f, true)).toEqual([
+      '/name',
       '/signal/path',
       '/signal/source',
       '/detector/type',
       '/detector/direction',
-      '/detector/limit/kind',
+      '/detector/steps/0/priority',
       '/detector/steps/0/limit',
       '/detector/duration',
+      '/message',
+      '/condition',
       '/detector/hysteresis',
       '/detector/clearDuration',
-      '/message',
-      '/detector/steps/0/priority',
-      '/name',
-      '/slug',
-      '/condition'
+      '/detector/limit/kind',
+      '/detector/limit/value',
+      '/slug'
     ])
+  })
+
+  it('has a priority and a limit for every step', () => {
+    const f = form((f) => {
+      f.detector.type = 'sustained'
+      f.steps = [emptyStep('warning'), emptyStep('alarm')]
+    })
+    expect(fieldPointers(f, false)).toEqual(
+      expect.arrayContaining(['/detector/steps/1/priority', '/detector/steps/1/limit'])
+    )
+  })
+
+  it('has no step fields while the zones set the limit', () => {
+    const f = form((f) => {
+      f.detector.type = 'sustained'
+      f.detector.limit = { kind: 'zone', value: '', level: 'warn', path: '' }
+    })
+    expect(fieldPointers(f, false).filter((p) => p.includes('/steps/'))).toEqual([])
+    expect(fieldPointers(f, false)).toContain('/detector/limit/level')
+  })
+
+  it('names the slug only for a new rule', () => {
+    expect(fieldPointers(form(), true)).toContain('/slug')
+    expect(fieldPointers(form(), false)).not.toContain('/slug')
   })
 
   it('lists combinator inputs and gate fields', () => {
@@ -161,7 +131,7 @@ describe('fieldPointers', () => {
       f.detector.event.op = 'changesTo'
       f.gates = [emptyGate()]
     })
-    expect(fieldPointers(f)).toEqual(
+    expect(fieldPointers(f, true)).toEqual(
       expect.arrayContaining([
         '/signal/combinator',
         '/signal/inputs/0/path',
@@ -176,5 +146,70 @@ describe('fieldPointers', () => {
         '/gates/0/hysteresis'
       ])
     )
+  })
+})
+
+describe('underMoreOptions', () => {
+  const f = form((f) => {
+    f.detector.type = 'sustained'
+    f.gates = [emptyGate()]
+  })
+
+  it('places the clear margin, gates and a new slug under More options', () => {
+    for (const p of ['/detector/hysteresis', '/gates/0/limit/value', '/slug']) {
+      expect(underMoreOptions(f, true, p)).toBe(true)
+    }
+  })
+
+  it('places latching under More options where the condition can latch', () => {
+    const count = form((f) => {
+      f.detector.type = 'count'
+    })
+    expect(underMoreOptions(count, false, '/latching')).toBe(true)
+  })
+
+  it('keeps the limit, message and name in the main form', () => {
+    for (const p of ['/detector/steps/0/limit', '/message', '/name', '/condition']) {
+      expect(underMoreOptions(f, true, p)).toBe(false)
+    }
+  })
+})
+
+describe('saveHint', () => {
+  const sustained = form((f) => {
+    f.detector.type = 'sustained'
+  })
+
+  it('says nothing while nothing stops the save', () => {
+    expect(saveHint([], sustained)).toBeUndefined()
+  })
+
+  it('names the missing fields, then those to fix', () => {
+    expect(
+      saveHint(
+        [
+          { path: '/detector/steps/0/limit', message: 'is required' },
+          { path: '/message', message: 'is required' },
+          { path: '/condition', message: 'must not contain a dot' }
+        ],
+        sustained
+      )
+    ).toBe('Fill in the limit and the message and fix the condition name to save.')
+  })
+
+  it('names a step by its number once there are several', () => {
+    const f = form((f) => {
+      f.detector.type = 'sustained'
+      f.steps = [emptyStep('warning'), emptyStep('alarm')]
+    })
+    expect(fieldLabel('/detector/steps/1/limit', f)).toBe('step 2')
+    expect(saveHint([{ path: '/detector/steps/1/limit', message: 'is required' }], f)).toBe(
+      'Fill in step 2 to save.'
+    )
+  })
+
+  it('names a gate and a combined input by their numbers', () => {
+    expect(fieldLabel('/gates/1/limit/value', sustained)).toBe('Only while condition 2')
+    expect(fieldLabel('/signal/inputs/0/path', sustained)).toBe('path 1 to combine')
   })
 })

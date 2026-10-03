@@ -1,480 +1,490 @@
 // @vitest-environment jsdom
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import type { Rule } from '../../../src/model/rule'
-import { validateRule } from '../../../src/model/validate'
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { LEVEL_PRIORITY, type Rule } from '../../../src/model/rule'
+import { RuleRejectedError, type EditPreview } from '../../../src/panel/api'
+import { ZONE_PRIORITY } from '../../../src/panel/editor/MoreOptions'
+import type { PathSource } from '../../../src/panel/paths/selfPaths'
+import { instance, ruleEntry } from '../fixtures'
 import {
-  RuleRejectedError,
-  type EditPreview,
-  type PanelApi,
-  type RuleEntry
-} from '../../../src/panel/api'
-import { RuleEditor } from '../../../src/panel/editor/RuleEditor'
-import type { PathEntry, PathSource } from '../../../src/panel/paths/selfPaths'
-import { displayUnit } from '../../../src/panel/units'
-import { instance, noAuthoring, noControls, ruleEntry } from '../fixtures'
+  button,
+  checkbox,
+  choose,
+  click,
+  description,
+  distance,
+  example,
+  formShown,
+  noChange,
+  openMoreOptions,
+  renderEditor,
+  reported,
+  saved,
+  select,
+  textbox,
+  type,
+  type FakeApi
+} from './editorFixtures'
 
-const EXAMPLES = join(import.meta.dirname, '../../../examples/rules')
-// As the server stores them: validated, with the default alert path filled in.
-function example(slug: string): Rule {
-  const result = validateRule(JSON.parse(readFileSync(join(EXAMPLES, `${slug}.json`), 'utf8')))
-  if (!result.ok) throw new Error(`${slug} is not valid`)
-  return result.value
+const HOUSE = 'electrical.batteries.house.voltage'
+
+const create = () => {
+  click(button('Create rule'))
 }
 
-const volts = displayUnit({ units: 'V', displayUnits: { formula: 'value * 1', symbol: 'V' } })
-const rpm = displayUnit({ units: 'Hz', displayUnits: { formula: 'value * 60', symbol: 'rpm' } })
-
-const reported: PathEntry[] = [
-  {
-    path: 'electrical.batteries.house.voltage',
-    units: 'V',
-    unit: volts,
-    zones: [
-      { upper: 11.5, state: 'alarm' },
-      { lower: 11.5, upper: 12, state: 'warn' }
-    ]
-  },
-  { path: 'electrical.batteries.start.voltage', units: 'V', unit: volts },
-  { path: 'navigation.position', unit: displayUnit({}), sources: ['gnss.bow', 'gnss.stern'] },
-  {
-    path: 'navigation.speedOverGround',
-    units: 'm/s',
-    unit: displayUnit({ units: 'm/s' }),
-    sources: ['gnss.stern']
-  },
-  { path: 'propulsion.port.revolutions', units: 'Hz', unit: rpm },
-  { path: 'propulsion.starboard.revolutions', units: 'Hz', unit: rpm }
-]
-
-const pathSource: PathSource = {
-  selfPaths: () => Promise.resolve(reported),
-  distanceUnit: () => Promise.resolve(displayUnit({ units: 'm' }))
-}
-
-const noChange: EditPreview = {
-  restarts: false,
-  changes: [],
-  activeAlerts: 0,
-  clearsActiveAlert: false,
-  discardsTotal: false
-}
-
-function fakeApi() {
-  return {
-    state: vi.fn(),
-    rules: vi.fn(),
-    resetAccumulator: vi.fn(),
-    ...noAuthoring,
-    ...noControls,
-    createRule: vi.fn((rule: Rule) => Promise.resolve(ruleEntry({ slug: rule.slug }))),
-    updateRule: vi.fn((slug: string, _rule: Rule) => Promise.resolve(ruleEntry({ slug }))),
-    previewRule: vi.fn((_slug: string, _rule: Rule) => Promise.resolve(noChange))
-  } satisfies PanelApi
-}
-
-function renderEditor(editing?: { entry: RuleEntry; rule: Rule }) {
-  const api = fakeApi()
-  const onSaved = vi.fn()
-  const onClose = vi.fn()
-  render(
-    <RuleEditor
-      api={api}
-      paths={pathSource}
-      editing={editing}
-      onSaved={onSaved}
-      onClose={onClose}
-    />
-  )
-  return { api, onSaved, onClose }
-}
-
-const section = (name: string) => screen.queryByRole('region', { name })
-const textbox = (name: string | RegExp) => screen.getByRole('textbox', { name })
-const combobox = (name: string) => screen.getByRole('combobox', { name })
-const type = (element: HTMLElement, value: string) => {
-  fireEvent.change(element, { target: { value } })
-}
-const choose = (name: string | RegExp, value: string) => {
-  type(screen.getByRole('combobox', { name }), value)
-}
-const click = (element: HTMLElement) => {
-  fireEvent.click(element)
-}
-
-/** The error text an input is described by. */
-function description(element: HTMLElement): string {
-  return (element.getAttribute('aria-describedby') ?? '')
-    .split(' ')
-    .map((id) => document.getElementById(id)?.textContent ?? '')
-    .join(' ')
-}
-
-async function pathsLoaded() {
-  await waitFor(() => {
-    expect(screen.getAllByRole('status').some((s) => s.textContent === '')).toBe(true)
-  })
+/** Fills a new below-a-limit rule on the house battery to where it can be saved. */
+function fillBelow(limit = '11.8') {
+  choose('Priority for step 1', 'warning')
+  type(textbox('Limit for step 1'), limit)
 }
 
 beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn()
 })
 
-describe('RuleEditor, new rule', () => {
-  afterEach(cleanup)
-
-  it('reveals the sections in order as each is completed', async () => {
-    renderEditor()
-    await pathsLoaded()
-    expect(section('Inputs')).not.toBeNull()
-    expect(section('What to detect')).toBeNull()
-    type(combobox('Input path'), 'electrical.batteries.house.voltage')
-    expect(section('What to detect')).not.toBeNull()
-    expect(section('Limit')).toBeNull()
-    click(screen.getByRole('radio', { name: /above or below a limit/i }))
-    choose('Alert when the input is', 'below')
-    expect(section('Limit')).not.toBeNull()
-    expect(section('Priority and message')).toBeNull()
-    type(textbox('Limit'), '11.8')
-    expect(section('Timing')).not.toBeNull()
-    expect(section('Priority and message')).not.toBeNull()
-    expect(section('Name')).toBeNull()
-    expect(screen.queryByRole('button', { name: /create rule/i })).toBeNull()
+describe('RuleEditor, from a path', () => {
+  afterEach(() => {
+    cleanup()
+    window.history.replaceState(null, '', '/')
   })
 
-  it('authors a sustained zone rule end to end, saved as the model expects', async () => {
-    const { api, onSaved } = renderEditor()
-    await pathsLoaded()
-    type(combobox('Input path'), 'electrical.batteries.house.voltage')
-    click(screen.getByRole('radio', { name: /above or below a limit/i }))
-    choose('Alert when the input is', 'below')
-    click(screen.getByRole('radio', { name: /zone level/i }))
-    choose('Zone level', 'warn')
-    expect(description(combobox('Zone level'))).toContain('warn: 11.5 V to 12 V')
-    type(textbox('For at least'), '1')
+  it('shows the limit and duration of below a limit, with no limit filled in', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    expect(screen.getByRole('heading', { name: 'New rule' })).toBeTruthy()
+    expect(select('Alert when')).toHaveProperty('value', 'below')
+    expect(textbox('Limit for step 1')).toHaveProperty('value', '')
+    expect(textbox('For at least')).toHaveProperty('value', '')
+    expect(screen.getByText('House battery voltage')).toBeTruthy()
+  })
+
+  it('saves a sustained rule with its limit in SI', async () => {
+    const { api, onSaved } = renderEditor({
+      start: { path: 'propulsion.port.coolantTemperature', kind: 'above' }
+    })
+    await formShown()
+    choose('Priority for step 1', 'alarm')
+    type(textbox('Limit for step 1'), '95')
+    type(textbox('For at least'), '2')
     choose('For at least unit', 'min')
-    click(screen.getByText('Advanced'))
-    type(textbox('Hysteresis'), '0.2')
-    type(textbox('Clear after'), '30')
-    expect(screen.queryByRole('combobox', { name: 'Priority' })).toBeNull()
-    type(textbox('Message'), 'House battery voltage is low')
-    type(textbox('Name'), 'House battery low')
-    expect(textbox('Slug')).toHaveProperty('value', 'house-battery-low')
-    expect(screen.getByText(/starts enabled/i)).toBeTruthy()
-    click(screen.getByRole('button', { name: 'Create rule' }))
-    await waitFor(() => {
-      expect(onSaved).toHaveBeenCalled()
-    })
-    expect(api.createRule).toHaveBeenCalledWith(example('house-battery-low'))
+    create()
+    await saved(onSaved)
+    const [[rule]] = api.createRule.mock.calls
+    expect(rule.signal).toEqual({ path: 'propulsion.port.coolantTemperature' })
+    expect(rule.detector).toMatchObject({ type: 'sustained', direction: 'above', duration: 120 })
+    const steps = rule.detector.type === 'sustained' ? rule.detector.steps : undefined
+    expect(steps?.[0]?.priority).toBe('alarm')
+    expect(steps?.[0]?.limit).toBeCloseTo(368.15)
   })
 
-  it('shows the default condition name as a placeholder until one is typed', async () => {
-    const { api, onSaved } = renderEditor()
-    await pathsLoaded()
-    type(combobox('Input path'), 'electrical.batteries.house.voltage')
-    click(screen.getByRole('radio', { name: /above or below a limit/i }))
-    choose('Alert when the input is', 'below')
-    type(textbox('Limit'), '11.8')
-    type(textbox('Message'), 'Low')
-    choose('Priority', 'warning')
-    type(textbox('Name'), 'House battery low')
-    const condition = textbox('Alert path')
-    expect(condition).toHaveProperty('readOnly', false)
-    // The parent the input gives is shown, and not editable.
-    expect(screen.getByText('alerts.electrical.batteries.house.')).toBeTruthy()
-    expect(condition).toHaveProperty('value', '')
-    expect(condition).toHaveProperty('placeholder', 'voltageLow')
-    expect(screen.getByText(/Follows the input and detector until you type a name\./)).toBeTruthy()
-    choose('Alert when the input is', 'above')
-    expect(condition).toHaveProperty('placeholder', 'voltageHigh')
-    type(condition, 'overvoltage')
-    choose('Alert when the input is', 'below')
-    expect(condition).toHaveProperty('value', 'overvoltage')
-    expect(
-      screen.getByText(/Kept as written\. Clear it to follow the input and detector again\./)
-    ).toBeTruthy()
-    click(screen.getByRole('button', { name: 'Create rule' }))
-    await waitFor(() => {
-      expect(onSaved).toHaveBeenCalled()
-    })
-    expect(api.createRule).toHaveBeenCalledWith(
-      expect.objectContaining({ condition: 'overvoltage' })
+  it('writes the message from the limit until the message is edited', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    fillBelow('11.8')
+    expect(textbox(/^Message/)).toHaveProperty(
+      'value',
+      'House battery voltage below 11.8 V: {value}'
     )
+    expect(textbox(/^Name/)).toHaveProperty('value', 'House battery voltage low')
+    type(textbox('Limit for step 1'), '12')
+    expect(textbox(/^Message/)).toHaveProperty('value', 'House battery voltage below 12 V: {value}')
+    type(textbox(/^Message/), 'House battery is low')
+    type(textbox('Limit for step 1'), '11.5')
+    expect(textbox(/^Message/)).toHaveProperty('value', 'House battery is low')
   })
 
-  it('saves no condition name while it follows the default', async () => {
-    const { api, onSaved } = renderEditor()
-    await pathsLoaded()
-    type(combobox('Input path'), 'electrical.batteries.house.voltage')
-    click(screen.getByRole('radio', { name: /above or below a limit/i }))
-    choose('Alert when the input is', 'below')
-    type(textbox('Limit'), '11.8')
-    type(textbox('Message'), 'Low')
-    choose('Priority', 'warning')
-    type(textbox('Name'), 'House battery low')
-    click(screen.getByRole('button', { name: 'Create rule' }))
-    await waitFor(() => {
-      expect(onSaved).toHaveBeenCalled()
+  it('previews the message with the value now, and warns of brace text sent as written', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    fillBelow()
+    expect(description(textbox(/^Message/))).toContain(
+      'Sends now: “House battery voltage below 11.8 V: 13.31 V”'
+    )
+    type(textbox(/^Message/), 'Low {volts}')
+    expect(description(textbox(/^Message/))).toContain('{volts} is sent as written.')
+  })
+
+  it('says whether the value now would alert, and at which priority', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    fillBelow('11.8')
+    expect(screen.getByText(/Now 13\.31 V: would not alert\./)).toBeTruthy()
+    type(textbox('Limit for step 1'), '13.5')
+    expect(screen.getByText(/Now 13\.31 V: would alert as a warning\./)).toBeTruthy()
+  })
+
+  it('says what the chosen priority means', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    choose('Priority for step 1', 'caution')
+    expect(
+      screen.getByText(
+        /requires attention, not immediately hazardous\. Needs no acknowledgement; makes no sound\./
+      )
+    ).toBeTruthy()
+    choose('Priority for step 1', 'warning')
+    expect(
+      screen.getByText(
+        /requires attention for precautionary reasons\. Must be acknowledged; sounds briefly\./
+      )
+    ).toBeTruthy()
+  })
+
+  it('leaves no fields of the earlier kind behind when the kind changes', async () => {
+    const { api, onSaved } = renderEditor({ start: { path: HOUSE, kind: 'often' } })
+    await formShown()
+    choose('Count each time the value', 'changes')
+    type(textbox('Within'), '1')
+    choose('Within unit', 'h')
+    choose('Priority for step 1', 'warning')
+    type(textbox('Limit for step 1'), '4')
+    choose('Alert when', 'below')
+    expect(screen.queryByRole('textbox', { name: 'Within' })).toBeNull()
+    expect(textbox('Limit for step 1')).toHaveProperty('value', '')
+    // The priority chosen stays: only the limit means something else.
+    expect(select('Priority for step 1')).toHaveProperty('value', 'warning')
+    type(textbox('Limit for step 1'), '11.8')
+    create()
+    await saved(onSaved)
+    expect(api.createRule.mock.calls[0]?.[0].detector).toEqual({
+      type: 'sustained',
+      direction: 'below',
+      steps: [{ limit: 11.8, priority: 'warning' }]
     })
-    expect(api.createRule.mock.calls[0]?.[0]).not.toHaveProperty('condition')
   })
 
-  it('follows the default again once the typed condition name is cleared', async () => {
-    renderEditor()
-    await pathsLoaded()
-    type(combobox('Input path'), 'electrical.batteries.house.voltage')
-    click(screen.getByRole('radio', { name: /above or below a limit/i }))
-    choose('Alert when the input is', 'below')
-    type(textbox('Limit'), '11.8')
-    type(textbox('Message'), 'Low')
-    choose('Priority', 'warning')
-    type(textbox('Name'), 'House battery low')
-    const condition = textbox('Alert path')
-    type(condition, 'overvoltage')
-    type(condition, '')
-    expect(condition).toHaveProperty('value', '')
-    expect(condition).toHaveProperty('placeholder', 'voltageLow')
-    choose('Alert when the input is', 'above')
-    expect(condition).toHaveProperty('placeholder', 'voltageHigh')
-  })
-
-  it('takes exactly the typed text after a typed name is backspaced to empty', async () => {
-    const { api, onSaved } = renderEditor()
-    await pathsLoaded()
-    type(combobox('Input path'), 'electrical.batteries.house.voltage')
-    click(screen.getByRole('radio', { name: /above or below a limit/i }))
-    choose('Alert when the input is', 'below')
-    type(textbox('Limit'), '11.8')
-    type(textbox('Message'), 'Low')
-    choose('Priority', 'warning')
-    type(textbox('Name'), 'House battery low')
-    const condition = textbox('Alert path')
-    type(condition, 'o')
-    type(condition, '')
-    // A keystroke appends to what the input shows.
-    type(condition, `${(condition as HTMLInputElement).value}flat`)
-    expect(condition).toHaveProperty('value', 'flat')
-    click(screen.getByRole('button', { name: 'Create rule' }))
-    await waitFor(() => {
-      expect(onSaved).toHaveBeenCalled()
+  it('escalates through further steps and saves them in order', async () => {
+    const { api, onSaved } = renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    fillBelow('12.2')
+    click(button('Escalate at…'))
+    expect(select('Priority for step 2')).toHaveProperty('value', 'alarm')
+    type(textbox('Limit for step 2'), '11.8')
+    expect(textbox(/^Message/)).toHaveProperty(
+      'value',
+      'House battery voltage below {limit}: {value}'
+    )
+    expect(textbox('Each step must hold for at least')).toBeTruthy()
+    create()
+    await saved(onSaved)
+    expect(api.createRule.mock.calls[0]?.[0].detector).toMatchObject({
+      steps: [
+        { limit: 12.2, priority: 'warning' },
+        { limit: 11.8, priority: 'alarm' }
+      ]
     })
-    expect(api.createRule).toHaveBeenCalledWith(expect.objectContaining({ condition: 'flat' }))
   })
 
-  it('keeps the wildcard of a wildcard input in the alert path prefix', async () => {
-    renderEditor()
-    await pathsLoaded()
-    type(combobox('Input path'), 'electrical.batteries.house.voltage')
-    click(screen.getByRole('checkbox', { name: 'Match all instances' }))
-    click(screen.getByRole('radio', { name: /above or below a limit/i }))
-    choose('Alert when the input is', 'below')
-    type(textbox('Limit'), '11.8')
-    type(textbox('Message'), 'Low')
-    choose('Priority', 'warning')
-    type(textbox('Name'), 'Battery low')
-    expect(screen.getByText('alerts.electrical.batteries.*.')).toBeTruthy()
-    expect(textbox('Alert path')).toHaveProperty('placeholder', 'voltageLow')
+  it('removes a later step', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    fillBelow()
+    click(button('Escalate at…'))
+    click(button('Remove step 2'))
+    expect(screen.queryByRole('combobox', { name: 'Priority for step 2' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Remove step 1' })).toBeNull()
   })
 
-  it('rejects a combined input whose unit differs from the others, as it is picked', async () => {
-    renderEditor()
-    await pathsLoaded()
-    click(screen.getByRole('radio', { name: 'Combine paths' }))
-    choose('Input combination', 'absDifference')
-    type(combobox('Input path 1'), 'propulsion.port.revolutions')
-    type(combobox('Input path 2'), 'electrical.batteries.house.voltage')
-    expect(combobox('Input path 2').getAttribute('aria-invalid')).toBe('true')
-    expect(description(combobox('Input path 2'))).toContain('is in V, the other inputs in Hz')
-    expect(section('What to detect')).toBeNull()
-    type(combobox('Input path 2'), 'propulsion.starboard.revolutions')
-    expect(combobox('Input path 2').hasAttribute('aria-invalid')).toBe(false)
-    expect(section('What to detect')).not.toBeNull()
-  })
-
-  it('asks for a condition name where the input gives no default', async () => {
-    renderEditor()
-    await pathsLoaded()
-    click(screen.getByRole('radio', { name: 'Combine paths' }))
-    choose('Input combination', 'absDifference')
-    type(combobox('Input path 1'), 'propulsion.port.revolutions')
-    type(combobox('Input path 2'), 'propulsion.starboard.revolutions')
-    click(screen.getByRole('radio', { name: /above or below a limit/i }))
-    choose('Alert when the input is', 'above')
-    type(textbox('Limit'), '50')
-    type(textbox('Message'), 'Engine speeds differ')
-    choose('Priority', 'warning')
-    type(textbox('Name'), 'Engine speed mismatch')
-    expect(screen.getByText('alerts.propulsion.')).toBeTruthy()
-    expect(textbox('Alert path').getAttribute('placeholder') ?? '').toBe('')
-    expect(screen.getByText(/There is no default name here; type one\./)).toBeTruthy()
-    expect(screen.queryByText(/Follows the input and detector/)).toBeNull()
-  })
-
-  it('matches all instances of a picked path and previews them', async () => {
-    renderEditor()
-    await pathsLoaded()
-    type(combobox('Input path'), 'electrical.batteries.house.voltage')
-    click(screen.getByRole('checkbox', { name: 'Match all instances' }))
-    expect(combobox('Input path')).toHaveProperty('value', 'electrical.batteries.*.voltage')
-    expect(screen.getByText('Matches now: house, start')).toBeTruthy()
-    click(screen.getByRole('checkbox', { name: 'Match all instances' }))
-    expect(combobox('Input path')).toHaveProperty('value', 'electrical.batteries.house.voltage')
-  })
-
-  it('lists the sources reporting a path', async () => {
-    renderEditor()
-    await pathsLoaded()
-    type(combobox('Input path'), 'navigation.position')
-    const options = within(combobox('Source for input path'))
-      .getAllByRole('option')
-      .map((o) => o.textContent)
-    expect(options).toEqual(['Preferred source', 'gnss.bow', 'gnss.stern'])
-  })
-
-  it('drops a source the new path does not report when the path changes', async () => {
-    renderEditor()
-    await pathsLoaded()
-    type(combobox('Input path'), 'navigation.position')
-    choose('Source for input path', 'gnss.stern')
-    type(combobox('Input path'), 'electrical.batteries.house.voltage')
-    expect(combobox('Source for input path')).toHaveProperty('value', '')
-  })
-
-  it('keeps a source the new path also reports', async () => {
-    renderEditor()
-    await pathsLoaded()
-    type(combobox('Input path'), 'navigation.position')
-    choose('Source for input path', 'gnss.stern')
-    type(combobox('Input path'), 'navigation.speedOverGround')
-    expect(combobox('Source for input path')).toHaveProperty('value', 'gnss.stern')
-  })
-
-  it('inserts the {instance} placeholder into the message of a wildcard rule', async () => {
-    renderEditor()
-    await pathsLoaded()
-    type(combobox('Input path'), 'electrical.batteries.*.voltage')
-    click(screen.getByRole('radio', { name: /above or below a limit/i }))
-    choose('Alert when the input is', 'below')
-    type(textbox('Limit'), '11.8')
-    type(textbox('Message'), 'Battery low')
-    click(screen.getByRole('button', { name: 'Insert {instance}' }))
-    expect(textbox('Message')).toHaveProperty('value', 'Battery low{instance}')
-  })
-
-  it('shows validation errors from the API on the offending field', async () => {
-    const { api } = renderEditor()
+  it('names a step out of order by the limit it must pass and whose it is', async () => {
+    const { api } = renderEditor({ start: { path: HOUSE, kind: 'below' } })
     api.createRule.mockRejectedValueOnce(
       new RuleRejectedError('invalid request body', [
-        { path: '/detector/steps/0/limit', message: 'must be at most 20' }
+        { path: '/detector/steps/1/limit', message: "must be below the previous step's limit" }
       ])
     )
-    await pathsLoaded()
-    type(combobox('Input path'), 'electrical.batteries.house.voltage')
-    click(screen.getByRole('radio', { name: /above or below a limit/i }))
-    choose('Alert when the input is', 'above')
-    type(textbox('Limit'), '99')
-    choose('Priority', 'warning')
-    type(textbox('Message'), 'High')
-    type(textbox('Name'), 'High')
-    click(screen.getByRole('button', { name: 'Create rule' }))
+    await formShown()
+    fillBelow('12.2')
+    click(button('Escalate at…'))
+    type(textbox('Limit for step 2'), '12.5')
+    create()
     await waitFor(() => {
-      expect(textbox('Limit').getAttribute('aria-invalid')).toBe('true')
+      expect(textbox('Limit for step 2').getAttribute('aria-invalid')).toBe('true')
     })
-    expect(description(textbox('Limit'))).toContain('must be at most 20')
+    expect(description(textbox('Limit for step 2'))).toContain(
+      "Step 2: an alarm must be below 12.2 V, the warning's limit."
+    )
   })
 
-  /** Fills a new rule on the house battery up to its name. */
-  function fillBatteryRule() {
-    type(combobox('Input path'), 'electrical.batteries.house.voltage')
-    click(screen.getByRole('radio', { name: /above or below a limit/i }))
-    choose('Alert when the input is', 'below')
-    type(textbox('Limit'), '11.8')
-    choose('Priority', 'warning')
-    type(textbox('Message'), 'Low')
-    type(textbox('Name'), 'Low')
-  }
+  it('offers each reporting source and the preferred one', async () => {
+    renderEditor({ start: { path: 'navigation.speedOverGround', kind: 'above' } })
+    await formShown()
+    const options = within(select('Source'))
+      .getAllByRole('option')
+      .map((o) => o.textContent)
+    expect(options).toEqual([
+      "Preferred source (server's choice): gnss.stern",
+      'gnss.bow',
+      'gnss.stern'
+    ])
+    expect(description(select('Source'))).toContain('2 devices report this value.')
+  })
 
-  it('opens Advanced when the server refuses a field in it', async () => {
-    const { api } = renderEditor()
+  it('asks for the field a step misses', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    type(textbox('Limit for step 1'), '11.8')
+    create()
+    const priority = description(select('Priority for step 1'))
+    expect(priority).toContain('Choose a priority')
+    expect(priority).not.toContain('limit')
+    choose('Priority for step 1', 'warning')
+    type(textbox('Limit for step 1'), '')
+    create()
+    expect(description(textbox('Limit for step 1'))).toContain('Fill in the limit')
+  })
+
+  it('asks for a missing state as a state', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'state' } })
+    await formShown()
+    choose('Priority for step 1', 'warning')
+    create()
+    expect(description(textbox('State for step 1'))).toContain('Fill in the state')
+    expect(screen.getByText('Fill in the state to save.')).toBeTruthy()
+  })
+
+  it('has the browser ask before unloading only once the form has changes', async () => {
+    const unload = () => {
+      const event = new Event('beforeunload', { cancelable: true })
+      window.dispatchEvent(event)
+      return event.defaultPrevented
+    }
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    expect(unload()).toBe(false)
+    type(textbox('Limit for step 1'), '11.8')
+    expect(unload()).toBe(true)
+  })
+
+  it('takes a state of a text value as text, with no unit', async () => {
+    renderEditor({ start: { path: 'propulsion.port.state', kind: 'state' } })
+    await formShown()
+    const state = textbox('State for step 1')
+    expect(state.getAttribute('inputmode')).toBeNull()
+    expect(state.parentElement?.textContent).not.toContain('SI')
+  })
+
+  it('drops the step errors when a step is removed', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    fillBelow('12.2')
+    click(button('Escalate at…'))
+    create()
+    expect(textbox('Limit for step 2').getAttribute('aria-invalid')).toBe('true')
+    click(button('Remove step 2'))
+    expect(screen.queryByText(/detector\/steps/)).toBeNull()
+    click(button('Escalate at…'))
+    expect(textbox('Limit for step 2').getAttribute('aria-invalid')).toBeNull()
+  })
+
+  it('names a missing limit before asking the server', async () => {
+    const { api } = renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    choose('Priority for step 1', 'warning')
+    create()
+    expect(screen.getByText('Fill in the limit to save.')).toBeTruthy()
+    expect(textbox('Limit for step 1').getAttribute('aria-invalid')).toBe('true')
+    expect(api.createRule).not.toHaveBeenCalled()
+  })
+
+  it("shows the server's errors on their fields", async () => {
+    const { api, onSaved } = renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    api.createRule.mockRejectedValueOnce(
+      new RuleRejectedError('invalid request body', [
+        { path: '/detector/duration', message: 'must be at most 86400' }
+      ])
+    )
+    await formShown()
+    fillBelow()
+    type(textbox('For at least'), '100000')
+    create()
+    await waitFor(() => {
+      expect(description(textbox('For at least'))).toContain('must be at most 86400')
+    })
+    expect(screen.getByText('Fix how long it must hold to save.')).toBeTruthy()
+    expect(onSaved).not.toHaveBeenCalled()
+  })
+
+  it('opens More options when the server refuses a field in it', async () => {
+    const { api } = renderEditor({ start: { path: HOUSE, kind: 'below' } })
     api.createRule.mockRejectedValueOnce(
       new RuleRejectedError('invalid request body', [
         { path: '/detector/hysteresis', message: 'must be at most 5' }
       ])
     )
-    await pathsLoaded()
-    fillBatteryRule()
-    const advanced = screen.getByText('Advanced').closest('details')
-    expect(advanced?.open).toBe(false)
-    click(screen.getByRole('button', { name: 'Create rule' }))
+    await formShown()
+    fillBelow()
+    const more = screen.getByText('More options').closest('details')
+    expect(more?.open).toBe(false)
+    create()
     await waitFor(() => {
-      expect(advanced?.open).toBe(true)
+      expect(more?.open).toBe(true)
     })
-    expect(description(textbox('Hysteresis'))).toContain('must be at most 5')
+    expect(description(textbox('Clear margin'))).toContain('must be at most 5')
+  })
+
+  it('names the rule that holds the alert path, offering to add a step to it instead', async () => {
+    const { api } = renderEditor({
+      start: { path: HOUSE, kind: 'below' },
+      ruleName: (slug) => (slug === 'battery-alarm' ? 'Battery alarm' : undefined),
+      editHref: (slug) => `#edit=${slug}`
+    })
+    api.createRule.mockRejectedValueOnce(
+      new RuleRejectedError('conflict', [
+        {
+          path: '/condition',
+          message:
+            'makes an alert path overlapping that of rule battery-alarm; each rule needs its own'
+        }
+      ])
+    )
+    await formShown()
+    fillBelow()
+    create()
+    await waitFor(() => {
+      expect(description(textbox(/^Condition name/))).toContain(
+        'Another rule uses this alert path: Battery alarm. Give this condition its own name.'
+      )
+    })
+    expect(screen.getByRole('link', { name: 'Battery alarm' }).getAttribute('href')).toBe(
+      '#edit=battery-alarm'
+    )
   })
 
   it('shows a save that failed without field errors, keeping the form to try again', async () => {
-    const { api, onSaved } = renderEditor()
+    const { api, onSaved } = renderEditor({ start: { path: HOUSE, kind: 'below' } })
     api.createRule.mockRejectedValueOnce(new Error('/rules did not answer in time'))
-    await pathsLoaded()
-    fillBatteryRule()
-    click(screen.getByRole('button', { name: 'Create rule' }))
+    await formShown()
+    fillBelow()
+    create()
     expect((await screen.findByRole('alert')).textContent).toBe('/rules did not answer in time')
     expect(onSaved).not.toHaveBeenCalled()
-    const create = screen.getByRole('button', { name: 'Create rule' })
-    expect(create).toHaveProperty('disabled', false)
-    click(create)
-    await waitFor(() => {
-      expect(onSaved).toHaveBeenCalled()
+    create()
+    await saved(onSaved)
+  })
+
+  it('uses the zones of the value in place of the steps', async () => {
+    const { api, onSaved } = renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    openMoreOptions()
+    click(checkbox(/Use the value's zones/))
+    choose('Starting at the zone', 'warn')
+    expect(screen.queryByRole('combobox', { name: 'Priority for step 1' })).toBeNull()
+    expect(screen.getByText("Set by the value's zones, under More options.")).toBeTruthy()
+    expect(screen.getByText(/warn zone:/)).toBeTruthy()
+    expect(screen.getByText(/alarm zone:/)).toBeTruthy()
+    create()
+    await saved(onSaved)
+    expect(api.createRule.mock.calls[0]?.[0].detector).toEqual({
+      type: 'sustained',
+      direction: 'below',
+      limit: { kind: 'zone', level: 'warn' }
     })
-    expect(screen.queryByText('/rules did not answer in time')).toBeNull()
   })
 
-  it('keeps the sections revealed when a field before them is cleared', async () => {
-    renderEditor()
-    await pathsLoaded()
-    fillBatteryRule()
-    type(textbox('Limit'), '')
-    for (const name of ['Timing', 'Priority and message', 'Gates', 'Name']) {
-      expect(section(name)).not.toBeNull()
-    }
-    expect(screen.getByRole('button', { name: 'Create rule' })).toBeTruthy()
-  })
-
-  it('checks locally that required fields are filled before asking the server', async () => {
-    const { api } = renderEditor()
-    await pathsLoaded()
-    type(combobox('Input path'), 'electrical.batteries.house.voltage')
-    click(screen.getByRole('radio', { name: /above or below a limit/i }))
-    choose('Alert when the input is', 'above')
-    type(textbox('Limit'), 'twelve')
-    choose('Priority', 'warning')
-    type(textbox('Message'), 'High')
-    type(textbox('Name'), 'High')
-    click(screen.getByRole('button', { name: 'Create rule' }))
-    expect(description(textbox('Limit'))).toContain('must be a number')
-    expect(api.createRule).not.toHaveBeenCalled()
-  })
-
-  it('asks before leaving with unsaved changes', async () => {
-    const { onClose } = renderEditor()
-    await pathsLoaded()
-    type(combobox('Input path'), 'a.b')
-    click(screen.getByRole('button', { name: 'Cancel' }))
-    const dialog = screen.getByRole('alertdialog', { name: /discard your changes/i })
-    expect(onClose).not.toHaveBeenCalled()
-    click(within(dialog).getByRole('button', { name: 'Discard changes' }))
+  it('asks before leaving with unsaved changes, by Cancel or the back link', async () => {
+    const { onClose } = renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    fillBelow()
+    click(button('Cancel'))
+    const dialog = screen.getByRole('alertdialog', { name: 'Discard your changes?' })
+    click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    fireEvent.click(screen.getByRole('link', { name: 'Alert rules' }))
+    expect(screen.getByRole('alertdialog', { name: 'Discard your changes?' })).toBeTruthy()
+    click(button('Discard changes'))
     await waitFor(() => {
-      expect(onClose).toHaveBeenCalled()
+      expect(window.location.hash).toBe('#back')
+    })
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('returns focus to what opened the leave prompt when the prompt is cancelled', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    fillBelow()
+    const keepEditing = () => {
+      const dialog = screen.getByRole('alertdialog', { name: 'Discard your changes?' })
+      click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    }
+    button('Cancel').focus()
+    click(button('Cancel'))
+    keepEditing()
+    expect(document.activeElement).toBe(button('Cancel'))
+    const back = screen.getByRole('link', { name: 'Alert rules' })
+    back.focus()
+    fireEvent.click(back)
+    keepEditing()
+    expect(document.activeElement).toBe(back)
+  })
+
+  it('moves focus into the path search on Change, and back to Change on Done', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    click(button('Change the value to watch'))
+    expect(document.activeElement).toBe(select('Search by name or path'))
+    click(button('Done'))
+    expect(document.activeElement).toBe(button('Change the value to watch'))
+  })
+
+  it('focuses the first field in error when Save finds the form incomplete', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    choose('Priority for step 1', 'warning')
+    create()
+    expect(document.activeElement).toBe(textbox('Limit for step 1'))
+  })
+
+  it('focuses the first field the server refuses', async () => {
+    const { api } = renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    api.createRule.mockRejectedValueOnce(
+      new RuleRejectedError('invalid request body', [
+        { path: '/detector/duration', message: 'must be at most 86400' }
+      ])
+    )
+    await formShown()
+    fillBelow()
+    type(textbox('For at least'), '100000')
+    button('Create rule').focus()
+    create()
+    await waitFor(() => {
+      expect(document.activeElement).toBe(textbox('For at least'))
     })
   })
 
   it('leaves at once without changes', async () => {
-    const { onClose } = renderEditor()
-    await pathsLoaded()
-    click(screen.getByRole('button', { name: 'Cancel' }))
+    const { onClose } = renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    click(button('Cancel'))
     expect(onClose).toHaveBeenCalled()
+  })
+
+  it('keeps the path search open while a path is typed', async () => {
+    renderEditor()
+    await formShown()
+    type(select('Search by name or path'), 'e')
+    expect(select('Search by name or path')).toHaveProperty('value', 'e')
+  })
+
+  it('changes the value watched, keeping a source the new value also reports', async () => {
+    renderEditor({ start: { path: 'navigation.speedOverGround', kind: 'above' } })
+    await formShown()
+    choose('Source', 'gnss.bow')
+    click(button('Change the value to watch'))
+    type(select('Search by name or path'), 'navigation.position')
+    expect(select('Source')).toHaveProperty('value', 'gnss.bow')
+    type(select('Search by name or path'), HOUSE)
+    expect(select('Source')).toHaveProperty('value', '')
+    click(button('Done'))
+    expect(screen.getByText(HOUSE)).toBeTruthy()
+  })
+
+  it('matches every instance, naming the instance in the message hint', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    openMoreOptions()
+    click(checkbox('Every instance, one alert each'))
+    expect(screen.getByText('electrical.batteries.*.voltage')).toBeTruthy()
+    expect(description(textbox(/^Message/))).toContain('{instance} the instance')
   })
 })
 
@@ -482,6 +492,18 @@ describe('RuleEditor, editing', () => {
   afterEach(cleanup)
 
   const battery = example('house-battery-low')
+  const stepped: Rule = {
+    ...battery,
+    detector: {
+      type: 'sustained',
+      direction: 'below',
+      steps: [
+        { limit: 12.2, priority: 'warning' },
+        { limit: 11.8, priority: 'alarm' }
+      ],
+      duration: 60
+    }
+  }
   const active = ruleEntry({
     slug: battery.slug,
     rule: { name: battery.name },
@@ -491,184 +513,31 @@ describe('RuleEditor, editing', () => {
       instances: [instance({ condition: 'alerting', reason: 'alertActive' })]
     }
   })
+  const clears: EditPreview = {
+    restarts: true,
+    changes: ['signal'],
+    activeAlerts: 1,
+    clearsActiveAlert: true,
+    discardsTotal: false
+  }
 
-  it('opens fully expanded, with the slug read-only and the alert path editable', async () => {
-    renderEditor({ entry: active, rule: battery })
-    await screen.findByRole('region', { name: 'Name' })
-    for (const name of ['What to detect', 'Limit', 'Timing', 'Priority and message', 'Gates']) {
-      expect(section(name)).not.toBeNull()
-    }
-    expect(textbox('Slug')).toHaveProperty('readOnly', true)
-    expect(textbox('Alert path')).toHaveProperty('readOnly', false)
-    expect(screen.getByText('alerts.electrical.batteries.house.')).toBeTruthy()
-    expect(textbox('Alert path')).toHaveProperty('value', '')
-    expect(textbox('Alert path')).toHaveProperty('placeholder', 'voltageLow')
-    expect(textbox('Hysteresis')).toHaveProperty('value', '0.2')
+  it('opens with the stored values, More options open where they are used, and no slug', async () => {
+    renderEditor({ editing: { entry: active, rule: battery } })
+    await formShown()
+    expect(screen.getByRole('heading', { name: 'Edit “House battery low”' })).toBeTruthy()
+    expect(screen.getByText('More options').closest('details')?.open).toBe(true)
+    expect(textbox('Clear margin')).toHaveProperty('value', '0.2')
     expect(textbox('For at least')).toHaveProperty('value', '1')
+    expect(screen.queryByRole('textbox', { name: 'Slug' })).toBeNull()
+    expect(button('Save')).toBeTruthy()
   })
 
-  it('follows the default of a saved rule that stores no condition name, until one is typed', async () => {
-    renderEditor({ entry: active, rule: battery })
-    await screen.findByRole('region', { name: 'Name' })
-    const condition = textbox('Alert path')
-    choose('Alert when the input is', 'above')
-    expect(condition).toHaveProperty('value', '')
-    expect(condition).toHaveProperty('placeholder', 'voltageHigh')
-    type(condition, 'overvoltage')
-    choose('Alert when the input is', 'below')
-    expect(condition).toHaveProperty('value', 'overvoltage')
-  })
-
-  it("keeps a saved rule's stored condition name when its detector changes", async () => {
-    // Equal to the default, it is still the rule's own name: typed text, which stays.
-    const named = { ...battery, condition: 'voltageLow' }
-    const { api } = renderEditor({ entry: active, rule: named })
-    await screen.findByRole('region', { name: 'Name' })
-    expect(textbox('Alert path')).toHaveProperty('value', 'voltageLow')
-    expect(screen.getByText(/Kept as written\./)).toBeTruthy()
-    choose('Alert when the input is', 'above')
-    expect(textbox('Alert path')).toHaveProperty('value', 'voltageLow')
-    click(screen.getByRole('button', { name: 'Save changes' }))
-    await waitFor(() => {
-      expect(api.previewRule).toHaveBeenCalled()
-    })
-    expect(api.previewRule.mock.calls[0]?.[1]).toMatchObject({ condition: 'voltageLow' })
-  })
-
-  it('confirms an edit that clears an active alert, naming the consequence', async () => {
-    const { api, onSaved } = renderEditor({ entry: active, rule: battery })
-    api.previewRule.mockResolvedValueOnce({
-      restarts: true,
-      changes: ['signal'],
-      activeAlerts: 1,
-      clearsActiveAlert: true,
-      discardsTotal: false
-    })
-    type(
-      await screen.findByRole('combobox', { name: 'Input path' }),
-      'electrical.batteries.start.voltage'
-    )
-    click(screen.getByRole('button', { name: 'Save changes' }))
-    const dialog = await screen.findByRole('alertdialog')
-    expect(dialog.textContent).toContain(
-      'Saving clears the active alert of this rule and restarts it, because its input changed.'
-    )
-    expect(api.updateRule).not.toHaveBeenCalled()
-    click(within(dialog).getByRole('button', { name: 'Save' }))
-    await waitFor(() => {
-      expect(onSaved).toHaveBeenCalled()
-    })
-    expect(api.updateRule.mock.calls[0]?.[1].signal).toEqual({
-      path: 'electrical.batteries.start.voltage'
-    })
-  })
-
-  it('drops the confirmation when a field changes under it, so the change is previewed too', async () => {
-    const { api } = renderEditor({ entry: active, rule: battery })
-    const clears: EditPreview = {
-      restarts: true,
-      changes: ['signal'],
-      activeAlerts: 1,
-      clearsActiveAlert: true,
-      discardsTotal: false
-    }
-    api.previewRule.mockResolvedValue(clears)
-    type(
-      await screen.findByRole('combobox', { name: 'Input path' }),
-      'electrical.batteries.start.voltage'
-    )
-    click(screen.getByRole('button', { name: 'Save changes' }))
-    await screen.findByRole('alertdialog')
-    type(textbox('Hysteresis'), '0.3')
-    expect(screen.queryByRole('alertdialog')).toBeNull()
-    click(screen.getByRole('button', { name: 'Save changes' }))
-    click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Save' }))
-    await waitFor(() => {
-      expect(api.updateRule).toHaveBeenCalled()
-    })
-    expect(api.updateRule.mock.calls[0]?.[1].detector).toMatchObject({ hysteresis: 0.3 })
-  })
-
-  it('shows a refusal of an edit saved without asking on the field', async () => {
-    const { api, onSaved } = renderEditor({ entry: active, rule: battery })
-    api.updateRule.mockRejectedValueOnce(
-      new RuleRejectedError('invalid request body', [
-        { path: '/detector/hysteresis', message: 'must be at most 5' }
-      ])
-    )
-    type(await screen.findByRole('textbox', { name: 'Hysteresis' }), '9')
-    click(screen.getByRole('button', { name: 'Save changes' }))
-    await waitFor(() => {
-      expect(description(textbox('Hysteresis'))).toContain('must be at most 5')
-    })
-    expect(onSaved).not.toHaveBeenCalled()
-  })
-
-  describe('a refusal after the confirmation', () => {
-    const clears: EditPreview = {
-      restarts: true,
-      changes: ['signal'],
-      activeAlerts: 1,
-      clearsActiveAlert: true,
-      discardsTotal: false
-    }
-
-    async function confirmPathChange(api: ReturnType<typeof fakeApi>) {
-      api.previewRule.mockResolvedValueOnce(clears)
-      type(
-        await screen.findByRole('combobox', { name: 'Input path' }),
-        'electrical.batteries.start.voltage'
-      )
-      click(screen.getByRole('button', { name: 'Save changes' }))
-      click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Save' }))
-    }
-
-    it('closes the confirmation and marks the refused field', async () => {
-      const { api, onSaved } = renderEditor({ entry: active, rule: battery })
-      api.updateRule.mockRejectedValueOnce(
-        new RuleRejectedError('invalid request body', [
-          { path: '/signal/path', message: 'is not reported' }
-        ])
-      )
-      await confirmPathChange(api)
-      await waitFor(() => {
-        expect(screen.queryByRole('alertdialog')).toBeNull()
-      })
-      expect(description(combobox('Input path'))).toContain('is not reported')
-      expect(onSaved).not.toHaveBeenCalled()
-    })
-
-    it('keeps the confirmation open with a failure that names no field', async () => {
-      const { api, onSaved } = renderEditor({ entry: active, rule: battery })
-      api.updateRule.mockRejectedValueOnce(new Error('/rules/x answered 503'))
-      await confirmPathChange(api)
-      const dialog = screen.getByRole('alertdialog')
-      await waitFor(() => {
-        expect(within(dialog).getByRole('alert').textContent).toBe('/rules/x answered 503')
-      })
-      expect(onSaved).not.toHaveBeenCalled()
-    })
-  })
-
-  it('lists the steps it cannot edit yet in display units, and keeps them', async () => {
-    const stepped: Rule = {
-      ...battery,
-      detector: {
-        type: 'sustained',
-        direction: 'below',
-        steps: [
-          { limit: 12.2, priority: 'warning' },
-          { limit: 11.8, priority: 'alarm' }
-        ],
-        duration: 60
-      }
-    }
-    const { api } = renderEditor({ entry: active, rule: stepped })
-    await pathsLoaded()
-    const notice = screen.getByText('Then alarm below 11.8 V')
-    expect(notice.closest('.form-text')?.textContent).toContain('the editor cannot change yet')
-    type(textbox('Limit'), '12.4')
-    click(screen.getByRole('button', { name: 'Save changes' }))
+  it('opens every stored step and saves them as changed', async () => {
+    const { api } = renderEditor({ editing: { entry: active, rule: stepped } })
+    await formShown()
+    expect(textbox('Limit for step 2')).toHaveProperty('value', '11.8')
+    type(textbox('Limit for step 1'), '12.4')
+    click(button('Save'))
     await waitFor(() => {
       expect(api.previewRule).toHaveBeenCalled()
     })
@@ -678,68 +547,134 @@ describe('RuleEditor, editing', () => {
         { limit: 11.8, priority: 'alarm' }
       ]
     })
-    click(screen.getByRole('radio', { name: /zone level/i }))
-    expect(screen.queryByText('Then alarm below 11.8 V')).toBeNull()
   })
 
-  it('saves an edit applied in place without asking', async () => {
-    const { api, onSaved } = renderEditor({ entry: active, rule: battery })
-    type(await screen.findByRole('textbox', { name: 'Hysteresis' }), '0.3')
-    click(screen.getByRole('button', { name: 'Save changes' }))
-    await waitFor(() => {
-      expect(onSaved).toHaveBeenCalled()
-    })
-    expect(screen.queryByRole('alertdialog')).toBeNull()
-    expect(api.previewRule).toHaveBeenCalledWith('house-battery-low', {
-      ...battery,
-      detector: { ...battery.detector, hysteresis: 0.3 }
-    })
+  it.each(['engine-stopped', 'coolant-temperature-rising'])(
+    'opens More options on the latching or gate of %s and saves it unchanged',
+    async (slug) => {
+      const rule = example(slug)
+      const { api, onSaved } = renderEditor({
+        editing: { entry: ruleEntry({ slug }), rule }
+      })
+      await formShown()
+      expect(screen.getByText('More options').closest('details')?.open).toBe(true)
+      click(button('Save'))
+      await saved(onSaved)
+      expect(api.updateRule).toHaveBeenCalledWith(slug, rule)
+    }
+  )
+
+  it.each([
+    ['reporting now', 'gnss.bow'],
+    ['not reporting now', 'gnss.masthead']
+  ])('lists a pinned source %s once, and keeps it', async (_, source) => {
+    const pinned: Rule = {
+      ...stepped,
+      signal: { path: 'navigation.speedOverGround', source },
+      detector: {
+        type: 'sustained',
+        direction: 'above',
+        steps: [{ limit: 5, priority: 'caution' }]
+      }
+    }
+    const { api, onSaved } = renderEditor({ editing: { entry: active, rule: pinned } })
+    await formShown()
+    const options = within(select('Source'))
+      .getAllByRole('option')
+      .map((o) => o.textContent)
+    expect(options.filter((o) => o === source)).toHaveLength(1)
+    expect(select('Source')).toHaveProperty('value', source)
+    click(button('Save'))
+    await saved(onSaved)
+    expect(api.updateRule.mock.calls[0]?.[1].signal).toEqual(pinned.signal)
   })
 
-  it('names a unit mismatch once on the input after a save attempt', async () => {
-    const rpmMismatch = example('engine-rpm-mismatch')
-    renderEditor({ entry: ruleEntry({ slug: rpmMismatch.slug }), rule: rpmMismatch })
-    type(
-      await screen.findByRole('combobox', { name: 'Input path 2' }),
-      'electrical.batteries.house.voltage'
+  it('confirms an edit that clears an active alert, naming the consequence', async () => {
+    const { api, onSaved } = renderEditor({ editing: { entry: active, rule: stepped } })
+    api.previewRule.mockResolvedValueOnce(clears)
+    await formShown()
+    click(button('Change the value to watch'))
+    type(select('Search by name or path'), 'electrical.batteries.start.voltage')
+    click(button('Save'))
+    const dialog = await screen.findByRole('alertdialog', { name: 'Save “House battery low”?' })
+    expect(dialog.textContent).toContain(
+      'Saving clears the active alert of this rule and restarts it, because its input changed.'
     )
-    click(screen.getByRole('button', { name: 'Save changes' }))
-    expect(description(combobox('Input path 2')).match(/is in V/g)).toHaveLength(1)
-  })
-
-  it('keeps what each gate remembers with that gate when an earlier one is removed', async () => {
-    renderEditor({ entry: active, rule: battery })
-    const addGate = await screen.findByRole('button', { name: 'Add gate' })
-    click(addGate)
-    click(addGate)
-    const gate = (n: number) => within(screen.getByRole('group', { name: `Gate ${String(n)}` }))
-    type(
-      gate(1).getByRole('combobox', { name: 'Gate 1 input path' }),
-      'electrical.batteries.start.voltage'
-    )
-    click(gate(1).getByRole('checkbox', { name: 'Match all instances' }))
-    type(
-      gate(2).getByRole('combobox', { name: 'Gate 2 input path' }),
-      'electrical.batteries.*.voltage'
-    )
-    click(screen.getByRole('button', { name: 'Remove gate 1' }))
-    click(gate(1).getByRole('checkbox', { name: 'Match all instances' }))
-    // Its first match, not the instance the removed gate had replaced.
-    expect(gate(1).getByRole('combobox', { name: 'Gate 1 input path' })).toHaveProperty(
-      'value',
-      'electrical.batteries.house.voltage'
-    )
-  })
-
-  it('saves nothing on Enter in a field; only the Save button saves', async () => {
-    const { api, onSaved } = renderEditor({ entry: active, rule: battery })
-    const hysteresis = await screen.findByRole('textbox', { name: 'Hysteresis' })
-    type(hysteresis, '0.3')
-    // What a browser does on Enter, or a tablet keyboard's Go, in a text field.
-    fireEvent.submit(screen.getByRole('form'))
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(api.previewRule).not.toHaveBeenCalled()
     expect(api.updateRule).not.toHaveBeenCalled()
+    click(within(dialog).getByRole('button', { name: 'Save' }))
+    await saved(onSaved)
+    expect(api.updateRule.mock.calls[0]?.[1].signal).toEqual({
+      path: 'electrical.batteries.start.voltage'
+    })
+  })
+
+  it('drops the confirmation when a field changes under it', async () => {
+    const { api } = renderEditor({ editing: { entry: active, rule: stepped } })
+    api.previewRule.mockResolvedValue(clears)
+    await formShown()
+    type(textbox('Limit for step 1'), '12.4')
+    click(button('Save'))
+    await screen.findByRole('alertdialog')
+    type(textbox('Limit for step 1'), '12.5')
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+  })
+
+  async function confirmed(api: FakeApi) {
+    api.previewRule.mockResolvedValueOnce(clears)
+    await formShown()
+    type(textbox('Limit for step 1'), '12.4')
+    click(button('Save'))
+    click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Save' }))
+  }
+
+  it('closes the confirmation on a refusal and marks the refused field', async () => {
+    const { api, onSaved } = renderEditor({ editing: { entry: active, rule: stepped } })
+    api.updateRule.mockRejectedValueOnce(
+      new RuleRejectedError('invalid request body', [
+        { path: '/detector/steps/0/limit', message: 'must be a number' }
+      ])
+    )
+    await confirmed(api)
+    await waitFor(() => {
+      expect(screen.queryByRole('alertdialog')).toBeNull()
+    })
+    expect(description(textbox('Limit for step 1'))).toContain('must be a number')
+    expect(onSaved).not.toHaveBeenCalled()
+  })
+
+  it('returns focus to Save when the confirmation is cancelled', async () => {
+    const { api } = renderEditor({ editing: { entry: active, rule: stepped } })
+    api.previewRule.mockResolvedValueOnce(clears)
+    await formShown()
+    type(textbox('Limit for step 1'), '12.4')
+    button('Save').focus()
+    click(button('Save'))
+    const dialog = await screen.findByRole('alertdialog')
+    click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(document.activeElement).toBe(button('Save'))
+  })
+
+  it('focuses the refused field when the confirmation closes on a refusal', async () => {
+    const { api } = renderEditor({ editing: { entry: active, rule: stepped } })
+    api.updateRule.mockRejectedValueOnce(
+      new RuleRejectedError('invalid request body', [
+        { path: '/detector/steps/0/limit', message: 'must be a number' }
+      ])
+    )
+    await confirmed(api)
+    await waitFor(() => {
+      expect(document.activeElement).toBe(textbox('Limit for step 1'))
+    })
+  })
+
+  it('keeps the confirmation open with a failure that names no field', async () => {
+    const { api, onSaved } = renderEditor({ editing: { entry: active, rule: stepped } })
+    api.updateRule.mockRejectedValueOnce(new Error('/rules/x answered 503'))
+    await confirmed(api)
+    const dialog = screen.getByRole('alertdialog')
+    await waitFor(() => {
+      expect(within(dialog).getByRole('alert').textContent).toBe('/rules/x answered 503')
+    })
     expect(onSaved).not.toHaveBeenCalled()
   })
 
@@ -750,14 +685,223 @@ describe('RuleEditor, editing', () => {
       rule: { name: hours.name, detector: { type: 'accumulator', measure: 'time' } },
       status: { instances: [instance({ progress: { kind: 'total', total: 7200, limit: 900000 } })] }
     })
-    const { api } = renderEditor({ entry, rule: hours })
+    const { api } = renderEditor({ editing: { entry, rule: hours } })
     api.previewRule.mockResolvedValueOnce({ ...noChange, restarts: true, discardsTotal: true })
-    await screen.findByRole('combobox', { name: 'Accumulate' })
-    choose('Accumulate', 'integral')
-    type(textbox('Alert at a total of'), '100')
-    click(screen.getByRole('button', { name: 'Save changes' }))
+    await formShown()
+    choose('Total of', 'integral')
+    type(textbox('Limit for step 1'), '100')
+    click(button('Save'))
     const dialog = await screen.findByRole('alertdialog')
     expect(dialog.textContent).toContain('Saving discards the accumulated total 2 h.')
     expect(api.updateRule).not.toHaveBeenCalled()
+  })
+
+  it('follows the default condition name until one is typed, then keeps it', async () => {
+    renderEditor({ editing: { entry: active, rule: stepped } })
+    await formShown()
+    const condition = textbox(/^Condition name/)
+    expect(condition).toHaveProperty('value', '')
+    expect(condition).toHaveProperty('placeholder', 'voltageLow')
+    choose('Alert when', 'above')
+    expect(condition).toHaveProperty('placeholder', 'voltageHigh')
+    type(condition, 'overvoltage')
+    choose('Alert when', 'below')
+    expect(condition).toHaveProperty('value', 'overvoltage')
+  })
+
+  it('saves an edit applied in place without asking', async () => {
+    const { api, onSaved } = renderEditor({ editing: { entry: active, rule: battery } })
+    await formShown()
+    type(textbox('Clear margin'), '0.3')
+    click(button('Save'))
+    await saved(onSaved)
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(api.previewRule).toHaveBeenCalledWith('house-battery-low', {
+      ...battery,
+      detector: { ...battery.detector, hysteresis: 0.3 }
+    })
+  })
+
+  it('saves nothing on Enter in a field; only the Save button saves', async () => {
+    const { api, onSaved } = renderEditor({ editing: { entry: active, rule: battery } })
+    await formShown()
+    type(textbox('Clear margin'), '0.3')
+    // What a browser does on Enter, or a tablet keyboard's Go, in a text field.
+    fireEvent.submit(screen.getByRole('form'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(api.previewRule).not.toHaveBeenCalled()
+    expect(onSaved).not.toHaveBeenCalled()
+  })
+})
+
+describe('RuleEditor, an invalid stored rule', () => {
+  afterEach(cleanup)
+
+  const battery = example('house-battery-low')
+
+  it('opens with its errors on their fields and saves once fixed, without a preview', async () => {
+    const { api, onSaved } = renderEditor({
+      invalid: {
+        slug: battery.slug,
+        name: battery.name,
+        body: { ...battery, detector: { ...battery.detector, duration: -5 } },
+        errors: [{ path: '/detector/duration', message: 'must be at least 0' }]
+      }
+    })
+    await formShown()
+    expect(screen.getByRole('heading', { name: 'Fix “House battery low”' })).toBeTruthy()
+    expect(description(textbox('For at least'))).toContain('must be at least 0')
+    type(textbox('For at least'), '1')
+    choose('For at least unit', 'min')
+    click(button('Save'))
+    await saved(onSaved)
+    expect(api.previewRule).not.toHaveBeenCalled()
+    expect(api.updateRule).toHaveBeenCalledWith(battery.slug, battery)
+  })
+
+  it('opens a body it cannot read as a form with its name and message', async () => {
+    renderEditor({
+      invalid: {
+        slug: 'odd',
+        name: 'Odd',
+        body: { name: 'Odd', message: 'Hello', detector: { type: 'nonsense' } },
+        errors: [{ path: '/detector/type', message: 'is not a known detector' }]
+      }
+    })
+    await formShown()
+    expect(textbox(/^Name/)).toHaveProperty('value', 'Odd')
+    expect(textbox(/^Message/)).toHaveProperty('value', 'Hello')
+  })
+
+  it('opens a rule-shaped body without a message, asking for one', async () => {
+    const { message: _message, ...body } = battery
+    renderEditor({
+      invalid: {
+        slug: battery.slug,
+        name: battery.name,
+        body,
+        errors: [{ path: '/message', message: 'is required' }]
+      }
+    })
+    await formShown()
+    expect(textbox(/^Message/)).toHaveProperty('value', '')
+    expect(description(textbox(/^Message/))).toContain('is required')
+  })
+
+  it('keeps an error on a detector it does not know after Save', async () => {
+    const { api } = renderEditor({
+      invalid: {
+        slug: battery.slug,
+        name: battery.name,
+        body: { ...battery, detector: { type: 'nonsense' } },
+        errors: [{ path: '/detector/type', message: 'is not a known detector' }]
+      }
+    })
+    await formShown()
+    click(button('Save'))
+    await waitFor(() => {
+      expect(description(select(/^Alert when/))).toContain('is required')
+    })
+    expect(api.updateRule).not.toHaveBeenCalled()
+  })
+
+  it('saves under the slug it is stored under, whatever its body says', async () => {
+    const { api, onSaved } = renderEditor({
+      invalid: {
+        slug: 'battery-old',
+        name: battery.name,
+        body: { ...battery, detector: { ...battery.detector, duration: -5 } },
+        errors: [{ path: '/detector/duration', message: 'must be at least 0' }]
+      }
+    })
+    await formShown()
+    type(textbox('For at least'), '1')
+    choose('For at least unit', 'min')
+    click(button('Save'))
+    await saved(onSaved)
+    expect(api.updateRule).toHaveBeenCalledWith('battery-old', { ...battery, slug: 'battery-old' })
+  })
+})
+
+describe('RuleEditor, a unit reported after it opens', () => {
+  const COOLANT = 'propulsion.port.coolantTemperature'
+  /** Reports the coolant temperature, in °C, from the second read on. */
+  const later = (): { source: PathSource; reads: () => number } => {
+    let reads = 0
+    return {
+      source: {
+        selfPaths: () => {
+          reads++
+          return Promise.resolve(
+            reads === 1 ? reported.filter((p) => p.path !== COOLANT) : reported
+          )
+        },
+        distanceUnit: () => Promise.resolve(distance)
+      },
+      reads: () => reads
+    }
+  }
+  const polled = async (reads: () => number) => {
+    await vi.advanceTimersByTimeAsync(5000)
+    await waitFor(() => {
+      expect(reads()).toBeGreaterThan(1)
+    })
+    await waitFor(() => {
+      expect(screen.getByText(/^Now /)).toBeTruthy()
+    })
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+  })
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
+
+  it('saves a stored limit unchanged', async () => {
+    const rule: Rule = {
+      name: 'Coolant hot',
+      slug: 'coolant-hot',
+      message: 'Coolant {value}',
+      signal: { path: COOLANT },
+      detector: {
+        type: 'sustained',
+        direction: 'above',
+        steps: [{ limit: 368.15, priority: 'alarm' }]
+      }
+    }
+    const { source, reads } = later()
+    const { api, onSaved } = renderEditor({
+      paths: source,
+      editing: { entry: ruleEntry({ slug: rule.slug }), rule }
+    })
+    await formShown()
+    await polled(reads)
+    click(button('Save'))
+    await saved(onSaved)
+    expect(api.updateRule).toHaveBeenCalledWith(rule.slug, rule)
+  })
+
+  it('keeps a typed limit in the unit it was typed in', async () => {
+    const { source, reads } = later()
+    const { api, onSaved } = renderEditor({
+      paths: source,
+      start: { path: COOLANT, kind: 'above' }
+    })
+    await formShown()
+    choose('Priority for step 1', 'alarm')
+    type(textbox('Limit for step 1'), '368.15')
+    await polled(reads)
+    create()
+    await saved(onSaved)
+    const [[rule]] = api.createRule.mock.calls
+    expect(rule.detector).toMatchObject({ steps: [{ limit: 368.15, priority: 'alarm' }] })
+  })
+})
+
+describe('ZONE_PRIORITY', () => {
+  it('is the priority the model gives each zone level', () => {
+    expect(ZONE_PRIORITY).toEqual(LEVEL_PRIORITY)
   })
 })

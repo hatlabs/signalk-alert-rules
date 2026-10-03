@@ -8,8 +8,12 @@
  * - the list: no fragment
  * - a rule: `#rule=<slug>`, optionally with `&instance=<name>`
  * - the editor of a rule: `#edit=<slug>`
- * - Add rule: `#add`; its two ways to start: `#add=template` and `#add=path`
+ * - Add rule: `#add`; its two ways to start: `#add=template` and `#add=path`,
+ *   which goes on with the value chosen, `&path=<path>`, and then what should
+ *   alert, `&when=<kind>`
  */
+import { CONDITION_KINDS, type ConditionKind } from './editor/conditionKinds'
+
 export type Route =
   | { kind: 'list' }
   | {
@@ -24,6 +28,14 @@ export type Route =
 export interface AddRoute {
   kind: 'add'
   from?: 'template' | 'path'
+  /** From a path: the value chosen. */
+  path?: string
+  /** From a path: what should alert, once the value is chosen. */
+  when?: ConditionKind
+}
+
+function conditionKind(value: string | undefined): ConditionKind | undefined {
+  return CONDITION_KINDS.find((k) => k.kind === value)?.kind
 }
 
 const LIST: Route = { kind: 'list' }
@@ -76,7 +88,12 @@ export function parseRoute(hash: string): Route {
   }
   const from = params.get('add')
   if (from === undefined) return { kind: 'add' }
-  return from === 'template' || from === 'path' ? { kind: 'add', from } : LIST
+  if (from === 'template') return { kind: 'add', from }
+  if (from !== 'path') return LIST
+  const path = params.get('path')
+  if (path === undefined) return { kind: 'add', from }
+  const when = conditionKind(params.get('when'))
+  return { kind: 'add', from, path, ...(when === undefined ? {} : { when }) }
 }
 
 function fragmentOf(route: Route): string | undefined {
@@ -90,7 +107,9 @@ function fragmentOf(route: Route): string | undefined {
     case 'edit':
       return `edit=${encodeURIComponent(route.slug)}`
     case 'add':
-      return route.from === undefined ? 'add' : `add=${route.from}`
+      return route.from === undefined
+        ? 'add'
+        : `add=${route.from}${param('path', route.path)}${param('when', route.when)}`
   }
 }
 

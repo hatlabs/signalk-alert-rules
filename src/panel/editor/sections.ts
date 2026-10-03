@@ -1,167 +1,24 @@
 /**
- * The authoring form's sections: which apply to the rule as authored so far,
- * which a new rule reveals, and which field each error belongs to.
+ * The editor's fields as JSON pointers into the rule: which it shows for the
+ * rule as authored so far, where each error belongs, which lie under More
+ * options, and how Save names what stops it.
  */
 import type { FieldError } from '../api'
-import type { UnitLookup } from '../signalUnits'
+import { capitalised } from '../list/PriorityBadge'
 import {
   canLatch,
-  FIRST_STEP,
   isZoneLimited,
-  matchTakesDuration,
-  matchTakesValue,
-  slotUnitErrors,
+  holdsFor,
+  stepLimitField,
+  stepPointer,
+  stepQuantity,
   type DetectorForm,
-  type DurationField,
   type EventForm,
   type LimitForm,
   type RuleForm,
-  type SignalForm,
-  type ValueField
+  type SignalForm
 } from './formModel'
-
-export const SECTIONS = [
-  'inputs',
-  'detect',
-  'limit',
-  'timing',
-  'advanced',
-  'message',
-  'gates',
-  'name'
-] as const
-export type SectionId = (typeof SECTIONS)[number]
-
-const filled = (text: string) => text.trim() !== ''
-const durationFilled = (d: DurationField) => filled(d.amount)
-const valueFilled = (v: ValueField) => v.type !== 'number' || filled(v.text)
-const eventComplete = (e: EventForm) => e.op !== 'changesTo' || valueFilled(e.value)
-
-function limitComplete(limit: LimitForm): boolean {
-  return limit.kind === 'zone' || filled(limit.value)
-}
-
-function hasLimit(d: DetectorForm): boolean {
-  return d.type === 'match' ? matchTakesValue(d.matchOp) : d.type !== 'absence' && d.type !== ''
-}
-
-function hasTiming(d: DetectorForm): boolean {
-  return d.type === 'match'
-    ? matchTakesDuration(d.matchOp)
-    : d.type !== 'accumulator' && d.type !== ''
-}
-
-export function sectionApplies(form: RuleForm, id: SectionId): boolean {
-  const d = form.detector
-  switch (id) {
-    case 'limit':
-      return hasLimit(d)
-    case 'timing':
-      return hasTiming(d)
-    case 'advanced':
-      return d.type === 'sustained' || canLatch(d)
-    default:
-      return true
-  }
-}
-
-function signalComplete(signal: SignalForm, units: UnitLookup): boolean {
-  return (
-    signal.slots.every((s) => filled(s.path)) &&
-    slotUnitErrors(signal, units).every((e) => e === undefined)
-  )
-}
-
-function detectComplete(d: DetectorForm): boolean {
-  switch (d.type) {
-    case '':
-      return false
-    case 'match':
-      return d.matchOp !== ''
-    case 'sustained':
-      return d.direction !== ''
-    case 'slope':
-    case 'projection':
-      return d.trend !== ''
-    case 'accumulator':
-      return (
-        d.measure !== '' &&
-        (!d.useWhile || valueFilled(d.whileValue)) &&
-        (!d.useResetOn || eventComplete(d.resetOn))
-      )
-    case 'count':
-    case 'absence':
-      return eventComplete(d.event)
-  }
-}
-
-function limitSectionComplete(d: DetectorForm): boolean {
-  switch (d.type) {
-    case 'match':
-      return valueFilled(d.matchValue)
-    case 'sustained':
-    case 'projection':
-      return limitComplete(d.limit)
-    case 'slope':
-      return filled(d.slopeLimit)
-    case 'accumulator':
-      return d.measure === 'time' ? durationFilled(d.timeLimit) : filled(d.integralLimit)
-    case 'count':
-      return filled(d.countLimit)
-    default:
-      return true
-  }
-}
-
-function timingComplete(d: DetectorForm): boolean {
-  switch (d.type) {
-    case 'match':
-      return d.matchOp !== 'timedOut' || durationFilled(d.duration)
-    case 'slope':
-    case 'count':
-      return durationFilled(d.window)
-    case 'projection':
-      return durationFilled(d.window) && durationFilled(d.horizon)
-    case 'absence':
-      return durationFilled(d.within)
-    default:
-      return true
-  }
-}
-
-function sectionComplete(form: RuleForm, id: SectionId, units: UnitLookup): boolean {
-  switch (id) {
-    case 'inputs':
-      return signalComplete(form.signal, units)
-    case 'detect':
-      return detectComplete(form.detector)
-    case 'limit':
-      return limitSectionComplete(form.detector)
-    case 'timing':
-      return timingComplete(form.detector)
-    case 'message':
-      return filled(form.message) && (isZoneLimited(form.detector) || form.priority !== '')
-    case 'name':
-      return filled(form.name) && filled(form.slug)
-    case 'advanced':
-    case 'gates':
-      return true
-  }
-}
-
-/**
- * The sections a new rule shows: those that apply, in order, up to and
- * including the first one not complete yet.
- */
-export function revealedSections(form: RuleForm, units: UnitLookup): SectionId[] {
-  const shown: SectionId[] = []
-  for (const id of SECTIONS) {
-    if (!sectionApplies(form, id)) continue
-    shown.push(id)
-    if (!sectionComplete(form, id, units)) break
-  }
-  return shown
-}
+import { joined } from './words'
 
 function signalPointers(signal: SignalForm, at: string): string[] {
   if (signal.mode === 'single') return [`${at}/path`, `${at}/source`]
@@ -181,72 +38,52 @@ function limitPointers(limit: LimitForm, at: string): string[] {
     : [`${at}/kind`, `${at}/value`]
 }
 
-// A detector's fixed limit is its first step's.
-function detectorLimitPointers(limit: LimitForm): string[] {
-  return limit.kind === 'zone'
-    ? limitPointers(limit, '/detector/limit')
-    : ['/detector/limit/kind', `${FIRST_STEP}/limit`]
-}
-
 function eventPointers(event: EventForm, at: string): string[] {
   return event.op === 'changesTo' ? [`${at}/op`, `${at}/value`] : [`${at}/op`]
 }
 
-function detectorPointers(d: DetectorForm): string[] {
-  const at = '/detector'
-  const p = (field: string) => `${at}/${field}`
+/** The fields a condition kind shows above its steps. */
+function conditionPointers(d: DetectorForm): string[] {
+  const p = (field: string) => `/detector/${field}`
   switch (d.type) {
-    case '':
-      return [p('type')]
     case 'match':
-      return [
-        p('type'),
-        p('op'),
-        ...(matchTakesValue(d.matchOp) ? [`${FIRST_STEP}/value`] : []),
-        ...(matchTakesDuration(d.matchOp) ? [p('duration')] : [])
-      ]
+      return [p('op')]
     case 'sustained':
-      return [
-        p('type'),
-        p('direction'),
-        ...detectorLimitPointers(d.limit),
-        p('duration'),
-        p('hysteresis'),
-        p('clearDuration')
-      ]
+      return [p('direction')]
     case 'slope':
-      return [p('type'), p('direction'), `${FIRST_STEP}/limit`, p('window')]
+      return [p('direction'), p('window')]
     case 'projection':
-      return [
-        p('type'),
-        p('direction'),
-        ...detectorLimitPointers(d.limit),
-        p('window'),
-        p('horizon')
-      ]
+      return [p('direction'), p('window'), p('horizon')]
     case 'accumulator':
       return [
-        p('type'),
         p('measure'),
         ...(d.useWhile ? [p('while/op'), p('while/value')] : []),
-        ...(d.useResetOn ? eventPointers(d.resetOn, p('resetOn')) : []),
-        `${FIRST_STEP}/limit`
+        ...(d.useResetOn ? eventPointers(d.resetOn, p('resetOn')) : [])
       ]
     case 'count':
-      return [p('type'), ...eventPointers(d.event, p('event')), `${FIRST_STEP}/limit`, p('window')]
+      return [...eventPointers(d.event, p('event')), p('window')]
     case 'absence':
-      return [p('type'), ...eventPointers(d.event, p('event')), `${FIRST_STEP}/within`]
+      return eventPointers(d.event, p('event'))
+    case '':
+      return []
   }
 }
 
-/** The JSON pointers of the fields the form shows for the rule as authored so far, in order. */
-export function fieldPointers(form: RuleForm): string[] {
+function stepPointers(form: RuleForm): string[] {
+  if (isZoneLimited(form.detector)) return []
+  const field = stepLimitField(stepQuantity(form.detector))
+  return form.steps.flatMap((_, i) => {
+    const at = stepPointer(i)
+    return field === undefined ? [`${at}/priority`] : [`${at}/priority`, `${at}/${field}`]
+  })
+}
+
+/** The pointers of the fields under More options, for the rule as authored so far. */
+function moreOptionsPointers(form: RuleForm, isNew: boolean): string[] {
+  const d = form.detector
   return [
-    ...signalPointers(form.signal, '/signal'),
-    ...detectorPointers(form.detector),
-    ...(canLatch(form.detector) ? ['/latching'] : []),
-    '/message',
-    ...(isZoneLimited(form.detector) ? [] : [`${FIRST_STEP}/priority`]),
+    ...(d.type === 'sustained' ? ['/detector/hysteresis', '/detector/clearDuration'] : []),
+    ...(canLatch(d) ? ['/latching'] : []),
     ...form.gates.flatMap((gate, i) => {
       const at = `/gates/${String(i)}`
       return [
@@ -258,10 +95,33 @@ export function fieldPointers(form: RuleForm): string[] {
         `${at}/clearDuration`
       ]
     }),
-    '/name',
-    '/slug',
-    '/condition'
+    ...(form.signal.mode === 'combine' ? signalPointers(form.signal, '/signal') : []),
+    ...(d.type === 'sustained' || d.type === 'projection'
+      ? limitPointers(d.limit, '/detector/limit')
+      : []),
+    ...(isNew ? ['/slug'] : [])
   ]
+}
+
+/** The JSON pointers of the fields the editor shows for the rule as authored so far, in order. */
+export function fieldPointers(form: RuleForm, isNew: boolean): string[] {
+  const d = form.detector
+  return [
+    '/name',
+    ...(form.signal.mode === 'single' ? signalPointers(form.signal, '/signal') : []),
+    '/detector/type',
+    ...conditionPointers(d),
+    ...stepPointers(form),
+    ...(holdsFor(d) ? ['/detector/duration'] : []),
+    '/message',
+    '/condition',
+    ...moreOptionsPointers(form, isNew)
+  ]
+}
+
+/** Whether a field lies under More options, which opens to show its error. */
+export function underMoreOptions(form: RuleForm, isNew: boolean, pointer: string): boolean {
+  return moreOptionsPointers(form, isNew).includes(pointer)
 }
 
 export interface AttachedErrors {
@@ -291,4 +151,65 @@ export function attachErrors(
     else byField.set(field, [...(byField.get(field) ?? []), error.message])
   }
   return { byField, unattached }
+}
+
+const LABELS: Readonly<Record<string, string>> = {
+  '/name': 'the name',
+  '/slug': 'the slug',
+  '/message': 'the message',
+  '/condition': 'the condition name',
+  '/signal/path': 'the value to watch',
+  '/signal/source': 'the source',
+  '/detector/type': 'what should alert',
+  '/detector/direction': 'the direction',
+  '/detector/op': 'the state',
+  '/detector/measure': 'what to total',
+  '/detector/while': 'what to total while',
+  '/detector/resetOn': 'the reset',
+  '/detector/event': 'the event',
+  '/detector/window': 'the window',
+  '/detector/horizon': 'the time ahead',
+  '/detector/duration': 'how long it must hold',
+  '/detector/hysteresis': 'the clear margin',
+  '/detector/clearDuration': 'the clear delay',
+  '/detector/limit': 'the zones',
+  '/latching': 'Keep the alert until acknowledged'
+}
+
+/** A field in words, as Save names it. */
+export function fieldLabel(pointer: string, form: RuleForm): string {
+  const step = /^\/detector\/steps\/(\d+)(?:\/(\w+))?/.exec(pointer)
+  if (step !== null) {
+    if (form.steps.length > 1) return `step ${String(Number(step[1]) + 1)}`
+    if (step[2] === 'priority') return 'the priority'
+    return stepQuantity(form.detector) === 'match' ? 'the state' : 'the limit'
+  }
+  const gate = /^\/gates\/(\d+)/.exec(pointer)
+  if (gate !== null) return `Only while condition ${String(Number(gate[1]) + 1)}`
+  const input = /^\/signal\/inputs\/(\d+)/.exec(pointer)
+  if (input !== null) return `path ${String(Number(input[1]) + 1)} to combine`
+  const known = Object.keys(LABELS)
+    .filter((key) => pointer === key || pointer.startsWith(`${key}/`))
+    .sort((a, b) => b.length - a.length)
+    .at(0)
+  return known === undefined ? 'a field under More options' : (LABELS[known] ?? '')
+}
+
+/** What Save says stops it: the fields to fill in, and those to fix. */
+export function saveHint(errors: readonly FieldError[], form: RuleForm): string | undefined {
+  if (errors.length === 0) return undefined
+  const labels = (missing: boolean) => [
+    ...new Set(
+      errors
+        .filter((e) => (e.message === 'is required') === missing)
+        .map((e) => fieldLabel(e.path, form))
+    )
+  ]
+  const fill = labels(true)
+  const fix = labels(false).filter((label) => !fill.includes(label))
+  const parts = [
+    ...(fill.length > 0 ? [`fill in ${joined(fill)}`] : []),
+    ...(fix.length > 0 ? [`fix ${joined(fix)}`] : [])
+  ]
+  return capitalised(`${parts.join(' and ')} to save.`)
 }

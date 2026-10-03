@@ -32,7 +32,8 @@ import {
 } from './emitter.js'
 import { reconcile } from './reconcile.js'
 import { referencesOf } from './references.js'
-import { renderMessage, signalUnits } from './message.js'
+import { renderMessage } from './message.js'
+import { signalUnits } from './messageUnits.js'
 import { errorMessage } from '../util.js'
 
 const INVALID_PATH = { reason: 'alertPathInvalid' } as const
