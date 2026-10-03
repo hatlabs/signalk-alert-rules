@@ -118,6 +118,15 @@ describe('render harness', () => {
     expect((await paths.selfPaths()).length).toBeGreaterThan(0)
   })
 
+  it.each([
+    ['mixed', 'alerting', 51.3],
+    ['docs', 'normal', 50]
+  ] as const)('shows shore power frequency with states=%s %s', async (set, condition, value) => {
+    const { api } = fakes(`?states=${set}`)
+    const entry = (await api.rules()).find((r) => r.slug === 'shore-power-frequency')
+    expect(entry?.status).toMatchObject({ condition, value, instances: [{ condition, value }] })
+  })
+
   it('gives every path with a value a source', async () => {
     const { paths } = fakes()
     for (const entry of await paths.selfPaths()) {

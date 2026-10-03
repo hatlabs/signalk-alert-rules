@@ -17,6 +17,7 @@ import type { Aggregate, HistoryQuery, HistorySeries } from '../src/panel/histor
 import type { PathEntry } from '../src/panel/paths/selfPaths'
 import { displayUnit } from '../src/panel/units'
 import type { Disabled } from '../src/store/store'
+import type { Scenario } from './scenario'
 import { invalidEntry } from '../test/panel/fixtures'
 import { reported } from '../test/panel/reportedPaths'
 import builtinYaml from '../templates/builtin.yaml?raw'
@@ -137,10 +138,29 @@ const states: Partial<Record<string, Shown>> = {
     changedAt: minutesAgo(3)
   },
   'shore-power-frequency': {
-    condition: { condition: 'present', reason: 'conditionPresent', value: 51.3 },
+    condition: {
+      condition: 'alerting',
+      reason: 'alertActive',
+      priority: 'warning',
+      step: 0,
+      passed: 'high',
+      awaitingInput: false,
+      value: 51.3
+    },
     instances: [
-      instanceState({ condition: 'present', reason: 'conditionPresent' }, { value: 51.3 })
-    ]
+      instanceState(
+        {
+          condition: 'alerting',
+          reason: 'alertActive',
+          priority: 'warning',
+          step: 0,
+          passed: 'high',
+          awaitingInput: false
+        },
+        { value: 51.3 }
+      )
+    ],
+    changedAt: minutesAgo(2)
   },
   'engine-service-due': {
     condition: { ...NORMAL, progress: { kind: 'total', total: 612_000, limit: 900_000 } },
@@ -174,9 +194,17 @@ const disabled: Partial<Record<string, Disabled>> = {
   'watch-not-acknowledged': { since: minutesAgo(90), actor: 'admin', note: 'Moored in harbour' }
 }
 
+/** The states docs/examples.md shows, where they differ from the mixed ones. */
+const docsStates: Partial<Record<string, Shown>> = {
+  'shore-power-frequency': {
+    condition: { ...NORMAL, value: 50 },
+    instances: [instanceState(NORMAL, { value: 50 })]
+  }
+}
+
 /** The state of a rule as shown, or a normal one with one instance reading its path's current value. */
-function shownState(rule: Rule, off: boolean): RuleStateReport {
-  const shown = states[rule.slug]
+function shownState(rule: Rule, off: boolean, set: Scenario['states']): RuleStateReport {
+  const shown = (set === 'docs' ? docsStates[rule.slug] : undefined) ?? states[rule.slug]
   if (shown !== undefined) {
     return stateReport(off, shown.condition, shown.changedAt ?? minutesAgo(240), {
       instances: shown.instances
@@ -208,10 +236,10 @@ export function ruleEntry(rule: Rule, state: RuleStateReport, off?: Disabled): R
   }
 }
 
-export function exampleEntries(): ListedRule[] {
+export function exampleEntries(set: Scenario['states']): ListedRule[] {
   return examples.map((rule) => {
     const off = disabled[rule.slug]
-    return ruleEntry(rule, shownState(rule, off !== undefined), off)
+    return ruleEntry(rule, shownState(rule, off !== undefined, set), off)
   })
 }
 
