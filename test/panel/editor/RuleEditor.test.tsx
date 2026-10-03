@@ -216,6 +216,42 @@ describe('RuleEditor, from a path', () => {
     expect(description(select('Source'))).toContain('2 devices report this value.')
   })
 
+  it('asks for the field a step misses', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    type(textbox('Limit for step 1'), '11.8')
+    create()
+    const priority = description(select('Priority for step 1'))
+    expect(priority).toContain('Choose a priority')
+    expect(priority).not.toContain('limit')
+    choose('Priority for step 1', 'warning')
+    type(textbox('Limit for step 1'), '')
+    create()
+    expect(description(textbox('Limit for step 1'))).toContain('Fill in the limit')
+  })
+
+  it('asks for a missing state as a state', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'state' } })
+    await formShown()
+    choose('Priority for step 1', 'warning')
+    create()
+    expect(description(textbox('State for step 1'))).toContain('Fill in the state')
+    expect(screen.getByText('Fill in the state to save.')).toBeTruthy()
+  })
+
+  it('drops the step errors when a step is removed', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    fillBelow('12.2')
+    click(button('Escalate at…'))
+    create()
+    expect(textbox('Limit for step 2').getAttribute('aria-invalid')).toBe('true')
+    click(button('Remove step 2'))
+    expect(screen.queryByText(/detector\/steps/)).toBeNull()
+    click(button('Escalate at…'))
+    expect(textbox('Limit for step 2').getAttribute('aria-invalid')).toBeNull()
+  })
+
   it('names a missing limit before asking the server', async () => {
     const { api } = renderEditor({ start: { path: HOUSE, kind: 'below' } })
     await formShown()

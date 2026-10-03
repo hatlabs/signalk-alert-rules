@@ -191,7 +191,8 @@ export function fieldLabel(pointer: string, form: RuleForm): string {
   const step = /^\/detector\/steps\/(\d+)(?:\/(\w+))?/.exec(pointer)
   if (step !== null) {
     if (form.steps.length > 1) return `step ${String(Number(step[1]) + 1)}`
-    return step[2] === 'priority' ? 'the priority' : 'the limit'
+    if (step[2] === 'priority') return 'the priority'
+    return stepQuantity(form.detector) === 'match' ? 'the state' : 'the limit'
   }
   const gate = /^\/gates\/(\d+)/.exec(pointer)
   if (gate !== null) return `Only while condition ${String(Number(gate[1]) + 1)}`

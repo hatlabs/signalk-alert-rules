@@ -70,10 +70,17 @@ function CrossIcon() {
 const ORDER = /^must be (above|below) the previous step's limit$/
 
 /**
- * A step's error in words: an out-of-order limit names the limit it must
- * pass and whose it is, as the user sees them.
+ * A step's error in words: a missing field is asked for by what it is, and
+ * an out-of-order limit names the limit it must pass and whose it is, as
+ * the user sees them.
  */
-function stepError(form: RuleForm, index: number, message: string, measure: Measure): string {
+function stepError(
+  form: RuleForm,
+  error: { index: number; pointer: string; message: string },
+  limitLabel: string,
+  measure: Measure
+): string {
+  const { index, pointer, message } = error
   const step = form.steps.at(index)
   const previous = index > 0 ? form.steps.at(index - 1) : undefined
   const order = ORDER.exec(message)
@@ -85,8 +92,8 @@ function stepError(form: RuleForm, index: number, message: string, measure: Meas
       return `${prefix}${a} ${step.priority} must be ${order[1]} ${limit}, the ${previous.priority}'s limit.`
     }
   }
-  const field = message === 'is required' ? 'fill in the limit' : message
-  return `${prefix}${field}`
+  const missing = pointer.endsWith('/priority') ? 'choose a priority' : `fill in the ${limitLabel}`
+  return capitalised(`${prefix}${message === 'is required' ? missing : message}`)
 }
 
 interface StepFieldsProps {
@@ -237,9 +244,7 @@ export function StepFields({ form, onChange, measure, units, valueKind, value }:
       {stepErrors.length > 0 && (
         <div id={errorId} className="skar-error" role="alert">
           {stepErrors.map((e) => (
-            <div key={`${e.pointer} ${e.message}`}>
-              {stepError(form, e.index, e.message, measure)}
-            </div>
+            <div key={`${e.pointer} ${e.message}`}>{stepError(form, e, limitLabel, measure)}</div>
           ))}
         </div>
       )}

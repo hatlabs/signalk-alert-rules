@@ -402,6 +402,10 @@ function EditorForm(props: FormProps) {
                 <StepFields
                   form={form}
                   onChange={(steps) => {
+                    // A step's errors are held by its index, which a removed or added step shifts.
+                    if (steps.length !== form.steps.length) {
+                      setErrors(errors.filter((e) => !e.path.startsWith('/detector/steps/')))
+                    }
                     update({ ...form, steps })
                   }}
                   measure={measure}
