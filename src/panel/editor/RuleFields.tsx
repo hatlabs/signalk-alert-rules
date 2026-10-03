@@ -3,7 +3,7 @@ import { renderMessage } from '../../alerts/message'
 import type { FieldError } from '../api'
 import { PathPicker } from '../paths/PathPicker'
 import type { PathList } from '../paths/selfPaths'
-import { signalMeasure, type UnitLookup } from '../signalUnits'
+import { matchedInstances, signalMeasure, type UnitLookup } from '../signalUnits'
 import { ConditionFields, HoldField, KindField } from './ConditionFields'
 import { FieldErrors, Required, SelectField, TextField, valueKindOf } from './fields'
 import {
@@ -147,11 +147,24 @@ export function RuleFields(props: RuleFieldsProps) {
   const pathErrors = attached.byField.get('/signal/path') ?? []
   const defaultCondition = defaultFormCondition(form)
   const stray = strayBraces(form.message)
+  // The first instance in the order the toggle and the template picker list them, among
+  // those the pinned source reports, as only those alert; until one reports, the
+  // placeholder shows as written rather than vanishing.
+  const reporting =
+    paths.status !== 'ready'
+      ? []
+      : slot.source === ''
+        ? paths.paths
+        : paths.paths.filter((p) => p.sources?.includes(slot.source) === true)
+  const previewInstance = wildcard
+    ? (matchedInstances(slot.path, reporting).at(0) ?? '{instance}')
+    : undefined
   const preview = (() => {
     const result = toRule(form, units)
     if (!result.ok || form.message === '') return undefined
     return renderMessage(result.rule, {
       step: 0,
+      ...(previewInstance === undefined ? {} : { instance: previewInstance }),
       ...(liveValue === undefined ? {} : { value: liveValue }),
       ...(entry?.units === undefined ? {} : { units: entry.units })
     })
