@@ -90,3 +90,21 @@ export function invalidEntry(overrides: Partial<InvalidRuleEntry> = {}): Invalid
     ...overrides
   }
 }
+
+/**
+ * Runs `act` on the element `find` returns as soon as it is in the page. The observer runs in a
+ * microtask after the commit that adds it, before the later task in which React runs the form's
+ * passive effects: the window in which an operator can act before those effects do.
+ */
+export function onceShown<T>(find: () => T | null | undefined, act: (element: T) => void) {
+  return new Promise<void>((resolve) => {
+    const observer = new MutationObserver(() => {
+      const element = find()
+      if (element === null || element === undefined) return
+      observer.disconnect()
+      act(element)
+      resolve()
+    })
+    observer.observe(document.body, { childList: true, subtree: true })
+  })
+}

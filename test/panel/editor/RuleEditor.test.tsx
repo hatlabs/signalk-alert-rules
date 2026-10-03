@@ -7,7 +7,7 @@ import { validateRule } from '../../../src/model/validate'
 import { RuleRejectedError, type EditPreview } from '../../../src/panel/api'
 import { ZONE_PRIORITY } from '../../../src/panel/editor/MoreOptions'
 import type { PathSource } from '../../../src/panel/paths/selfPaths'
-import { instance, ruleEntry } from '../fixtures'
+import { instance, onceShown, ruleEntry } from '../fixtures'
 import {
   button,
   checkbox,
@@ -324,6 +324,38 @@ describe('RuleEditor, from a path', () => {
     expect(description(textbox('Clear margin'))).toContain('must be at most 5')
   })
 
+  it('focuses a refused field inside More options while it is closed', async () => {
+    const { api } = renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    api.createRule.mockRejectedValueOnce(
+      new RuleRejectedError('invalid request body', [
+        { path: '/detector/hysteresis', message: 'must be at most 5' }
+      ])
+    )
+    await formShown()
+    fillBelow()
+    button('Create rule').focus()
+    create()
+    await waitFor(() => {
+      expect(document.activeElement).toBe(textbox('Clear margin'))
+    })
+
+    const summary = screen.getByText('More options')
+    const toggle = async () => {
+      const toggled = new Promise((resolve) => {
+        summary.closest('details')?.addEventListener('toggle', resolve, { once: true })
+      })
+      click(summary)
+      await toggled
+    }
+    summary.focus()
+    await toggle()
+    await toggle()
+    expect(document.activeElement).toBe(summary)
+    textbox(/^Name/).focus()
+    type(textbox(/^Name/), 'House low')
+    expect(document.activeElement).toBe(textbox(/^Name/))
+  })
+
   it('names the rule that holds the alert path, offering to add a step to it instead', async () => {
     const { api } = renderEditor({
       start: { path: HOUSE, kind: 'below' },
@@ -426,6 +458,32 @@ describe('RuleEditor, from a path', () => {
     expect(document.activeElement).toBe(select('Search by name or path'))
     click(button('Done'))
     expect(document.activeElement).toBe(button('Change the value to watch'))
+  })
+
+  it('moves focus into the path search on a Change clicked as the form appears', async () => {
+    const clicked = onceShown(
+      () => screen.queryByRole('button', { name: 'Change the value to watch' }),
+      click
+    )
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await clicked
+    await waitFor(() => {
+      expect(document.activeElement).toBe(select('Search by name or path'))
+    })
+  })
+
+  it('keeps focus on a field focused as the form appears', async () => {
+    const focused = onceShown(
+      () => screen.queryByRole('textbox', { name: /^Name/ }),
+      (name) => {
+        name.focus()
+      }
+    )
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await focused
+    await formShown()
+    type(textbox(/^Name/), 'House low')
+    expect(document.activeElement).toBe(textbox(/^Name/))
   })
 
   it('focuses the first field in error when Save finds the form incomplete', async () => {

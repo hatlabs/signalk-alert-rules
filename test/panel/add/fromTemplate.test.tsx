@@ -21,7 +21,7 @@ import { hashWithRoute } from '../../../src/panel/route'
 import { Shell } from '../../../src/panel/Shell'
 import { displayUnit } from '../../../src/panel/units'
 import { BUILTIN_TEMPLATES, discoverTemplateSets } from '../../../src/templates/discovery'
-import { noControls, ruleEntry } from '../fixtures'
+import { noControls, onceShown, ruleEntry } from '../fixtures'
 
 const LIFEPO4 = 'battery-voltage-low-lifepo4'
 const volts = displayUnit({ units: 'V', displayUnits: { formula: 'value * 1', symbol: 'V' } })
@@ -237,6 +237,26 @@ describe('Add rule from a template', () => {
       [{ path: 'electrical.batteries.house.voltage' }, { limit: 12.8, priority: 'warning' }],
       [{ path: 'electrical.batteries.starter.voltage' }, { limit: 12.4, priority: 'warning' }]
     ])
+  })
+
+  it('keeps focus on a tab an arrow key moved to as the tabs appear', async () => {
+    renderShell(fresh())
+    await openLifepo4()
+    pick(/^House bank/)
+    pick(/^starter/)
+    const pressed = onceShown(
+      () => screen.queryAllByRole('tab').at(0),
+      (first) => {
+        first.focus()
+        fireEvent.keyDown(first, { key: 'ArrowRight' })
+      }
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Continue with 2 rules' }))
+    await pressed
+    await waitFor(() => {
+      expect(tab(/starter/).getAttribute('aria-selected')).toBe('true')
+    })
+    expect(document.activeElement).toBe(tab(/starter/))
   })
 
   it('moves between the tabs with the arrow keys, Home and End, one tab in the tab order', async () => {
