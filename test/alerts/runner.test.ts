@@ -1730,6 +1730,40 @@ describe('message placeholders', () => {
     expect(runner.state('heel')?.instances[0]).toMatchObject({ limit: -25, passed: 'low' })
   })
 
+  it.each([
+    [24, '-25 deg'],
+    [27, '25 deg']
+  ])(
+    "an adopted outside alert names core's limit until its value is past one (input %s)",
+    (value, limit) => {
+      const HEEL = 'navigation.attitude.roll'
+      const heel = valid({
+        name: 'Heel',
+        slug: 'heel',
+        message: 'Heel {value}, past {limit}',
+        signal: { path: HEEL },
+        detector: {
+          type: 'outside',
+          steps: [{ low: -25, high: 25, priority: 'warning' }],
+          hysteresis: 2
+        }
+      })
+      const core = new FakeAlertsCore()
+      core.ingest(PLUGIN, 'navigation.attitude.rollOutOfRange', {
+        priority: 'warning',
+        message: 'as raised',
+        latching: false,
+        data: { rule: 'heel', name: 'Heel', limit: -25 }
+      })
+      const { sent } = setup([heel], {
+        core,
+        meta: { [HEEL]: { units: 'deg' } },
+        cached: [[HEEL, value]]
+      })
+      expect(sent.map(([, v]) => v?.message)).toEqual([`Heel ${String(value)} deg, past ${limit}`])
+    }
+  )
+
   it('a value change while alerting is sent with the next heartbeat, at the same priority and with the data of the raise', () => {
     const { at, run, sent, runner } = raised()
     at(6, HOUSE, 12.1)

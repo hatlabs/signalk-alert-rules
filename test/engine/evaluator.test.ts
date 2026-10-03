@@ -918,6 +918,24 @@ describe('outside rules', () => {
       ])
     })
 
+    it("is an adopted alert's high limit once its first value is above the range", () => {
+      const { at, events, evaluator } = setup(heel, { adopted: [{}] })
+      at(0, HEEL, 27)
+      expect(events).toEqual([])
+      expect(evaluator.reached('')).toMatchObject({ value: 27, step: 0, limit: 25 })
+      expect(evaluator.status().instances[0]).toMatchObject({ limit: 25, passed: 'high' })
+    })
+
+    it('is absent for an adopted alert whose first value is in the hysteresis band', () => {
+      const { at, events, evaluator } = setup(heel, { adopted: [{}] })
+      at(0, HEEL, 24)
+      at(100)
+      expect(events).toEqual([])
+      expect(evaluator.reached('')).toEqual({ value: 24, index: 0, step: 0, limit: undefined })
+      expect(evaluator.status().instances[0]?.limit).toBeUndefined()
+      expect(evaluator.status().instances[0]?.passed).toBeUndefined()
+    })
+
     it('is absent for a unit never beyond either limit', () => {
       const { at, evaluator } = setup(heel)
       at(0, HEEL, 3)
