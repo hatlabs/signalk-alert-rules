@@ -224,6 +224,42 @@ describe('RuleDetail', () => {
       )
     })
 
+    it('clears past the first step by the clear margin, after the clear delay', () => {
+      renderDetail({ ...stepped, rule: { ...stepped.rule, hysteresis: 0.2, clearDuration: 30 } })
+      expect(screen.getByText(/^Clears once/).textContent).toBe(
+        'Clears once the value is back above 12.4 V for 30 s. It stays an alarm until then.'
+      )
+    })
+
+    it('words a clear delay without a margin', () => {
+      renderDetail({
+        ...stepped,
+        rule: { ...stepped.rule, clearDuration: 30 },
+        status: { ...stepped.status, ...ruleEntry().status }
+      })
+      expect(screen.getByText(/^Clears once/).textContent).toBe(
+        'Clears once the value is back above 12.2 V for 30 s.'
+      )
+    })
+
+    it('clears below the first step less the clear margin, for a rule above it', () => {
+      renderDetail({
+        ...stepped,
+        rule: {
+          ...stepped.rule,
+          steps: [
+            { limit: 15, priority: 'warning' },
+            { limit: 15.5, priority: 'alarm' }
+          ],
+          detector: { type: 'sustained', direction: 'above' },
+          hysteresis: 0.1
+        }
+      })
+      expect(screen.getByText(/^Clears once/).textContent).toBe(
+        'Clears once the value is back below 14.9 V. It stays an alarm until then.'
+      )
+    })
+
     it('shows no ladder for a rule with one step', () => {
       renderDetail(houseLow)
       expect(screen.queryByRole('list', { name: 'Steps' })).toBeNull()
@@ -291,6 +327,13 @@ describe('RuleDetail', () => {
       expect(screen.getByText(/^Within limits/).textContent).toBe('Within limits. Now 3 °.')
       expect(screen.getByText(/^Clears when/).textContent).toBe(
         'Clears when the value is back between -25 and 25 °.'
+      )
+    })
+
+    it('narrows the range it clears in by the clear margin on both sides', () => {
+      renderDetail({ ...heel, rule: { ...heel.rule, hysteresis: 2 } }, { units: heelUnits })
+      expect(screen.getByText(/^Clears once/).textContent).toBe(
+        'Clears once the value is back between -23 and 23 °. It stays a warning until then.'
       )
     })
 
@@ -733,6 +776,168 @@ describe('RuleDetail', () => {
         .getAllByRole('listitem')
         .map((i) => i.textContent)
     ).toEqual(['evaluation threw', 'subscription refused'])
+  })
+
+  describe('only while', () => {
+    const PORT = 'propulsion.port.revolutions'
+    const STBD = 'propulsion.starboard.revolutions'
+    const rpm = displayUnit({ units: 'Hz', displayUnits: { formula: 'value * 60', symbol: 'rpm' } })
+    const rpmUnits = unitLookup(
+      [
+        { path: PORT, units: 'Hz', unit: rpm },
+        { path: STBD, units: 'Hz', unit: rpm }
+      ],
+      displayUnit({ units: 'm' })
+    )
+    const gated = (gates: RuleEntry['rule']['gates']) =>
+      ruleEntry({
+        rule: {
+          detector: { type: 'sustained', direction: 'above' },
+          signal: { paths: [PORT] },
+          gates
+        }
+      })
+    const conditions = () =>
+      Array.from(screen.getByRole('definition', { name: /only while/i }).children).map(
+        (c) => c.textContent
+      )
+
+    it('words each gate with its comparison and how long it must hold', () => {
+      renderDetail(
+        gated([
+          { paths: [PORT], direction: 'above', limit: 8, duration: 10 },
+          { paths: [STBD], direction: 'above', limit: 8 }
+        ]),
+        { units: rpmUnits }
+      )
+      expect(conditions()).toEqual([`${PORT} above 480 rpm for 10 s`, `${STBD} above 480 rpm`])
+    })
+
+    it('words a gate’s clear margin and delay, as the clear hint does', () => {
+      renderDetail(
+        gated([
+          { paths: [PORT], direction: 'above', limit: 8, hysteresis: 0.5, clearDuration: 30 },
+          { paths: [STBD], direction: 'below', limit: 8, clearDuration: 30 }
+        ]),
+        { units: rpmUnits }
+      )
+      expect(conditions()).toEqual([
+        `${PORT} above 480 rpm; stops holding once back below 450 rpm for 30 s`,
+        `${STBD} below 480 rpm; stops holding once back above 480 rpm for 30 s`
+      ])
+    })
+
+    it('words a gate on a zone', () => {
+      renderDetail(gated([{ paths: [PORT], direction: 'above', zoneLevel: 'warn' }]), {
+        units: rpmUnits
+      })
+      expect(conditions()).toEqual([`${PORT} above the warn zone`])
+    })
+
+    it('words a zone gate’s clear margin as a difference', () => {
+      renderDetail(
+        gated([
+          {
+            paths: [PORT],
+            direction: 'above',
+            zoneLevel: 'warn',
+            hysteresis: 0.5,
+            clearDuration: 30
+          }
+        ]),
+        { units: rpmUnits }
+      )
+      expect(conditions()).toEqual([
+        `${PORT} above the warn zone; stops holding once back below the warn zone by 30 rpm for 30 s`
+      ])
+    })
+
+    it('words a below gate’s clear margin without a delay, above its limit', () => {
+      renderDetail(gated([{ paths: [STBD], direction: 'below', limit: 8, hysteresis: 0.5 }]), {
+        units: rpmUnits
+      })
+      expect(conditions()).toEqual([`${STBD} below 480 rpm; stops holding once back above 510 rpm`])
+    })
+
+    it('words a zone gate’s clear delay without a margin', () => {
+      renderDetail(
+        gated([{ paths: [PORT], direction: 'above', zoneLevel: 'warn', clearDuration: 30 }]),
+        { units: rpmUnits }
+      )
+      expect(conditions()).toEqual([
+        `${PORT} above the warn zone; stops holding once back below the warn zone for 30 s`
+      ])
+    })
+
+    it('words a zone gate’s clear margin in an offset unit as a difference', () => {
+      const COOLANT = 'propulsion.port.coolantTemperature'
+      renderDetail(
+        gated([{ paths: [COOLANT], direction: 'above', zoneLevel: 'warn', hysteresis: 2 }]),
+        { units }
+      )
+      expect(conditions()).toEqual([
+        `${COOLANT} above the warn zone; stops holding once back below the warn zone by 2 °C`
+      ])
+    })
+  })
+
+  describe('a rule on a state', () => {
+    const STATE = 'propulsion.port.state'
+    const stateUnits = unitLookup(
+      [{ path: STATE, unit: displayUnit({}), value: 'started' }],
+      displayUnit({ units: 'm' })
+    )
+    const stopped = ruleEntry({
+      rule: {
+        steps: [{ value: 'stopped', priority: 'warning' }],
+        detector: { type: 'match', op: 'changesTo' },
+        signal: { paths: [STATE] },
+        latching: true
+      },
+      status: { value: 'started' }
+    })
+
+    it('says a latching rule keeps its alert until acknowledged', () => {
+      renderDetail(stopped, { units: stateUnits })
+      expect(fact(/latching/i)).toBe('Keeps the alert until acknowledged')
+    })
+
+    it('says nothing of latching for a rule that does not latch', () => {
+      renderDetail({ ...stopped, rule: { ...stopped.rule, latching: undefined } })
+      expect(screen.queryByRole('definition', { name: /latching/i })).toBeNull()
+    })
+
+    it('has no SI note for a match on a text value', () => {
+      // No reported value for the path, so the step's value alone decides.
+      renderDetail(stopped)
+      expect(screen.queryByText(/values are in SI units/i)).toBeNull()
+    })
+
+    it('has no SI note for a count of changes to a boolean', () => {
+      renderDetail(
+        ruleEntry({
+          rule: {
+            steps: [{ limit: 4, priority: 'warning' }],
+            detector: { type: 'count', event: { op: 'changesTo', value: true }, window: 3600 }
+          }
+        })
+      )
+      expect(screen.queryByText(/values are in SI units/i)).toBeNull()
+    })
+
+    it('has no SI note for a rule on a path that reports text', () => {
+      renderDetail(
+        ruleEntry({
+          rule: {
+            steps: [{ priority: 'warning' }],
+            detector: { type: 'match', op: 'timedOut' },
+            signal: { paths: [STATE] }
+          }
+        }),
+        { units: stateUnits }
+      )
+      expect(screen.queryByText(/values are in SI units/i)).toBeNull()
+    })
   })
 
   it('says values are in SI units when no display unit applies', () => {

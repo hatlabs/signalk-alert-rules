@@ -54,7 +54,18 @@ const ruleEntry = {
       {
         signal: { path: 'electrical.chargers.shore.state' },
         direction: 'below',
-        limit: { kind: 'fixed', value: 1 }
+        limit: { kind: 'fixed', value: 1 },
+        duration: 10,
+        hysteresis: 0.5,
+        clearDuration: 20
+      },
+      {
+        signal: {
+          combinator: 'max',
+          inputs: [{ path: 'propulsion.port.revolutions' }, { path: 'propulsion.stbd.revolutions' }]
+        },
+        direction: 'above',
+        limit: { kind: 'zone', level: 'warn' }
       }
     ]
   },
@@ -235,9 +246,26 @@ describe('httpApi', () => {
           message: 'House battery voltage is low',
           steps: [],
           duration: 60,
+          hysteresis: 0.2,
+          clearDuration: 30,
           detector: { type: 'sustained', direction: 'below', zoneLevel: 'warn' },
           signal: { paths: ['electrical.batteries.*.voltage'] },
-          gates: [{ paths: ['electrical.chargers.shore.state'] }]
+          gates: [
+            {
+              paths: ['electrical.chargers.shore.state'],
+              direction: 'below',
+              limit: 1,
+              duration: 10,
+              hysteresis: 0.5,
+              clearDuration: 20
+            },
+            {
+              paths: ['propulsion.port.revolutions', 'propulsion.stbd.revolutions'],
+              combinator: 'max',
+              direction: 'above',
+              zoneLevel: 'warn'
+            }
+          ]
         },
         disabled: {
           since: '2026-09-30T12:00:00.000Z',
@@ -357,9 +385,34 @@ describe('httpApi', () => {
           }
         }
       }
-      const api = httpApi(fakeFetch({ [`${BASE}/rules`]: { body: [stepped, match, absence] } }))
-      const [read, matched, absent] = await api.rules()
-      if (isInvalid(read) || isInvalid(matched) || isInvalid(absent)) throw new Error('invalid')
+      const count = {
+        ...notStartedAccumulator,
+        rule: {
+          ...notStartedAccumulator.rule,
+          latching: true,
+          detector: {
+            type: 'count',
+            event: { op: 'changesTo', value: true },
+            window: 3600,
+            steps: [{ limit: 4, priority: 'warning' }]
+          }
+        }
+      }
+      const api = httpApi(
+        fakeFetch({ [`${BASE}/rules`]: { body: [stepped, match, absence, count] } })
+      )
+      const [read, matched, absent, counted] = await api.rules()
+      if (isInvalid(read) || isInvalid(matched) || isInvalid(absent) || isInvalid(counted)) {
+        throw new Error('invalid')
+      }
+      expect(counted.rule.gates).toEqual([])
+      expect(counted.rule.latching).toBe(true)
+      expect(read.rule.latching).toBeUndefined()
+      expect(counted.rule.detector).toEqual({
+        type: 'count',
+        event: { op: 'changesTo', value: true },
+        window: 3600
+      })
       expect(read.rule).toMatchObject({
         priority: 'warning',
         steps: [

@@ -2,21 +2,32 @@
  * What the editor says next to the limits: what the chosen priority means,
  * how the steps climb, and whether the value now would alert.
  */
+import { formatNumber } from '../../format'
 import type { Priority } from '../../model/rule'
 import type { SignalValue } from '../api'
-import { article, formatValue } from '../rules/describe'
+import {
+  article,
+  clearPoint,
+  formatValue,
+  OPPOSITE_SIDE,
+  type BackInRange,
+  type BackPastLimit,
+  type ClearPoint
+} from '../rules/describe'
 import { signalMeasure, type Measure, type UnitLookup } from '../signalUnits'
-import { toSI } from '../units'
+import { fromSI, toSI } from '../units'
 import { kindOf } from './conditionKinds'
 import {
+  DURATION_FACTORS,
   isZoneLimited,
   parsedNumber,
   signalShape,
   stepQuantity,
+  type DurationField,
   type RuleForm,
   type StepForm
 } from './formModel'
-import { rangeLimitText, stepLimitText, stepWord } from './words'
+import { durationText, rangeLimitText, stepLimitText, stepWord } from './words'
 
 /**
  * The priorities as the IMO alert management resolutions behind the Signal
@@ -108,21 +119,50 @@ function passedText(
   return limit === undefined ? undefined : `${side === 'low' ? 'below' : 'above'} ${limit}`
 }
 
-const CLEARS: Readonly<Partial<Record<string, string>>> = { below: 'above', above: 'below' }
+/** A typed duration in seconds; undefined while empty or not a number. */
+function durationSeconds(field: DurationField): number | undefined {
+  const amount = parsedNumber(field.amount)
+  return amount === undefined ? undefined : amount * DURATION_FACTORS[field.unit]
+}
 
-/** Where the value must be back for the alert to clear, as typed for the first step. */
+/**
+ * Where the value must be back for the alert to clear, as typed for the
+ * first step: past it by the clear margin, for the clear delay.
+ */
 function clearsText(form: RuleForm, measure: Measure): string | undefined {
   const first = form.steps.at(0)
   if (first === undefined) return undefined
   const kind = kindOf(form.detector)
+  const typedMargin = parsedNumber(form.detector.hysteresis)
+  const margin =
+    typedMargin === undefined
+      ? undefined
+      : toSI(measure.kind === 'ratio' ? 'ratio' : 'interval', typedMargin, measure.unit)
+  const delay = durationSeconds(form.detector.clearDuration)
+  const shown = (si: number) => formatNumber(fromSI(measure.kind, si, measure.unit))
+  const worded = (clear: ClearPoint<BackPastLimit | BackInRange>, where: string) =>
+    clear.eased
+      ? `once back ${where}${clear.delay === undefined ? '' : ` for ${durationText(form.detector.clearDuration) ?? ''}`}`
+      : where
   if (kind === 'outside') {
-    const high = rangeLimitText(first, 'high', measure)
-    const low = first.low.trim()
-    return high === undefined || low === '' ? undefined : `between ${low} and ${high}`
+    const [low, high] = [siValue(first.low, measure), siValue(first.high, measure)]
+    if (low === undefined || high === undefined) return undefined
+    const clear = clearPoint({ side: 'between', low, high }, margin, delay)
+    const range = rangeLimitText({ ...first, high: shown(clear.back.high) }, 'high', measure)
+    return range === undefined
+      ? undefined
+      : worded(clear, `between ${shown(clear.back.low)} and ${range}`)
   }
-  const back = CLEARS[kind ?? '']
-  const limit = stepLimitText(first, stepQuantity(form.detector), measure)
-  return back === undefined || limit === undefined ? undefined : `${back} ${limit}`
+  const side = OPPOSITE_SIDE[kind ?? '']
+  const limit = siValue(first.limit, measure)
+  if (side === undefined || limit === undefined) return undefined
+  const clear = clearPoint({ side, limit }, margin, delay)
+  const text = stepLimitText(
+    { ...first, limit: shown(clear.back.limit) },
+    stepQuantity(form.detector),
+    measure
+  )
+  return text === undefined ? undefined : worded(clear, `${side} ${text}`)
 }
 
 /** How the alert climbs through several steps, and when a comparison clears. */

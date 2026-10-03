@@ -130,6 +130,12 @@ export interface RuleStep {
   within?: number
 }
 
+/** An event a rule watches for: a change, a change to a value, or a decrease. */
+export interface RuleEvent {
+  op: string
+  value?: string | number | boolean
+}
+
 /** The parts of a rule the rule list and detail view show. */
 export interface RuleInfo {
   name: string
@@ -144,6 +150,10 @@ export interface RuleInfo {
   steps: RuleStep[]
   /** How long, in seconds, a step's condition must hold before the alert reaches it. */
   duration?: number
+  /** How far, in SI, the value must be back past the first step for the alert to clear. */
+  hysteresis?: number
+  /** How long, in seconds, the value must stay back before the alert clears. */
+  clearDuration?: number
   /** The message as stored, its placeholders not filled in. */
   message: string
   detector: {
@@ -153,14 +163,33 @@ export interface RuleInfo {
     zoneLevel?: string
     /** A match's comparison. */
     op?: string
+    /** The event a count or absence watches for. */
+    event?: RuleEvent
+    /** A count's, slope's or projection's window, in seconds. */
+    window?: number
   }
   /** The paths the signal reads; several, with the combinator, for a combined signal. */
   signal: { paths: string[]; combinator?: string }
   /** The source a single-path signal is pinned to; absent for the preferred source. */
   source?: string
+  /** The alert is raised once per occurrence and held until acknowledged. */
+  latching?: boolean
   /** The template the rule was made from and what was picked for it, as information only. */
   template?: { set: string; id: string; pick: TemplatePick }
-  gates: { paths: string[] }[]
+  gates: RuleGate[]
+}
+
+/** A condition on another signal that puts a rule in use only while it holds. */
+export interface RuleGate {
+  paths: string[]
+  combinator?: string
+  direction?: string
+  /** A fixed limit, in SI; absent for a zone limit. */
+  limit?: number
+  zoneLevel?: string
+  duration?: number
+  hysteresis?: number
+  clearDuration?: number
 }
 
 /** The actor the server records for a request without a login, as it is with security off. */
@@ -426,6 +455,11 @@ function stepsOf(steps: unknown): RuleStep[] {
   })
 }
 
+function eventOf(v: unknown): RuleEvent | undefined {
+  if (!isRecord(v) || typeof v.op !== 'string') return undefined
+  return { op: v.op, ...optional('value', stepValue(v.value)) }
+}
+
 function templateOf(v: unknown): RuleInfo['template'] {
   if (!isRecord(v) || typeof v.set !== 'string' || typeof v.id !== 'string') return undefined
   const pick = isRecord(v.pick) ? v.pick : {}
@@ -515,20 +549,35 @@ export function parseListedRule(body: unknown, what: string): ListedRule {
       ...optional('priority', steps.at(0)?.priority),
       steps,
       ...optional('duration', num(d.duration)),
+      ...optional('hysteresis', num(d.hysteresis)),
+      ...optional('clearDuration', num(d.clearDuration)),
       message: string(v.message),
       detector: {
         type: string(d.type),
         ...optional('direction', text(d.direction)),
         ...optional('measure', text(d.measure)),
         ...optional('zoneLevel', zoneLevel),
-        ...optional('op', text(d.op))
+        ...optional('op', text(d.op)),
+        ...optional('event', eventOf(d.event)),
+        ...optional('window', num(d.window))
       },
       signal: signal(input),
       ...optional('source', text(input.source)),
+      ...optional('latching', v.latching === true ? true : undefined),
       ...optional('template', templateOf(v.template)),
-      gates: (Array.isArray(v.gates) ? v.gates : []).map((g) => ({
-        paths: signal(record(g).signal).paths
-      }))
+      gates: (Array.isArray(v.gates) ? v.gates : []).map((g): RuleGate => {
+        const gate = record(g)
+        const limit = isRecord(gate.limit) ? gate.limit : {}
+        return {
+          ...signal(gate.signal),
+          ...optional('direction', text(gate.direction)),
+          ...optional('limit', limit.kind === 'fixed' ? num(limit.value) : undefined),
+          ...optional('zoneLevel', limit.kind === 'zone' ? text(limit.level) : undefined),
+          ...optional('duration', num(gate.duration)),
+          ...optional('hysteresis', num(gate.hysteresis)),
+          ...optional('clearDuration', num(gate.clearDuration))
+        }
+      })
     }
   }
 
