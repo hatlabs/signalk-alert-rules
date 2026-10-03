@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { REQUEST_TIMEOUT_MS } from '../../../src/panel/api'
 import { HistoryChart, type ChartSpec } from '../../../src/panel/history/HistoryChart'
-import type {
-  HistoryPoint,
-  HistoryQuery,
-  HistorySource
+import {
+  httpHistorySource,
+  type HistoryPoint,
+  type HistoryQuery,
+  type HistorySource
 } from '../../../src/panel/history/historySource'
 import { displayUnit } from '../../../src/panel/units'
 
@@ -209,6 +211,25 @@ describe('HistoryChart', () => {
     })
     afterEach(() => {
       vi.useRealTimers()
+    })
+
+    it('says history is unavailable when the server never answers the query', async () => {
+      const fetchFn = vi.fn<typeof fetch>((input, init) =>
+        input === '/signalk/v2/api/history/_providers'
+          ? Promise.resolve(Response.json({ provider: { isDefault: true } }))
+          : new Promise((_resolve, reject) => {
+              init?.signal?.addEventListener('abort', () => {
+                reject(init.signal?.reason as Error)
+              })
+            })
+      )
+      render(<HistoryChart history={httpHistorySource(fetchFn)} spec={coolant} />)
+      await settle()
+      expect(screen.getByText('Loading history…')).toBeTruthy()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS)
+      })
+      expect(screen.getByText('History unavailable.')).toBeTruthy()
     })
 
     it('draws in the frame of the answer, so the line stays put while the page re-renders', async () => {
