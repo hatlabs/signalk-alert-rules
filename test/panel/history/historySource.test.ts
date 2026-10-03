@@ -91,6 +91,19 @@ describe('values', () => {
     expect(fetchFn.mock.calls[0][1]?.credentials).toBe('same-origin')
   })
 
+  it('asks for the pinned source’s values only', async () => {
+    const fetchFn = fakeFetch({ values: { body: valuesBody } })
+    await httpHistorySource(fetchFn).values({
+      path: 'electrical.batteries.house.voltage',
+      method: 'min',
+      source: 'can0.35',
+      seconds: 86_400,
+      resolution: 600
+    })
+    const url = new URL(urlOf(fetchFn.mock.calls[0][0]), 'http://localhost')
+    expect(url.searchParams.get('paths')).toBe('electrical.batteries.house.voltage:min|can0.35')
+  })
+
   it('answers the rows as times and values, a missing value as null', async () => {
     const fetchFn = fakeFetch({ values: { body: valuesBody } })
     const points = await httpHistorySource(fetchFn).values({

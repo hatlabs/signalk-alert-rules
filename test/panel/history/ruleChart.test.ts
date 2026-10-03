@@ -127,6 +127,12 @@ describe('detailChart', () => {
     expect(none.map((r) => detailChart(r, units))).toEqual(none.map(() => undefined))
   })
 
+  it('charts the source the rule is pinned to, and the preferred one otherwise', () => {
+    const pinned = detailChart(rule({ signal: { paths: [COOLANT] }, source: 'can0.35' }), units)
+    expect(pinned?.source).toBe('can0.35')
+    expect(detailChart(rule({ signal: { paths: [COOLANT] } }), units)?.source).toBeUndefined()
+  })
+
   it('charts a path not reported now, which may still have history', () => {
     expect(
       detailChart(rule({ signal: { paths: ['tanks.fuel.main.currentLevel'] } }), units)
@@ -155,6 +161,14 @@ describe('editorChart', () => {
       side: 'above',
       limits: [{ value: 95.5, priority: 'warning' }]
     })
+  })
+
+  it('charts the source typed for the path, and the preferred one while it is empty', () => {
+    const pinned = form('below', COOLANT, (f) => {
+      f.signal.slots[0].source = ' can0.35 '
+    })
+    expect(editorChart(pinned, units)?.source).toBe('can0.35')
+    expect(editorChart(form('below', COOLANT), units)?.source).toBeUndefined()
   })
 
   it('leaves out a step whose limit is not a number yet', () => {

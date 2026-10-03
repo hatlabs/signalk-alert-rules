@@ -34,6 +34,8 @@ export type Aggregate = 'average' | 'min' | 'max'
 export interface HistoryQuery {
   path: string
   method: Aggregate
+  /** The one source to read, as a rule pinned to it does; absent for whichever the provider records. */
+  source?: string
   /** How far back from now. */
   seconds: number
   /** The bucket length, in seconds. */
@@ -97,9 +99,9 @@ export function httpHistorySource(
       )
       return provider
     },
-    values: async ({ path, method, seconds, resolution }) => {
+    values: async ({ path, method, source, seconds, resolution }) => {
       const query = new URLSearchParams({
-        paths: `${path}:${method}`,
+        paths: `${path}:${method}${source === undefined ? '' : `|${source}`}`,
         duration: `PT${String(seconds)}S`,
         resolution: String(resolution)
       })

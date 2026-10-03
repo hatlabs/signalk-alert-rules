@@ -17,6 +17,8 @@ import {
 export interface ChartSpec {
   path: string
   method: Aggregate
+  /** The source the rule is pinned to; absent for the preferred one. */
+  source?: string
   /** How the recorded SI values are shown. */
   measure: Measure
   /** The limits in display units, in step order, each with its priority when there are several. */
@@ -111,16 +113,16 @@ function Chart({ history, spec, title }: HistoryChartProps) {
   const [ref, width] = useWidth()
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' })
   const resolution = width === undefined ? undefined : resolutionFor(span.seconds, width)
-  const { path, method, measure } = spec
+  const { path, method, source, measure } = spec
 
   useEffect(() => {
     if (resolution === undefined) return undefined
     let cancelled = false
-    const of = `${path}:${method}:${String(span.seconds)}`
+    const of = `${path}:${method}|${source ?? ''}:${String(span.seconds)}`
     // A new width asks for finer or coarser buckets of the same line; the
     // line drawn stays until they come, rather than blinking out.
     setLoaded((last) => (last.status === 'ready' && last.of === of ? last : { status: 'loading' }))
-    history.values({ path, method, seconds: span.seconds, resolution }).then(
+    history.values({ path, method, source, seconds: span.seconds, resolution }).then(
       (points) => {
         if (!cancelled) setLoaded({ status: 'ready', points, of })
       },
@@ -131,7 +133,7 @@ function Chart({ history, spec, title }: HistoryChartProps) {
     return () => {
       cancelled = true
     }
-  }, [history, path, method, span, resolution])
+  }, [history, path, method, source, span, resolution])
 
   const symbol = measure.kind === 'ratio' ? '' : measure.unit.symbol
   const shown = (v: number) => (symbol === '' ? formatNumber(v) : `${formatNumber(v)} ${symbol}`)

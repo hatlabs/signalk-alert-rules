@@ -25,6 +25,7 @@ function specOf(
   type: string,
   direction: string,
   limits: SummaryLimit[],
+  source: string | undefined,
   units: UnitLookup
 ): ChartSpec | undefined {
   const [path] = signal.paths
@@ -39,6 +40,7 @@ function specOf(
     // Each bucket keeps its extreme on the rule's side, so a dip shorter than
     // a bucket still shows, and a limit never passed was never passed.
     method: type === 'slope' ? 'average' : side === 'below' ? 'min' : 'max',
+    source,
     measure: signalMeasure(signal, units),
     limits: VALUE_LIMITED.has(type) ? limits : [],
     side,
@@ -54,7 +56,14 @@ export function detailChart(rule: RuleInfo, units: UnitLookup): ChartSpec | unde
       ? []
       : [{ value: fromSI(kind, step.limit, unit), priority: step.priority }]
   )
-  return specOf(rule.signal, rule.detector.type, rule.detector.direction ?? '', limits, units)
+  return specOf(
+    rule.signal,
+    rule.detector.type,
+    rule.detector.direction ?? '',
+    limits,
+    rule.source,
+    units
+  )
 }
 
 /** The chart beside the editor, following the form's path, kind and limits as typed. */
@@ -71,5 +80,6 @@ export function editorChart(form: RuleForm, units: UnitLookup): ChartSpec | unde
       })
   const signal =
     form.signal.mode === 'single' ? signalShape(form.signal) : { paths: [], combinator: '' }
-  return specOf(signal, detector.type, direction, limits, units)
+  const source = form.signal.slots[0]?.source.trim() ?? ''
+  return specOf(signal, detector.type, direction, limits, source === '' ? undefined : source, units)
 }

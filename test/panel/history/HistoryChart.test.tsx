@@ -180,6 +180,19 @@ describe('HistoryChart', () => {
     expect(screen.getByText('Nothing recorded in the last hour.')).toBeTruthy()
   })
 
+  it('asks for the pinned source, and again when the source changes', async () => {
+    const history = fakeHistory()
+    const { rerender } = render(<HistoryChart history={history} spec={coolant} />)
+    await settle()
+    expect(history.values).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ source: expect.anything() as unknown })
+    )
+    rerender(<HistoryChart history={history} spec={{ ...coolant, source: 'can0.35' }} />)
+    await settle()
+    expect(history.values).toHaveBeenCalledTimes(2)
+    expect(history.values).toHaveBeenLastCalledWith(expect.objectContaining({ source: 'can0.35' }))
+  })
+
   it('does not ask again when only the limits change', async () => {
     const history = fakeHistory()
     const { rerender } = render(<HistoryChart history={history} spec={coolant} />)
