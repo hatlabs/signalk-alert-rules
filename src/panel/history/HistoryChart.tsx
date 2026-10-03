@@ -3,6 +3,7 @@ import { formatNumber } from '../../format'
 import type { Measure } from '../signalUnits'
 import { fromSI } from '../units'
 import {
+  AXIS_LABEL_Y,
   CHART_HEIGHT,
   chartGeometry,
   historySummary,
@@ -58,8 +59,6 @@ interface ChartProps {
 /** The width drawn for until the chart's own is known, as where nothing is laid out. */
 const FALLBACK_WIDTH = 360
 
-/** The baseline of the time labels, just inside the chart's bottom edge so descenders show. */
-const AXIS_LABEL_Y = CHART_HEIGHT - 3
 /** Room between a limit's label and the chart's right edge. */
 const LIMIT_LABEL_INSET = 4
 
@@ -202,7 +201,8 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
   const limits = spec.limits.map((l) => ({
     value: l.value,
     label: `${several ? (l.priority ?? 'step') : 'limit'} ${shown(l.value)}`,
-    tone: several ? (l.priority ?? 'limit') : 'limit'
+    tone: several ? (l.priority ?? 'limit') : 'limit',
+    bound: l.bound
   }))
   const drawnWidth = width ?? FALLBACK_WIDTH
   // Drawn in the frame the answer was asked in, so the line holds still
@@ -287,9 +287,11 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
             {/* The labels go over the line, so it never hides one. */}
             {geometry.limits.map((l, i) => (
               <g key={i} className={`skar-history-limit skar-history-limit-${l.tone}`}>
-                <text x={drawnWidth - LIMIT_LABEL_INSET} y={l.labelY} textAnchor="end">
-                  {l.label}
-                </text>
+                {l.labelY !== undefined && (
+                  <text x={drawnWidth - LIMIT_LABEL_INSET} y={l.labelY} textAnchor="end">
+                    {l.label}
+                  </text>
+                )}
               </g>
             ))}
             <text className="skar-history-axis" x={0} y={AXIS_LABEL_Y}>

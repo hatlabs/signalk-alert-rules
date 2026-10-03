@@ -13,7 +13,11 @@ const PLOT_BOTTOM = 88
 /** Room each limit's label takes above or below its line. */
 const LABEL_RISE = 5
 const LABEL_DROP = 14
-const LABEL_HEIGHT = 12
+export const LABEL_HEIGHT = 12
+/** The baseline of the time labels, just inside the chart's bottom edge so descenders show. */
+export const AXIS_LABEL_Y = CHART_HEIGHT - 3
+/** A limit's label sitting lower would run into the time labels. */
+const LABEL_FLOOR = AXIS_LABEL_Y - LABEL_HEIGHT
 
 /** A bucket this many lengths after the last is past a stretch nothing was recorded in. */
 const GAP_BUCKETS = 2
@@ -26,6 +30,8 @@ export interface ChartLimit {
   label: string
   /** The step's priority, or `limit` for a rule with one step. */
   tone: string
+  /** Which of an outside rule's step limits this is. */
+  bound?: 'low' | 'high'
 }
 
 export interface ChartFrame {
@@ -38,7 +44,8 @@ export interface ChartFrame {
 
 export interface PlacedLimit extends ChartLimit {
   y: number
-  labelY: number
+  /** Absent when the label fits on neither side of its line. */
+  labelY?: number
 }
 
 export interface ChartGeometry {
@@ -108,21 +115,40 @@ export function chartGeometry(
   )
 
   // Labels go above their lines, top first; one that would overlap the
-  // label before it goes below its line instead.
-  let lowestLabel = -Infinity
-  const placed = limits
-    .map((limit) => ({ ...limit, y: y(limit.value) }))
+  // label before it goes below its line instead. A range's low limits are
+  // the bottom of the band its values keep within, so theirs mirror that:
+  // below their lines, bottom first, up from the time labels. A low label
+  // that fits on neither side of its line is left out; its line still shows,
+  // and the summary names any limit the history passed.
+  const atLines = limits.map((limit) => ({ ...limit, y: y(limit.value) }))
+  let lowestLabel = 0
+  const fromTop = atLines
+    .filter((limit) => limit.bound !== 'low')
     .sort((a, b) => a.y - b.y)
     .map((limit) => {
       const above = limit.y - LABEL_RISE
-      const labelY =
-        above - LABEL_HEIGHT >= lowestLabel && above - LABEL_HEIGHT >= 0
-          ? above
-          : limit.y + LABEL_DROP
+      const labelY = above - LABEL_HEIGHT >= lowestLabel ? above : limit.y + LABEL_DROP
       lowestLabel = labelY
       return { ...limit, labelY }
     })
-  return { lines, limits: placed }
+  let highestLabel = LABEL_FLOOR
+  const fromBottom = atLines
+    .filter((limit) => limit.bound === 'low')
+    .sort((a, b) => b.y - a.y)
+    .map((limit): PlacedLimit => {
+      const below = limit.y + LABEL_DROP
+      const above = limit.y - LABEL_RISE
+      const labelY =
+        below <= highestLabel && below - LABEL_HEIGHT >= lowestLabel
+          ? below
+          : above <= highestLabel && above - LABEL_HEIGHT >= lowestLabel
+            ? above
+            : undefined
+      if (labelY === undefined) return limit
+      highestLabel = labelY - LABEL_HEIGHT
+      return { ...limit, labelY }
+    })
+  return { lines, limits: [...fromTop, ...fromBottom].sort((a, b) => a.y - b.y) }
 }
 
 /** A limit to compare the history with, in step order, and its step's priority when there are several. */

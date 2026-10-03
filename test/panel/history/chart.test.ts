@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  AXIS_LABEL_Y,
   CHART_HEIGHT,
   chartGeometry,
   historySummary,
+  LABEL_HEIGHT,
   type ChartFrame,
   type SummaryLimit
 } from '../../../src/panel/history/chart'
@@ -149,6 +151,71 @@ describe('chartGeometry', () => {
     const [warning, alarm] = limits
     expect(warning.labelY).toBeLessThan(warning.y)
     expect(alarm.labelY).toBeGreaterThan(alarm.y)
+  })
+
+  it('labels a range’s low limit below its line and its high limit above, outside the band', () => {
+    const { limits } = chartGeometry(
+      [
+        [
+          { time: at(0), value: -20 },
+          { time: at(60), value: 22 }
+        ]
+      ],
+      [
+        { value: -25, label: 'limit -25 °', tone: 'limit', bound: 'low' },
+        { value: 25, label: 'limit 25 °', tone: 'limit', bound: 'high' }
+      ],
+      frame
+    )
+    const [high, low] = limits
+    expect(high.labelY).toBeLessThan(high.y)
+    expect(low.labelY).toBeGreaterThan(low.y)
+    expect(low.labelY).toBeLessThanOrEqual(AXIS_LABEL_Y - LABEL_HEIGHT)
+  })
+
+  it('labels the lowest low limit below its line, and a second close above it so they do not overlap', () => {
+    const { limits } = chartGeometry(
+      [
+        [
+          { time: at(0), value: -10 },
+          { time: at(60), value: 30 }
+        ]
+      ],
+      [
+        { value: 25, label: 'warning 25 °', tone: 'warning', bound: 'high' },
+        { value: -25, label: 'warning -25 °', tone: 'warning', bound: 'low' },
+        { value: -26, label: 'alarm -26 °', tone: 'alarm', bound: 'low' }
+      ],
+      frame
+    )
+    const [, warning, alarm] = limits
+    expect(alarm.labelY).toBeGreaterThan(alarm.y)
+    expect(warning.labelY).toBeLessThan(warning.y)
+    expect(warning.labelY).toBeLessThanOrEqual((alarm.labelY ?? Number.NaN) - LABEL_HEIGHT)
+  })
+
+  it('leaves out a low label that fits neither side of its line between the high labels', () => {
+    const { limits } = chartGeometry(
+      [
+        [
+          { time: at(0), value: -30 },
+          { time: at(60), value: 100 }
+        ]
+      ],
+      [
+        { value: 25, label: 'warning 25 °', tone: 'warning', bound: 'high' },
+        { value: 35, label: 'alarm 35 °', tone: 'alarm', bound: 'high' },
+        { value: -25, label: 'warning -25 °', tone: 'warning', bound: 'low' },
+        { value: -35, label: 'alarm -35 °', tone: 'alarm', bound: 'low' }
+      ],
+      frame
+    )
+    const shown = limits.flatMap((l) => (l.labelY === undefined ? [] : [l.labelY]))
+    const sorted = [...shown].sort((a, b) => a - b)
+    sorted.slice(1).forEach((labelY, i) => {
+      expect(labelY - LABEL_HEIGHT).toBeGreaterThanOrEqual(sorted[i])
+    })
+    expect(limits).toHaveLength(4)
   })
 
   it('draws nothing without values', () => {
