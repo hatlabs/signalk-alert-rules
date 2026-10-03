@@ -168,8 +168,11 @@ export interface RuleInfo {
     /** A count's, slope's or projection's window, in seconds. */
     window?: number
   }
-  /** The paths the signal reads; several, with the combinator, for a combined signal. */
-  signal: { paths: string[]; combinator?: string }
+  /**
+   * The paths the signal reads; several, with the combinator and whether its
+   * values are angles, for a combined signal.
+   */
+  signal: { paths: string[]; combinator?: string; angular?: boolean }
   /** The source a single-path signal is pinned to; absent for the preferred source. */
   source?: string
   /** The alert is raised once per occurrence and held until acknowledged. */
@@ -183,6 +186,7 @@ export interface RuleInfo {
 export interface RuleGate {
   paths: string[]
   combinator?: string
+  angular?: boolean
   direction?: string
   /** A fixed limit, in SI; absent for a zone limit. */
   limit?: number
@@ -534,7 +538,11 @@ export function parseListedRule(body: unknown, what: string): ListedRule {
     const v = record(s)
     if (typeof v.path === 'string') return { paths: [v.path] }
     if (typeof v.combinator !== 'string' || !Array.isArray(v.inputs)) throw malformed(what)
-    return { paths: v.inputs.map((i) => string(record(i).path)), combinator: v.combinator }
+    return {
+      paths: v.inputs.map((i) => string(record(i).path)),
+      combinator: v.combinator,
+      ...optional('angular', v.angular === true ? true : undefined)
+    }
   }
   // The alert path comes with the entry, derived from the rule, not in it.
   const rule = (r: unknown, alertPath: string): RuleInfo => {

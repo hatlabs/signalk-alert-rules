@@ -843,6 +843,7 @@ describe('RuleDetail', () => {
   })
 
   describe('watches', () => {
+    const HEADINGS = ['navigation.headingMagnetic', 'navigation.headingTrue']
     const watching = (signal: RuleEntry['rule']['signal']) =>
       ruleEntry({ rule: { detector: { type: 'sustained', direction: 'above' }, signal } })
     const lines = () =>
@@ -859,6 +860,14 @@ describe('RuleDetail', () => {
       )
       expect(lines()).toEqual([
         'Absolute difference of two (propulsion.port.revolutions, propulsion.starboard.revolutions)'
+      ])
+    })
+
+    it('says a combined signal’s values are angles, as the editor does', () => {
+      renderDetail(watching({ paths: HEADINGS, combinator: 'mean', angular: true }))
+      expect(lines()).toEqual([
+        `Mean (${HEADINGS.join(', ')})`,
+        'Values are angles, wrapping at a full turn'
       ])
     })
 
@@ -930,6 +939,26 @@ describe('RuleDetail', () => {
         { units: rpmUnits }
       )
       expect(conditions()).toEqual([`Absolute difference of two (${PORT}, ${STBD}) above 480 rpm`])
+    })
+
+    it('says a combined gate’s values are angles', () => {
+      renderDetail(
+        gated([
+          {
+            paths: [PORT, STBD],
+            combinator: 'difference',
+            angular: true,
+            direction: 'above',
+            limit: 8
+          }
+        ]),
+        { units: rpmUnits }
+      )
+      const gate = screen.getByRole('definition', { name: /only while/i }).children[0]
+      expect(Array.from(gate.children).map((c) => c.textContent)).toEqual([
+        `Difference: first minus second (${PORT}, ${STBD}) above 480 rpm`,
+        'Values are angles, wrapping at a full turn'
+      ])
     })
 
     it('words a zone gate’s clear margin as a difference', () => {

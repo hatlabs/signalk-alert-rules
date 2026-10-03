@@ -8,6 +8,7 @@ import { StateChip } from '../list/StateChip'
 import { ConfirmSheet, useConfirmation, type Confirmation } from '../rules/Confirm'
 import {
   activeCount,
+  ANGULAR_LABEL,
   alertsWhen,
   clearsWhen,
   discardedTotals,
@@ -132,6 +133,7 @@ function Facts({
         <div>
           <SignalWords signal={rule.signal} />
         </div>
+        {rule.signal.angular === true && <div className="skar-hint">{ANGULAR_LABEL}</div>}
       </Fact>
       {!combined && <Fact term="Source">{rule.source ?? 'Preferred source'}</Fact>}
       <Fact term="Alerts when">{alertsWhen(rule, display)}</Fact>
@@ -145,10 +147,11 @@ function Facts({
       {rule.gates.length > 0 && (
         <Fact term="Only while">
           {rule.gates.map((g, n) => (
-            <div key={n}>
+            <div key={n} className="skar-gate-fact">
               <div>
                 <SignalWords signal={g} /> {gateCondition(g, units)}
               </div>
+              {g.angular === true && <div className="skar-hint">{ANGULAR_LABEL}</div>}
             </div>
           ))}
         </Fact>

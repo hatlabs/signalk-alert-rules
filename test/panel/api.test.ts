@@ -233,6 +233,27 @@ describe('httpApi', () => {
   })
 
   describe('rules', () => {
+    it('reads whether a combined signal’s values are angles', async () => {
+      const headings = {
+        combinator: 'absDifference',
+        angular: true,
+        inputs: [{ path: 'navigation.headingMagnetic' }, { path: 'navigation.headingTrue' }]
+      }
+      const entry = {
+        ...notStartedAccumulator,
+        rule: {
+          ...notStartedAccumulator.rule,
+          signal: headings,
+          gates: [{ signal: headings, direction: 'below', limit: { kind: 'fixed', value: 1 } }]
+        }
+      }
+      const api = httpApi(fakeFetch({ [`${BASE}/rules`]: { body: [entry] } }))
+      const [read] = await api.rules()
+      const paths = ['navigation.headingMagnetic', 'navigation.headingTrue']
+      const combined = { paths, combinator: 'absDifference', angular: true }
+      expect(read).toMatchObject({ rule: { signal: combined, gates: [combined] } })
+    })
+
     it('reads each entry with its rule, controls and status', async () => {
       const api = httpApi(
         fakeFetch({ [`${BASE}/rules`]: { body: [ruleEntry, notStartedAccumulator] } })

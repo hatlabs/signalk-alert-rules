@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { PathPicker } from '../paths/PathPicker'
 import type { PathList } from '../paths/selfPaths'
-import { COMBINATOR_LABELS } from '../rules/describe'
+import { ANGULAR_LABEL, COMBINATOR_LABELS } from '../rules/describe'
 import { matchedInstances, withInstanceWildcard, type UnitLookup } from '../signalUnits'
 import { CheckField, RadioGroup, SelectField, useFieldErrors, type Option } from './fields'
 import {
@@ -209,7 +209,7 @@ export function SignalFields({
       />
       {ANGULAR_KINDS.has(signal.combinator) && (
         <CheckField
-          label="Values are angles, wrapping at a full turn"
+          label={ANGULAR_LABEL}
           pointer={`${at}/angular`}
           checked={signal.angular}
           onChange={(angular) => {

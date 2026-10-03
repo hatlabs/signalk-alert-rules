@@ -553,6 +553,10 @@
   overflow-wrap: anywhere;
 }
 
+.skar-gate-fact + .skar-gate-fact {
+  margin-top: 8px;
+}
+
 .skar-mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.8125rem;

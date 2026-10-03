@@ -62,6 +62,9 @@ export const COMBINATOR_LABELS: Readonly<Record<CombinatorKind, string>> = {
   positionSpread: 'Largest distance between positions'
 }
 
+/** What a combined signal's `angular` flag means, as the editor and the rule detail word it. */
+export const ANGULAR_LABEL = 'Values are angles, wrapping at a full turn'
+
 function isCombinatorKind(kind: string): kind is CombinatorKind {
   return Object.hasOwn(COMBINATOR_LABELS, kind)
 }
