@@ -1,4 +1,10 @@
-import type { InstanceStatus, InvalidRuleEntry, PanelApi, RuleEntry } from '../../src/panel/api'
+import type {
+  EditPreview,
+  InstanceStatus,
+  InvalidRuleEntry,
+  PanelApi,
+  RuleEntry
+} from '../../src/panel/api'
 
 const notExpected = () => Promise.reject(new Error('not expected to be asked'))
 
@@ -24,6 +30,15 @@ export const noControls: Pick<PanelApi, 'disableRule' | 'enableRule' | 'deleteRu
 export const noTemplates: Pick<PanelApi, 'templates' | 'dismissTemplates'> = {
   templates: () => Promise.resolve({ sets: [], problems: [] }),
   dismissTemplates: notExpected
+}
+
+/** What saving an edit that changes nothing structural would do. */
+export const noChange: EditPreview = {
+  restarts: false,
+  changes: [],
+  activeAlerts: 0,
+  clearsActiveAlert: false,
+  discardsTotal: false
 }
 
 /** A normal instance with a value, to override per test. */

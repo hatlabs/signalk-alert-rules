@@ -4,6 +4,6 @@
     "rootDir": ".",
     "noEmit": true
   },
-  "include": ["src/**/*", "test/**/*", "bench/**/*", "*.config.ts"],
+  "include": ["src/**/*", "test/**/*", "bench/**/*", "*.config.ts", "harness/vite.config.ts"],
   "exclude": ["node_modules", "dist", "src/panel", "test/panel"]
 }
