@@ -9,6 +9,7 @@ import { ConfirmSheet, useConfirmation, type Confirmation } from '../rules/Confi
 import {
   activeCount,
   alertsWhen,
+  clearsWhen,
   describeInput,
   discardedTotals,
   formatTime,
@@ -111,6 +112,7 @@ function Facts({
 }) {
   const { rule, status } = entry
   const combined = rule.signal.combinator !== undefined
+  const clears = clearsWhen(rule, display)
   return (
     <dl className="skar-card skar-facts">
       <Fact term="Watches">
@@ -118,6 +120,7 @@ function Facts({
       </Fact>
       {!combined && <Fact term="Source">{rule.source ?? 'Preferred source'}</Fact>}
       <Fact term="Alerts when">{alertsWhen(rule, display)}</Fact>
+      {clears !== undefined && <Fact term="Clears">{clears}</Fact>}
       {rule.steps.length < 2 && (
         <Fact term="Priority">
           {rule.priority === undefined ? "From the path's zones" : capitalised(rule.priority)}

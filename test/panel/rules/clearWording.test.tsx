@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Steps } from '../../../src/panel/detail/Steps'
+import { RuleDetail } from '../../../src/panel/detail/RuleDetail'
 import { withKind } from '../../../src/panel/editor/conditionKinds'
 import { durationFrom, emptyForm, emptyStep } from '../../../src/panel/editor/formModel'
 import { ladderText } from '../../../src/panel/editor/live'
-import { gateCondition, ruleDisplay } from '../../../src/panel/rules/describe'
+import { gateCondition } from '../../../src/panel/rules/describe'
 import { unitLookup } from '../../../src/panel/signalUnits'
 import { displayUnit } from '../../../src/panel/units'
 import { ruleEntry } from '../fixtures'
@@ -85,7 +85,8 @@ const rows: Row[] = [
 
 const PRIORITIES = ['warning', 'alarm'] as const
 
-function detailHint(row: Row): string {
+/** The detail's Clears row for an eased rule, else the ladder's clear hint. */
+function detailClears(row: Row): string {
   const steps = row.steps.map((s, i) =>
     typeof s === 'number'
       ? { limit: s, priority: PRIORITIES[i] }
@@ -101,8 +102,10 @@ function detailHint(row: Row): string {
       clearDuration: row.delay
     }
   })
-  render(<Steps entry={entry} display={ruleDisplay(entry.rule, units)} />)
-  return screen.getByText(/^Clears/).textContent
+  render(<RuleDetail entry={entry} backHref="#/list" units={units} now={0} />)
+  return row.eased
+    ? screen.getByRole('definition', { name: /^clears/i }).textContent
+    : screen.getByText(/^Clears when/).textContent
 }
 
 function editorClause(row: Row): string {
@@ -136,10 +139,8 @@ describe('when an alert clears, as the detail, a gate and the editor word it', (
   afterEach(cleanup)
 
   it.each(rows)('$kind $steps, margin $margin, delay $delay: $where', (row) => {
-    expect(detailHint(row)).toBe(
-      row.eased
-        ? `Clears once the value is back ${row.where}.`
-        : `Clears when the value is back ${row.where}.`
+    expect(detailClears(row)).toBe(
+      row.eased ? `once back ${row.where}` : `Clears when the value is back ${row.where}.`
     )
     expect(editorClause(row)).toBe(row.eased ? `once back ${row.where}` : row.where)
     if (row.kind !== 'outside') {

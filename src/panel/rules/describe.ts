@@ -256,12 +256,69 @@ export function gateCondition(gate: RuleGate, units: UnitLookup): string {
   if (side === undefined) return condition
   const clear = clearPoint({ side, limit }, gate.hysteresis, gate.clearDuration)
   if (!clear.eased) return condition
-  const where =
-    clear.back.limit === undefined
-      ? `${side} the ${zoneLevel} zone${clear.margin === undefined ? '' : ` by ${formatInterval(clear.margin, measure)}`}`
-      : `${side} ${formatValue(clear.back.limit, measure)}`
-  const delay = clear.delay === undefined ? '' : ` for ${formatDuration(clear.delay)}`
-  return `${condition}; stops holding once back ${where}${delay}`
+  const where = wherePast(
+    clear,
+    zoneLevel,
+    (v) => formatValue(v, measure),
+    (v) => formatInterval(v, measure)
+  )
+  return `${condition}; stops holding ${onceBack(where, clear)}`
+}
+
+/**
+ * Where a value past a limit must be back: "above 12.4 V". A zone's
+ * threshold is the server's to resolve, so a zone limit's margin is told
+ * from the zone: "above the warn zone by 0.2 V".
+ */
+function wherePast(
+  clear: ClearPoint<BackPastLimit>,
+  zoneLevel: string,
+  value: (v: number) => string,
+  interval: (v: number) => string
+): string {
+  const { side, limit } = clear.back
+  if (limit !== undefined) return `${side} ${value(limit)}`
+  return `${side} the ${zoneLevel} zone${clear.margin === undefined ? '' : ` by ${interval(clear.margin)}`}`
+}
+
+function onceBack(where: string, clear: ClearPoint<BackPastLimit | BackInRange>): string {
+  return `once back ${where}${clear.delay === undefined ? '' : ` for ${formatDuration(clear.delay)}`}`
+}
+
+/**
+ * Where a rule's value must be back for its alert to clear: past its first
+ * step or its zone by the clear margin, or inside its first step's range
+ * narrowed by it. Undefined for a rule that clears otherwise.
+ */
+export function ruleClear(
+  rule: RuleInfo,
+  display: RuleDisplay
+): { where: string; clear: ClearPoint<BackPastLimit | BackInRange> } | undefined {
+  const first = rule.steps.at(0)
+  const { hysteresis, clearDuration, detector } = rule
+  if (detector.type === 'outside') {
+    if (first?.low === undefined || first.high === undefined) return undefined
+    const clear = clearPoint(
+      { side: 'between', low: first.low, high: first.high },
+      hysteresis,
+      clearDuration
+    )
+    return { where: `between ${display.range(clear.back.low, clear.back.high, 'and')}`, clear }
+  }
+  const side = OPPOSITE_SIDE[detector.direction ?? '']
+  if (detector.type !== 'sustained' || side === undefined) return undefined
+  if (first !== undefined && first.limit === undefined) return undefined
+  const clear = clearPoint({ side, limit: first?.limit }, hysteresis, clearDuration)
+  return {
+    where: wherePast(clear, detector.zoneLevel ?? '', display.value, display.interval),
+    clear
+  }
+}
+
+/** When a rule's alert clears, for a rule whose clear margin or delay eases it: "once back above 12.4 V for 30 s". */
+export function clearsWhen(rule: RuleInfo, display: RuleDisplay): string | undefined {
+  const back = ruleClear(rule, display)
+  return back?.clear.eased === true ? onceBack(back.where, back.clear) : undefined
 }
 
 /** How a rule's values, limits and accumulated totals are shown. */
@@ -272,6 +329,8 @@ export interface RuleDisplay {
   total: (total: number) => string
   /** A rate of change, stored per second, shown per minute as the editor enters it. */
   rate: (perSecond: number) => string
+  /** A difference of values, as a clear margin is: the linear part of the unit only. */
+  interval: (difference: number) => string
   /** The rule's values are numbers no display unit applies to, so they are shown in SI. */
   si: boolean
 }
@@ -303,6 +362,7 @@ export function ruleDisplay(rule: RuleInfo, units: UnitLookup): RuleDisplay {
     range: (low, high, joiner) => withUnit(`${shown(low)} ${joiner} ${shown(high)}`, integral),
     total,
     rate: (v) => `${withUnit(formatNumber(fromSI('slope', v, measure.unit)), integral)}/min`,
+    interval: (v) => formatInterval(v, measure),
     si: !textual && measure.kind !== 'ratio' && measure.unit.si
   }
 }
