@@ -548,22 +548,41 @@ function storedMeasure(signal: SignalForm, units: UnitLookup): Measure | undefin
   return measureSettled(shape, units) ? signalMeasure(shape, units) : undefined
 }
 
-/** A stored number of `quantity` as its field shows it; empty while the measure is unknown. */
+/** The error on a clear margin left empty for want of a unit: not "is required", as it may stay empty. */
+export const RETYPE_IN_UNIT = 'must be typed again in the unit of the chosen path'
+
+/** How a stored signal's numbers read, and where each number left empty is noted. */
+interface StoredNumbers {
+  measure: Measure | undefined
+  emptied: FieldError[]
+}
+
+/**
+ * A stored number of `quantity` at pointer `at` as its field shows it; empty
+ * while the measure is unknown, noted so the form names it on opening.
+ */
 function storedNumber(
   value: number,
   quantity: 'value' | 'interval' | 'slope',
-  measure: Measure | undefined
+  stored: StoredNumbers,
+  at: string,
+  optional = false
 ): { text: string; exact?: Exact } {
-  if (measure === undefined) return { text: '' }
+  const { measure } = stored
+  if (measure === undefined) {
+    stored.emptied.push({ path: at, message: optional ? RETYPE_IN_UNIT : 'is required' })
+    return { text: '' }
+  }
   return shownNumber(value, kindFor(quantity, measure), measure.unit)
 }
 
 function valueFrom(
   value: number | string | boolean | undefined,
-  measure: Measure | undefined
+  stored: StoredNumbers,
+  at: string
 ): ValueField {
   if (typeof value === 'number') {
-    const { text, exact } = storedNumber(value, 'value', measure)
+    const { text, exact } = storedNumber(value, 'value', stored, at)
     return { type: 'number', text, ...exacts([['text', exact]]) }
   }
   if (typeof value === 'boolean') return { type: value ? 'true' : 'false', text: '' }
@@ -578,17 +597,20 @@ const EVENT_OP_SET: Readonly<Record<EventOp, true>> = {
 const isEventOp = (op: unknown): op is EventOp =>
   typeof op === 'string' && Object.hasOwn(EVENT_OP_SET, op)
 
-function eventFrom(event: Event, measure: Measure | undefined): EventForm {
+function eventFrom(event: Event, stored: StoredNumbers, at: string): EventForm {
   if (!isRecord(event)) return { op: '', value: noValue() }
-  return { op: isEventOp(event.op) ? event.op : '', value: valueFrom(event.value, measure) }
+  return {
+    op: isEventOp(event.op) ? event.op : '',
+    value: valueFrom(event.value, stored, `${at}/value`)
+  }
 }
 
-function limitFrom(limit: Limit, measure: Measure | undefined): LimitForm {
+function limitFrom(limit: Limit, stored: StoredNumbers, at: string): LimitForm {
   if (!isRecord(limit)) return noLimit()
   if (limit.kind === 'zone') {
     return { kind: 'zone', value: '', level: limit.level, path: limit.path ?? '' }
   }
-  const { text, exact } = storedNumber(limit.value, 'value', measure)
+  const { text, exact } = storedNumber(limit.value, 'value', stored, `${at}/value`)
   return { ...noLimit(), value: text, ...exacts([['value', exact]]) }
 }
 
@@ -619,16 +641,18 @@ function gateList(gates: Rule['gates']): Gate[] {
   return stored === undefined ? [] : [stored as Gate]
 }
 
-function gateFrom(gate: Gate, units: UnitLookup): GateForm {
+function gateFrom(gate: Gate, at: string, units: UnitLookup, emptied: FieldError[]): GateForm {
   if (!isRecord(gate)) return emptyGate()
   const signal = signalFrom(gate.signal)
-  const measure = storedMeasure(signal, units)
+  const stored = { measure: storedMeasure(signal, units), emptied }
   const hysteresis =
-    gate.hysteresis === undefined ? undefined : storedNumber(gate.hysteresis, 'interval', measure)
+    gate.hysteresis === undefined
+      ? undefined
+      : storedNumber(gate.hysteresis, 'interval', stored, `${at}/hysteresis`, true)
   return {
     signal,
     direction: gate.direction,
-    limit: limitFrom(gate.limit, measure),
+    limit: limitFrom(gate.limit, stored, `${at}/limit`),
     duration: durationFrom(gate.duration),
     hysteresis: hysteresis?.text ?? '',
     clearDuration: durationFrom(gate.clearDuration),
@@ -636,35 +660,49 @@ function gateFrom(gate: Gate, units: UnitLookup): GateForm {
   }
 }
 
+/** A stored rule's body as the form opens it, and the numbers left empty for want of a unit. */
+export interface OpenedBody {
+  form: RuleForm
+  /** Each number left to type again, as an error at its field. */
+  emptied: FieldError[]
+}
+
 /**
  * A stored rule that does not validate, as the form shows it to be fixed:
  * as `fromRule` shows it while its body has the shape of a rule, else with
  * what can be read of it, so the user can fill in the rest.
  */
-export function fromBody(body: unknown, units: UnitLookup): RuleForm {
+export function fromBody(body: unknown, units: UnitLookup): OpenedBody {
   const text = (key: string) => (isRecord(body) && typeof body[key] === 'string' ? body[key] : '')
   const texts = { name: text('name'), slug: text('slug'), message: text('message') }
   // A missing detector reads as one not yet chosen, so the rest of the body still shows.
   const readable =
     isRecord(body) && !isRecord(body.detector) ? { ...body, detector: { type: '' } } : body
   try {
-    const form = fromRule(readable as Rule, units)
+    const emptied: FieldError[] = []
+    const form = readRule(readable as Rule, units, emptied)
     // A detector the form has no fields for is shown unchosen, to be chosen again.
     const type = Object.hasOwn(DETECTOR_TYPES, form.detector.type) ? form.detector.type : ''
     return {
-      ...form,
-      ...texts,
-      condition: text('condition'),
-      detector: { ...form.detector, type }
+      form: {
+        ...form,
+        ...texts,
+        condition: text('condition'),
+        detector: { ...form.detector, type }
+      },
+      emptied
     }
   } catch {
     // Damage the readers do not check, such as a detector's `while` that is null.
     return {
-      ...emptyForm(),
-      ...texts,
-      slugFollowsName: false,
-      nameFollows: false,
-      messageFollows: false
+      form: {
+        ...emptyForm(),
+        ...texts,
+        slugFollowsName: false,
+        nameFollows: false,
+        messageFollows: false
+      },
+      emptied: []
     }
   }
 }
@@ -678,17 +716,20 @@ export function fromBody(body: unknown, units: UnitLookup): RuleForm {
  * fields are taken as stored, and `fromBody` catches what this cannot read.
  */
 export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
+  return readRule(rule, units, [])
+}
+
+/** `fromRule`, noting in `emptied` each number it leaves empty for want of a unit. */
+function readRule(rule: Rule, units: UnitLookup, emptied: FieldError[]): RuleForm {
   const form = emptyForm()
   const signal = signalFrom(rule.signal)
-  const measure = storedMeasure(signal, units)
+  const stored = { measure: storedMeasure(signal, units), emptied }
   const d = form.detector
   const detector = rule.detector
   d.type = detector.type
-  const numberFrom = (value: number, quantity: 'value' | 'slope' | 'interval') =>
-    storedNumber(value, quantity, measure)
   const hysteresisFrom = (value: number | undefined) => {
     if (value === undefined) return
-    const { text, exact } = numberFrom(value, 'interval')
+    const { text, exact } = storedNumber(value, 'interval', stored, '/detector/hysteresis', true)
     d.hysteresis = text
     Object.assign(d, exacts([['hysteresis', exact]]))
   }
@@ -699,7 +740,8 @@ export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
       break
     case 'sustained':
       d.direction = detector.direction
-      if (detector.limit !== undefined) d.limit = limitFrom(detector.limit, measure)
+      if (detector.limit !== undefined)
+        d.limit = limitFrom(detector.limit, stored, '/detector/limit')
       d.duration = durationFrom(detector.duration)
       hysteresisFrom(detector.hysteresis)
       d.clearDuration = durationFrom(detector.clearDuration)
@@ -715,7 +757,8 @@ export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
       break
     case 'projection':
       d.trend = detector.direction
-      if (detector.limit !== undefined) d.limit = limitFrom(detector.limit, measure)
+      if (detector.limit !== undefined)
+        d.limit = limitFrom(detector.limit, stored, '/detector/limit')
       d.window = durationFrom(detector.window)
       d.horizon = durationFrom(detector.horizon)
       break
@@ -724,30 +767,33 @@ export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
       if (detector.while !== undefined) {
         d.useWhile = true
         d.whileOp = detector.while.op
-        d.whileValue = valueFrom(detector.while.value, measure)
+        d.whileValue = valueFrom(detector.while.value, stored, '/detector/while/value')
       }
       if (detector.resetOn !== undefined) {
         d.useResetOn = true
-        d.resetOn = eventFrom(detector.resetOn, measure)
+        d.resetOn = eventFrom(detector.resetOn, stored, '/detector/resetOn')
       }
       break
     case 'count':
-      d.event = eventFrom(detector.event, measure)
+      d.event = eventFrom(detector.event, stored, '/detector/event')
       d.window = durationFrom(detector.window)
       break
     case 'absence':
-      d.event = eventFrom(detector.event, measure)
+      d.event = eventFrom(detector.event, stored, '/detector/event')
       break
   }
   const quantity = stepQuantity(d)
-  const stepFrom = (step: Step): StepForm => {
+  const stepFrom = (step: Step, index: number): StepForm => {
     if (!isRecord(step)) return emptyStep()
+    const at = stepPointer(index)
+    const numberFrom = (value: number, measured: 'value' | 'slope' | 'interval', field: string) =>
+      storedNumber(value, measured, stored, `${at}/${field}`)
     const form = emptyStep(step.priority)
-    if ('value' in step) form.value = valueFrom(step.value, measure)
+    if ('value' in step) form.value = valueFrom(step.value, stored, `${at}/value`)
     if ('within' in step) form.duration = durationFrom(step.within)
     if ('low' in step) {
-      const low = numberFrom(step.low, 'value')
-      const high = numberFrom(step.high, 'value')
+      const low = numberFrom(step.low, 'value', 'low')
+      const high = numberFrom(step.high, 'value', 'high')
       form.low = low.text
       form.high = high.text
       Object.assign(
@@ -765,13 +811,13 @@ export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
     }
     switch (quantity) {
       case 'value':
-        limit(numberFrom(step.limit, 'value'))
+        limit(numberFrom(step.limit, 'value', 'limit'))
         break
       case 'slope':
-        limit(numberFrom(step.limit, 'slope'))
+        limit(numberFrom(step.limit, 'slope', 'limit'))
         break
       case 'integral':
-        limit(numberFrom(step.limit, 'interval'))
+        limit(numberFrom(step.limit, 'interval', 'limit'))
         break
       case 'time':
         form.duration = durationFrom(step.limit)
@@ -797,7 +843,7 @@ export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
     signal,
     detector: d,
     ...(rule.template === undefined ? {} : { template: rule.template }),
-    gates: gateList(rule.gates).map((g) => gateFrom(g, units))
+    gates: gateList(rule.gates).map((g, i) => gateFrom(g, `/gates/${String(i)}`, units, emptied))
   }
 }
 

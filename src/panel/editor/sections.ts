@@ -9,6 +9,7 @@ import {
   canLatch,
   isZoneLimited,
   holdsFor,
+  RETYPE_IN_UNIT,
   stepLimitFields,
   stepPointer,
   stepQuantity,
@@ -234,10 +235,12 @@ export function saveHint(errors: readonly FieldError[], form: RuleForm): string 
 
 /** The fields to fill in and those to fix, as a phrase: "fill in the limit and fix the name". */
 export function whatStops(errors: readonly FieldError[], form: RuleForm): string | undefined {
-  if (errors.length === 0) return undefined
+  // A clear margin to retype may stay empty, so it does not stop Save.
+  const stopping = errors.filter((e) => e.message !== RETYPE_IN_UNIT)
+  if (stopping.length === 0) return undefined
   const labels = (missing: boolean) => [
     ...new Set(
-      errors
+      stopping
         .filter((e) => (e.message === 'is required') === missing)
         .map((e) => fieldLabel(e.path, form))
     )

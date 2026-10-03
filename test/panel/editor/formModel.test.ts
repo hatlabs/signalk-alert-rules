@@ -46,7 +46,12 @@ import {
   type RuleForm
 } from '../../../src/panel/editor/formModel'
 import type { PathEntry } from '../../../src/panel/paths/selfPaths'
-import { NO_UNITS, POSITION_KINDS, unitLookup } from '../../../src/panel/signalUnits'
+import {
+  NO_UNITS,
+  POSITION_KINDS,
+  unitLookup,
+  type UnitLookup
+} from '../../../src/panel/signalUnits'
 import { displayUnit } from '../../../src/panel/units'
 
 const EXAMPLES = join(import.meta.dirname, '../../../examples/rules')
@@ -112,6 +117,9 @@ function authored(edit: (form: RuleForm) => void): RuleForm {
   edit(form)
   return form
 }
+
+/** A stored body as the form opens it. */
+const bodyForm = (body: unknown, units: UnitLookup): RuleForm => fromBody(body, units).form
 
 function saved(form: RuleForm, units = displayed): Rule {
   const result = toRule(form, units)
@@ -464,7 +472,7 @@ describe('an outside rule', () => {
 
   it('opens an outside rule that does not validate with its kind kept', () => {
     const body = { ...heel, detector: { ...heel.detector, hysteresis: 1 } }
-    expect(fromBody(body, displayed).detector.type).toBe('outside')
+    expect(bodyForm(body, displayed).detector.type).toBe('outside')
   })
 
   it('holds for a duration and takes up to four steps', () => {
@@ -754,19 +762,19 @@ describe('combinator slots', () => {
 describe('a stored rule that does not validate', () => {
   it('opens as stored when its shape is a rule, so it saves unchanged once fixed', () => {
     const rule = example('house-battery-low')
-    expect(saved(fromBody(rule, NO_UNITS), NO_UNITS)).toEqual(rule)
+    expect(saved(bodyForm(rule, NO_UNITS), NO_UNITS)).toEqual(rule)
   })
 
   it('keeps what it can read of a body that is not a rule', () => {
-    const form = fromBody({ name: 'Coolant high', slug: 'coolant-high', detector: 7 }, NO_UNITS)
+    const form = bodyForm({ name: 'Coolant high', slug: 'coolant-high', detector: 7 }, NO_UNITS)
     expect(form).toMatchObject({ name: 'Coolant high', slug: 'coolant-high', nameFollows: false })
     expect(form.detector.type).toBe('')
-    expect(fromBody('junk', NO_UNITS).name).toBe('')
+    expect(bodyForm('junk', NO_UNITS).name).toBe('')
   })
 
   it('opens a rule-shaped body missing its texts with them empty, to be filled in', () => {
     const { name: _name, message: _message, ...body } = example('house-battery-low')
-    const form = fromBody(body, NO_UNITS)
+    const form = bodyForm(body, NO_UNITS)
     expect(form).toMatchObject({ name: '', message: '', condition: '' })
     const result = toRule(form, NO_UNITS)
     expect(!result.ok && result.errors.map((e) => e.path)).toEqual(['/name', '/message'])
@@ -774,7 +782,7 @@ describe('a stored rule that does not validate', () => {
 
   it('keeps the signal and gates of a body without a detector, asking only for its kind', () => {
     const { detector: _detector, ...body } = example('coolant-temperature-rising')
-    const form = fromBody(body, NO_UNITS)
+    const form = bodyForm(body, NO_UNITS)
     expect(form.signal.slots[0]?.path).toBe('propulsion.*.coolantTemperature')
     expect(form.gates).toHaveLength(1)
     expect(form.detector.type).toBe('')
@@ -787,7 +795,7 @@ describe('a stored rule that does not validate', () => {
   it.each([null, [], 'sustained'])(
     'keeps the signal of a body whose detector is %j',
     (detector) => {
-      const form = fromBody({ ...example('coolant-temperature-rising'), detector }, NO_UNITS)
+      const form = bodyForm({ ...example('coolant-temperature-rising'), detector }, NO_UNITS)
       expect(form.signal.slots[0]?.path).toBe('propulsion.*.coolantTemperature')
       expect(form.detector.type).toBe('')
     }
@@ -800,7 +808,7 @@ describe('a stored rule that does not validate', () => {
 
   it('keeps the detector and gates of a body without a signal, asking for its path and limit', () => {
     const { signal: _signal, ...body } = example('coolant-temperature-rising')
-    const form = fromBody(body, NO_UNITS)
+    const form = bodyForm(body, NO_UNITS)
     expect(form.detector).toMatchObject({ type: 'slope', trend: 'rising' })
     expect(form.steps[0]).toMatchObject({ priority: 'warning', limit: '' })
     expect(form.gates[0]?.signal.slots[0]?.path).toBe('propulsion.*.revolutions')
@@ -818,7 +826,7 @@ describe('a stored rule that does not validate', () => {
   ])(
     'keeps the rest of a body whose %s detector has no event, asking only for it',
     (type, detector) => {
-      const form = fromBody({ ...bilge, detector }, NO_UNITS)
+      const form = bodyForm({ ...bilge, detector }, NO_UNITS)
       expect(form.signal.slots[0]?.path).toBe('electrical.switches.bilgePump.state')
       expect(form.detector.type).toBe(type)
       expect(form.steps[0]?.priority).toBe('warning')
@@ -830,14 +838,14 @@ describe('a stored rule that does not validate', () => {
   it.each([{}, { value: true }, { op: 'nonsense' }])(
     'asks for the event of a body whose event is %j',
     (event) => {
-      const form = fromBody({ ...bilge, detector: { ...countDetector, event } }, NO_UNITS)
+      const form = bodyForm({ ...bilge, detector: { ...countDetector, event } }, NO_UNITS)
       expect(form.detector.event.op).toBe('')
       expect(pointers(form)).toEqual(['/detector/event/op'])
     }
   )
 
   it('asks for the path and limit of a body whose signal has no path', () => {
-    const form = fromBody({ ...example('coolant-temperature-rising'), signal: {} }, NO_UNITS)
+    const form = bodyForm({ ...example('coolant-temperature-rising'), signal: {} }, NO_UNITS)
     expect(form.signal.slots[0]?.path).toBe('')
     expect(pointers(form)).toEqual(['/signal/path', '/detector/steps/0/limit'])
   })
@@ -846,7 +854,7 @@ describe('a stored rule that does not validate', () => {
     'keeps the rest of a body whose steps are %j, asking only for a step',
     (steps) => {
       const rule = example('coolant-temperature-rising')
-      const form = fromBody({ ...rule, detector: { ...rule.detector, steps } }, NO_UNITS)
+      const form = bodyForm({ ...rule, detector: { ...rule.detector, steps } }, NO_UNITS)
       expect(form.signal.slots[0]?.path).toBe('propulsion.*.coolantTemperature')
       expect(form.detector).toMatchObject({ type: 'slope', window: { amount: '5', unit: 'min' } })
       expect(form.gates).toHaveLength(1)
@@ -868,7 +876,7 @@ describe('a stored rule that does not validate', () => {
     'keeps the rest of a body whose combined signal has inputs $inputs, asking for each path',
     ({ inputs, missing }) => {
       const rule = example('coolant-temperature-rising')
-      const form = fromBody({ ...rule, signal: { combinator: 'difference', inputs } }, NO_UNITS)
+      const form = bodyForm({ ...rule, signal: { combinator: 'difference', inputs } }, NO_UNITS)
       expect(form.signal.mode).toBe('combine')
       expect(form.detector.type).toBe('slope')
       expect(form.gates).toHaveLength(1)
@@ -879,7 +887,7 @@ describe('a stored rule that does not validate', () => {
   it('keeps the rest of a body whose gate has a combined signal without inputs', () => {
     const rule = example('coolant-temperature-rising')
     const gate = { ...rule.gates?.[0], signal: { combinator: 'difference' } }
-    const form = fromBody({ ...rule, gates: [gate] }, NO_UNITS)
+    const form = bodyForm({ ...rule, gates: [gate] }, NO_UNITS)
     expect(form.signal.slots[0]?.path).toBe('propulsion.*.coolantTemperature')
     expect(form.gates[0]?.limit.value).toBe('')
     expect(pointers(form)).toEqual([
@@ -892,7 +900,7 @@ describe('a stored rule that does not validate', () => {
   describe('a malformed gate', () => {
     const rule = example('coolant-temperature-rising')
     const gate = rule.gates?.[0]
-    const withGates = (gates: unknown) => fromBody({ ...rule, gates }, NO_UNITS)
+    const withGates = (gates: unknown) => bodyForm({ ...rule, gates }, NO_UNITS)
 
     it('keeps the rest of a gate without a signal, asking for its path and limit', () => {
       const form = withGates([{ ...gate, signal: undefined }])
@@ -938,7 +946,7 @@ describe('a stored rule that does not validate', () => {
 
   describe('the numbers of a signal without a path', () => {
     const withoutSignal = (slug: string, signal?: unknown) =>
-      fromBody({ ...example(slug), signal }, displayed)
+      bodyForm({ ...example(slug), signal }, displayed)
 
     it('asks again for a step limit rather than read it in the unit of the path picked later', () => {
       // 3 Hz is 180 rpm: shown as 3 before a path is picked, it would save as 3 rpm.
@@ -992,7 +1000,7 @@ describe('a stored rule that does not validate', () => {
         displayed.distance
       )
       const rule = example('engine-rpm-mismatch')
-      const form = fromBody(
+      const form = bodyForm(
         {
           ...rule,
           signal: {
@@ -1011,13 +1019,13 @@ describe('a stored rule that does not validate', () => {
     })
 
     it('keeps the limit of a combination whose every input has a path of unknown unit', () => {
-      const form = fromBody(example('engine-rpm-mismatch'), NO_UNITS)
+      const form = bodyForm(example('engine-rpm-mismatch'), NO_UNITS)
       expect(form.steps[0]?.limit).toBe('3')
     })
 
     it('keeps the limit of a combination one of whose paths has a known unit', () => {
       const rule = example('engine-rpm-mismatch')
-      const form = fromBody(
+      const form = bodyForm(
         {
           ...rule,
           signal: {
@@ -1038,7 +1046,7 @@ describe('a stored rule that does not validate', () => {
     it('drops the limit and clear margin of a gate without a signal, keeping its delays', () => {
       const rule = example('engine-rpm-mismatch')
       const [gate, other] = rule.gates ?? []
-      const form = fromBody(
+      const form = bodyForm(
         {
           ...rule,
           gates: [{ ...gate, signal: undefined, hysteresis: 1, clearDuration: 5 }, other]
@@ -1055,9 +1063,39 @@ describe('a stored rule that does not validate', () => {
     })
   })
 
+  describe('the numbers it leaves empty for want of a unit', () => {
+    const rule = example('engine-rpm-mismatch')
+    const [gate, other] = rule.gates ?? []
+
+    it('names each at its field, a clear margin as one to type again', () => {
+      const { signal: _signal, ...body } = rule
+      const { emptied } = fromBody(
+        {
+          ...body,
+          detector: { ...rule.detector, hysteresis: 1 },
+          gates: [{ ...gate, signal: undefined, hysteresis: 1 }, other]
+        },
+        displayed
+      )
+      const retype = 'must be typed again in the unit of the chosen path'
+      expect(emptied).toEqual([
+        { path: '/detector/hysteresis', message: retype },
+        { path: '/detector/steps/0/limit', message: 'is required' },
+        { path: '/gates/0/hysteresis', message: retype },
+        { path: '/gates/0/limit/value', message: 'is required' }
+      ])
+    })
+
+    it('names none when every unit is settled', () => {
+      expect(
+        fromBody({ ...rule, detector: { ...rule.detector, hysteresis: 1 } }, displayed).emptied
+      ).toEqual([])
+    })
+  })
+
   it('asks for the kind of a detector it does not know', () => {
     const rule = example('house-battery-low')
-    const form = fromBody({ ...rule, detector: { type: 'nonsense' } }, NO_UNITS)
+    const form = bodyForm({ ...rule, detector: { type: 'nonsense' } }, NO_UNITS)
     const result = toRule(form, NO_UNITS)
     expect(!result.ok && result.errors).toEqual([
       { path: '/detector/type', message: 'is required' }
