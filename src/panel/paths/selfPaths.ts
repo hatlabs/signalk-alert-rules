@@ -208,8 +208,9 @@ export type PathList =
 
 /**
  * Loads the self paths once per source, for every picker on a form to share,
- * and again every `pollMs` when given, so the values shown stay current. A
- * read that fails after the paths have loaded keeps the paths read before.
+ * and again `pollMs` after each read answers when given, so the values shown
+ * stay current without slow reads overlapping. A read that fails after the
+ * paths have loaded keeps the paths read before.
  */
 export function useSelfPaths(source: PathSource, pollMs?: number): PathList {
   const [list, setList] = useState<PathList>({ status: 'loading' })
@@ -218,20 +219,27 @@ export function useSelfPaths(source: PathSource, pollMs?: number): PathList {
     let timer: ReturnType<typeof setTimeout> | undefined
     setList({ status: 'loading' })
     const read = () => {
-      source.selfPaths().then(
-        (paths) => {
-          if (!cancelled) setList({ status: 'ready', paths })
-        },
-        (error: unknown) => {
-          if (cancelled) return
-          setList((last) =>
-            last.status === 'ready'
-              ? last
-              : { status: 'failed', error: error instanceof Error ? error.message : String(error) }
-          )
-        }
-      )
-      if (pollMs !== undefined) timer = setTimeout(read, pollMs)
+      source
+        .selfPaths()
+        .then(
+          (paths) => {
+            if (!cancelled) setList({ status: 'ready', paths })
+          },
+          (error: unknown) => {
+            if (cancelled) return
+            setList((last) =>
+              last.status === 'ready'
+                ? last
+                : {
+                    status: 'failed',
+                    error: error instanceof Error ? error.message : String(error)
+                  }
+            )
+          }
+        )
+        .finally(() => {
+          if (!cancelled && pollMs !== undefined) timer = setTimeout(read, pollMs)
+        })
     }
     read()
     return () => {

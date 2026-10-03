@@ -6,6 +6,7 @@ import {
   httpPathSource,
   parseSelfPaths,
   useSelfPaths,
+  type PathEntry,
   type PathSource
 } from '../../../src/panel/paths/selfPaths'
 
@@ -343,6 +344,31 @@ describe('useSelfPaths', () => {
       await waitFor(() => {
         expect(result.current).toMatchObject({ status: 'ready', paths: [{ value: 3 }] })
       })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('waits for a slow read to answer before polling again', async () => {
+    vi.useFakeTimers()
+    try {
+      let reads = 0
+      let answer: (paths: PathEntry[]) => void = () => undefined
+      const source: PathSource = {
+        selfPaths: () => {
+          reads++
+          return new Promise<PathEntry[]>((resolve) => {
+            answer = resolve
+          })
+        },
+        distanceUnit
+      }
+      renderHook(() => useSelfPaths(source, 1000))
+      await vi.advanceTimersByTimeAsync(3500)
+      expect(reads).toBe(1)
+      answer([])
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(reads).toBe(2)
     } finally {
       vi.useRealTimers()
     }
