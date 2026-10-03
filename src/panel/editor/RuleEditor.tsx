@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Rule } from '../../model/rule'
 import { renderMessage } from '../../alerts/message'
 import { RuleRejectedError, type FieldError, type PanelApi, type RuleEntry } from '../api'
@@ -13,6 +13,7 @@ import { withKind, type ConditionKind } from './conditionKinds'
 import { ConditionFields, HoldField, KindField } from './ConditionFields'
 import { editConsequences } from './consequences'
 import { FieldErrors, Required, SelectField, TextField, valueKindOf } from './fields'
+import { useLeaveGuard } from './leaveGuard'
 import {
   defaultFormCondition,
   emptyForm,
@@ -121,9 +122,6 @@ function withNamedClash(
   return { errors: named, ...(holder === undefined ? {} : { holder }) }
 }
 
-/** Where the operator asked to go: a location hash, or out of the form. */
-type Destination = { hash: string } | 'close'
-
 function EditorForm(props: FormProps) {
   const { api, paths, live, editing, invalid, back, onSaved, onClose } = props
   const ruleName = props.ruleName ?? (() => undefined)
@@ -140,8 +138,6 @@ function EditorForm(props: FormProps) {
   // confirmation would otherwise be dropped from the rule it stores.
   const confirming = useSheet<{ form: RuleForm; rule: Rule; lines: string[] }>()
   const pending = confirming.value
-  // Where the user asked to go while the form had unsaved changes.
-  const leaving = useSheet<Destination>()
   // Open from the start on a rule with no value yet, so the first keystroke does not close it.
   const [changingPath, setChangingPath] = useState(() => initial.signal.slots[0]?.path === '')
   const [moreOpen, setMoreOpen] = useState(() => hasMoreOptions(initial))
@@ -161,17 +157,11 @@ function EditorForm(props: FormProps) {
   }, [])
 
   const dirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(initial), [form, initial])
-  useEffect(() => {
-    if (!dirty) return undefined
-    // The browser asks before a reload or closing the tab drops the changes.
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault()
-    }
-    window.addEventListener('beforeunload', warn)
-    return () => {
-      window.removeEventListener('beforeunload', warn)
-    }
-  }, [dirty])
+  const guard = useLeaveGuard({
+    dirty,
+    onClose,
+    unsaved: 'The changes to this rule have not been saved.'
+  })
 
   useEffect(() => {
     if (pathFocus.current === 'search') searchRef.current?.focus()
@@ -227,6 +217,7 @@ function EditorForm(props: FormProps) {
         : invalid !== undefined
           ? await api.updateRule(invalid.slug, rule)
           : await api.createRule(rule)
+    guard.release()
     onSaved(saved)
   }
 
@@ -260,18 +251,6 @@ function EditorForm(props: FormProps) {
     }
   }
 
-  /** Leaves at once without changes, else asks first. */
-  const leave = (to: Destination) => {
-    if (dirty) leaving.show(to)
-    else if (to === 'close') onClose()
-    else window.location.hash = to.hash
-  }
-  const guarded = (href: string) => (event: MouseEvent<HTMLAnchorElement>) => {
-    if (!dirty) return
-    event.preventDefault()
-    leaving.show({ hash: href })
-  }
-
   const title =
     editing !== undefined
       ? `Edit “${editing.entry.rule.name}”`
@@ -294,7 +273,7 @@ function EditorForm(props: FormProps) {
   return (
     <FieldErrors.Provider value={attached.byField}>
       <div className="skar-editor">
-        <a className="skar-back" href={back.href} onClick={guarded(back.href)}>
+        <a className="skar-back" href={back.href}>
           <BackIcon />
           <span>{back.label}</span>
         </a>
@@ -493,10 +472,7 @@ function EditorForm(props: FormProps) {
                   {clash.holder !== undefined && props.editHref !== undefined && (
                     <span className="skar-preview">
                       To raise the same alert at a higher priority, add a step to{' '}
-                      <a
-                        href={props.editHref(clash.holder)}
-                        onClick={guarded(props.editHref(clash.holder))}
-                      >
+                      <a href={props.editHref(clash.holder)}>
                         {ruleName(clash.holder) ?? clash.holder}
                       </a>{' '}
                       instead.
@@ -551,7 +527,7 @@ function EditorForm(props: FormProps) {
               className="skar-btn skar-btn-ghost"
               disabled={busy}
               onClick={() => {
-                leave('close')
+                guard.leave()
               }}
             >
               Cancel
@@ -590,24 +566,7 @@ function EditorForm(props: FormProps) {
             ))}
           </ConfirmSheet>
         )}
-        {leaving.value !== undefined && (
-          <ConfirmSheet
-            title="Discard your changes?"
-            confirmLabel="Discard changes"
-            tone="danger"
-            onConfirm={() => {
-              const to = leaving.value
-              if (to === 'close') onClose()
-              else if (to !== undefined) window.location.hash = to.hash
-              return Promise.resolve()
-            }}
-            onCancel={() => {
-              leaving.close()
-            }}
-          >
-            <p>The changes to this rule have not been saved.</p>
-          </ConfirmSheet>
-        )}
+        {guard.prompt}
       </div>
     </FieldErrors.Provider>
   )

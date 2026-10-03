@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useId,
   useRef,
@@ -58,26 +59,27 @@ export interface Sheet<T> {
  */
 export function useSheet<T>(): Sheet<T> {
   const [value, setValue] = useState<T | undefined>(undefined)
+  const isOpen = useRef(false)
   const opener = useRef<HTMLElement | null>(null)
   const refocus = useRef<HTMLElement | null>(null)
   useEffect(() => {
     refocus.current?.focus()
     refocus.current = null
   }, [value])
-  return {
-    value,
-    show: (next) => {
-      // Taken before the sheet renders: its Cancel takes focus as it appears.
-      if (value === undefined && document.activeElement instanceof HTMLElement)
-        opener.current = document.activeElement
-      setValue(next)
-    },
-    close: (returnFocus = true) => {
-      refocus.current = returnFocus ? opener.current : null
-      opener.current = null
-      setValue(undefined)
-    }
-  }
+  const show = useCallback((next: T) => {
+    // Taken before the sheet renders: its Cancel takes focus as it appears.
+    if (!isOpen.current && document.activeElement instanceof HTMLElement)
+      opener.current = document.activeElement
+    isOpen.current = true
+    setValue(next)
+  }, [])
+  const close = useCallback((returnFocus = true) => {
+    refocus.current = returnFocus ? opener.current : null
+    opener.current = null
+    isOpen.current = false
+    setValue(undefined)
+  }, [])
+  return { value, show, close }
 }
 
 export interface ConfirmProps {

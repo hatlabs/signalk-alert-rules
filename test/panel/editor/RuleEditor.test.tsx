@@ -43,7 +43,10 @@ beforeAll(() => {
 })
 
 describe('RuleEditor, from a path', () => {
-  afterEach(cleanup)
+  afterEach(() => {
+    cleanup()
+    window.history.replaceState(null, '', '/')
+  })
 
   it('shows the limit and duration of below a limit, with no limit filled in', async () => {
     renderEditor({ start: { path: HOUSE, kind: 'below' } })

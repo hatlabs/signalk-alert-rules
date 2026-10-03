@@ -19,6 +19,7 @@ import { AddRule } from './add/AddRule'
 import { KindPicker } from './add/KindPicker'
 import { PathSearch } from './add/PathSearch'
 import { EditRule } from './editor/EditRule'
+import { navigationHeld } from './editor/leaveGuard'
 import { RuleEditor } from './editor/RuleEditor'
 import { failureMessage, fieldErrorText, NEEDS_ADMINISTRATOR } from './failure'
 import { RuleList } from './list/RuleList'
@@ -296,14 +297,15 @@ function InvalidRule({
 }
 
 /**
- * The location hash, kept current. The admin UI's router owns the hash, and
+ * The location hash, kept current, unless an editor with unsaved changes
+ * holds it (see navigationHeld). The admin UI's router owns the hash, and
  * the panel reads its own fragment after it (see route.ts).
  */
 function useLocationHash(): string {
   const [hash, setHash] = useState(() => window.location.hash)
   useEffect(() => {
     const update = () => {
-      setHash(window.location.hash)
+      if (!navigationHeld(window.location.hash)) setHash(window.location.hash)
     }
     window.addEventListener('hashchange', update)
     window.addEventListener('popstate', update)

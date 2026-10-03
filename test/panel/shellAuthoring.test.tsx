@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { Rule } from '../../src/model/rule'
 import {
@@ -183,6 +183,69 @@ describe('Shell rule authoring', () => {
     expect(screen.queryByRole('form')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     expect(await screen.findByRole('button', { name: 'Edit' })).toBeTruthy()
+  })
+
+  /** A hash change from outside the editor, as the browser's Back makes one. */
+  const navigateAway = (hash: string) => {
+    act(() => {
+      window.history.pushState(null, '', hash)
+      window.dispatchEvent(new HashChangeEvent('hashchange'))
+    })
+  }
+  const discardPrompt = () => screen.getByRole('alertdialog', { name: 'Discard your changes?' })
+
+  it('asks before a hash change from outside drops unsaved changes, following it on Discard', async () => {
+    renderShell([battery])
+    await openNewRule()
+    fillLow()
+    navigateAway('#rule=house-battery-low')
+    expect(discardPrompt()).toBeTruthy()
+    expect(screen.getByRole('form', { name: 'New rule' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
+    expect(await screen.findByRole('heading', { name: 'House battery low' })).toBeTruthy()
+    expect(window.location.hash).toBe('#rule=house-battery-low')
+  })
+
+  it('restores the editor and its changes when the operator keeps editing', async () => {
+    renderShell([battery])
+    await openNewRule()
+    fillLow()
+    const editorHash = window.location.hash
+    navigateAway('#rule=house-battery-low')
+    fireEvent.click(within(discardPrompt()).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(window.location.hash).toBe(editorHash)
+    expect(screen.getByRole('textbox', { name: 'Limit for step 1' })).toHaveProperty(
+      'value',
+      '11.8'
+    )
+  })
+
+  it('follows a hash change from outside at once when there are no changes', async () => {
+    renderShell([battery])
+    await openNewRule()
+    navigateAway('#rule=house-battery-low')
+    expect(await screen.findByRole('heading', { name: 'House battery low' })).toBeTruthy()
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+  })
+
+  it("asks before a link outside the panel, such as the admin UI's menu, leaves unsaved changes", async () => {
+    const menu = document.body.appendChild(document.createElement('a'))
+    menu.href = '#/dashboard'
+    menu.textContent = 'Dashboard'
+    try {
+      renderShell([battery])
+      await openNewRule()
+      fillLow()
+      fireEvent.click(menu)
+      expect(window.location.hash).not.toBe('#/dashboard')
+      fireEvent.click(within(discardPrompt()).getByRole('button', { name: 'Discard changes' }))
+      await waitFor(() => {
+        expect(window.location.hash).toBe('#/dashboard')
+      })
+    } finally {
+      menu.remove()
+    }
   })
 
   it('moves focus to the form heading when it opens, and back to the list when it closes', async () => {
