@@ -19,6 +19,7 @@ const POSITION = 'navigation.position'
 const WATCH = 'navigation.watch.acknowledged'
 const HEADING = 'navigation.headingMagnetic'
 const DEPTH = 'environment.depth.belowTransducer'
+const FREQUENCY = 'electrical.ac.shore.phase.single.frequency'
 
 // Each example's alert path, the default its input and detector give unless
 // the rule names one.
@@ -33,6 +34,7 @@ const ALERT_PATHS: Record<string, string> = {
   'fresh-water-running-out': 'tanks.freshWater.0.currentLevelProjectedLow',
   'gnss-disagree': 'navigation.gnssDisagree',
   'house-battery-low': 'electrical.batteries.house.voltageLow',
+  'shore-power-frequency': 'electrical.ac.shore.phase.single.frequencyOutOfRange',
   'watch-not-acknowledged': 'navigation.watch.acknowledgedMissing'
 }
 
@@ -213,6 +215,29 @@ export const exampleScenarios: Record<string, Scenario> = {
     expected: [
       [60, 'raise', alert('depth-sensor-silent'), 'warning'],
       [90, 'clear', alert('depth-sensor-silent')]
+    ]
+  },
+
+  // Warning outside 49-51 Hz, alarm outside 48-52 Hz, each held for 10 s;
+  // clears 30 s after the frequency is 0.2 Hz inside 49-51 Hz. It goes high,
+  // past the alarm range, to the low side, back to 50.9 Hz (inside the range
+  // but within the hysteresis) and to 50.1 Hz.
+  'shore-power-frequency': {
+    tick: 1,
+    until: 300,
+    deltas: [
+      at(0, FREQUENCY, 50),
+      at(10, FREQUENCY, 51.4),
+      at(60, FREQUENCY, 52.5),
+      at(120, FREQUENCY, 47.6),
+      at(180, FREQUENCY, 50.9),
+      at(240, FREQUENCY, 50.1)
+    ],
+    // The move to the low side changes {limit} in the message but sends no event.
+    expected: [
+      [20, 'raise', alert('shore-power-frequency'), 'warning'],
+      [70, 'priority', alert('shore-power-frequency'), 'alarm'],
+      [270, 'clear', alert('shore-power-frequency')]
     ]
   }
 }

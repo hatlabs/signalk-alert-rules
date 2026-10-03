@@ -137,5 +137,12 @@ export const workedExampleDeltas: Record<string, WorkedExampleDeltas> = {
       { path: 'environment.depth.belowTransducer', source: 'n2k.35', value: null, state: timedOut }
     ],
     expected: [{ signal: 'signal', reading: { available: false, timedOut: true } }]
+  },
+  'shore-power-frequency': {
+    deltas: [
+      { path: 'electrical.ac.shore.phase.single.frequency', source: 'shore.meter', value: 50 },
+      { path: 'electrical.ac.shore.phase.single.frequency', source: 'shore.meter', value: 51.4 }
+    ],
+    expected: [{ signal: 'signal', reading: value(51.4) }]
   }
 }

@@ -22,9 +22,13 @@ import { NO_UNITS } from '../../../src/panel/signalUnits'
 const EXAMPLES = join(import.meta.dirname, '../../../examples/rules')
 
 function examples(): [string, Rule][] {
-  return readdirSync(EXAMPLES)
-    .filter((f) => f.endsWith('.json'))
-    .map((f) => [f, JSON.parse(readFileSync(join(EXAMPLES, f), 'utf8')) as Rule])
+  return (
+    readdirSync(EXAMPLES)
+      .filter((f) => f.endsWith('.json'))
+      .map((f): [string, Rule] => [f, JSON.parse(readFileSync(join(EXAMPLES, f), 'utf8')) as Rule])
+      // The editor has no outside condition kind until issue 88's Unit 4.
+      .filter(([, rule]) => rule.detector.type !== 'outside')
+  )
 }
 
 /** The JSON pointer of every value in `value` that holds no other value. */

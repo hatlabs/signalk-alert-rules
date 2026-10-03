@@ -1,0 +1,26 @@
+{
+  "name": "Shore power frequency",
+  "slug": "shore-power-frequency",
+  "message": "Shore power frequency beyond {limit}: {value}",
+  "signal": {
+    "path": "electrical.ac.shore.phase.single.frequency"
+  },
+  "detector": {
+    "type": "outside",
+    "steps": [
+      {
+        "low": 49,
+        "high": 51,
+        "priority": "warning"
+      },
+      {
+        "low": 48,
+        "high": 52,
+        "priority": "alarm"
+      }
+    ],
+    "duration": 10,
+    "hysteresis": 0.2,
+    "clearDuration": 30
+  }
+}
