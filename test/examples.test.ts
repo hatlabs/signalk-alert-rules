@@ -10,6 +10,7 @@ import { instantiate } from '../src/templates/instantiate.js'
 import { exampleScenarios } from './fixtures/example-scenarios.js'
 import { workedExamples } from './fixtures/worked-examples.js'
 import { runScenario } from './helpers/runScenario.js'
+import { at, type Scenario } from './helpers/scenario.js'
 
 const EXAMPLE_PACKAGE = 'signalk-alert-templates-example'
 const EXAMPLE_DIR = join(import.meta.dirname, '..', 'examples', 'template-set-example')
@@ -107,6 +108,72 @@ describe('example template set package', () => {
     expect(instantiate(set, set.templates[1], { source: 'sounder.bow' })).toMatchObject({
       ok: true,
       value: { signal: { path: 'environment.depth.belowTransducer', source: 'sounder.bow' } }
+    })
+  })
+
+  /** Instantiates the template with `pick` and runs the rule through `scenario`. */
+  function run(templateId: string, pick: TemplatePick, scenario: Scenario) {
+    const { set } = found.sets[0]
+    const template = set.templates.find((t) => t.id === templateId)
+    if (template === undefined) throw new Error(`no template ${templateId}`)
+    const made = instantiate(set, template, pick)
+    if (!made.ok) throw new Error(`${templateId}: ${JSON.stringify(made.errors)}`)
+    return runScenario(made.value, scenario)
+  }
+
+  // Beyond -100 A from 10 s, beyond -150 A from 100 s. -97 A at 200 s is
+  // within the 5 A the discharge must ease by, so only -90 A clears.
+  it('raises a hard discharge, escalates it and clears past the hysteresis', () => {
+    const CURRENT = 'electrical.batteries.house.current'
+    const ALERT = 'electrical.batteries.house.dischargeHigh'
+    const samples: [number, number][] = [
+      [0, -20],
+      [10, -120],
+      [100, -160],
+      [200, -97],
+      [300, -90]
+    ]
+    const scenario: Scenario = {
+      tick: 1,
+      until: 400,
+      deltas: samples.map(([t, value]) => at(t, CURRENT, value)),
+      expected: [
+        [40, 'raise', ALERT, 'warning'],
+        [130, 'priority', ALERT, 'alarm'],
+        [300, 'clear', ALERT]
+      ]
+    }
+    expect(run('battery-discharge-high', { instance: 'house' }, scenario)).toEqual({
+      steps: scenario.expected,
+      problems: []
+    })
+  })
+
+  // The stern sounder ranks first and reads shallow from 10 s, which the
+  // rule ignores; the picked bow sounder reads shallow from 100 s and
+  // recovers past the 0.3 m hysteresis at 200 s.
+  it('alerts on the picked source and ignores another', () => {
+    const DEPTH = 'environment.depth.belowTransducer'
+    const ALERT = 'environment.depth.belowTransducerShallow'
+    const scenario: Scenario = {
+      ranking: ['sounder.stern', 'sounder.bow'],
+      tick: 1,
+      until: 300,
+      deltas: [
+        at(0, DEPTH, 10, 'sounder.stern'),
+        at(0, DEPTH, 10, 'sounder.bow'),
+        at(10, DEPTH, 2, 'sounder.stern'),
+        at(100, DEPTH, 2.5, 'sounder.bow'),
+        at(200, DEPTH, 3.5, 'sounder.bow')
+      ],
+      expected: [
+        [105, 'raise', ALERT, 'warning'],
+        [200, 'clear', ALERT]
+      ]
+    }
+    expect(run('sounder-shallow', { source: 'sounder.bow' }, scenario)).toEqual({
+      steps: scenario.expected,
+      problems: []
     })
   })
 
