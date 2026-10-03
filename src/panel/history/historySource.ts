@@ -89,13 +89,17 @@ export function parseValues(body: unknown, what: string): HistoryPoint[] {
 export function httpHistorySource(
   fetchFn: typeof fetch = (input, init) => fetch(input, init)
 ): HistorySource {
-  // Providers are installed as plugins, so the answer holds until a reload.
+  // Providers are installed as plugins, so an answer holds until a reload. A
+  // failed check is not one, as while the server restarts after an install.
   let provider: Promise<boolean> | undefined
   return {
     hasProvider: () => {
       provider ??= getJson(fetchFn, `${HISTORY_API}/_providers`).then(
         (body) => isRecord(body) && Object.keys(body).length > 0,
-        () => false
+        () => {
+          provider = undefined
+          return false
+        }
       )
       return provider
     },

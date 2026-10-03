@@ -63,6 +63,17 @@ describe('hasProvider', () => {
     await expect(httpHistorySource(fetchFn).hasProvider()).resolves.toBe(false)
   })
 
+  it('asks again after a failed check, as while the server restarts with a new plugin', async () => {
+    const answers = fakeFetch({ providers: { body: { p: { isDefault: true } } } })
+    const fetchFn = vi
+      .fn<typeof fetch>(answers)
+      .mockImplementationOnce(() => Promise.reject(new TypeError('offline')))
+    const source = httpHistorySource(fetchFn)
+    await expect(source.hasProvider()).resolves.toBe(false)
+    await expect(source.hasProvider()).resolves.toBe(true)
+    expect(fetchFn).toHaveBeenCalledTimes(2)
+  })
+
   it('asks the server once per source', async () => {
     const fetchFn = fakeFetch({ providers: { body: { p: { isDefault: true } } } })
     const source = httpHistorySource(fetchFn)
