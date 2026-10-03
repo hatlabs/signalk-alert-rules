@@ -155,6 +155,7 @@ function deploy {
   echo "==> Copying to ${dest}..."
   rsync -rlpt --delete dist/ "${dest}/dist/"
   rsync -rlpt --delete public/ "${dest}/public/"
+  rsync -rlpt --delete templates/ "${dest}/templates/"
   rsync -lpt package.json README.md LICENSE "${dest}/"
 
   echo ""
