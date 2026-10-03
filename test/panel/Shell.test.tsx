@@ -322,6 +322,29 @@ describe('Shell views', () => {
     expect(screen.getByRole('heading', { name: 'Oil pressure low' })).toBeTruthy()
   })
 
+  it('charts the history of the rule it opens, once the server has a provider', async () => {
+    window.history.replaceState(null, '', `/admin/${ADMIN}#rule=oil-pressure-low`)
+    vi.useFakeTimers()
+    const history = {
+      hasProvider: vi.fn(() => Promise.resolve(true)),
+      values: vi.fn(() =>
+        Promise.resolve([
+          { time: Date.now() - 1_200_000, value: 250_000 },
+          { time: Date.now() - 600_000, value: 240_000 }
+        ])
+      )
+    }
+    render(
+      <Shell api={mockApi({ state: running, rules: [rule] })} paths={noPaths} history={history} />
+    )
+    await settle()
+    await settle()
+    expect(screen.getByRole('img', { name: 'Last 24 hours with the limit' })).toBeTruthy()
+    expect(history.values).toHaveBeenCalledWith(
+      expect.objectContaining({ path: 'propulsion.port.oilPressure', method: 'min' })
+    )
+  })
+
   it('lands a link to a rule that is not there on the list, saying so', async () => {
     window.history.replaceState(null, '', '/#rule=gone')
     await renderShell({ state: running, rules: [rule] })
