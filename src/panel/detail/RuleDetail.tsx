@@ -18,6 +18,9 @@ import {
   ruleDisplay,
   type RuleDisplay
 } from '../rules/describe'
+import { HistoryChart } from '../history/HistoryChart'
+import type { HistorySource } from '../history/historySource'
+import { detailChart } from '../history/ruleChart'
 import { NO_UNITS, type UnitLookup } from '../signalUnits'
 import { explain, type Sentence } from './explain'
 import { BackIcon, EditIcon, PowerIcon } from './icons'
@@ -34,6 +37,8 @@ export interface RuleDetailProps {
   headingRef?: Ref<HTMLHeadingElement>
   /** The units of the rule's paths; without them values are shown in SI. */
   units?: UnitLookup
+  /** The server's recorded values, for the path's chart; absent, there is none. */
+  history?: HistorySource
   /** The instance a link names, to mark, or to say it is not there. */
   instance?: string
   /** The linked instance's row, which takes focus when the operator follows the link. */
@@ -433,6 +438,7 @@ export function RuleDetail({
   now,
   headingRef,
   units = NO_UNITS,
+  history,
   instance,
   instanceRef,
   ...controls
@@ -442,6 +448,7 @@ export function RuleDetail({
   const display = ruleDisplay(rule, units)
   const chip = chipOf(entry)
   const wildcard = hasInstances(entry)
+  const chart = history && detailChart(rule, units)
 
   return (
     <div className="skar-detail">
@@ -490,6 +497,14 @@ export function RuleDetail({
         </div>
       )}
       <Steps entry={entry} display={display} />
+      {history !== undefined && chart !== undefined && (
+        <HistoryChart
+          history={history}
+          spec={chart}
+          // The path's own name heads its chart; without one the chart names its span.
+          title={units.entry(chart.path)?.displayName}
+        />
+      )}
       {wildcard && (
         <Instances
           instances={status.instances}

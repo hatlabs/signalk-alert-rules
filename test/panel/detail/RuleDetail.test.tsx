@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RuleEntry } from '../../../src/panel/api'
 import { RuleDetail, type RuleDetailProps } from '../../../src/panel/detail/RuleDetail'
+import type { HistoryPoint, HistorySource } from '../../../src/panel/history/historySource'
 import type { PathEntry } from '../../../src/panel/paths/selfPaths'
 import { unitLookup } from '../../../src/panel/signalUnits'
 import { displayUnit } from '../../../src/panel/units'
@@ -645,5 +646,67 @@ describe('RuleDetail', () => {
     )
     expect(fact(/alerts when/i)).toBe('above 100 °C')
     expect(screen.queryByText(/values are in SI units/i)).toBeNull()
+  })
+
+  describe('history', () => {
+    const day: HistoryPoint[] = Array.from({ length: 144 }, (_, i) => ({
+      time: Date.now() - 86_400_000 + i * 600_000,
+      value: 12.5
+    }))
+    const history = (
+      values: () => Promise<HistoryPoint[]> = () => Promise.resolve(day)
+    ): HistorySource => ({ hasProvider: () => Promise.resolve(true), values })
+
+    async function settle() {
+      for (let i = 0; i < 2; i++) {
+        await act(async () => {
+          await Promise.resolve()
+        })
+      }
+    }
+
+    it('charts the path with the limit, after the steps and before the facts', async () => {
+      renderDetail(stepped, { history: history() })
+      await settle()
+      const chart = screen.getByRole('img', { name: 'Last 24 hours with the limits' })
+      expect(chart.textContent).toContain('warning 12.2 V')
+      expect(chart.textContent).toContain('alarm 11.8 V')
+      const card = chart.closest('section')
+      const steps = screen.getByRole('heading', { name: 'Steps' })
+      const facts = screen.getByRole('definition', { name: /watches/i })
+      expect(steps.compareDocumentPosition(card as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+      expect(facts.compareDocumentPosition(card as Node)).toBe(Node.DOCUMENT_POSITION_PRECEDING)
+    })
+
+    it('names the chart after the path, as the server names it', async () => {
+      const named = unitLookup(
+        [{ ...paths[0], displayName: 'House bank voltage' }],
+        displayUnit({ units: 'm' })
+      )
+      renderDetail(houseLow, { history: history(), units: named })
+      await settle()
+      expect(screen.getByRole('heading', { name: 'House bank voltage' })).toBeTruthy()
+      expect(screen.getByRole('img', { name: 'Last 24 hours with the limit' })).toBeTruthy()
+    })
+
+    it('leaves the rest of the rule as it is when the history fails', async () => {
+      renderDetail(houseLow, {
+        history: history(() => Promise.reject(new Error('timed out')))
+      })
+      await settle()
+      expect(screen.getByText('History unavailable.')).toBeTruthy()
+      expect(fact(/alerts when/i)).toBe('below 12 V for at least 30 s')
+      expect(screen.queryByRole('alert')).toBeNull()
+    })
+
+    it('has no chart for a rule over several instances', async () => {
+      const wildcard = ruleEntry({
+        rule: { signal: { paths: ['electrical.batteries.*.voltage'] } }
+      })
+      renderDetail(wildcard, { history: history() })
+      await settle()
+      expect(screen.queryByText(/Loading history/)).toBeNull()
+      expect(screen.queryByRole('group', { name: 'Span' })).toBeNull()
+    })
   })
 })

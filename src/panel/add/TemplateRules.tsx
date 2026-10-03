@@ -18,6 +18,8 @@ import { useLeaveGuard } from '../editor/leaveGuard'
 import { checkedErrors, RuleFields } from '../editor/RuleFields'
 import { joined, rulesWord } from '../editor/words'
 import { failureMessage } from '../failure'
+import { FormHistory } from '../history/FormHistory'
+import type { HistorySource } from '../history/historySource'
 import type { PathList, PathSource } from '../paths/selfPaths'
 import type { UnitLookup } from '../signalUnits'
 import { candidates, pickKey, ruleWatching, templateTitle, watchedPath } from './templatePicks'
@@ -32,6 +34,8 @@ const SLUG_ATTEMPTS = 5
 export interface TemplateRulesProps {
   api: PanelApi
   paths: PathSource
+  /** The server's recorded values, for the chart beside the form; absent, there is none. */
+  history?: HistorySource
   set: TemplateSetEntry
   template: Template
   picks: readonly TemplatePick[]
@@ -435,7 +439,7 @@ function TabsForm(props: FormProps) {
               />
             </fieldset>
           </form>
-          {/* The history chart's place, beside the form on a tablet. */}
+          <FormHistory history={props.history} form={active.form} units={units} />
         </div>
       )}
 

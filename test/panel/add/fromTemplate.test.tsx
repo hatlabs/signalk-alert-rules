@@ -11,6 +11,7 @@ import {
   type RuleEntry,
   type TemplateListing
 } from '../../../src/panel/api'
+import type { HistoryPoint, HistorySource } from '../../../src/panel/history/historySource'
 import type { PathEntry, PathSource } from '../../../src/panel/paths/selfPaths'
 import { hashWithRoute } from '../../../src/panel/route'
 import { Shell } from '../../../src/panel/Shell'
@@ -113,11 +114,16 @@ function renderShell(
   server: Server,
   {
     reported = boat,
-    permissions = 'admin'
-  }: { reported?: PathEntry[]; permissions?: PluginState['permissions'] } = {}
+    permissions = 'admin',
+    history
+  }: {
+    reported?: PathEntry[]
+    permissions?: PluginState['permissions']
+    history?: HistorySource
+  } = {}
 ) {
   const api = serverApi(server, permissions)
-  render(<Shell api={api} paths={pathsOf(reported)} />)
+  render(<Shell api={api} paths={pathsOf(reported)} history={history} />)
   return api
 }
 
@@ -272,6 +278,34 @@ describe('Add rule from a template', () => {
     pick(/^ruuvi-cockpit/)
     await continueWith('Continue with 3 rules')
     expect(screen.getByText('All 3 rules have every required field.')).toBeTruthy()
+  })
+
+  it('charts the shown tab’s battery beside its form, with both steps’ limits', async () => {
+    const day: HistoryPoint[] = Array.from({ length: 144 }, (_, i) => ({
+      time: Date.now() - 86_400_000 + i * 600_000,
+      value: 13.3
+    }))
+    const history = {
+      hasProvider: vi.fn(() => Promise.resolve(true)),
+      values: vi.fn(() => Promise.resolve(day))
+    } satisfies HistorySource
+    renderShell(fresh(), { history })
+    await openLifepo4()
+    pick(/^House bank/)
+    pick(/^starter/)
+    await continueWith('Continue with 2 rules')
+    const chart = await screen.findByRole('img', { name: 'Last 24 hours with the limits' })
+    expect(chart.textContent).toContain('warning 12.8 V')
+    expect(chart.textContent).toContain('alarm 12 V')
+    expect(history.values).toHaveBeenLastCalledWith(
+      expect.objectContaining({ path: 'electrical.batteries.house.voltage', method: 'min' })
+    )
+    fireEvent.click(tab(/starter/))
+    await waitFor(() => {
+      expect(history.values).toHaveBeenLastCalledWith(
+        expect.objectContaining({ path: 'electrical.batteries.starter.voltage' })
+      )
+    })
   })
 
   it('copies the shown tab’s settings to the others, keeping their names and values', async () => {

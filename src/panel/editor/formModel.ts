@@ -452,7 +452,8 @@ function shownNumber(
   return text
 }
 
-function parsed(text: string): number | undefined {
+/** A number as typed, a decimal comma accepted; undefined while empty or not a number. */
+export function parsedNumber(text: string): number | undefined {
   const trimmed = text.trim()
   if (trimmed === '') return undefined
   const value = Number(trimmed.replace(',', '.'))
@@ -676,7 +677,7 @@ class Reader {
     }
     const stored = this.shown[shownKey(text, kind, unit)]
     if (stored !== undefined) return stored
-    const value = parsed(text)
+    const value = parsedNumber(text)
     if (value === undefined) {
       this.fail(path, 'must be a number')
       return undefined

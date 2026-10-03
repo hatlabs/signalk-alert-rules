@@ -29,6 +29,7 @@ import { failureMessage, fieldErrorText, NEEDS_ADMINISTRATOR } from './failure'
 import { RuleList } from './list/RuleList'
 import { TemplatesNotice } from './list/TemplatesNotice'
 import { withRefusals } from './refusal'
+import type { HistorySource } from './history/historySource'
 import type { PathSource } from './paths/selfPaths'
 import { hashWithRoute, parseRoute, type AddRoute, type Route } from './route'
 import { RuleDetail } from './detail/RuleDetail'
@@ -47,6 +48,8 @@ export interface ShellProps {
   api: PanelApi
   /** The server's paths and their units, for display units and the path picker. */
   paths: PathSource
+  /** The server's recorded values, for the history charts; absent, there are none. */
+  history?: HistorySource
 }
 
 /**
@@ -326,13 +329,14 @@ interface ViewsProps {
   api: PanelApi
   view: ReadyView
   paths: PathSource
+  history?: HistorySource
   /** Probes again at once, so the views show the outcome of an action. */
   refresh: () => void
   /** Shown over the views while they show the rules as last read. */
   stale: ReactNode
 }
 
-function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
+function Views({ api: serverApi, view, paths, history, refresh, stale }: ViewsProps) {
   const { issues, permissions, readAt } = view
   const { units } = useUnits(paths)
   // Shown until the list, refreshed after the save, has the rule.
@@ -518,6 +522,7 @@ function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
           key={viewKey}
           api={api}
           paths={paths}
+          history={history}
           set={set}
           template={template}
           picks={picks}
@@ -567,6 +572,7 @@ function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
             key={viewKey}
             api={api}
             paths={paths}
+            history={history}
             invalid={{ slug: entry.slug, name: entry.name, ...entry.invalid }}
             back={{ href: routeHref({ kind: 'rule', slug: entry.slug }), label: entry.name }}
             ruleName={ruleName}
@@ -597,6 +603,7 @@ function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
             now={readAt}
             headingRef={heading}
             units={units}
+            history={history}
             instance={route.instance}
             instanceRef={instanceRow}
             {...(admin
@@ -647,6 +654,7 @@ function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
             key={viewKey}
             api={api}
             paths={paths}
+            history={history}
             entry={entry}
             back={{ href: routeHref({ kind: 'rule', slug: entry.slug }), label: entry.rule.name }}
             ruleName={ruleName}
@@ -706,6 +714,7 @@ function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
             key={viewKey}
             api={api}
             paths={paths}
+            history={history}
             start={{ path: route.path, kind: route.when }}
             back={{
               href: routeHref({ kind: 'add', from: 'path', path: route.path }),
@@ -736,7 +745,7 @@ function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
   )
 }
 
-export function Shell({ api, paths }: ShellProps) {
+export function Shell({ api, paths, history }: ShellProps) {
   const [snapshot, ready, checkAgain] = useSnapshot(api)
   const { view, securityEnabled } = snapshot
 
@@ -750,6 +759,7 @@ export function Shell({ api, paths }: ShellProps) {
           api={api}
           view={ready}
           paths={paths}
+          history={history}
           refresh={checkAgain}
           stale={<StaleNotice view={view} readAt={ready.readAt} checkAgain={checkAgain} />}
         />
