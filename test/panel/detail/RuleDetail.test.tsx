@@ -288,6 +288,32 @@ describe('RuleDetail', () => {
         'Clears when the value is back between -25 and 25 °.'
       )
     })
+
+    it('charts the lowest and highest heel against both limits of each step', async () => {
+      const bucket = (i: number) => Date.now() - 86_400_000 + i * 600_000
+      const lows = Array.from({ length: 144 }, (_, i) => ({ time: bucket(i), value: -27 }))
+      const highs = Array.from({ length: 144 }, (_, i) => ({ time: bucket(i), value: 36 }))
+      const values = vi.fn(() => Promise.resolve([lows, highs]))
+      renderDetail(heel, {
+        units: heelUnits,
+        history: { hasProvider: () => Promise.resolve(true), values }
+      })
+      for (let i = 0; i < 2; i++) {
+        await act(async () => {
+          await Promise.resolve()
+        })
+      }
+      expect(values).toHaveBeenCalledWith(expect.objectContaining({ methods: ['min', 'max'] }))
+      const chart = screen.getByRole('img', { name: 'Last 24 hours with the limits' })
+      for (const label of ['warning -25 °', 'warning 25 °', 'alarm -35 °', 'alarm 35 °']) {
+        expect(chart.textContent).toContain(label)
+      }
+      expect(
+        screen.getByText(
+          /^Lowest -27 ° at .+; highest 36 ° at .+\. It went below the warning limit and above the alarm limit\.$/
+        )
+      ).toBeTruthy()
+    })
   })
 
   describe('disabled', () => {
