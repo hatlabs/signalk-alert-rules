@@ -96,7 +96,21 @@ describe('alertsWhen', () => {
   it.each([
     [{ type: 'match', op: 'equals' }, { value: 'fault', priority: 'warning' }, 'equals fault'],
     [{ type: 'match', op: 'changesTo' }, { value: 'off', priority: 'warning' }, 'changes to off'],
-    [{ type: 'count' }, { limit: 5, priority: 'warning' }, 'more than 5 events'],
+    [
+      { type: 'count', event: { op: 'changesTo', value: true }, window: 3600 },
+      { limit: 4, priority: 'warning' },
+      'more than 4 events (changes to true) within 60 min'
+    ],
+    [
+      { type: 'count', event: { op: 'changes' }, window: 600 },
+      { limit: 1, priority: 'warning' },
+      'more than 1 event (changes) within 10 min'
+    ],
+    [
+      { type: 'count', event: { op: 'decreases' }, window: 86400 },
+      { limit: 3, priority: 'warning' },
+      'more than 3 events (decreases) within 24 h'
+    ],
     [{ type: 'absence' }, { within: 600, priority: 'warning' }, 'no event within 10 min'],
     [
       { type: 'accumulator', measure: 'time' },

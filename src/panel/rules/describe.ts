@@ -2,6 +2,7 @@ import type {
   ConditionFacts,
   InstanceStatus,
   RuleEntry,
+  RuleEvent,
   RuleInfo,
   RuleStep,
   SignalValue
@@ -90,6 +91,18 @@ const MATCH_WORDS: Readonly<Partial<Record<string, string>>> = {
   changesTo: 'changes to'
 }
 
+const EVENT_WORDS: Readonly<Partial<Record<string, string>>> = {
+  changes: 'changes',
+  changesTo: 'changes to',
+  decreases: 'decreases'
+}
+
+/** An event in words: "changes to true". */
+function eventWords(event: RuleEvent, display: RuleDisplay): string {
+  const words = EVENT_WORDS[event.op] ?? event.op
+  return event.value === undefined ? words : `${words} ${display.value(event.value)}`
+}
+
 /** A projection's limit is passed on the side its trend heads for. */
 function projectedSide(direction: RuleInfo['detector']['direction']): string {
   return direction === 'falling' ? 'below' : 'above'
@@ -120,8 +133,12 @@ export function stepCondition(step: RuleStep, rule: RuleInfo, display: RuleDispl
     }
     case 'absence':
       return `no event within ${formatDuration(step.within ?? 0)}`
-    case 'count':
-      return `more than ${plural(limit ?? 0, 'event')}`
+    case 'count': {
+      const { event, window } = rule.detector
+      const what = event === undefined ? '' : ` (${eventWords(event, display)})`
+      const within = window === undefined ? '' : ` within ${formatDuration(window)}`
+      return `more than ${plural(limit ?? 0, 'event')}${what}${within}`
+    }
     case 'accumulator':
       return `a total of ${display.total(limit ?? 0)}`
     case 'slope':

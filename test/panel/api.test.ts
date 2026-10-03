@@ -359,9 +359,30 @@ describe('httpApi', () => {
           }
         }
       }
-      const api = httpApi(fakeFetch({ [`${BASE}/rules`]: { body: [stepped, match, absence] } }))
-      const [read, matched, absent] = await api.rules()
-      if (isInvalid(read) || isInvalid(matched) || isInvalid(absent)) throw new Error('invalid')
+      const count = {
+        ...notStartedAccumulator,
+        rule: {
+          ...notStartedAccumulator.rule,
+          detector: {
+            type: 'count',
+            event: { op: 'changesTo', value: true },
+            window: 3600,
+            steps: [{ limit: 4, priority: 'warning' }]
+          }
+        }
+      }
+      const api = httpApi(
+        fakeFetch({ [`${BASE}/rules`]: { body: [stepped, match, absence, count] } })
+      )
+      const [read, matched, absent, counted] = await api.rules()
+      if (isInvalid(read) || isInvalid(matched) || isInvalid(absent) || isInvalid(counted)) {
+        throw new Error('invalid')
+      }
+      expect(counted.rule.detector).toEqual({
+        type: 'count',
+        event: { op: 'changesTo', value: true },
+        window: 3600
+      })
       expect(read.rule).toMatchObject({
         priority: 'warning',
         steps: [

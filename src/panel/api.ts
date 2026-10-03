@@ -130,6 +130,12 @@ export interface RuleStep {
   within?: number
 }
 
+/** An event a rule watches for: a change, a change to a value, or a decrease. */
+export interface RuleEvent {
+  op: string
+  value?: string | number | boolean
+}
+
 /** The parts of a rule the rule list and detail view show. */
 export interface RuleInfo {
   name: string
@@ -157,6 +163,10 @@ export interface RuleInfo {
     zoneLevel?: string
     /** A match's comparison. */
     op?: string
+    /** The event a count or absence watches for. */
+    event?: RuleEvent
+    /** A count's, slope's or projection's window, in seconds. */
+    window?: number
   }
   /** The paths the signal reads; several, with the combinator, for a combined signal. */
   signal: { paths: string[]; combinator?: string }
@@ -430,6 +440,11 @@ function stepsOf(steps: unknown): RuleStep[] {
   })
 }
 
+function eventOf(v: unknown): RuleEvent | undefined {
+  if (!isRecord(v) || typeof v.op !== 'string') return undefined
+  return { op: v.op, ...optional('value', stepValue(v.value)) }
+}
+
 function templateOf(v: unknown): RuleInfo['template'] {
   if (!isRecord(v) || typeof v.set !== 'string' || typeof v.id !== 'string') return undefined
   const pick = isRecord(v.pick) ? v.pick : {}
@@ -527,7 +542,9 @@ export function parseListedRule(body: unknown, what: string): ListedRule {
         ...optional('direction', text(d.direction)),
         ...optional('measure', text(d.measure)),
         ...optional('zoneLevel', zoneLevel),
-        ...optional('op', text(d.op))
+        ...optional('op', text(d.op)),
+        ...optional('event', eventOf(d.event)),
+        ...optional('window', num(d.window))
       },
       signal: signal(input),
       ...optional('source', text(input.source)),
