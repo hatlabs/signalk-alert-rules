@@ -86,6 +86,17 @@ describe('attachErrors', () => {
     expect(attached('/detector/limit', zones)).toEqual(['/detector/limit/level'])
   })
 
+  it('keeps an error on the gates as a whole off the first gate', () => {
+    const error = { path: '/gates', message: 'must be an array' }
+    const fields = fieldPointers(
+      form((f) => {
+        f.gates = [emptyGate()]
+      }),
+      false
+    )
+    expect(attachErrors([error], fields)).toEqual({ byField: new Map(), unattached: [error] })
+  })
+
   it('keeps an error that no field shows', () => {
     const error = { path: '/gates/3/limit', message: 'x' }
     expect(attachErrors([error], fields).unattached).toEqual([error])

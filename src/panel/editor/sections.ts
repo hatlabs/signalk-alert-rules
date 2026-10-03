@@ -138,7 +138,8 @@ export interface AttachedErrors {
 /**
  * Puts each error on the field it names, else on the closest field it lies
  * under, else on the first field of the group it names that is not a limit's
- * kind.
+ * kind. An error on the gates as a whole stays off the fields: on the first
+ * gate's it would read as that gate's own.
  */
 export function attachErrors(
   errors: readonly FieldError[],
@@ -151,7 +152,8 @@ export function attachErrors(
       .filter((f) => error.path === f || error.path.startsWith(`${f}/`))
       .sort((a, b) => b.length - a.length)
       .at(0)
-    const group = fields.filter((f) => f.startsWith(`${error.path}/`))
+    const group =
+      error.path === '/gates' ? [] : fields.filter((f) => f.startsWith(`${error.path}/`))
     // A limit's kind is always chosen, so an error on the whole limit is about the rest of it.
     const field = under ?? group.find((f) => !f.endsWith('/limit/kind')) ?? group.at(0)
     if (field === undefined) unattached.push(error)
