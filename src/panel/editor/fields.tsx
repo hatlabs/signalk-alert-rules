@@ -424,13 +424,15 @@ export function ValueControl({ label, value, onChange, unit, kind, control }: Va
       />
     )
   }
+  // An untouched field is typed 'number' whatever the path reports; the path's kind decides.
+  const numeric = kind === undefined ? value.type === 'number' : kind === 'number'
   const typed = (
     <div className="skar-input-row">
       <input
         className="skar-input"
         {...control}
         type="text"
-        inputMode={value.type === 'number' ? 'decimal' : undefined}
+        inputMode={numeric ? 'decimal' : undefined}
         value={value.text}
         onChange={(e) => {
           onChange({
@@ -439,7 +441,7 @@ export function ValueControl({ label, value, onChange, unit, kind, control }: Va
           })
         }}
       />
-      {value.type === 'number' && unit !== '' && <span className="skar-unit">{unit}</span>}
+      {numeric && unit !== '' && <span className="skar-unit">{unit}</span>}
     </div>
   )
   if (kind !== undefined) return typed

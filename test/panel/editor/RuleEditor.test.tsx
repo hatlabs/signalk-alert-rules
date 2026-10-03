@@ -239,6 +239,14 @@ describe('RuleEditor, from a path', () => {
     expect(screen.getByText('Fill in the state to save.')).toBeTruthy()
   })
 
+  it('takes a state of a text value as text, with no unit', async () => {
+    renderEditor({ start: { path: 'propulsion.port.state', kind: 'state' } })
+    await formShown()
+    const state = textbox('State for step 1')
+    expect(state.getAttribute('inputmode')).toBeNull()
+    expect(state.parentElement?.textContent).not.toContain('SI')
+  })
+
   it('drops the step errors when a step is removed', async () => {
     renderEditor({ start: { path: HOUSE, kind: 'below' } })
     await formShown()
