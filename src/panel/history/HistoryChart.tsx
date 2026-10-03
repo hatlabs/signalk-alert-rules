@@ -210,6 +210,12 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
           { value: shown, time: timeOf(span) }
         )
   const withLimits = limits.length === 0 ? '' : several ? ' with the limits' : ' with the limit'
+  const note =
+    loaded.status === 'failed'
+      ? 'History unavailable.'
+      : loaded.status === 'ready' && !recorded
+        ? `Nothing recorded in the ${span.title.toLowerCase()}.`
+        : undefined
 
   return (
     <section className="skar-card skar-history" aria-labelledby={titleId}>
@@ -235,13 +241,9 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
       </div>
       <div ref={ref} className="skar-history-plot">
         {loaded.status === 'loading' && (
-          <p role="status" className="skar-history-note">
+          <p className="skar-history-note" style={{ height: CHART_HEIGHT }}>
             Loading history…
           </p>
-        )}
-        {loaded.status === 'failed' && <p className="skar-history-note">History unavailable.</p>}
-        {loaded.status === 'ready' && !recorded && (
-          <p className="skar-history-note">{`Nothing recorded in the ${span.title.toLowerCase()}.`}</p>
         )}
         {recorded && (
           <svg
@@ -275,8 +277,16 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
             </text>
           </svg>
         )}
+        {/* One region, mounted throughout, so each answer's words are announced. */}
+        <div role="status" className="skar-history-status">
+          {note !== undefined && (
+            <p className="skar-history-note" style={{ height: CHART_HEIGHT }}>
+              {note}
+            </p>
+          )}
+          {note === undefined && summary !== undefined && <p className="skar-hint">{summary}</p>}
+        </div>
       </div>
-      {summary !== undefined && <p className="skar-hint">{summary}</p>}
     </section>
   )
 }

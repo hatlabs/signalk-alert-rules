@@ -124,7 +124,9 @@ describe('HistoryChart', () => {
       <HistoryChart history={fakeHistory(() => new Promise(() => undefined))} spec={coolant} />
     )
     await settle()
-    expect(screen.getByRole('status').textContent).toBe('Loading history…')
+    expect(screen.getByText('Loading history…')).toBeTruthy()
+    // Only what the answer says is announced, not each wait for one.
+    expect(screen.getByRole('status').textContent).toBe('')
   })
 
   it('says quietly that history is unavailable when the query fails', async () => {
@@ -135,7 +137,7 @@ describe('HistoryChart', () => {
       />
     )
     await settle()
-    expect(screen.getByText('History unavailable.')).toBeTruthy()
+    expect(screen.getByRole('status').textContent).toBe('History unavailable.')
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.queryByRole('img')).toBeNull()
   })
@@ -143,7 +145,20 @@ describe('HistoryChart', () => {
   it('says when nothing was recorded in the span', async () => {
     render(<HistoryChart history={fakeHistory(() => Promise.resolve([]))} spec={coolant} />)
     await settle()
-    expect(screen.getByText('Nothing recorded in the last 24 hours.')).toBeTruthy()
+    expect(screen.getByRole('status').textContent).toBe('Nothing recorded in the last 24 hours.')
+  })
+
+  it('announces the summary of each span chosen in one status region that stays put', async () => {
+    const history = fakeHistory((q) => Promise.resolve(q.seconds === 86_400 ? series : []))
+    render(<HistoryChart history={history} spec={coolant} />)
+    await settle()
+    const status = screen.getByRole('status')
+    expect(status.getAttribute('aria-live')).not.toBe('assertive')
+    expect(status.textContent).toMatch(/^Highest 90 °C at .+\. The rule would not have alerted\.$/)
+    fireEvent.click(screen.getByRole('button', { name: '1 h' }))
+    await settle()
+    expect(screen.getByRole('status')).toBe(status)
+    expect(status.textContent).toBe('Nothing recorded in the last hour.')
   })
 
   it('asks again with a matching resolution when the span changes', async () => {

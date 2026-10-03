@@ -1450,20 +1450,20 @@ select.skar-input {
   outline-offset: 2px;
 }
 
-/* Held at the chart's height, so loading and failing do not move the page. */
-.skar-history-plot {
-  height: 110px;
-}
-
 .skar-history-plot > svg {
   display: block;
 }
 
+/* Its note or summary follows the chart as the card's other parts follow one another. */
+.skar-history-status > .skar-hint {
+  margin-top: 6px;
+}
+
+/* Held at the chart's height by the component, so loading and failing do not move the page. */
 .skar-history-note {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 100%;
   margin: 0;
   font-size: 0.875rem;
   color: var(--skar-muted);
