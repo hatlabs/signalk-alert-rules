@@ -594,8 +594,11 @@ function gateFrom(gate: Gate, units: UnitLookup): GateForm {
 export function fromBody(body: unknown, units: UnitLookup): RuleForm {
   const text = (key: string) => (isRecord(body) && typeof body[key] === 'string' ? body[key] : '')
   const texts = { name: text('name'), slug: text('slug'), message: text('message') }
+  // A missing detector reads as one not yet chosen, so the rest of the body still shows.
+  const readable =
+    isRecord(body) && !isRecord(body.detector) ? { ...body, detector: { type: '' } } : body
   try {
-    const form = fromRule(body as Rule, units)
+    const form = fromRule(readable as Rule, units)
     // A detector the form has no fields for is shown unchosen, to be chosen again.
     const type = Object.hasOwn(DETECTOR_TYPES, form.detector.type) ? form.detector.type : ''
     return {

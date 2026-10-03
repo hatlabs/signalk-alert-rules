@@ -958,6 +958,26 @@ describe('RuleEditor, an invalid stored rule', () => {
     expect(textbox(/^Message/)).toHaveProperty('value', 'Hello')
   })
 
+  it('opens a body without a detector watching its signal, asking only for Alert when', async () => {
+    const coolant = example('coolant-temperature-rising')
+    const { detector: _detector, ...body } = coolant
+    renderEditor({
+      invalid: {
+        slug: coolant.slug,
+        name: coolant.name,
+        body,
+        errors: [{ path: '/detector', message: 'is required' }]
+      }
+    })
+    await formShown()
+    expect(screen.getByText('propulsion.*.coolantTemperature')).toBeTruthy()
+    expect(button('Change the value to watch')).toBeTruthy()
+    expect(screen.getByText('alerts.propulsion.*.')).toBeTruthy()
+    expect(description(select(/^Alert when/))).toContain('is required')
+    expect(document.querySelectorAll('[aria-invalid="true"]')).toHaveLength(1)
+    expect(screen.getByText('Fill in what should alert to save.')).toBeTruthy()
+  })
+
   it('opens a rule-shaped body without a message, asking for one', async () => {
     const { message: _message, ...body } = battery
     renderEditor({

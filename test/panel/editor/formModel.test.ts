@@ -753,6 +753,27 @@ describe('a stored rule that does not validate', () => {
     expect(!result.ok && result.errors.map((e) => e.path)).toEqual(['/name', '/message'])
   })
 
+  it('keeps the signal and gates of a body without a detector, asking only for its kind', () => {
+    const { detector: _detector, ...body } = example('coolant-temperature-rising')
+    const form = fromBody(body, NO_UNITS)
+    expect(form.signal.slots[0]?.path).toBe('propulsion.*.coolantTemperature')
+    expect(form.gates).toHaveLength(1)
+    expect(form.detector.type).toBe('')
+    const result = toRule(form, NO_UNITS)
+    expect(!result.ok && result.errors).toEqual([
+      { path: '/detector/type', message: 'is required' }
+    ])
+  })
+
+  it.each([null, [], 'sustained'])(
+    'keeps the signal of a body whose detector is %j',
+    (detector) => {
+      const form = fromBody({ ...example('coolant-temperature-rising'), detector }, NO_UNITS)
+      expect(form.signal.slots[0]?.path).toBe('propulsion.*.coolantTemperature')
+      expect(form.detector.type).toBe('')
+    }
+  )
+
   it('asks for the kind of a detector it does not know', () => {
     const rule = example('house-battery-low')
     const form = fromBody({ ...rule, detector: { type: 'nonsense' } }, NO_UNITS)
