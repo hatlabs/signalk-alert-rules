@@ -995,13 +995,15 @@ function stepLimit(unit: Unit, step: number): number | undefined {
 }
 
 /**
- * The limit of an outside step the value last went past, as the step's
- * detector found it; undefined for any other step and before the value has
- * gone past either limit.
+ * An outside step's limit on the side the value last went past; undefined for
+ * any other step and before the value has gone past either limit. The side is
+ * the first step's detector's: its range is the narrowest, so it sees every
+ * value beyond any step, including a fall past its own other limit that a
+ * wider step reached earlier never sees.
  */
 function passedAt(unit: Unit, step: number): { side: Side; limit: number } | undefined {
   const spec = unit.steps.at(step)?.spec
-  const detector = unit.tracks.at(step)?.detector
+  const detector = unit.tracks.at(0)?.detector
   if (spec?.type !== 'outside' || !(detector instanceof SustainedDetector)) return undefined
   const side = detector.passed
   return side === undefined ? undefined : { side, limit: side === 'low' ? spec.low : spec.high }

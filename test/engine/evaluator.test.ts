@@ -868,6 +868,56 @@ describe('outside rules', () => {
       expect(evaluator.reached('')).toMatchObject({ value: -30, step: 1, limit: -35 })
     })
 
+    it("names the reached step's bound on the side of a fall past only the first step's other limit", () => {
+      const { at, events, evaluator } = setup(heel)
+      at(0, HEEL, 30)
+      at(10)
+      at(11, HEEL, 37)
+      at(21)
+      at(22, HEEL, -30)
+      at(100)
+      expect(events).toMatchObject([
+        { type: 'raise', priority: 'warning', limit: 25 },
+        { type: 'priority', priority: 'alarm', limit: 35 }
+      ])
+      expect(evaluator.reached('')).toMatchObject({ value: -30, step: 1, limit: -35 })
+      expect(evaluator.status().instances[0]).toMatchObject({ limit: -35, passed: 'low' })
+      expect(evaluator.revisions()).toEqual([
+        { instance: undefined, priority: 'alarm', limit: -35 }
+      ])
+    })
+
+    it('escalates on the other side from the raise with the low bound', () => {
+      const { at, events } = setup(heel)
+      at(0, HEEL, 27)
+      at(10)
+      at(11, HEEL, -37)
+      at(21)
+      expect(events).toEqual([
+        {
+          type: 'raise',
+          instance: undefined,
+          priority: 'warning',
+          rule: heel,
+          value: 27,
+          limit: 25
+        },
+        { type: 'priority', instance: undefined, priority: 'alarm', limit: -35 }
+      ])
+    })
+
+    it("an edit in place after a move to the other side sends that side's bound", () => {
+      const { at, evaluator } = setup(heel)
+      at(0, HEEL, 27)
+      at(10)
+      at(11, HEEL, -27)
+      at(30)
+      evaluator.update(valid({ ...heel, message: 'Heel {value}' }))
+      expect(evaluator.revisions()).toEqual([
+        { instance: undefined, priority: 'warning', limit: -25 }
+      ])
+    })
+
     it('is absent for a unit never beyond either limit', () => {
       const { at, evaluator } = setup(heel)
       at(0, HEEL, 3)
