@@ -3,6 +3,8 @@ import type { Rule } from '../../model/rule'
 import { RuleRejectedError, type FieldError, type PanelApi, type RuleEntry } from '../api'
 import { BackIcon } from '../detail/icons'
 import { failureMessage } from '../failure'
+import { FormHistory } from '../history/FormHistory'
+import type { HistorySource } from '../history/historySource'
 import type { PathList, PathSource } from '../paths/selfPaths'
 import { ConfirmSheet, useSheet } from '../rules/Confirm'
 import { discardedTotals, ruleDisplay } from '../rules/describe'
@@ -19,6 +21,8 @@ import { saveHint } from './sections'
 export interface RuleEditorProps {
   api: PanelApi
   paths: PathSource
+  /** The server's recorded values, for the chart beside the form; absent, there is none. */
+  history?: HistorySource
   /** The rule to edit, with its current entry; absent for a new rule. */
   editing?: { entry: RuleEntry; rule: Rule }
   /** A stored rule that does not run, to fix: its slug, name, body as stored and errors. */
@@ -67,7 +71,7 @@ function initialForm(props: FormProps, units: UnitLookup): RuleForm {
 }
 
 function EditorForm(props: FormProps) {
-  const { api, paths, live, editing, invalid, back, onSaved, onClose } = props
+  const { api, paths, live, history, editing, invalid, back, onSaved, onClose } = props
   const ruleName = props.ruleName ?? (() => undefined)
   const isNew = editing === undefined && invalid === undefined
   // The form's numbers are text in the units it opened with, so every
@@ -200,7 +204,7 @@ function EditorForm(props: FormProps) {
             {...(props.editHref === undefined ? {} : { editHref: props.editHref })}
           />
         </form>
-        {/* The history chart's place, beside the form on a tablet. */}
+        <FormHistory history={history} form={form} units={units} />
       </div>
 
       <div className="skar-editor-actions">

@@ -522,6 +522,7 @@ function Views({ api: serverApi, view, paths, history, refresh, stale }: ViewsPr
           key={viewKey}
           api={api}
           paths={paths}
+          history={history}
           set={set}
           template={template}
           picks={picks}
@@ -571,6 +572,7 @@ function Views({ api: serverApi, view, paths, history, refresh, stale }: ViewsPr
             key={viewKey}
             api={api}
             paths={paths}
+            history={history}
             invalid={{ slug: entry.slug, name: entry.name, ...entry.invalid }}
             back={{ href: routeHref({ kind: 'rule', slug: entry.slug }), label: entry.name }}
             ruleName={ruleName}
@@ -652,6 +654,7 @@ function Views({ api: serverApi, view, paths, history, refresh, stale }: ViewsPr
             key={viewKey}
             api={api}
             paths={paths}
+            history={history}
             entry={entry}
             back={{ href: routeHref({ kind: 'rule', slug: entry.slug }), label: entry.rule.name }}
             ruleName={ruleName}
@@ -711,6 +714,7 @@ function Views({ api: serverApi, view, paths, history, refresh, stale }: ViewsPr
             key={viewKey}
             api={api}
             paths={paths}
+            history={history}
             start={{ path: route.path, kind: route.when }}
             back={{
               href: routeHref({ kind: 'add', from: 'path', path: route.path }),
