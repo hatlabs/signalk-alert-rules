@@ -257,6 +257,23 @@ describe('Add rule from a template', () => {
     expect(tab(/House bank/).getAttribute('aria-selected')).toBe('true')
   })
 
+  it('says when every rule has its required fields', async () => {
+    renderShell(fresh())
+    await openLifepo4()
+    pick(/^House bank/)
+    pick(/^starter/)
+    await continueWith('Continue with 2 rules')
+    expect(screen.getByText('Both rules have every required field.')).toBeTruthy()
+    change(limit(), '')
+    expect(screen.queryByText('Both rules have every required field.')).toBeNull()
+    change(limit(), '12.8')
+    fireEvent.click(screen.getByRole('link', { name: 'Choose what it watches' }))
+    await screen.findByRole('list', { name: 'Picks' })
+    pick(/^ruuvi-cockpit/)
+    await continueWith('Continue with 3 rules')
+    expect(screen.getByText('All 3 rules have every required field.')).toBeTruthy()
+  })
+
   it('copies the shown tab’s settings to the others, keeping their names and values', async () => {
     const api = renderShell(fresh())
     await openLifepo4()

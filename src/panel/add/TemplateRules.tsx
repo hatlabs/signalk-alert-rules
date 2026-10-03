@@ -321,6 +321,15 @@ function TabsForm(props: FormProps) {
     tabRefs.current.get(next.key)?.focus()
   }
   const creating = tabs.filter(included).length
+  const ready =
+    creating > 1 &&
+    hint === undefined &&
+    tabs.filter(included).every((t) => toRule(t.form, units).ok)
+  const readyNote = !ready
+    ? undefined
+    : creating === 2
+      ? 'Both rules have every required field.'
+      : `All ${String(creating)} rules have every required field.`
   const otherLabel = tabs.length === 2 ? tabs.find((t) => t.key !== active?.key)?.label : undefined
 
   return (
@@ -434,9 +443,9 @@ function TabsForm(props: FormProps) {
               {failure}
             </p>
           )}
-          {(createdNote !== undefined || hint !== undefined || note !== undefined) && (
+          {[createdNote, hint, readyNote, note].some((s) => s !== undefined) && (
             <p className="skar-hint" role="status">
-              {[createdNote, hint, note].filter((s) => s !== undefined).join(' ')}
+              {[createdNote, hint, readyNote, note].filter((s) => s !== undefined).join(' ')}
             </p>
           )}
         </div>
