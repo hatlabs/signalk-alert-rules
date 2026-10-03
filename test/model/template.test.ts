@@ -125,7 +125,8 @@ describe('validateTemplateSet', () => {
     expect(errorsOf(withRule({ message: 'Low on ${bank}' }))).toEqual([
       {
         path: '/templates/0/rule/message',
-        message: 'unknown placeholder ${bank}; only ${instance} is substituted'
+        message:
+          '${bank} is not a template parameter; ${instance} is the only one (message placeholders such as {value} are written without $)'
       }
     ])
   })
