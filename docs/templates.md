@@ -62,22 +62,31 @@ name: Example equipment
 id: example
 version: 1.0.0
 templates:
+  # An open instance: the user picks which battery bank the rule watches.
+  # ${instance} stands for that one path segment, and is filled in wherever
+  # it appears in the rule's paths, name and message.
   - id: battery-discharge-high
-    description: A battery bank discharges at more than 100 A for 30 seconds.
+    description: >-
+      A battery bank discharges at more than 100 A for 30 seconds, a warning,
+      and climbs to an alarm above 150 A.
     open: [instance]
+    # The last segment of the alert path, under electrical.batteries.<pick>.
     condition: dischargeHigh
     rule:
       name: Battery ${instance} discharging hard
+      # {limit} and {value} are filled in each time the alert is sent.
       message: 'Battery ${instance} discharge beyond {limit}: {value}'
       signal:
         path: electrical.batteries.${instance}.current
       detector:
         type: sustained
         direction: below
+        # A discharge is a negative current, in amperes.
         steps:
           - { limit: -100, priority: warning }
           - { limit: -150, priority: alarm }
         duration: 30
+        hysteresis: 5
 ```
 
 Every number is in SI units, as in any rule, and every limit is a starting point the user adjusts when using the template.
