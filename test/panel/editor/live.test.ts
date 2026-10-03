@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { withKind } from '../../../src/panel/editor/conditionKinds'
 import { emptyForm, emptyStep, type StepForm } from '../../../src/panel/editor/formModel'
-import { ladderText, nowText, priorityHint } from '../../../src/panel/editor/live'
+import { ladderText, nowText, priorityMeaning } from '../../../src/panel/editor/live'
 import { unitLookup } from '../../../src/panel/signalUnits'
 import { displayUnit } from '../../../src/panel/units'
 
@@ -26,15 +26,15 @@ function below(...limits: string[]) {
   return f
 }
 
-describe('priorityHint', () => {
+describe('priorityMeaning', () => {
   it('says what a caution means: no acknowledgement and no sound', () => {
-    expect(priorityHint('caution')).toBe(
-      'Caution: requires attention, not immediately hazardous. Needs no acknowledgement; makes no sound.'
+    expect(priorityMeaning('caution')).toBe(
+      'requires attention, not immediately hazardous. Needs no acknowledgement; makes no sound.'
     )
   })
 
   it('says a warning must be acknowledged', () => {
-    expect(priorityHint('warning')).toMatch(/^Warning: .*Must be acknowledged/)
+    expect(priorityMeaning('warning')).toMatch(/Must be acknowledged/)
   })
 })
 

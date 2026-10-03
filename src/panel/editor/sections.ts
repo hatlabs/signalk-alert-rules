@@ -4,10 +4,12 @@
  * options, and how Save names what stops it.
  */
 import type { FieldError } from '../api'
+import { capitalised } from '../list/PriorityBadge'
 import {
   canLatch,
   isZoneLimited,
-  matchTakesDuration,
+  holdsFor,
+  stepLimitField,
   stepPointer,
   stepQuantity,
   type DetectorForm,
@@ -16,6 +18,7 @@ import {
   type RuleForm,
   type SignalForm
 } from './formModel'
+import { joined } from './words'
 
 function signalPointers(signal: SignalForm, at: string): string[] {
   if (signal.mode === 'single') return [`${at}/path`, `${at}/source`]
@@ -68,24 +71,11 @@ function conditionPointers(d: DetectorForm): string[] {
 
 function stepPointers(form: RuleForm): string[] {
   if (isZoneLimited(form.detector)) return []
-  const field = {
-    value: 'limit',
-    slope: 'limit',
-    count: 'limit',
-    integral: 'limit',
-    time: 'limit',
-    within: 'within',
-    match: 'value',
-    none: undefined
-  }[stepQuantity(form.detector) ?? 'none']
+  const field = stepLimitField(stepQuantity(form.detector))
   return form.steps.flatMap((_, i) => {
     const at = stepPointer(i)
     return field === undefined ? [`${at}/priority`] : [`${at}/priority`, `${at}/${field}`]
   })
-}
-
-function holdsFor(d: DetectorForm): boolean {
-  return d.type === 'sustained' || (d.type === 'match' && matchTakesDuration(d.matchOp))
 }
 
 /** The pointers of the fields under More options, for the rule as authored so far. */
@@ -205,11 +195,6 @@ export function fieldLabel(pointer: string, form: RuleForm): string {
   return known === undefined ? 'a field under More options' : (LABELS[known] ?? '')
 }
 
-function joined(words: string[]): string {
-  if (words.length <= 1) return words.join('')
-  return `${words.slice(0, -1).join(', ')} and ${words.at(-1) ?? ''}`
-}
-
 /** What Save says stops it: the fields to fill in, and those to fix. */
 export function saveHint(errors: readonly FieldError[], form: RuleForm): string | undefined {
   if (errors.length === 0) return undefined
@@ -226,6 +211,5 @@ export function saveHint(errors: readonly FieldError[], form: RuleForm): string 
     ...(fill.length > 0 ? [`fill in ${joined(fill)}`] : []),
     ...(fix.length > 0 ? [`fix ${joined(fix)}`] : [])
   ]
-  const sentence = `${parts.join(' and ')} to save.`
-  return sentence.charAt(0).toUpperCase() + sentence.slice(1)
+  return capitalised(`${parts.join(' and ')} to save.`)
 }

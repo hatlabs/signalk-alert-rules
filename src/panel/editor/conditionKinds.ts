@@ -85,12 +85,6 @@ export const CONDITION_KINDS: readonly KindInfo[] = [
   }
 ]
 
-export function kindInfo(kind: ConditionKind): KindInfo {
-  const info = CONDITION_KINDS.find((k) => k.kind === kind)
-  if (info === undefined) throw new Error(`unknown condition kind ${kind}`)
-  return info
-}
-
 /** The kinds a value can have: a value that is not a number cannot be compared with a limit. */
 export function kindsFor(value: SignalValue | undefined): readonly KindInfo[] {
   return value === undefined || typeof value === 'number'

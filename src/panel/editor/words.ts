@@ -3,6 +3,7 @@
  * as typed, and the unit each kind of field is entered in.
  */
 import type { CombinatorKind } from '../../model/rule'
+import { capitalised } from '../list/PriorityBadge'
 import type { Measure, UnitLookup } from '../signalUnits'
 import { unitLabel } from '../units'
 import type {
@@ -37,10 +38,6 @@ const COMBINATOR_WORDS: Readonly<Record<CombinatorKind, string>> = {
   positionSpread: 'Spread'
 }
 
-function capitalised(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1)
-}
-
 function uncapitalised(text: string): string {
   return text.charAt(0).toLowerCase() + text.slice(1)
 }
@@ -65,7 +62,8 @@ function pathWords(path: string): string {
   return before === undefined ? segmentWords(leaf) : `${segmentWords(before)} ${segmentWords(leaf)}`
 }
 
-function joined(words: string[]): string {
+/** `a, b and c`. */
+export function joined(words: string[]): string {
   if (words.length <= 1) return words.join('')
   return `${words.slice(0, -1).join(', ')} and ${words.at(-1) ?? ''}`
 }

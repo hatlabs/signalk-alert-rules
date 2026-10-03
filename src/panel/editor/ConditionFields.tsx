@@ -11,7 +11,7 @@ import {
   type ValueKind
 } from './fields'
 import {
-  matchTakesDuration,
+  holdsFor,
   withDetector,
   type DetectorForm,
   type EventForm,
@@ -311,8 +311,7 @@ export function ConditionFields({ form, onChange, measure, valueKind }: Conditio
 /** How long a step's condition must hold; after the steps. */
 export function HoldField({ form, onChange }: Pick<ConditionFieldsProps, 'form' | 'onChange'>) {
   const d = form.detector
-  const holds = d.type === 'sustained' || (d.type === 'match' && matchTakesDuration(d.matchOp))
-  if (!holds) return null
+  if (!holdsFor(d)) return null
   const timeout = d.type === 'match' && d.matchOp === 'timedOut'
   return (
     <DurationInput

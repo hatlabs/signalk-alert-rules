@@ -2,6 +2,7 @@ import { useContext, useId, useState } from 'react'
 import type { Priority } from '../../model/rule'
 import type { SignalValue } from '../api'
 import { capitalised } from '../list/PriorityBadge'
+import { article } from '../rules/describe'
 import type { Measure, UnitLookup } from '../signalUnits'
 import {
   DurationControl,
@@ -15,12 +16,13 @@ import {
   emptyStep,
   maxSteps,
   PRIORITY_LEVELS,
+  stepLimitField,
   stepPointer,
   stepQuantity,
   type RuleForm,
   type StepForm
 } from './formModel'
-import { ladderText, nowText, priorityHint } from './live'
+import { ladderText, nowText, priorityMeaning } from './live'
 import { stepLimitText, stepWord, unitLabels } from './words'
 
 /** Least severe first, as a climb reads. */
@@ -88,8 +90,7 @@ function stepError(
   if (order !== null && step !== undefined && previous !== undefined) {
     const limit = stepLimitText(previous, stepQuantity(form.detector), measure)
     if (limit !== undefined && step.priority !== '' && previous.priority !== '') {
-      const a = /^[aeiou]/.test(step.priority) ? 'an' : 'a'
-      return `${prefix}${a} ${step.priority} must be ${order[1]} ${limit}, the ${previous.priority}'s limit.`
+      return `${prefix}${article(step.priority)} ${step.priority} must be ${order[1]} ${limit}, the ${previous.priority}'s limit.`
     }
   }
   const missing = pointer.endsWith('/priority') ? 'choose a priority' : `fill in the ${limitLabel}`
@@ -123,9 +124,10 @@ export function StepFields({ form, onChange, measure, units, valueKind, value }:
   const unit = { value: labels.value, slope: labels.slope, integral: labels.integral }[
     quantity === 'value' || quantity === 'slope' || quantity === 'integral' ? quantity : 'value'
   ]
-  const limitField = quantity === 'within' ? 'within' : quantity === 'match' ? 'value' : 'limit'
+  const limitField = stepLimitField(quantity)
+  const limitPointer = (i: number) => `${stepPointer(i)}/${limitField ?? ''}`
   const stepErrors = steps.flatMap((_, i) =>
-    [`${stepPointer(i)}/priority`, `${stepPointer(i)}/${limitField}`].flatMap((p) =>
+    [`${stepPointer(i)}/priority`, limitPointer(i)].flatMap((p) =>
       (errors.get(p) ?? []).map((message) => ({ index: i, pointer: p, message }))
     )
   )
@@ -159,8 +161,8 @@ export function StepFields({ form, onChange, measure, units, valueKind, value }:
           const at = stepPointer(i)
           const limitControl = {
             'aria-label': `${capitalised(limitLabel)} for step ${n}`,
-            className: `skar-input${stepErrors.some((e) => e.pointer === `${at}/${limitField}`) ? ' skar-input-invalid' : ''}`,
-            ...invalid(`${at}/${limitField}`)
+            className: `skar-input${stepErrors.some((e) => e.pointer === limitPointer(i)) ? ' skar-input-invalid' : ''}`,
+            ...invalid(limitPointer(i))
           }
           return (
             <li key={i} className="skar-step">
@@ -268,8 +270,7 @@ export function StepFields({ form, onChange, measure, units, valueKind, value }:
       )}
       {shownPriority !== '' && (
         <p className="skar-hint skar-priority-hint">
-          <strong>{capitalised(shownPriority)}:</strong>
-          {priorityHint(shownPriority).slice(shownPriority.length + 1)}
+          <strong>{capitalised(shownPriority)}:</strong> {priorityMeaning(shownPriority)}
         </p>
       )}
     </fieldset>

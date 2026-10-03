@@ -460,30 +460,3 @@ export function ValueControl({ label, value, onChange, unit, kind, control }: Va
     </div>
   )
 }
-
-interface ValueProps {
-  label: string
-  pointer?: string
-  value: ValueField
-  onChange: (value: ValueField) => void
-  unit: string
-  kind: ValueKind | undefined
-  required?: boolean
-}
-
-export function ValueInput({ label, value, onChange, unit, kind, ...field }: ValueProps) {
-  return (
-    <Field label={label} {...field}>
-      {(control) => (
-        <ValueControl
-          label={label}
-          value={value}
-          onChange={onChange}
-          unit={unit}
-          kind={kind}
-          control={control}
-        />
-      )}
-    </Field>
-  )
-}

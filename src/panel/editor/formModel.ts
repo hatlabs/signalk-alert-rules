@@ -363,6 +363,11 @@ export function matchTakesDuration(op: MatchOp | ''): boolean {
   return op === 'equals' || op === 'notEquals' || op === 'timedOut'
 }
 
+/** Whether the condition must hold for a while before a step is reached. */
+export function holdsFor(d: DetectorForm): boolean {
+  return d.type === 'sustained' || (d.type === 'match' && matchTakesDuration(d.matchOp))
+}
+
 /** What the detector's step limits are; undefined until the detector is chosen. */
 export function stepQuantity(d: DetectorForm): StepQuantity | undefined {
   switch (d.type) {
@@ -757,6 +762,23 @@ function readEvent(form: EventForm, at: string, measure: Measure, read: Reader):
   })
 }
 
+/** The step field its limit is stored in; none for a step that is its priority alone. */
+export function stepLimitField(
+  quantity: StepQuantity | undefined
+): 'limit' | 'within' | 'value' | undefined {
+  switch (quantity) {
+    case undefined:
+    case 'none':
+      return undefined
+    case 'within':
+      return 'within'
+    case 'match':
+      return 'value'
+    default:
+      return 'limit'
+  }
+}
+
 /** Where step `index` is in the rule. */
 export function stepPointer(index: number): string {
   return `/detector/steps/${String(index)}`
@@ -764,26 +786,27 @@ export function stepPointer(index: number): string {
 
 function readSteps(form: RuleForm, measure: Measure, read: Reader): Step[] {
   const quantity = stepQuantity(form.detector)
-  const number = (text: string, at: string, kind: QuantityKind) =>
-    read.number(text, `${at}/limit`, kind, measure.unit)
+  const field = stepLimitField(quantity) ?? ''
   return form.steps.map((step, i) => {
     const at = stepPointer(i)
+    const limitAt = `${at}/${field}`
+    const number = (kind: QuantityKind) => read.number(step.limit, limitAt, kind, measure.unit)
     const limit = (() => {
       switch (quantity) {
         case 'value':
-          return { limit: number(step.limit, at, measure.kind) }
+          return { limit: number(measure.kind) }
         case 'slope':
-          return { limit: number(step.limit, at, kindFor('slope', measure)) }
+          return { limit: number(kindFor('slope', measure)) }
         case 'integral':
-          return { limit: number(step.limit, at, kindFor('interval', measure)) }
+          return { limit: number(kindFor('interval', measure)) }
         case 'count':
-          return { limit: number(step.limit, at, 'ratio') }
+          return { limit: number('ratio') }
         case 'time':
-          return { limit: read.duration(step.duration, `${at}/limit`) }
+          return { limit: read.duration(step.duration, limitAt) }
         case 'within':
-          return { within: read.duration(step.duration, `${at}/within`) }
+          return { within: read.duration(step.duration, limitAt) }
         case 'match':
-          return { value: read.value(step.value, `${at}/value`, measure) }
+          return { value: read.value(step.value, limitAt, measure) }
         default:
           return {}
       }

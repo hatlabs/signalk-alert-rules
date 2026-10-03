@@ -25,8 +25,8 @@ const PRIORITY_MEANINGS: Readonly<Record<Priority, string>> = {
     'requires attention, not immediately hazardous. Needs no acknowledgement; makes no sound.'
 }
 
-export function priorityHint(priority: Priority): string {
-  return `${priority.charAt(0).toUpperCase()}${priority.slice(1)}: ${PRIORITY_MEANINGS[priority]}`
+export function priorityMeaning(priority: Priority): string {
+  return PRIORITY_MEANINGS[priority]
 }
 
 function siLimit(step: StepForm, measure: Measure): number | undefined {

@@ -1,6 +1,7 @@
 import { useId, useState, type Ref } from 'react'
 import { BackIcon } from '../detail/icons'
 import { kindsFor, type ConditionKind, type KindInfo } from '../editor/conditionKinds'
+import { emptySignal } from '../editor/formModel'
 import { subjectOf } from '../editor/words'
 import type { PathSource } from '../paths/selfPaths'
 import { formatValue } from '../rules/describe'
@@ -61,10 +62,7 @@ export function KindPicker({ paths, path, backHref, choose, headingRef }: KindPi
   const kinds = kindsFor(entry?.value)
   const main = kinds.filter((k) => k.main)
   const more = kinds.filter((k) => !k.main)
-  const subject = subjectOf(
-    { mode: 'single', combinator: 'difference', angular: false, slots: [{ path, source: '' }] },
-    units
-  )
+  const subject = subjectOf({ ...emptySignal(), slots: [{ path, source: '' }] }, units)
   const zones = [...new Set((entry?.zones ?? []).map((z) => z.state))]
   return (
     <div className="skar-page">
