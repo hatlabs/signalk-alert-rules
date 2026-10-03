@@ -4,7 +4,7 @@
  * History API records paths, not a rule's combined or per-instance signal.
  */
 import type { RuleInfo } from '../api'
-import { isZoneLimited, signalShape, type RuleForm } from '../editor/formModel'
+import { isZoneLimited, parsedNumber, signalShape, type RuleForm } from '../editor/formModel'
 import { signalMeasure, type SignalShape, type UnitLookup } from '../signalUnits'
 import { fromSI } from '../units'
 import type { SummaryLimit } from './chart'
@@ -68,18 +68,23 @@ export function detailChart(rule: RuleInfo, units: UnitLookup): ChartSpec | unde
 
 /** The chart beside the editor, following the form's path, kind and limits as typed. */
 export function editorChart(form: RuleForm, units: UnitLookup): ChartSpec | undefined {
+  if (form.signal.mode !== 'single') return undefined
   const { detector } = form
   const direction = detector.type === 'sustained' ? detector.direction : detector.trend
   const limits = isZoneLimited(detector)
     ? []
     : form.steps.flatMap((step) => {
-        const typed = step.limit.trim().replace(',', '.')
-        const value = typed === '' ? NaN : Number(typed)
-        if (!Number.isFinite(value)) return []
+        const value = parsedNumber(step.limit)
+        if (value === undefined) return []
         return [{ value, ...(step.priority === '' ? {} : { priority: step.priority }) }]
       })
-  const signal =
-    form.signal.mode === 'single' ? signalShape(form.signal) : { paths: [], combinator: '' }
   const source = form.signal.slots[0]?.source.trim() ?? ''
-  return specOf(signal, detector.type, direction, limits, source === '' ? undefined : source, units)
+  return specOf(
+    signalShape(form.signal),
+    detector.type,
+    direction,
+    limits,
+    source === '' ? undefined : source,
+    units
+  )
 }

@@ -195,6 +195,20 @@ describe('editorChart', () => {
     expect(editorChart(form('state', COOLANT), units)).toBeUndefined()
   })
 
+  it('charts nothing for a combined signal, whose value the history does not record', () => {
+    const combined = form('above', COOLANT, (f) => {
+      f.signal = {
+        ...f.signal,
+        mode: 'combine',
+        slots: [
+          { path: COOLANT, source: '' },
+          { path: 'propulsion.stbd.coolantTemperature', source: '' }
+        ]
+      }
+    })
+    expect(editorChart(combined, units)).toBeUndefined()
+  })
+
   it('charts a rate of change by its trend', () => {
     const spec = editorChart(
       form('rate', COOLANT, (f) => {

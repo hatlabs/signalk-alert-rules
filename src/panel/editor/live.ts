@@ -8,7 +8,14 @@ import { article, formatValue } from '../rules/describe'
 import { signalMeasure, type Measure, type UnitLookup } from '../signalUnits'
 import { toSI } from '../units'
 import { kindOf } from './conditionKinds'
-import { isZoneLimited, signalShape, stepQuantity, type RuleForm, type StepForm } from './formModel'
+import {
+  isZoneLimited,
+  parsedNumber,
+  signalShape,
+  stepQuantity,
+  type RuleForm,
+  type StepForm
+} from './formModel'
 import { stepLimitText, stepWord } from './words'
 
 /**
@@ -30,9 +37,8 @@ export function priorityMeaning(priority: Priority): string {
 }
 
 function siLimit(step: StepForm, measure: Measure): number | undefined {
-  const typed = step.limit.trim().replace(',', '.')
-  const value = typed === '' ? NaN : Number(typed)
-  return Number.isFinite(value) ? toSI(measure.kind, value, measure.unit) : undefined
+  const value = parsedNumber(step.limit)
+  return value === undefined ? undefined : toSI(measure.kind, value, measure.unit)
 }
 
 /**

@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type RefObject } from 'react'
+import { useEffect, useId, useLayoutEffect, useState } from 'react'
 import { formatNumber } from '../../format'
 import type { Measure } from '../signalUnits'
 import { fromSI } from '../units'
@@ -51,8 +51,9 @@ interface ChartProps {
 /** The width drawn for until the chart's own is known, as where nothing is laid out. */
 const FALLBACK_WIDTH = 360
 
-/** Room the x axis labels take inside the chart's right and left edges. */
+/** The baseline of the time labels, just inside the chart's bottom edge so descenders show. */
 const AXIS_LABEL_Y = CHART_HEIGHT - 3
+/** Room between a limit's label and the chart's right edge. */
 const LIMIT_LABEL_INSET = 4
 
 /**
@@ -72,12 +73,11 @@ type Loaded =
       resolution: number
     }
 
-/** The chart's width, following it as the layout changes. */
-function useWidth(): [RefObject<HTMLDivElement | null>, number | undefined] {
-  const ref = useRef<HTMLDivElement | null>(null)
+/** The chart's width, following it as the layout changes; observed once per element. */
+function useWidth(): [(element: HTMLDivElement | null) => void, number | undefined] {
+  const [element, setElement] = useState<HTMLDivElement | null>(null)
   const [width, setWidth] = useState<number | undefined>(undefined)
   useLayoutEffect(() => {
-    const element = ref.current
     if (element === null) return undefined
     const measure = () => {
       setWidth(element.clientWidth > 0 ? element.clientWidth : FALLBACK_WIDTH)
@@ -89,8 +89,8 @@ function useWidth(): [RefObject<HTMLDivElement | null>, number | undefined] {
     return () => {
       observer.disconnect()
     }
-  })
-  return [ref, width]
+  }, [element])
+  return [setElement, width]
 }
 
 function timeOf(span: Span): (ms: number) => string {

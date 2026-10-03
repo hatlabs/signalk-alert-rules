@@ -306,6 +306,34 @@ describe('HistoryChart', () => {
     })
   })
 
+  it('observes its width once, not again on each render, as each keystroke in the editor', async () => {
+    let observers = 0
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor() {
+          observers += 1
+        }
+        observe() {
+          return undefined
+        }
+        disconnect() {
+          return undefined
+        }
+      }
+    )
+    try {
+      const history = fakeHistory()
+      const { rerender } = render(<HistoryChart history={history} spec={coolant} />)
+      await settle()
+      rerender(<HistoryChart history={history} spec={{ ...coolant, limits: [{ value: 80 }] }} />)
+      rerender(<HistoryChart history={history} spec={{ ...coolant, limits: [{ value: 81 }] }} />)
+      expect(observers).toBe(1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('keeps the line drawn while it asks again for a new width, as when a tablet turns', async () => {
     let resized: () => void = () => undefined
     vi.stubGlobal(
