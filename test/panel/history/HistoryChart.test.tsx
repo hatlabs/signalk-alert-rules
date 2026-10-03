@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HistoryChart, type ChartSpec } from '../../../src/panel/history/HistoryChart'
 import type {
   HistoryPoint,
@@ -203,6 +203,46 @@ describe('HistoryChart', () => {
     expect(screen.getByRole('img').textContent).toContain('limit 80 °C')
   })
 
+  describe('as time passes', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ now: NOW })
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('draws in the frame of the answer, so the line stays put while the page re-renders', async () => {
+      const history = fakeHistory()
+      const { rerender } = render(<HistoryChart history={history} spec={coolant} />)
+      await settle()
+      const before = screen.getByRole('img').querySelector('polyline')?.getAttribute('points')
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5 * 60_000)
+      })
+      rerender(<HistoryChart history={history} spec={{ ...coolant }} />)
+      expect(screen.getByRole('img').querySelector('polyline')?.getAttribute('points')).toBe(before)
+    })
+
+    it('asks again once a bucket has passed, keeping the line while it asks', async () => {
+      const history = fakeHistory()
+      history.values
+        .mockImplementationOnce(() => Promise.resolve(series))
+        .mockImplementation(() => new Promise(() => undefined))
+      render(<HistoryChart history={history} spec={coolant} />)
+      await settle()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(BUCKET - 1000)
+      })
+      expect(history.values).toHaveBeenCalledTimes(1)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000)
+      })
+      expect(history.values).toHaveBeenCalledTimes(2)
+      expect(screen.getByRole('img').querySelectorAll('polyline')).toHaveLength(1)
+      expect(screen.queryByText('Loading history…')).toBeNull()
+    })
+  })
+
   it('keeps the line drawn while it asks again for a new width, as when a tablet turns', async () => {
     let resized: () => void = () => undefined
     vi.stubGlobal(
@@ -229,14 +269,15 @@ describe('HistoryChart', () => {
       )
       render(<HistoryChart history={history} spec={coolant} />)
       await settle()
-      width = 720
+      width = 1440
       act(() => {
         resized()
       })
       await settle()
-      expect(history.values).toHaveBeenLastCalledWith(expect.objectContaining({ resolution: 300 }))
-      expect(screen.getByRole('img')).toBeTruthy()
+      expect(history.values).toHaveBeenLastCalledWith(expect.objectContaining({ resolution: 120 }))
       expect(screen.queryByText('Loading history…')).toBeNull()
+      // The kept 10 min buckets are one line still, not dots 2 min buckets apart.
+      expect(screen.getByRole('img').querySelectorAll('polyline')).toHaveLength(1)
     } finally {
       clientWidth.mockRestore()
       vi.unstubAllGlobals()

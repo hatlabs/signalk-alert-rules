@@ -43,11 +43,22 @@ const FALLBACK_WIDTH = 360
 const AXIS_LABEL_Y = CHART_HEIGHT - 3
 const LIMIT_LABEL_INSET = 4
 
-/** What the points answer: the path, aggregate and span, but not the bucket length. */
+/**
+ * An answer and the frame it was asked in: the span ending when it arrived,
+ * and the bucket length asked for. `of` names the path, aggregate, source and
+ * span, but not the bucket length, so an answer for another width still fits.
+ */
 type Loaded =
   | { status: 'loading' }
   | { status: 'failed' }
-  | { status: 'ready'; points: HistoryPoint[]; of: string }
+  | {
+      status: 'ready'
+      points: HistoryPoint[]
+      of: string
+      to: number
+      seconds: number
+      resolution: number
+    }
 
 /** The chart's width, following it as the layout changes. */
 function useWidth(): [RefObject<HTMLDivElement | null>, number | undefined] {
@@ -118,20 +129,35 @@ function Chart({ history, spec, title }: HistoryChartProps) {
   useEffect(() => {
     if (resolution === undefined) return undefined
     let cancelled = false
-    const of = `${path}:${method}|${source ?? ''}:${String(span.seconds)}`
+    let next: ReturnType<typeof setTimeout> | undefined
+    const { seconds } = span
+    const of = `${path}:${method}|${source ?? ''}:${String(seconds)}`
     // A new width asks for finer or coarser buckets of the same line; the
     // line drawn stays until they come, rather than blinking out.
     setLoaded((last) => (last.status === 'ready' && last.of === of ? last : { status: 'loading' }))
-    history.values({ path, method, source, seconds: span.seconds, resolution }).then(
-      (points) => {
-        if (!cancelled) setLoaded({ status: 'ready', points, of })
-      },
-      () => {
-        if (!cancelled) setLoaded({ status: 'failed' })
+    // Once a bucket's length has passed a new bucket may have closed, so a
+    // chart left open asks again, keeping the line drawn while it does.
+    const ask = () => {
+      const again = () => {
+        if (!cancelled) next = setTimeout(ask, resolution * 1000)
       }
-    )
+      history.values({ path, method, source, seconds, resolution }).then(
+        (points) => {
+          if (cancelled) return
+          setLoaded({ status: 'ready', points, of, to: Date.now(), seconds, resolution })
+          again()
+        },
+        () => {
+          if (cancelled) return
+          setLoaded({ status: 'failed' })
+          again()
+        }
+      )
+    }
+    ask()
     return () => {
       cancelled = true
+      clearTimeout(next)
     }
   }, [history, path, method, source, span, resolution])
 
@@ -152,14 +178,17 @@ function Chart({ history, spec, title }: HistoryChartProps) {
     tone: several ? (l.priority ?? 'limit') : 'limit'
   }))
   const drawnWidth = width ?? FALLBACK_WIDTH
-  // The span ends at the answer's arrival, near enough to now for the axis.
-  const to = Date.now()
-  const geometry = chartGeometry(points, limits, {
-    from: to - span.seconds * 1000,
-    to,
-    width: drawnWidth,
-    resolution: resolution ?? 1
-  })
+  // Drawn in the frame the answer was asked in, so the line holds still
+  // between answers however often the page around it renders.
+  const geometry =
+    loaded.status === 'ready'
+      ? chartGeometry(points, limits, {
+          from: loaded.to - loaded.seconds * 1000,
+          to: loaded.to,
+          width: drawnWidth,
+          resolution: loaded.resolution
+        })
+      : { lines: [], limits: [] }
   const summary =
     spec.side === undefined
       ? undefined
