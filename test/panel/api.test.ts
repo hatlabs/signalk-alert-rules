@@ -426,6 +426,72 @@ describe('httpApi', () => {
       expect(read.status.instances[0]).toMatchObject(expected)
     })
 
+    describe('an outside rule', () => {
+      const outside = (facts: Record<string, unknown>) => {
+        const alerting = {
+          ...ruleEntry.state.instances[0],
+          condition: 'alerting',
+          reason: 'alertActive',
+          priority: 'warning',
+          step: 0,
+          value: 27,
+          limit: 25,
+          awaitingInput: false,
+          ...facts
+        }
+        const { instance: _, ...status } = alerting
+        return {
+          ...ruleEntry,
+          rule: {
+            ...ruleEntry.rule,
+            signal: { path: 'navigation.heel' },
+            detector: {
+              type: 'outside',
+              steps: [
+                { low: -25, high: 25, priority: 'warning' },
+                { low: -35, high: 35, priority: 'alarm' }
+              ],
+              duration: 10
+            }
+          },
+          state: { ...ruleEntry.state, ruleState: 'enabled', ...status, instances: [alerting] }
+        }
+      }
+      const read = async (facts: Record<string, unknown>) => {
+        const api = httpApi(fakeFetch({ [`${BASE}/rules`]: { body: [outside(facts)] } }))
+        const [entry] = await api.rules()
+        if (isInvalid(entry)) throw new Error('invalid')
+        return entry
+      }
+
+      it('reads each step’s low and high limit', async () => {
+        const entry = await read({ passed: 'high' })
+        expect(entry.rule.detector.type).toBe('outside')
+        expect(entry.rule.steps).toEqual([
+          { low: -25, high: 25, priority: 'warning' },
+          { low: -35, high: 35, priority: 'alarm' }
+        ])
+      })
+
+      it.each(['low', 'high'])('reads the side an alert passed: %s', async (side) => {
+        const entry = await read({ passed: side })
+        expect(entry.status.passed).toBe(side)
+        expect(entry.status.instances[0].passed).toBe(side)
+      })
+
+      it('reads an alert without a side', async () => {
+        const entry = await read({})
+        expect(entry.status).not.toHaveProperty('passed')
+        expect(entry.status.limit).toBe(25)
+      })
+
+      it.each(['sideways', 1, null])('drops a side that is not low or high: %o', async (side) => {
+        const entry = await read({ passed: side })
+        expect(entry.status).not.toHaveProperty('passed')
+        expect(entry.status.instances[0]).not.toHaveProperty('passed')
+      })
+    })
+
     it.each([
       [{ condition: 'normal', reason: 'withinLimits', clearedAt: '2026-09-30T11:00:00.000Z' }],
       [{ condition: 'normal', reason: 'withinLimits', clearSince: '2026-09-30T11:00:00.000Z' }],
