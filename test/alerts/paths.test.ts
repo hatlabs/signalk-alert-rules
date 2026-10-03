@@ -20,6 +20,10 @@ describe('defaultCondition', () => {
     [{ type: 'sustained', direction: 'above', steps }, 'voltageHigh'],
     [{ type: 'sustained', direction: 'below', steps }, 'voltageLow'],
     [
+      { type: 'outside', steps: [{ low: 11.5, high: 14.8, priority: 'warning' }] },
+      'voltageOutOfRange'
+    ],
+    [
       { type: 'projection', direction: 'rising', steps, window: 60, horizon: 600 },
       'voltageProjectedHigh'
     ],
@@ -129,6 +133,19 @@ describe('alertPathOf', () => {
     expect(alertPathOf({ signal: { path: 'electrical.batteries.*.voltage' }, detector })).toBe(
       'electrical.batteries.*.voltageLow'
     )
+  })
+
+  it('names an outside rule out of range', () => {
+    const outside = {
+      type: 'outside',
+      steps: [
+        { low: 49, high: 51, priority: 'warning' },
+        { low: 48, high: 52, priority: 'alarm' }
+      ]
+    }
+    expect(
+      alertPathOf({ signal: { path: 'electrical.ac.shore.frequency' }, detector: outside })
+    ).toBe('electrical.ac.shore.frequencyOutOfRange')
   })
 
   it('puts a stored condition name there instead', () => {

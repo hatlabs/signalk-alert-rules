@@ -36,6 +36,7 @@ function paths(errors: ValidationError[]): string[] {
 const minimalDetectors: Record<string, unknown> = {
   match: { type: 'match', op: 'equals', steps: [step({ value: 1 })] },
   sustained: { type: 'sustained', direction: 'below', steps: [step({ limit: 12 })] },
+  outside: { type: 'outside', steps: [step({ low: -25, high: 25 })] },
   slope: { type: 'slope', direction: 'rising', window: 60, steps: [step({ limit: 0.01 })] },
   projection: {
     type: 'projection',
@@ -459,6 +460,111 @@ describe('validateRule', () => {
         steps: [step({ limit: 2 }), { limit: 5, priority: 'alarm' }]
       }
       expect(errorsOf(rule({ latching: true, detector }))).toEqual([])
+    })
+  })
+
+  describe('outside a range', () => {
+    const outside = (...steps: [number, number, string][]) => ({
+      type: 'outside',
+      steps: steps.map(([low, high, priority]) => ({ low, high, priority }))
+    })
+
+    it('accepts one step and steps that widen on both sides', () => {
+      expect(errorsOf(rule({ detector: outside([-25, 25, 'warning']) }))).toEqual([])
+      expect(
+        errorsOf(rule({ detector: outside([-25, 25, 'warning'], [-35, 35, 'alarm']) }))
+      ).toEqual([])
+    })
+
+    it('accepts a later step that widens on one side only', () => {
+      expect(errorsOf(rule({ detector: outside([49, 51, 'warning'], [49, 52, 'alarm']) }))).toEqual(
+        []
+      )
+    })
+
+    it.each([
+      ['equal to', 25],
+      ['below', 30]
+    ])('refuses a high limit %s the low limit', (_, low) => {
+      const errors = errorsOf(rule({ detector: outside([low, 25, 'warning']) }))
+      expect(paths(errors)).toEqual(['/detector/steps/0/high'])
+      expect(errors[0]?.message).toBe('must be above the low limit')
+    })
+
+    it('checks the limit order of every step', () => {
+      const detector = outside([-25, 25, 'warning'], [-35, -40, 'alarm'])
+      expect(paths(errorsOf(rule({ detector })))).toContain('/detector/steps/1/high')
+    })
+
+    it.each<[string, [number, number], string]>([
+      ['low', [-20, 35], '/detector/steps/1/low'],
+      ['high', [-35, 20], '/detector/steps/1/high']
+    ])('refuses a later step whose %s limit moves inward', (_, [low, high], at) => {
+      const errors = errorsOf(
+        rule({ detector: outside([-25, 25, 'warning'], [low, high, 'alarm']) })
+      )
+      expect(paths(errors)).toEqual([at])
+      expect(errors[0]?.message).toBe("must not be inside the previous step's range")
+    })
+
+    it('refuses a later step with the same range at its high limit', () => {
+      const errors = errorsOf(rule({ detector: outside([-25, 25, 'warning'], [-25, 25, 'alarm']) }))
+      expect(paths(errors)).toEqual(['/detector/steps/1/high'])
+    })
+
+    it('refuses a later step out of priority order', () => {
+      const errors = errorsOf(rule({ detector: outside([-35, 35, 'alarm'], [-45, 45, 'warning']) }))
+      expect(paths(errors)).toEqual(['/detector/steps/1/priority'])
+    })
+
+    it('refuses a fifth step', () => {
+      const detector = outside(
+        [-10, 10, 'caution'],
+        [-20, 20, 'warning'],
+        [-30, 30, 'alarm'],
+        [-40, 40, 'emergency'],
+        [-50, 50, 'emergency']
+      )
+      expect(paths(errorsOf(rule({ detector })))).toEqual(['/detector/steps/4'])
+    })
+
+    it('requires at least one step, without offering a zone limit', () => {
+      const errors = errorsOf(rule({ detector: { type: 'outside', steps: [] } }))
+      expect(paths(errors)).toEqual(['/detector/steps'])
+      expect(errors[0]?.message).toBe('a rule needs at least one step')
+      expect(paths(errorsOf(rule({ detector: { type: 'outside' } })))).toEqual(['/detector/steps'])
+    })
+
+    it('requires both limits on a step', () => {
+      const errors = errorsOf(rule({ detector: { type: 'outside', steps: [step({ low: -25 })] } }))
+      expect(paths(errors)).toEqual(['/detector/steps/0/high'])
+    })
+
+    it('refuses a zone limit', () => {
+      const detector = { type: 'outside', limit: { kind: 'zone', level: 'warn' } }
+      const errors = errorsOf(rule({ detector }))
+      expect(errors).toContainEqual({ path: '/detector/limit', message: 'is not a known property' })
+    })
+
+    it("needs hysteresis under half the first step's range to clear", () => {
+      const detector = (hysteresis: number) => ({
+        ...outside([-25, 25, 'warning']),
+        hysteresis
+      })
+      const errors = errorsOf(rule({ detector: detector(25) }))
+      expect(paths(errors)).toEqual(['/detector/hysteresis'])
+      expect(errors[0]?.message).toMatch(/half/)
+      expect(errorsOf(rule({ detector: detector(24.9) }))).toEqual([])
+    })
+
+    it('checks hysteresis against the first step only', () => {
+      const detector = {
+        ...outside([-25, 25, 'warning'], [-25.5, 25.5, 'alarm']),
+        hysteresis: 20,
+        duration: 10,
+        clearDuration: 30
+      }
+      expect(errorsOf(rule({ detector }))).toEqual([])
     })
   })
 

@@ -76,7 +76,7 @@ export const ANGULAR_KINDS: ReadonlySet<CombinatorKind> = new Set([
   'spread'
 ])
 
-export type DetectorType = Detector['type']
+export type DetectorType = Exclude<Detector['type'], 'outside'>
 const DETECTOR_TYPES: Readonly<Record<DetectorType, true>> = {
   sustained: true,
   slope: true,
@@ -555,7 +555,7 @@ export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
   const measure = signalMeasure(signalShape(signal), units)
   const d = form.detector
   const detector = rule.detector
-  d.type = detector.type
+  d.type = detector.type === 'outside' ? '' : detector.type
   const numberFrom = (value: number, quantity: 'slope' | 'interval') =>
     shownNumber(value, kindFor(quantity, measure), measure.unit, shown)
   switch (detector.type) {

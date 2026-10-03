@@ -85,6 +85,7 @@ const SUFFIX: Readonly<Record<Detector['type'], Suffix>> = {
       timedOut: 'TimedOut'
     } satisfies Record<Of<'match'>['op'], string>
   },
+  outside: 'OutOfRange',
   accumulator: 'Accumulated',
   count: 'Frequent',
   absence: 'Missing'
