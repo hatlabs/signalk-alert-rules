@@ -57,6 +57,12 @@ export function openPattern(template: Template): string | undefined {
 
 const withInstance = (path: string, instance: string) => path.replaceAll(PLACEHOLDER, instance)
 
+/** The path a pick's rule watches. */
+export function watchedPath(template: Template, pick: TemplatePick): string {
+  const path = openPath(template) ?? ''
+  return pick.instance === undefined ? path : withInstance(path, pick.instance)
+}
+
 /**
  * An instance's name: the `name` its group reports for it, as the
  * specification has batteries and engines name themselves, else the display
@@ -163,7 +169,7 @@ export function typedCandidate(
   instance: string,
   paths: readonly PathEntry[]
 ): Candidate {
-  const watched = withInstance(openPath(template) ?? '', instance)
+  const watched = watchedPath(template, { instance })
   const entry = paths.find((p) => p.path === watched)
   return {
     pick: { instance },

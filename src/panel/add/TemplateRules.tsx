@@ -20,7 +20,7 @@ import { joined } from '../editor/words'
 import { failureMessage } from '../failure'
 import type { PathList, PathSource } from '../paths/selfPaths'
 import type { UnitLookup } from '../signalUnits'
-import { candidates, pickKey, templateTitle } from './templatePicks'
+import { candidates, pickKey, ruleWatching, templateTitle, watchedPath } from './templatePicks'
 import { copySettings, drafts, tabsHint } from './templateDrafts'
 
 /**
@@ -72,7 +72,17 @@ interface Tab {
   /** The slug the template proposed; a slug the user typed is not changed on a conflict. */
   proposed: string
   errors: FieldError[]
+  /**
+   * The name of a rule from this template that already watches what the pick
+   * does, as when the rules are opened again after some were created.
+   */
+  existing?: string
+  /** The user chose to create the rule though one exists. */
+  kept: boolean
 }
+
+/** Whether Save creates the tab's rule: one that already exists only once the user keeps it. */
+const included = (t: Tab) => t.existing === undefined || t.kept
 
 interface FormProps extends Omit<TemplateRulesProps, 'paths'> {
   paths: PathList
@@ -90,6 +100,7 @@ function initialTabs(props: FormProps): Tab[] {
   return drafts(set, template, picks, taken, units).map(({ pick, form }) => {
     const key = pickKey(pick)
     const candidate = found.get(key)
+    const existing = ruleWatching(set.id, template, watchedPath(template, pick), pick.source, rules)
     return {
       key,
       pick,
@@ -97,7 +108,9 @@ function initialTabs(props: FormProps): Tab[] {
       waiting: candidate?.entry === undefined,
       form,
       proposed: form.slug,
-      errors: []
+      errors: [],
+      ...(existing === undefined ? {} : { existing }),
+      kept: false
     }
   })
 }
@@ -208,9 +221,12 @@ function TabsForm(props: FormProps) {
   const save = async () => {
     setFailure(undefined)
     setNote(undefined)
-    const read = tabs.map((t) => ({ tab: t, result: toRule(t.form, units) }))
+    const read = tabs.filter(included).map((t) => ({ tab: t, result: toRule(t.form, units) }))
     const refused = read.filter(({ result }) => !result.ok)
-    setTabs(read.map(({ tab, result }) => ({ ...tab, errors: result.ok ? [] : result.errors })))
+    const errorsOf = new Map(
+      read.map(({ tab, result }) => [tab.key, result.ok ? [] : result.errors])
+    )
+    setTabs(tabs.map((t) => ({ ...t, errors: errorsOf.get(t.key) ?? [] })))
     const firstRefused = refused.at(0)
     if (firstRefused !== undefined) {
       setActiveKey(firstRefused.tab.key)
@@ -218,7 +234,7 @@ function TabsForm(props: FormProps) {
     }
     setBusy(true)
     const done = [...created]
-    let remaining = read.map(({ tab }) => ({ ...tab, errors: [] as FieldError[] }))
+    let remaining = tabs.map((t) => ({ ...t, errors: [] as FieldError[] }))
     try {
       for (const { tab, result } of read) {
         if (!result.ok) continue
@@ -254,6 +270,7 @@ function TabsForm(props: FormProps) {
     tabs.length + created.length === 1
       ? `New rule from “${title}”`
       : `${String(tabs.length + created.length)} new rules from “${title}”`
+  const creating = tabs.filter(included).length
   const otherLabel = tabs.length === 2 ? tabs.find((t) => t.key !== active?.key)?.label : undefined
 
   return (
@@ -283,6 +300,7 @@ function TabsForm(props: FormProps) {
               >
                 <span>{t.label}</span>
                 {t.waiting && <span className="skar-tab-note"> · not reporting yet</span>}
+                {!included(t) && <span className="skar-tab-note"> · already has a rule</span>}
                 {t.errors.length > 0 && <span className="skar-tab-error"> · needs fixing</span>}
               </button>
             ))}
@@ -291,6 +309,22 @@ function TabsForm(props: FormProps) {
             {otherLabel === undefined
               ? `Copy these settings to the other ${String(tabs.length - 1)} rules`
               : `Copy these settings to ${otherLabel}`}
+          </button>
+        </div>
+      )}
+      {active !== undefined && !included(active) && (
+        <div className="skar-banner" role="status">
+          <span>
+            {`Already has a rule from this template: ${active.existing ?? ''}. Save leaves it out.`}
+          </span>
+          <button
+            type="button"
+            className="skar-link-btn"
+            onClick={() => {
+              replaceTab(active.key, { kept: true })
+            }}
+          >
+            Create another rule for it
           </button>
         </div>
       )}
@@ -359,10 +393,10 @@ function TabsForm(props: FormProps) {
           <button
             type="button"
             className="skar-btn skar-btn-primary"
-            disabled={busy}
+            disabled={busy || creating === 0}
             onClick={() => void save()}
           >
-            {tabs.length === 1 ? 'Create rule' : `Create ${String(tabs.length)} rules`}
+            {creating <= 1 ? 'Create rule' : `Create ${String(creating)} rules`}
           </button>
         </div>
       </div>

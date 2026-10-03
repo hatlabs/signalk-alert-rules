@@ -12,6 +12,7 @@ import {
   type TemplateListing
 } from '../../../src/panel/api'
 import type { PathEntry, PathSource } from '../../../src/panel/paths/selfPaths'
+import { hashWithRoute } from '../../../src/panel/route'
 import { Shell } from '../../../src/panel/Shell'
 import { displayUnit } from '../../../src/panel/units'
 import { BUILTIN_TEMPLATES, discoverTemplateSets } from '../../../src/templates/discovery'
@@ -329,7 +330,7 @@ describe('Add rule from a template', () => {
     ])
   })
 
-  it('marks a battery that already has a rule from the template, and still lets it be picked', async () => {
+  it('marks a battery that already has a rule from the template, and still lets it be kept', async () => {
     const made = ruleEntry({
       slug: 'battery-voltage-low-lifepo4-house',
       rule: {
@@ -346,11 +347,64 @@ describe('Add rule from a template', () => {
     )
     pick(/^House bank/)
     await continueWith('Continue with 1 rule')
+    expect(screen.getByRole('button', { name: 'Create rule' })).toHaveProperty('disabled', true)
+    fireEvent.click(screen.getByRole('button', { name: 'Create another rule for it' }))
     fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
     await waitFor(() => {
       expect(api.createRule).toHaveBeenCalledTimes(1)
     })
     expect(createdRules(api)[0]?.slug).toBe('battery-voltage-low-lifepo4-house-2')
+  })
+
+  describe('opened again after a rule was created', () => {
+    const houseRule = ruleEntry({
+      slug: 'battery-voltage-low-lifepo4-house',
+      rule: {
+        name: 'Battery house voltage low (LiFePO4)',
+        signal: { paths: ['electrical.batteries.house.voltage'] },
+        template: { set: 'builtin', id: LIFEPO4, pick: { instance: 'house' } }
+      }
+    })
+    const openEditLink = async () => {
+      const href = hashWithRoute('', {
+        kind: 'add',
+        from: 'template',
+        set: 'builtin',
+        template: LIFEPO4,
+        picks: [{ instance: 'house' }, { instance: 'starter' }],
+        step: 'edit'
+      })
+      window.history.replaceState(null, '', `/${href}`)
+      await screen.findByRole('tab', { name: /starter/ })
+    }
+
+    it('names the rule a pick already has and leaves it out of Save', async () => {
+      const api = renderShell(fresh([houseRule]))
+      await openEditLink()
+      expect(tab(/House bank/).textContent).toContain('already has a rule')
+      fireEvent.click(tab(/House bank/))
+      expect(
+        screen.getByText(
+          'Already has a rule from this template: Battery house voltage low (LiFePO4). Save leaves it out.'
+        )
+      ).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+      await screen.findByRole('heading', { name: 'Battery starter voltage low (LiFePO4)' })
+      expect(createdRules(api).map((r) => r.slug)).toEqual(['battery-voltage-low-lifepo4-starter'])
+    })
+
+    it('creates the pick that has a rule too once the user keeps it', async () => {
+      const api = renderShell(fresh([houseRule]))
+      await openEditLink()
+      fireEvent.click(tab(/House bank/))
+      fireEvent.click(screen.getByRole('button', { name: 'Create another rule for it' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Create 2 rules' }))
+      await screen.findByRole('heading', { name: 'Alert rules' })
+      expect(createdRules(api).map((r) => r.slug)).toEqual([
+        'battery-voltage-low-lifepo4-house-2',
+        'battery-voltage-low-lifepo4-starter'
+      ])
+    })
   })
 
   it('takes a typed battery when none reports, and makes its rule on the typed path', async () => {
