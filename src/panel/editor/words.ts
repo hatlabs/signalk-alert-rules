@@ -2,17 +2,19 @@
  * How the editor words a rule's parts: the value it watches, a step's limit
  * as typed, and the unit each kind of field is entered in.
  */
+import { formatNumber } from '../../format'
 import type { CombinatorKind } from '../../model/rule'
 import { capitalised } from '../list/PriorityBadge'
 import type { Measure, UnitLookup } from '../signalUnits'
 import { unitLabel } from '../units'
-import type {
-  DetectorForm,
-  DurationField,
-  SignalForm,
-  StepForm,
-  StepQuantity,
-  ValueField
+import {
+  parsedNumber,
+  type DetectorForm,
+  type DurationField,
+  type SignalForm,
+  type StepForm,
+  type StepQuantity,
+  type ValueField
 } from './formModel'
 
 /** The unit labels of each kind of field on a signal measured by `measure`. */
@@ -165,6 +167,23 @@ export function rangeLimitText(
   measure: Measure
 ): string | undefined {
   return stepLimitText({ ...step, limit: step[side] }, 'value', measure)
+}
+
+/**
+ * The clear margin an outside rule's first step allows, as a sentence:
+ * `The clear margin must be less than 25 °, half the warning's range -25 to 25 °.`
+ * Undefined while the range is not filled in.
+ */
+export function clearMarginText(first: StepForm, measure: Measure): string | undefined {
+  const range = stepLimitText(first, 'range', measure)
+  const [low, high] = [parsedNumber(first.low), parsedNumber(first.high)]
+  if (range === undefined || low === undefined || high === undefined) return undefined
+  const half = withUnit(
+    formatNumber((high - low) / 2),
+    unitLabels(measure).interval.replace(/ \(SI\)$/, '')
+  )
+  const whose = first.priority === '' ? 'the first step' : `the ${first.priority}`
+  return `The clear margin must be less than ${half}, half ${whose}'s range ${range}.`
 }
 
 /**

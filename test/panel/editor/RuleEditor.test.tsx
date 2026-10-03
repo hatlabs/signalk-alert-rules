@@ -970,7 +970,9 @@ describe('RuleEditor, outside a range', () => {
     await formShown()
     expect(textbox('For at least')).toBeTruthy()
     openMoreOptions()
-    expect(textbox('Clear margin')).toBeTruthy()
+    expect(description(textbox('Clear margin'))).toContain(
+      'How far inside the range the value must come back to clear.'
+    )
     expect(textbox('Clear delay')).toBeTruthy()
   })
 
@@ -1104,7 +1106,10 @@ describe('RuleEditor, outside a range', () => {
     await waitFor(() => {
       expect(more?.open).toBe(true)
     })
-    expect(description(textbox('Clear margin'))).toContain("half the first step's range")
+    expect(description(textbox('Clear margin'))).toContain(
+      "The clear margin must be less than 1.65 V, half the warning's range 11.5 to 14.8 V."
+    )
+    expect(description(textbox('Clear margin'))).not.toContain(RANGE_HYSTERESIS)
   })
 
   it('says whether the value now would alert, and past which limit', async () => {

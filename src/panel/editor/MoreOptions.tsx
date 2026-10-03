@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { RANGE_HYSTERESIS } from '../../model/rangeMessages'
 import type { Priority, ZoneLevel } from '../../model/rule'
 import { PriorityBadge } from '../list/PriorityBadge'
 import { PathPicker } from '../paths/PathPicker'
@@ -17,7 +18,7 @@ import {
 } from './formModel'
 import { GateFields, zoneText } from './GateFields'
 import { SignalFields, useAllInstances } from './SignalFields'
-import { unitLabels } from './words'
+import { clearMarginText, unitLabels } from './words'
 
 /** The priority each zone level alerts at; a test keeps it equal to the model's LEVEL_PRIORITY. */
 export const ZONE_PRIORITY: Readonly<Record<ZoneLevel, Priority>> = {
@@ -149,6 +150,13 @@ export function MoreOptions({
   // Each condition keeps what it remembers only while its key stays with it through a removal.
   const gateCount = useRef(form.gates.length)
   const [gateKeys, setGateKeys] = useState(() => form.gates.map((_, i) => i))
+  // The validator's "half the first step's range" says neither the range nor the margin it allows.
+  const first = form.steps.at(0)
+  const marginErrors = useFieldErrors('/detector/hysteresis').map((message) =>
+    d.type === 'outside' && message === RANGE_HYSTERESIS && first !== undefined
+      ? (clearMarginText(first, measure) ?? message)
+      : message
+  )
   return (
     <details
       className="skar-more"
@@ -163,7 +171,7 @@ export function MoreOptions({
           <>
             <TextField
               label="Clear margin"
-              pointer="/detector/hysteresis"
+              extraErrors={marginErrors}
               value={d.hysteresis}
               nonNegative
               unit={unitLabels(measure).interval}
