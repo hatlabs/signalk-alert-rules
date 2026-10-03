@@ -94,7 +94,8 @@ describe('detailChart', () => {
       path: COOLANT,
       methods: ['min', 'max'],
       side: 'outside',
-      verdict: true
+      verdict: true,
+      steps: 2
     })
     expect(spec?.limits).toEqual([
       { value: 5, priority: 'warning', bound: 'low' },
@@ -102,6 +103,19 @@ describe('detailChart', () => {
       { value: 0, priority: 'alarm', bound: 'low' },
       { value: 100, priority: 'alarm', bound: 'high' }
     ])
+  })
+
+  it('counts a one-step outside rule as one step, though it draws two limits', () => {
+    const spec = detailChart(
+      rule({
+        signal: { paths: [COOLANT] },
+        detector: { type: 'outside' },
+        steps: [{ low: 278.15, high: 368.15, priority: 'warning' }]
+      }),
+      units
+    )
+    expect(spec?.limits).toHaveLength(2)
+    expect(spec?.steps).toBe(1)
   })
 
   it('lets the summary judge a sustained rule, which alerts on the recorded value', () => {
@@ -291,7 +305,22 @@ describe('editorChart', () => {
       units
     )
     expect(spec?.limits).toHaveLength(2)
+    expect(spec?.steps).toBe(1)
     expect(spec?.verdict).toBe(true)
+  })
+
+  it('counts each step with a limit typed, whichever side', () => {
+    const spec = editorChart(
+      form('outside', COOLANT, (f) => {
+        f.steps = [
+          { ...f.steps[0], low: '-25', priority: 'warning' },
+          { ...f.steps[0], high: '35', priority: 'alarm' }
+        ]
+      }),
+      units
+    )
+    expect(spec?.limits).toHaveLength(2)
+    expect(spec?.steps).toBe(2)
   })
 
   it('charts one side again once the kind changes from outside to below', () => {

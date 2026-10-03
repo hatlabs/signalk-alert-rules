@@ -151,7 +151,7 @@ export function chartGeometry(
   return { lines, limits: [...fromTop, ...fromBottom].sort((a, b) => a.y - b.y) }
 }
 
-/** A limit to compare the history with, in step order, and its step's priority when there are several. */
+/** A limit to compare the history with, in step order, and its step's priority. */
 export interface SummaryLimit {
   value: number
   priority?: string
@@ -164,6 +164,8 @@ export interface SummaryRule {
   /** The side the rule alerts on; `outside` alerts below its low limits and above its high ones. */
   side: 'below' | 'above' | 'outside'
   limits: readonly SummaryLimit[]
+  /** How many steps the limits are of; with more than one, each is named by its step's priority. */
+  steps: number
   /**
    * Whether a limit never passed says the rule would not have alerted: true
    * for a rule on the recorded value, false for a projection, which alerts
@@ -203,7 +205,7 @@ function furthestPassed(value: number, side: 'below' | 'above', limits: readonly
  */
 export function historySummary(
   series: HistorySeries,
-  { side, limits, verdict }: SummaryRule,
+  { side, limits, steps, verdict }: SummaryRule,
   words: Words
 ): string | undefined {
   const at = (p: Valued) => `${words.value(p.value)} at ${words.time(p.time)}`
@@ -234,7 +236,7 @@ export function historySummary(
       ]
     ] as const
     const passed = went.flatMap(([way, limit]) =>
-      limit === undefined ? [] : [{ way, name: limitName(limit, true) }]
+      limit === undefined ? [] : [{ way, name: limitName(limit, steps > 1) }]
     )
     if (passed.length === 0) return notAlerted(found)
     const [first, second] = passed
@@ -249,7 +251,7 @@ export function historySummary(
   if (limits.length === 0) return found
   const furthest = furthestPassed(point.value, side, limits)
   if (furthest === undefined) return notAlerted(found)
-  return `${found} It went ${side} the ${limitName(furthest, limits.length > 1)}.`
+  return `${found} It went ${side} the ${limitName(furthest, steps > 1)}.`
 }
 
 /** A limit named by its step's priority where the rule draws several. */

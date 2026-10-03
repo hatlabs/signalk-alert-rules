@@ -242,6 +242,7 @@ describe('historySummary', () => {
   const sustained = (side: 'below' | 'above', limits: SummaryLimit[]) => ({
     side,
     limits,
+    steps: limits.length,
     verdict: true
   })
 
@@ -284,7 +285,7 @@ describe('historySummary', () => {
   })
 
   it('does not say a projection would not have alerted, as it alerts on a value ahead', () => {
-    const projection = { side: 'below' as const, verdict: false }
+    const projection = { side: 'below' as const, steps: 1, verdict: false }
     expect(
       historySummary({ min: series }, { ...projection, limits: [{ value: 12.8 }] }, words)
     ).toBe('Lowest 13.02 V at 20 min.')
@@ -332,7 +333,12 @@ describe('an outside rule’s history', () => {
     { value: -35, priority: 'alarm', bound: 'low' },
     { value: 35, priority: 'alarm', bound: 'high' }
   ]
-  const outside = (limits: SummaryLimit[]) => ({ side: 'outside' as const, limits, verdict: true })
+  const outside = (limits: SummaryLimit[]) => ({
+    side: 'outside' as const,
+    limits,
+    steps: new Set(limits.map((l) => l.priority)).size,
+    verdict: true
+  })
 
   it('names the lowest and highest values and that the range was never left', () => {
     expect(historySummary(range(-20, 22), outside(steps), words)).toBe(
@@ -340,8 +346,14 @@ describe('an outside rule’s history', () => {
     )
   })
 
-  it('names the low limit passed', () => {
+  it('names the low limit passed, as the limit for a rule of one step', () => {
     expect(historySummary(range(-27, 22), outside(steps.slice(0, 2)), words)).toBe(
+      'Lowest -27 ° at 10 min; highest 22 ° at 30 min. It went below the limit.'
+    )
+  })
+
+  it('names the low limit passed by its step’s priority for a rule of several', () => {
+    expect(historySummary(range(-27, 22), outside(steps), words)).toBe(
       'Lowest -27 ° at 10 min; highest 22 ° at 30 min. It went below the warning limit.'
     )
   })

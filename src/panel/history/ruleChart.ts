@@ -54,7 +54,8 @@ function specOf(
   signal: SignalShape,
   type: string,
   side: Side | undefined,
-  limits: SummaryLimit[],
+  /** Each step's limits, in step order. */
+  steps: SummaryLimit[][],
   source: string | undefined,
   units: UnitLookup
 ): ChartSpec | undefined {
@@ -64,12 +65,14 @@ function specOf(
   if (side === undefined) return undefined
   const reported = units.entry(path)?.value
   if (reported !== undefined && typeof reported !== 'number') return undefined
+  const limited = VALUE_LIMITED.has(type) ? steps.filter((limits) => limits.length > 0) : []
   return {
     path,
     methods: type === 'slope' ? AVERAGE : EXTREMES[side],
     source,
     measure: signalMeasure(signal, units),
-    limits: VALUE_LIMITED.has(type) ? limits : [],
+    limits: limited.flat(),
+    steps: limited.length,
     side,
     verdict: JUDGED.has(type)
   }
@@ -79,7 +82,7 @@ function specOf(
 export function detailChart(rule: RuleInfo, units: UnitLookup): ChartSpec | undefined {
   const { kind, unit } = signalMeasure(rule.signal, units)
   const { type, direction } = rule.detector
-  const limits = rule.steps.flatMap(({ priority, limit, low, high }) => {
+  const steps = rule.steps.map(({ priority, limit, low, high }) => {
     const shown = (value: number) => fromSI(kind, value, unit)
     if (type === 'outside') {
       return low === undefined || high === undefined
@@ -91,7 +94,7 @@ export function detailChart(rule: RuleInfo, units: UnitLookup): ChartSpec | unde
     }
     return limit === undefined ? [] : [{ value: shown(limit), priority }]
   })
-  return specOf(rule.signal, type, sideOf(type, direction), limits, rule.source, units)
+  return specOf(rule.signal, type, sideOf(type, direction), steps, rule.source, units)
 }
 
 /** The chart beside the editor, following the form's path, kind and limits as typed. */
@@ -106,9 +109,9 @@ export function editorChart(form: RuleForm, units: UnitLookup): ChartSpec | unde
     const priority = step.priority === '' ? {} : { priority: step.priority }
     return [{ value, ...priority, ...(bound === undefined ? {} : { bound }) }]
   }
-  const limits = isZoneLimited(detector)
+  const steps = isZoneLimited(detector)
     ? []
-    : form.steps.flatMap((step) =>
+    : form.steps.map((step) =>
         outside
           ? [...typed(step, step.low, 'low'), ...typed(step, step.high, 'high')]
           : typed(step, step.limit)
@@ -118,7 +121,7 @@ export function editorChart(form: RuleForm, units: UnitLookup): ChartSpec | unde
     signalShape(form.signal),
     detector.type,
     sideOf(detector.type, direction),
-    limits,
+    steps,
     source === '' ? undefined : source,
     units
   )

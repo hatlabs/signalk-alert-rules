@@ -31,6 +31,8 @@ export interface ChartSpec {
   measure: Measure
   /** The limits in display units, in step order, each with its priority when there are several. */
   limits: SummaryLimit[]
+  /** How many steps the limits are of; see `SummaryRule`. */
+  steps: number
   /** The side the rule alerts on, whose extreme the summary names; absent for none. */
   side?: SummaryRule['side']
   /** Whether the summary may say the rule would not have alerted; see `SummaryRule`. */
@@ -202,7 +204,7 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
   }
   const drawn = methods.map((method) => series[method] ?? [])
   const recorded = drawn.some((points) => points.some((p) => p.value !== null))
-  const several = spec.limits.length > 1
+  const several = spec.steps > 1
   const limits = spec.limits.map((l) => ({
     value: l.value,
     label: `${several ? (l.priority ?? 'step') : 'limit'} ${shown(l.value)}`,
@@ -226,10 +228,11 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
       ? undefined
       : historySummary(
           series,
-          { side: spec.side, limits: spec.limits, verdict: spec.verdict },
+          { side: spec.side, limits: spec.limits, steps: spec.steps, verdict: spec.verdict },
           { value: shown, time: timeOf(span) }
         )
-  const withLimits = limits.length === 0 ? '' : several ? ' with the limits' : ' with the limit'
+  const withLimits =
+    limits.length === 0 ? '' : limits.length > 1 ? ' with the limits' : ' with the limit'
   const note =
     current.status === 'failed'
       ? 'History unavailable.'

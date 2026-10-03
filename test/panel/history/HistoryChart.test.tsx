@@ -29,6 +29,7 @@ const coolant: ChartSpec = {
   methods: ['max'],
   measure: { kind: 'absolute', unit: celsius },
   limits: [{ value: 95 }],
+  steps: 1,
   side: 'above',
   verdict: true
 }
@@ -97,7 +98,8 @@ describe('HistoryChart', () => {
           limits: [
             { value: 95, priority: 'warning' },
             { value: 105, priority: 'alarm' }
-          ]
+          ],
+          steps: 2
         }}
       />
     )
@@ -113,7 +115,7 @@ describe('HistoryChart', () => {
       render(
         <HistoryChart
           history={fakeHistory()}
-          spec={{ ...coolant, limits: [{ value: 85 }, { value: 85 }] }}
+          spec={{ ...coolant, limits: [{ value: 85 }, { value: 85 }], steps: 2 }}
         />
       )
       await settle()
@@ -145,7 +147,8 @@ describe('HistoryChart', () => {
         { value: 95, priority: 'warning', bound: 'high' },
         { value: 65, priority: 'alarm', bound: 'low' },
         { value: 100, priority: 'alarm', bound: 'high' }
-      ]
+      ],
+      steps: 2
     }
     /** Each bucket's lowest 5 °C under its highest, with a stretch of gaps at the middle. */
     const lows = series.map((p, i) => ({
@@ -178,6 +181,32 @@ describe('HistoryChart', () => {
         expect(chart.textContent).toContain(label)
       }
       expect(chart.querySelectorAll('polyline')).toHaveLength(4)
+    })
+
+    it('names the limits of a rule of one step as the limit, as for one side', async () => {
+      const single: ChartSpec = {
+        ...band,
+        limits: [
+          { value: 76, priority: 'warning', bound: 'low' },
+          { value: 85, priority: 'warning', bound: 'high' }
+        ],
+        steps: 1
+      }
+      render(
+        <HistoryChart
+          history={fakeHistory(() => Promise.resolve({ min: lows, max: highs }))}
+          spec={single}
+        />
+      )
+      await settle()
+      const chart = screen.getByRole('img', { name: 'Last 24 hours with the limits' })
+      expect([...chart.querySelectorAll('g text')].map((t) => t.textContent)).toEqual([
+        'limit 85 °C',
+        'limit 76 °C'
+      ])
+      expect(screen.getByRole('status').textContent).toMatch(
+        /^Lowest 75 °C at .+; highest 90 °C at .+\. It went below and above the limit\.$/
+      )
     })
 
     it('names both extremes, and the furthest limit passed on each side', async () => {
