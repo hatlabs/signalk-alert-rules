@@ -1,5 +1,5 @@
 import { isInvalid, type ListedRule, type RuleInfo, type RuleStatus } from '../api'
-import { hasInstances, ruleDisplay, type RuleDisplay } from '../rules/describe'
+import { hasInstances, passedSide, ruleDisplay, type RuleDisplay } from '../rules/describe'
 import type { UnitLookup } from '../signalUnits'
 
 const SECOND = 1000
@@ -105,14 +105,15 @@ const NO_READING: ReadonlySet<string> = new Set([
  */
 function alerting(status: RuleStatus, rule: RuleInfo, display: RuleDisplay, on?: string): string {
   const { value, limit } = status
-  const { type, direction } = rule.detector
+  const { type } = rule.detector
+  const side = passedSide(rule, status.passed)
   const at = on === undefined ? '' : `${on} at `
   const shown = reading(status, display)
   let text: string
   if (NO_READING.has(type) || shown === undefined) {
     text = status.message ?? ''
-  } else if (value !== undefined && limit !== undefined && direction !== undefined) {
-    text = `${at}${shown}: ${direction} ${display.value(limit)}`
+  } else if (value !== undefined && limit !== undefined && side !== undefined) {
+    text = `${at}${shown}: ${side} ${display.value(limit)}`
   } else {
     text = `${at}${shown}`
   }

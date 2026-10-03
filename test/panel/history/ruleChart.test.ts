@@ -35,7 +35,7 @@ describe('detailChart', () => {
     )
     expect(spec).toMatchObject({
       path: COOLANT,
-      method: 'max',
+      methods: ['max'],
       side: 'above',
       limits: [{ value: 95, priority: 'warning' }]
     })
@@ -54,7 +54,7 @@ describe('detailChart', () => {
       }),
       units
     )
-    expect(spec?.method).toBe('min')
+    expect(spec?.methods).toEqual(['min'])
     expect(spec?.limits).toEqual([
       { value: 5, priority: 'warning' },
       { value: 0, priority: 'alarm' }
@@ -71,11 +71,51 @@ describe('detailChart', () => {
       units
     )
     expect(spec).toMatchObject({
-      method: 'max',
+      methods: ['max'],
       side: 'above',
       limits: [{ value: 100 }],
       verdict: false
     })
+  })
+
+  it('charts an outside rule with each bucket’s lowest and highest, both limits of each step', () => {
+    const spec = detailChart(
+      rule({
+        signal: { paths: [COOLANT] },
+        detector: { type: 'outside' },
+        steps: [
+          { low: 278.15, high: 368.15, priority: 'warning' },
+          { low: 273.15, high: 373.15, priority: 'alarm' }
+        ]
+      }),
+      units
+    )
+    expect(spec).toMatchObject({
+      path: COOLANT,
+      methods: ['min', 'max'],
+      side: 'outside',
+      verdict: true,
+      steps: 2
+    })
+    expect(spec?.limits).toEqual([
+      { value: 5, priority: 'warning', bound: 'low' },
+      { value: 95, priority: 'warning', bound: 'high' },
+      { value: 0, priority: 'alarm', bound: 'low' },
+      { value: 100, priority: 'alarm', bound: 'high' }
+    ])
+  })
+
+  it('counts a one-step outside rule as one step, though it draws two limits', () => {
+    const spec = detailChart(
+      rule({
+        signal: { paths: [COOLANT] },
+        detector: { type: 'outside' },
+        steps: [{ low: 278.15, high: 368.15, priority: 'warning' }]
+      }),
+      units
+    )
+    expect(spec?.limits).toHaveLength(2)
+    expect(spec?.steps).toBe(1)
   })
 
   it('lets the summary judge a sustained rule, which alerts on the recorded value', () => {
@@ -99,7 +139,7 @@ describe('detailChart', () => {
       }),
       units
     )
-    expect(spec).toMatchObject({ method: 'average', side: 'above', limits: [] })
+    expect(spec).toMatchObject({ methods: ['average'], side: 'above', limits: [] })
   })
 
   it('charts a zone limit without a line, as the zones are the path’s', () => {
@@ -157,7 +197,7 @@ describe('editorChart', () => {
     )
     expect(spec).toMatchObject({
       path: COOLANT,
-      method: 'max',
+      methods: ['max'],
       side: 'above',
       limits: [{ value: 95.5, priority: 'warning' }]
     })
@@ -173,7 +213,7 @@ describe('editorChart', () => {
 
   it('leaves out a step whose limit is not a number yet', () => {
     const spec = editorChart(form('below', COOLANT), units)
-    expect(spec).toMatchObject({ method: 'min', side: 'below', limits: [] })
+    expect(spec).toMatchObject({ methods: ['min'], side: 'below', limits: [] })
   })
 
   it('draws no line for a zone limit', () => {
@@ -216,6 +256,84 @@ describe('editorChart', () => {
       }),
       units
     )
-    expect(spec).toMatchObject({ method: 'average', side: 'below', limits: [] })
+    expect(spec).toMatchObject({ methods: ['average'], side: 'below', limits: [] })
+  })
+
+  it('charts an outside rule with both limits of every step, and judges it', () => {
+    const spec = editorChart(
+      form('outside', COOLANT, (f) => {
+        f.steps = [
+          { ...f.steps[0], low: '-25', high: '25', priority: 'warning' },
+          { ...f.steps[0], low: '-35', high: '35,5', priority: 'alarm' }
+        ]
+      }),
+      units
+    )
+    expect(spec).toMatchObject({
+      path: COOLANT,
+      methods: ['min', 'max'],
+      side: 'outside',
+      verdict: true
+    })
+    expect(spec?.limits).toEqual([
+      { value: -25, priority: 'warning', bound: 'low' },
+      { value: 25, priority: 'warning', bound: 'high' },
+      { value: -35, priority: 'alarm', bound: 'low' },
+      { value: 35.5, priority: 'alarm', bound: 'high' }
+    ])
+  })
+
+  it('draws the one limit of a step typed so far, and gives no verdict', () => {
+    const spec = editorChart(
+      form('outside', COOLANT, (f) => {
+        f.steps[0] = { ...f.steps[0], low: '-25', priority: 'warning' }
+      }),
+      units
+    )
+    expect(spec?.limits).toEqual([{ value: -25, priority: 'warning', bound: 'low' }])
+    expect(spec?.verdict).toBe(false)
+  })
+
+  it('draws nothing for an outside step with no limit typed, and still judges the rest', () => {
+    const spec = editorChart(
+      form('outside', COOLANT, (f) => {
+        f.steps = [
+          { ...f.steps[0], low: '-25', high: '25', priority: 'warning' },
+          { ...f.steps[0], priority: 'alarm' }
+        ]
+      }),
+      units
+    )
+    expect(spec?.limits).toHaveLength(2)
+    expect(spec?.steps).toBe(1)
+    expect(spec?.verdict).toBe(true)
+  })
+
+  it('counts each step with a limit typed, whichever side', () => {
+    const spec = editorChart(
+      form('outside', COOLANT, (f) => {
+        f.steps = [
+          { ...f.steps[0], low: '-25', priority: 'warning' },
+          { ...f.steps[0], high: '35', priority: 'alarm' }
+        ]
+      }),
+      units
+    )
+    expect(spec?.limits).toHaveLength(2)
+    expect(spec?.steps).toBe(2)
+  })
+
+  it('charts one side again once the kind changes from outside to below', () => {
+    const outside = form('outside', COOLANT, (f) => {
+      f.steps[0] = { ...f.steps[0], low: '-25', high: '25' }
+    })
+    const below = withKind(outside, 'below')
+    below.steps[0] = { ...below.steps[0], limit: '5' }
+    expect(editorChart(below, units)).toMatchObject({
+      methods: ['min'],
+      side: 'below',
+      limits: [{ value: 5 }],
+      verdict: true
+    })
   })
 })

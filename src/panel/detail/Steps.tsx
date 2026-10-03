@@ -1,20 +1,32 @@
 import { useId } from 'react'
-import type { RuleEntry } from '../api'
+import type { RuleEntry, RuleInfo } from '../api'
 import { article, stepCondition, type RuleDisplay } from '../rules/describe'
 import { CheckIcon } from './icons'
 import { PriorityBadge } from '../list/PriorityBadge'
 
 const OPPOSITE: Readonly<Partial<Record<string, string>>> = { below: 'above', above: 'below' }
 
+/** Where the value is back to once the first step no longer holds, for a limit on the value. */
+function backTo(rule: RuleInfo, display: RuleDisplay): string | undefined {
+  const first = rule.steps[0]
+  if (rule.detector.type === 'outside') {
+    return first.low === undefined || first.high === undefined
+      ? undefined
+      : `between ${display.range(first.low, first.high, 'and')}`
+  }
+  const back = OPPOSITE[rule.detector.direction ?? '']
+  return rule.detector.type === 'sustained' && back !== undefined && first.limit !== undefined
+    ? `${back} ${display.value(first.limit)}`
+    : undefined
+}
+
 /** When the alert ends: only once the condition is back past the first step. */
 function clearHint(entry: RuleEntry, display: RuleDisplay, reached: string | undefined): string {
-  const { rule } = entry
-  const first = rule.steps[0]
-  const back = OPPOSITE[rule.detector.direction ?? '']
+  const back = backTo(entry.rule, display)
   const clears =
-    rule.detector.type === 'sustained' && back !== undefined && first.limit !== undefined
-      ? `Clears when the value is back ${back} ${display.value(first.limit)}.`
-      : 'Clears when the first step no longer holds.'
+    back === undefined
+      ? 'Clears when the first step no longer holds.'
+      : `Clears when the value is back ${back}.`
   return reached === undefined
     ? clears
     : `${clears} It stays ${article(reached)} ${reached} until then.`

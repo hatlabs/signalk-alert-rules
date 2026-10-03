@@ -123,3 +123,33 @@ describe('alertsWhen', () => {
     expect(when({ detector, steps: [step] })).toBe(text)
   })
 })
+
+describe('an outside rule', () => {
+  const HEEL = 'navigation.heel'
+  const units = unitLookup(
+    [{ path: HEEL, units: '°', unit: displayUnit({ units: '°' }) }],
+    displayUnit({ units: 'm' })
+  )
+  const outside = (steps: RuleInfo['steps'], duration?: number) => {
+    const info = ruleEntry({
+      rule: { signal: { paths: [HEEL] }, detector: { type: 'outside' }, steps, duration }
+    }).rule
+    return alertsWhen(info, ruleDisplay(info, units))
+  }
+
+  it('words each step’s range with the unit once, and its priority', () => {
+    expect(
+      outside(
+        [
+          { low: -25, high: 25, priority: 'warning' },
+          { low: -35, high: 35, priority: 'alarm' }
+        ],
+        10
+      )
+    ).toBe('outside -25 to 25 ° (warning), outside -35 to 35 ° (alarm), each for at least 10 s')
+  })
+
+  it('words one step without its priority', () => {
+    expect(outside([{ low: 49, high: 51, priority: 'warning' }])).toBe('outside 49 to 51 °')
+  })
+})

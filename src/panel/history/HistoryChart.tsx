@@ -2,13 +2,20 @@ import { useEffect, useId, useLayoutEffect, useState } from 'react'
 import { formatNumber } from '../../format'
 import type { Measure } from '../signalUnits'
 import { fromSI } from '../units'
-import { CHART_HEIGHT, chartGeometry, historySummary, type SummaryLimit } from './chart'
+import {
+  AXIS_LABEL_Y,
+  CHART_HEIGHT,
+  chartGeometry,
+  historySummary,
+  type SummaryLimit,
+  type SummaryRule
+} from './chart'
 import {
   DEFAULT_SPAN,
   resolutionFor,
   SPANS,
   type Aggregate,
-  type HistoryPoint,
+  type HistorySeries,
   type HistorySource,
   type Span
 } from './historySource'
@@ -16,15 +23,18 @@ import {
 /** What to chart: one path, how its buckets aggregate, and the limits to draw. */
 export interface ChartSpec {
   path: string
-  method: Aggregate
+  /** A line per aggregate: an outside rule's lowest and highest, in that order, else one. */
+  methods: readonly Aggregate[]
   /** The source the rule is pinned to; absent for the preferred one. */
   source?: string
   /** How the recorded SI values are shown. */
   measure: Measure
   /** The limits in display units, in step order, each with its priority when there are several. */
   limits: SummaryLimit[]
+  /** How many steps the limits are of; see `SummaryRule`. */
+  steps: number
   /** The side the rule alerts on, whose extreme the summary names; absent for none. */
-  side?: 'below' | 'above'
+  side?: SummaryRule['side']
   /** Whether the summary may say the rule would not have alerted; see `SummaryRule`. */
   verdict: boolean
 }
@@ -51,14 +61,12 @@ interface ChartProps {
 /** The width drawn for until the chart's own is known, as where nothing is laid out. */
 const FALLBACK_WIDTH = 360
 
-/** The baseline of the time labels, just inside the chart's bottom edge so descenders show. */
-const AXIS_LABEL_Y = CHART_HEIGHT - 3
 /** Room between a limit's label and the chart's right edge. */
 const LIMIT_LABEL_INSET = 4
 
 /**
  * An answer and the frame it was asked in: the span ending when it arrived,
- * and the bucket length asked for. `of` names the path, aggregate, source and
+ * and the bucket length asked for. `of` names the path, aggregates, source and
  * span, but not the bucket length, so an answer for another width still fits.
  */
 type Loaded =
@@ -66,7 +74,7 @@ type Loaded =
   | { status: 'failed' }
   | {
       status: 'ready'
-      points: HistoryPoint[]
+      series: HistorySeries
       of: string
       to: number
       seconds: number
@@ -136,14 +144,16 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
   const [ref, width] = useWidth()
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' })
   const resolution = width === undefined ? undefined : resolutionFor(span.seconds, width)
-  const { path, method, source, measure } = spec
+  const { path, methods, source, measure } = spec
+  // A spec is built afresh on each render, so its list of aggregates is too; their names are not.
+  const asked = methods.join(',')
+  const of = `${path}:${asked}|${source ?? ''}:${String(span.seconds)}`
 
   useEffect(() => {
     if (resolution === undefined) return undefined
     let cancelled = false
     let next: ReturnType<typeof setTimeout> | undefined
     const { seconds } = span
-    const of = `${path}:${method}|${source ?? ''}:${String(seconds)}`
     // A new width asks for finer or coarser buckets of the same line; the
     // line drawn stays until they come, rather than blinking out.
     setLoaded((last) => (last.status === 'ready' && last.of === of ? last : { status: 'loading' }))
@@ -153,10 +163,10 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
       const again = () => {
         if (!cancelled) next = setTimeout(ask, resolution * 1000)
       }
-      history.values({ path, method, source, seconds, resolution }).then(
-        (points) => {
+      history.values({ path, methods, source, seconds, resolution }).then(
+        (series) => {
           if (cancelled) return
-          setLoaded({ status: 'ready', points, of, to: Date.now(), seconds, resolution })
+          setLoaded({ status: 'ready', series, of, to: Date.now(), seconds, resolution })
           again()
         },
         () => {
@@ -174,49 +184,59 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
       cancelled = true
       clearTimeout(next)
     }
-  }, [history, path, method, source, span, resolution])
+  }, [history, path, asked, source, span, resolution, of])
+
+  // Until the effect above has asked for a changed spec, as on the render
+  // after an editor's kind or path changes, the last answer is of another.
+  const current: Loaded =
+    loaded.status === 'ready' && loaded.of !== of ? { status: 'loading' } : loaded
 
   const symbol = measure.kind === 'ratio' ? '' : measure.unit.symbol
   const shown = (v: number) => (symbol === '' ? formatNumber(v) : `${formatNumber(v)} ${symbol}`)
-  const points =
-    loaded.status === 'ready'
-      ? loaded.points.map((p) => ({
-          time: p.time,
-          value: p.value === null ? null : fromSI(measure.kind, p.value, measure.unit)
-        }))
-      : []
-  const recorded = points.some((p) => p.value !== null)
-  const several = spec.limits.length > 1
+  const series: HistorySeries = {}
+  if (current.status === 'ready') {
+    for (const method of methods) {
+      series[method] = current.series[method]?.map((p) => ({
+        time: p.time,
+        value: p.value === null ? null : fromSI(measure.kind, p.value, measure.unit)
+      }))
+    }
+  }
+  const drawn = methods.map((method) => series[method] ?? [])
+  const recorded = drawn.some((points) => points.some((p) => p.value !== null))
+  const several = spec.steps > 1
   const limits = spec.limits.map((l) => ({
     value: l.value,
     label: `${several ? (l.priority ?? 'step') : 'limit'} ${shown(l.value)}`,
-    tone: several ? (l.priority ?? 'limit') : 'limit'
+    tone: several ? (l.priority ?? 'limit') : 'limit',
+    bound: l.bound
   }))
   const drawnWidth = width ?? FALLBACK_WIDTH
   // Drawn in the frame the answer was asked in, so the line holds still
   // between answers however often the page around it renders.
   const geometry =
-    loaded.status === 'ready'
-      ? chartGeometry(points, limits, {
-          from: loaded.to - loaded.seconds * 1000,
-          to: loaded.to,
+    current.status === 'ready'
+      ? chartGeometry(drawn, limits, {
+          from: current.to - current.seconds * 1000,
+          to: current.to,
           width: drawnWidth,
-          resolution: loaded.resolution
+          resolution: current.resolution
         })
       : { lines: [], limits: [] }
   const summary =
     spec.side === undefined
       ? undefined
       : historySummary(
-          points,
-          { side: spec.side, limits: spec.limits, verdict: spec.verdict },
+          series,
+          { side: spec.side, limits: spec.limits, steps: spec.steps, verdict: spec.verdict },
           { value: shown, time: timeOf(span) }
         )
-  const withLimits = limits.length === 0 ? '' : several ? ' with the limits' : ' with the limit'
+  const withLimits =
+    limits.length === 0 ? '' : limits.length > 1 ? ' with the limits' : ' with the limit'
   const note =
-    loaded.status === 'failed'
+    current.status === 'failed'
       ? 'History unavailable.'
-      : loaded.status === 'ready' && !recorded
+      : current.status === 'ready' && !recorded
         ? `Nothing recorded in the ${span.title.toLowerCase()}.`
         : undefined
 
@@ -243,7 +263,7 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
         </div>
       </div>
       <div ref={ref} className="skar-history-plot">
-        {loaded.status === 'loading' && (
+        {current.status === 'loading' && (
           <p className="skar-history-note" style={{ height: CHART_HEIGHT }}>
             Loading history…
           </p>
@@ -262,15 +282,24 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
                 <line x1={0} y1={l.y} x2={drawnWidth} y2={l.y} />
               </g>
             ))}
-            {geometry.lines.map((line) => (
-              <polyline key={line} className="skar-history-line" points={line} />
-            ))}
+            {/* An outside rule's lowest and highest can draw the same points, so they key by place. */}
+            {geometry.lines.map((runs, s) =>
+              runs.map((line, r) => (
+                <polyline
+                  key={`${String(s)}-${String(r)}`}
+                  className="skar-history-line"
+                  points={line}
+                />
+              ))
+            )}
             {/* The labels go over the line, so it never hides one. */}
             {geometry.limits.map((l, i) => (
               <g key={i} className={`skar-history-limit skar-history-limit-${l.tone}`}>
-                <text x={drawnWidth - LIMIT_LABEL_INSET} y={l.labelY} textAnchor="end">
-                  {l.label}
-                </text>
+                {l.labelY !== undefined && (
+                  <text x={drawnWidth - LIMIT_LABEL_INSET} y={l.labelY} textAnchor="end">
+                    {l.label}
+                  </text>
+                )}
               </g>
             ))}
             <text className="skar-history-axis" x={0} y={AXIS_LABEL_Y}>

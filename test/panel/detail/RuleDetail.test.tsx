@@ -3,7 +3,12 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RuleEntry } from '../../../src/panel/api'
 import { RuleDetail, type RuleDetailProps } from '../../../src/panel/detail/RuleDetail'
-import type { HistoryPoint, HistorySource } from '../../../src/panel/history/historySource'
+import type {
+  HistoryPoint,
+  HistoryQuery,
+  HistorySeries,
+  HistorySource
+} from '../../../src/panel/history/historySource'
 import type { PathEntry } from '../../../src/panel/paths/selfPaths'
 import { unitLookup } from '../../../src/panel/signalUnits'
 import { displayUnit } from '../../../src/panel/units'
@@ -222,6 +227,108 @@ describe('RuleDetail', () => {
     it('shows no ladder for a rule with one step', () => {
       renderDetail(houseLow)
       expect(screen.queryByRole('list', { name: 'Steps' })).toBeNull()
+    })
+  })
+
+  describe('an outside rule', () => {
+    const HEEL = 'navigation.heel'
+    const heelUnits = unitLookup(
+      [{ path: HEEL, units: '°', unit: displayUnit({ units: '°' }) }],
+      displayUnit({ units: 'm' })
+    )
+    const heelAlert = {
+      ...alertingStatus,
+      value: 27,
+      limit: 25,
+      passed: 'high',
+      message: 'Heel 27 °'
+    } as const
+    const heel = ruleEntry({
+      slug: 'heel',
+      rule: {
+        name: 'Heel',
+        alertPath: 'navigation.heelOutOfRange',
+        priority: 'warning',
+        steps: [
+          { low: -25, high: 25, priority: 'warning' },
+          { low: -35, high: 35, priority: 'alarm' }
+        ],
+        duration: 10,
+        detector: { type: 'outside' },
+        signal: { paths: [HEEL] }
+      },
+      status: { ...heelAlert, instances: [instance({ ...heelAlert })] }
+    })
+
+    it('explains the side and limit passed while active', () => {
+      renderDetail(heel, { units: heelUnits })
+      expect(screen.getByText(/has been/).closest('p')?.textContent).toBe(
+        'Heel has been outside -25 to 25 ° for 4 min and went above 25 °. Now 27 °.'
+      )
+    })
+
+    it('shows each step’s range, and clears back between the first step’s limits', () => {
+      renderDetail(heel, { units: heelUnits })
+      const rungs = within(screen.getByRole('list', { name: 'Steps' })).getAllByRole('listitem')
+      expect(rungs.map((r) => r.textContent)).toEqual([
+        'Warningoutside -25 to 25 °reached',
+        'Alarmoutside -35 to 35 °'
+      ])
+      expect(fact(/alerts when/i)).toBe(
+        'outside -25 to 25 ° (warning), outside -35 to 35 ° (alarm), each for at least 10 s'
+      )
+      expect(screen.getByText(/^Clears when/).textContent).toBe(
+        'Clears when the value is back between -25 and 25 °. It stays a warning until then.'
+      )
+    })
+
+    it('renders a normal state with no limit', () => {
+      const normal = { ...ruleEntry().status, value: 3 }
+      renderDetail(
+        { ...heel, status: { ...normal, instances: [instance({ value: 3 })] } },
+        { units: heelUnits }
+      )
+      expect(screen.getByText(/^Within limits/).textContent).toBe('Within limits. Now 3 °.')
+      expect(screen.getByText(/^Clears when/).textContent).toBe(
+        'Clears when the value is back between -25 and 25 °.'
+      )
+    })
+
+    it('says when it clears without a range, for a first step that has none', () => {
+      const unranged = {
+        ...heel,
+        rule: { ...heel.rule, steps: [{ priority: 'warning' }, ...heel.rule.steps.slice(1)] }
+      }
+      renderDetail(unranged, { units: heelUnits })
+      expect(screen.getByText(/^Clears when/).textContent).toBe(
+        'Clears when the first step no longer holds. It stays a warning until then.'
+      )
+    })
+
+    it('charts the lowest and highest heel against both limits of each step', async () => {
+      const bucket = (i: number) => Date.now() - 86_400_000 + i * 600_000
+      const lows = Array.from({ length: 144 }, (_, i) => ({ time: bucket(i), value: -27 }))
+      const highs = Array.from({ length: 144 }, (_, i) => ({ time: bucket(i), value: 36 }))
+      const values = vi.fn(() => Promise.resolve({ min: lows, max: highs }))
+      renderDetail(heel, {
+        units: heelUnits,
+        history: { hasProvider: () => Promise.resolve(true), values }
+      })
+      for (let i = 0; i < 2; i++) {
+        await act(async () => {
+          await Promise.resolve()
+        })
+      }
+      expect(values).toHaveBeenCalledWith(expect.objectContaining({ methods: ['min', 'max'] }))
+      const chart = screen.getByRole('img', { name: 'Last 24 hours with the limits' })
+      for (const label of ['warning -25 °', 'warning 25 °', 'alarm -35 °', 'alarm 35 °']) {
+        expect(chart.textContent).toContain(label)
+      }
+      expect(
+        screen.getByText(
+          /^Lowest -27 ° at .+; highest 36 ° at .+\. It went below the warning limit and above the alarm limit\.$/
+        )
+      ).toBeTruthy()
     })
   })
 
@@ -654,7 +761,8 @@ describe('RuleDetail', () => {
       value: 12.5
     }))
     const history = (
-      values: () => Promise<HistoryPoint[]> = () => Promise.resolve(day)
+      values: (q: HistoryQuery) => Promise<HistorySeries> = (q) =>
+        Promise.resolve(Object.fromEntries(q.methods.map((method) => [method, day])))
     ): HistorySource => ({ hasProvider: () => Promise.resolve(true), values })
 
     async function settle() {

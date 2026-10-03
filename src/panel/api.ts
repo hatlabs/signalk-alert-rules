@@ -72,6 +72,8 @@ export interface ConditionFacts {
   lastSeen?: string
   /** The rule's side of a zone level that exists only on the other side. */
   side?: string
+  /** Which of an outside rule's limits an alert's value last went past: the one `limit` names. */
+  passed?: 'low' | 'high'
   /** The gate, by index, whose path lacks a zone level. */
   gate?: number
   cause?: string
@@ -116,11 +118,14 @@ export interface RuleStatus extends ConditionFacts, LiveFacts {
 
 /**
  * One step of a rule's climb: its priority and the limit the detector takes,
- * a `limit` for most, a match's `value`, an absence's `within`, in SI units.
+ * a `limit` for most, an outside rule's `low` and `high`, a match's `value`,
+ * an absence's `within`, in SI units.
  */
 export interface RuleStep {
   priority: string
   limit?: number
+  low?: number
+  high?: number
   value?: string | number | boolean
   within?: number
 }
@@ -362,6 +367,9 @@ function progressOf(v: unknown): Progress | undefined {
 
 const bool = (v: unknown) => (typeof v === 'boolean' ? v : undefined)
 
+const bound = (v: unknown): ConditionFacts['passed'] =>
+  v === 'low' || v === 'high' ? v : undefined
+
 /** The well-formed facts in a state or instance row. */
 function conditionFacts(v: Record<string, unknown>): ConditionFacts {
   return {
@@ -374,6 +382,7 @@ function conditionFacts(v: Record<string, unknown>): ConditionFacts {
     ...optional('clearSince', text(v.clearSince)),
     ...optional('lastSeen', text(v.lastSeen)),
     ...optional('side', text(v.side)),
+    ...optional('passed', bound(v.passed)),
     ...optional('gate', num(v.gate)),
     ...optional('cause', text(v.cause)),
     ...optional('contract', text(v.contract)),
@@ -408,6 +417,8 @@ function stepsOf(steps: unknown): RuleStep[] {
       {
         priority: step.priority,
         ...optional('limit', num(step.limit)),
+        ...optional('low', num(step.low)),
+        ...optional('high', num(step.high)),
         ...optional('value', stepValue(step.value)),
         ...optional('within', num(step.within))
       }

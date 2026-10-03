@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 import { cleanup, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { HistoryPoint, HistorySource } from '../../../src/panel/history/historySource'
+import type {
+  HistoryPoint,
+  HistoryQuery,
+  HistorySource
+} from '../../../src/panel/history/historySource'
 import {
   button,
   choose,
@@ -23,7 +27,9 @@ const day: HistoryPoint[] = Array.from({ length: 144 }, (_, i) => ({
 function fakeHistory(provider = true) {
   return {
     hasProvider: vi.fn(() => Promise.resolve(provider)),
-    values: vi.fn(() => Promise.resolve(day))
+    values: vi.fn((q: HistoryQuery) =>
+      Promise.resolve(Object.fromEntries(q.methods.map((method) => [method, day])))
+    )
   } satisfies HistorySource
 }
 
@@ -42,7 +48,7 @@ describe('the editor’s history chart', () => {
       screen.getByText(/^Lowest 13\.02 V at .+\. The rule would not have alerted\.$/)
     ).toBeTruthy()
     expect(history.values).toHaveBeenCalledWith(
-      expect.objectContaining({ path: HOUSE, method: 'min', seconds: 86_400 })
+      expect.objectContaining({ path: HOUSE, methods: ['min'], seconds: 86_400 })
     )
   })
 
@@ -65,7 +71,7 @@ describe('the editor’s history chart', () => {
     await screen.findByRole('group', { name: 'Span' })
     choose(/^Alert when/, 'above')
     await waitFor(() => {
-      expect(history.values).toHaveBeenLastCalledWith(expect.objectContaining({ method: 'max' }))
+      expect(history.values).toHaveBeenLastCalledWith(expect.objectContaining({ methods: ['max'] }))
     })
   })
 

@@ -2,7 +2,7 @@
  * Where the history chart draws its line and limits, and what it says about
  * them, from values already in display units.
  */
-import type { HistoryPoint } from './historySource'
+import type { HistoryPoint, HistorySeries } from './historySource'
 
 /** The chart's height in pixels; its width is the space it is given. */
 export const CHART_HEIGHT = 110
@@ -13,7 +13,11 @@ const PLOT_BOTTOM = 88
 /** Room each limit's label takes above or below its line. */
 const LABEL_RISE = 5
 const LABEL_DROP = 14
-const LABEL_HEIGHT = 12
+export const LABEL_HEIGHT = 12
+/** The baseline of the time labels, just inside the chart's bottom edge so descenders show. */
+export const AXIS_LABEL_Y = CHART_HEIGHT - 3
+/** A limit's label sitting lower would run into the time labels. */
+const LABEL_FLOOR = AXIS_LABEL_Y - LABEL_HEIGHT
 
 /** A bucket this many lengths after the last is past a stretch nothing was recorded in. */
 const GAP_BUCKETS = 2
@@ -26,6 +30,8 @@ export interface ChartLimit {
   label: string
   /** The step's priority, or `limit` for a rule with one step. */
   tone: string
+  /** Which of an outside rule's step limits this is. */
+  bound?: 'low' | 'high'
 }
 
 export interface ChartFrame {
@@ -38,12 +44,13 @@ export interface ChartFrame {
 
 export interface PlacedLimit extends ChartLimit {
   y: number
-  labelY: number
+  /** Absent when the label fits on neither side of its line. */
+  labelY?: number
 }
 
 export interface ChartGeometry {
-  /** Each unbroken run of values, as a polyline's points. */
-  lines: string[]
+  /** Each series' unbroken runs of values, each as a polyline's points. */
+  lines: string[][]
   limits: PlacedLimit[]
 }
 
@@ -81,12 +88,13 @@ function domain(values: readonly number[]): [number, number] {
 
 const round = (n: number) => Math.round(n * 10) / 10
 
+/** @param series one or more lines over the same buckets, as the lowest and highest of each */
 export function chartGeometry(
-  points: readonly HistoryPoint[],
+  series: readonly (readonly HistoryPoint[])[],
   limits: readonly ChartLimit[],
   frame: ChartFrame
 ): ChartGeometry {
-  const valued = points.filter(hasValue)
+  const valued = series.flat().filter(hasValue)
   if (valued.length === 0) return { lines: [], limits: [] }
   const [lo, hi] = domain([...valued.map((p) => p.value), ...limits.map((l) => l.value)])
   const y = (v: number) => round(PLOT_BOTTOM - ((v - lo) / (hi - lo)) * (PLOT_BOTTOM - PLOT_TOP))
@@ -94,44 +102,70 @@ export function chartGeometry(
   const x = (t: number) =>
     round(Math.min(frame.width, Math.max(0, ((t - frame.from) / span) * frame.width)))
 
-  const lines = runs(points, frame.resolution).map((run) => {
-    const vertices = run.map((p) => `${String(x(p.time))},${String(y(p.value))}`)
-    // A polyline of one vertex draws nothing; a value alone between gaps shows as a dot.
-    if (run.length === 1) {
-      const at = x(run[0].time)
-      return `${String(at - 1)},${String(y(run[0].value))} ${String(at + 1)},${String(y(run[0].value))}`
-    }
-    return vertices.join(' ')
-  })
+  const lines = series.map((points) =>
+    runs(points, frame.resolution).map((run) => {
+      const vertices = run.map((p) => `${String(x(p.time))},${String(y(p.value))}`)
+      // A polyline of one vertex draws nothing; a value alone between gaps shows as a dot.
+      if (run.length === 1) {
+        const at = x(run[0].time)
+        return `${String(at - 1)},${String(y(run[0].value))} ${String(at + 1)},${String(y(run[0].value))}`
+      }
+      return vertices.join(' ')
+    })
+  )
 
   // Labels go above their lines, top first; one that would overlap the
-  // label before it goes below its line instead.
-  let lowestLabel = -Infinity
-  const placed = limits
-    .map((limit) => ({ ...limit, y: y(limit.value) }))
+  // label before it goes below its line instead. A range's low limits are
+  // the bottom of the band its values keep within, so theirs mirror that:
+  // below their lines, bottom first, up from the time labels. A low label
+  // that fits on neither side of its line is left out; its line still shows,
+  // and the summary names any limit the history passed.
+  const atLines = limits.map((limit) => ({ ...limit, y: y(limit.value) }))
+  let lowestLabel = 0
+  const fromTop = atLines
+    .filter((limit) => limit.bound !== 'low')
     .sort((a, b) => a.y - b.y)
     .map((limit) => {
       const above = limit.y - LABEL_RISE
-      const labelY =
-        above - LABEL_HEIGHT >= lowestLabel && above - LABEL_HEIGHT >= 0
-          ? above
-          : limit.y + LABEL_DROP
+      const labelY = above - LABEL_HEIGHT >= lowestLabel ? above : limit.y + LABEL_DROP
       lowestLabel = labelY
       return { ...limit, labelY }
     })
-  return { lines, limits: placed }
+  let highestLabel = LABEL_FLOOR
+  const fromBottom = atLines
+    .filter((limit) => limit.bound === 'low')
+    .sort((a, b) => b.y - a.y)
+    .map((limit): PlacedLimit => {
+      const below = limit.y + LABEL_DROP
+      const above = limit.y - LABEL_RISE
+      const labelY =
+        below <= highestLabel && below - LABEL_HEIGHT >= lowestLabel
+          ? below
+          : above <= highestLabel && above - LABEL_HEIGHT >= lowestLabel
+            ? above
+            : undefined
+      if (labelY === undefined) return limit
+      highestLabel = labelY - LABEL_HEIGHT
+      return { ...limit, labelY }
+    })
+  return { lines, limits: [...fromTop, ...fromBottom].sort((a, b) => a.y - b.y) }
 }
 
-/** A limit to compare the history with, in step order, and its step's priority when there are several. */
+/** A limit to compare the history with, in step order, and its step's priority. */
 export interface SummaryLimit {
   value: number
   priority?: string
+  /** Which of an outside rule's step limits this is. */
+  bound?: 'low' | 'high'
 }
 
 /** What the summary compares the history with. */
 export interface SummaryRule {
-  side: 'below' | 'above'
+  /** The side the rule alerts on; `outside` alerts below its low limits and above its high ones. */
+  side: 'below' | 'above' | 'outside'
   limits: readonly SummaryLimit[]
+  /** How many steps the limits are of; with more than one, each is named by its step's priority. */
+  steps: number
   /**
    * Whether a limit never passed says the rule would not have alerted: true
    * for a rule on the recorded value, false for a projection, which alerts
@@ -140,26 +174,87 @@ export interface SummaryRule {
   verdict: boolean
 }
 
-/**
- * The extreme on the rule's side and when it was, and whether it passed a
- * limit. Passing one is not saying the rule would have alerted: the buckets
- * do not tell whether it held for the rule's duration. Not passing one does
- * say it for a rule on the recorded value, as each bucket keeps its extreme.
- */
-export function historySummary(
-  points: readonly HistoryPoint[],
-  { side, limits, verdict }: SummaryRule,
-  words: { value: (v: number) => string; time: (ms: number) => string }
-): string | undefined {
+interface Words {
+  value: (v: number) => string
+  time: (ms: number) => string
+}
+
+const beyond = (side: 'below' | 'above', a: number, b: number) => (side === 'below' ? a < b : a > b)
+
+/** The point furthest to one side, or undefined for a series without values. */
+function extreme(points: readonly HistoryPoint[], side: 'below' | 'above') {
   const valued = points.filter(hasValue)
   if (valued.length === 0) return undefined
-  const beyond = (a: number, b: number) => (side === 'below' ? a < b : a > b)
-  const extreme = valued.reduce((best, p) => (beyond(p.value, best.value) ? p : best))
-  const found = `${side === 'below' ? 'Lowest' : 'Highest'} ${words.value(extreme.value)} at ${words.time(extreme.time)}.`
+  return valued.reduce((best, p) => (beyond(side, p.value, best.value) ? p : best))
+}
+
+/** The furthest of the limits, in step order, that a value went past on its side. */
+function furthestPassed(value: number, side: 'below' | 'above', limits: readonly SummaryLimit[]) {
+  return limits.filter((l) => beyond(side, value, l.value)).at(-1)
+}
+
+/**
+ * The extreme on the rule's side and when it was, and whether it passed a
+ * limit; both extremes for an outside rule. Passing a limit is not saying the
+ * rule would have alerted: the buckets do not tell whether it held for the
+ * rule's duration. Not passing one does say it for a rule on the recorded
+ * value, as each bucket keeps its extreme.
+ *
+ * @param series each bucket's lowest for a low limit and its highest for a
+ *   high one, both for an outside rule; a slope's averages stand for either
+ */
+export function historySummary(
+  series: HistorySeries,
+  { side, limits, steps, verdict }: SummaryRule,
+  words: Words
+): string | undefined {
+  const at = (p: Valued) => `${words.value(p.value)} at ${words.time(p.time)}`
+  const notAlerted = (found: string) =>
+    verdict ? `${found} The rule would not have alerted.` : found
+  if (side === 'outside') {
+    const lowest = extreme(series.min ?? [], 'below')
+    const highest = extreme(series.max ?? [], 'above')
+    if (lowest === undefined || highest === undefined) return undefined
+    const found = `Lowest ${at(lowest)}; highest ${at(highest)}.`
+    if (limits.length === 0) return found
+    const went = [
+      [
+        'below',
+        furthestPassed(
+          lowest.value,
+          'below',
+          limits.filter((l) => l.bound === 'low')
+        )
+      ],
+      [
+        'above',
+        furthestPassed(
+          highest.value,
+          'above',
+          limits.filter((l) => l.bound === 'high')
+        )
+      ]
+    ] as const
+    const passed = went.flatMap(([way, limit]) =>
+      limit === undefined ? [] : [{ way, name: limitName(limit, steps > 1) }]
+    )
+    if (passed.length === 0) return notAlerted(found)
+    const [first, second] = passed
+    if (passed.length === 1) return `${found} It went ${first.way} the ${first.name}.`
+    return first.name === second.name
+      ? `${found} It went below and above the ${first.name}.`
+      : `${found} It went below the ${first.name} and above the ${second.name}.`
+  }
+  const point = extreme(series[side === 'below' ? 'min' : 'max'] ?? series.average ?? [], side)
+  if (point === undefined) return undefined
+  const found = `${side === 'below' ? 'Lowest' : 'Highest'} ${at(point)}.`
   if (limits.length === 0) return found
-  const passed = limits.filter((l) => beyond(extreme.value, l.value))
-  const furthest = passed.at(-1)
-  if (furthest === undefined) return verdict ? `${found} The rule would not have alerted.` : found
-  const which = limits.length > 1 && furthest.priority !== undefined ? `${furthest.priority} ` : ''
-  return `${found} It went ${side} the ${which}limit.`
+  const furthest = furthestPassed(point.value, side, limits)
+  if (furthest === undefined) return notAlerted(found)
+  return `${found} It went ${side} the ${limitName(furthest, steps > 1)}.`
+}
+
+/** A limit named by its step's priority where the rule draws several. */
+function limitName(limit: SummaryLimit, several: boolean): string {
+  return several && limit.priority !== undefined ? `${limit.priority} limit` : 'limit'
 }
