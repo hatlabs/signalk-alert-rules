@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState, type KeyboardEvent } from 'react'
+import { useEffect, useId, useMemo, useState, type KeyboardEvent, type Ref } from 'react'
 import { unitLabel } from '../units'
 import type { PathEntry, PathList } from './selfPaths'
 import './PathPicker.css'
@@ -11,6 +11,7 @@ export interface PathPickerProps {
   onChange: (path: string) => void
   /** Why the path is not accepted, announced with the input. */
   errors?: readonly string[]
+  inputRef?: Ref<HTMLInputElement>
 }
 
 /** Every whitespace-separated word occurs in the path or the display name. */
@@ -48,7 +49,14 @@ function statusText(paths: PathList, open: boolean, matching: number): string {
  * aria-activedescendant. A typed path is kept as is, because a rule may name
  * a path that has not reported yet.
  */
-export function PathPicker({ label, value, paths, onChange, errors = [] }: PathPickerProps) {
+export function PathPicker({
+  label,
+  value,
+  paths,
+  onChange,
+  errors = [],
+  inputRef
+}: PathPickerProps) {
   const id = useId()
   const inputId = `${id}-input`
   const listboxId = `${id}-listbox`
@@ -133,6 +141,7 @@ export function PathPicker({ label, value, paths, onChange, errors = [] }: PathP
         {label}
       </label>
       <input
+        ref={inputRef}
         id={inputId}
         type="text"
         className={`skar-input${errors.length === 0 ? '' : ' skar-input-invalid'}`}

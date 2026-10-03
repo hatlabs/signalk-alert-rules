@@ -43,6 +43,43 @@ export function useConfirmation(): Confirmation {
   }
 }
 
+export interface Sheet<T> {
+  /** What the sheet is open for; undefined while it is closed. */
+  value: T | undefined
+  show: (value: T) => void
+  /** Closes it, returning focus to what had it when it opened unless told otherwise. */
+  close: (returnFocus?: boolean) => void
+}
+
+/**
+ * A sheet opened for a value, such as where the operator asked to go.
+ * Closing it returns focus to whatever had focus when it opened, as
+ * `useConfirmation` does for a sheet with a single trigger.
+ */
+export function useSheet<T>(): Sheet<T> {
+  const [value, setValue] = useState<T | undefined>(undefined)
+  const opener = useRef<HTMLElement | null>(null)
+  const refocus = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    refocus.current?.focus()
+    refocus.current = null
+  }, [value])
+  return {
+    value,
+    show: (next) => {
+      // Taken before the sheet renders: its Cancel takes focus as it appears.
+      if (value === undefined && document.activeElement instanceof HTMLElement)
+        opener.current = document.activeElement
+      setValue(next)
+    },
+    close: (returnFocus = true) => {
+      refocus.current = returnFocus ? opener.current : null
+      opener.current = null
+      setValue(undefined)
+    }
+  }
+}
+
 export interface ConfirmProps {
   title: string
   /** What confirming does, naming the consequence. */

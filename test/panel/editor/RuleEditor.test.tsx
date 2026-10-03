@@ -395,6 +395,59 @@ describe('RuleEditor, from a path', () => {
     expect(onClose).not.toHaveBeenCalled()
   })
 
+  it('returns focus to what opened the leave prompt when the prompt is cancelled', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    fillBelow()
+    const keepEditing = () => {
+      const dialog = screen.getByRole('alertdialog', { name: 'Discard your changes?' })
+      click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    }
+    button('Cancel').focus()
+    click(button('Cancel'))
+    keepEditing()
+    expect(document.activeElement).toBe(button('Cancel'))
+    const back = screen.getByRole('link', { name: 'Alert rules' })
+    back.focus()
+    fireEvent.click(back)
+    keepEditing()
+    expect(document.activeElement).toBe(back)
+  })
+
+  it('moves focus into the path search on Change, and back to Change on Done', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    click(button('Change the value to watch'))
+    expect(document.activeElement).toBe(select('Search by name or path'))
+    click(button('Done'))
+    expect(document.activeElement).toBe(button('Change the value to watch'))
+  })
+
+  it('focuses the first field in error when Save finds the form incomplete', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    choose('Priority for step 1', 'warning')
+    create()
+    expect(document.activeElement).toBe(textbox('Limit for step 1'))
+  })
+
+  it('focuses the first field the server refuses', async () => {
+    const { api } = renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    api.createRule.mockRejectedValueOnce(
+      new RuleRejectedError('invalid request body', [
+        { path: '/detector/duration', message: 'must be at most 86400' }
+      ])
+    )
+    await formShown()
+    fillBelow()
+    type(textbox('For at least'), '100000')
+    button('Create rule').focus()
+    create()
+    await waitFor(() => {
+      expect(document.activeElement).toBe(textbox('For at least'))
+    })
+  })
+
   it('leaves at once without changes', async () => {
     const { onClose } = renderEditor({ start: { path: HOUSE, kind: 'below' } })
     await formShown()
@@ -584,6 +637,31 @@ describe('RuleEditor, editing', () => {
     })
     expect(description(textbox('Limit for step 1'))).toContain('must be a number')
     expect(onSaved).not.toHaveBeenCalled()
+  })
+
+  it('returns focus to Save when the confirmation is cancelled', async () => {
+    const { api } = renderEditor({ editing: { entry: active, rule: stepped } })
+    api.previewRule.mockResolvedValueOnce(clears)
+    await formShown()
+    type(textbox('Limit for step 1'), '12.4')
+    button('Save').focus()
+    click(button('Save'))
+    const dialog = await screen.findByRole('alertdialog')
+    click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(document.activeElement).toBe(button('Save'))
+  })
+
+  it('focuses the refused field when the confirmation closes on a refusal', async () => {
+    const { api } = renderEditor({ editing: { entry: active, rule: stepped } })
+    api.updateRule.mockRejectedValueOnce(
+      new RuleRejectedError('invalid request body', [
+        { path: '/detector/steps/0/limit', message: 'must be a number' }
+      ])
+    )
+    await confirmed(api)
+    await waitFor(() => {
+      expect(document.activeElement).toBe(textbox('Limit for step 1'))
+    })
   })
 
   it('keeps the confirmation open with a failure that names no field', async () => {

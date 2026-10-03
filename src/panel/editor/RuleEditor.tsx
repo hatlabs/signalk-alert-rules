@@ -6,7 +6,7 @@ import { BackIcon } from '../detail/icons'
 import { failureMessage } from '../failure'
 import { PathPicker } from '../paths/PathPicker'
 import type { PathList, PathSource } from '../paths/selfPaths'
-import { ConfirmSheet } from '../rules/Confirm'
+import { ConfirmSheet, useSheet } from '../rules/Confirm'
 import { discardedTotals, ruleDisplay } from '../rules/describe'
 import { signalMeasure, useUnits, type UnitLookup } from '../signalUnits'
 import { withKind, type ConditionKind } from './conditionKinds'
@@ -138,15 +138,21 @@ function EditorForm(props: FormProps) {
   const [busy, setBusy] = useState(false)
   // Held with the form it was previewed for: a field changed under the
   // confirmation would otherwise be dropped from the rule it stores.
-  const [pending, setPending] = useState<
-    { form: RuleForm; rule: Rule; lines: string[] } | undefined
-  >(undefined)
+  const confirming = useSheet<{ form: RuleForm; rule: Rule; lines: string[] }>()
+  const pending = confirming.value
   // Where the user asked to go while the form had unsaved changes.
-  const [leaving, setLeaving] = useState<Destination | undefined>(undefined)
+  const leaving = useSheet<Destination>()
   // Open from the start on a rule with no value yet, so the first keystroke does not close it.
   const [changingPath, setChangingPath] = useState(() => initial.signal.slots[0]?.path === '')
   const [moreOpen, setMoreOpen] = useState(() => hasMoreOptions(initial))
   const headingRef = useRef<HTMLHeadingElement>(null)
+  const formRef = useRef<HTMLFormElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const changeRef = useRef<HTMLButtonElement>(null)
+  // Where focus goes once the path search opens or closes, which replaces the control that had it.
+  const pathFocus = useRef<'search' | 'change' | undefined>(undefined)
+  // Set by a failed save; the field in error may only show once More options opens.
+  const focusInvalid = useRef(false)
 
   // The form only ever opens on the operator's action and replaces the view
   // that held focus, so focus moves to its heading.
@@ -166,6 +172,27 @@ function EditorForm(props: FormProps) {
       window.removeEventListener('beforeunload', warn)
     }
   }, [dirty])
+
+  useEffect(() => {
+    if (pathFocus.current === 'search') searchRef.current?.focus()
+    if (pathFocus.current === 'change') changeRef.current?.focus()
+    pathFocus.current = undefined
+  }, [changingPath])
+
+  useEffect(() => {
+    if (!focusInvalid.current) return
+    const invalidFields = [
+      ...(formRef.current?.querySelectorAll<HTMLElement>('[aria-invalid="true"]') ?? [])
+    ]
+    const shown = invalidFields.find((el) => el.closest('details:not([open])') === null)
+    if (shown === undefined && invalidFields.length > 0) return
+    focusInvalid.current = false
+    shown?.focus()
+  })
+  const showErrors = (next: FieldError[]) => {
+    setErrors(next)
+    focusInvalid.current = true
+  }
 
   const clash = withNamedClash(errors, ruleName)
   const attached = attachErrors(clash.errors, fieldPointers(form, isNew))
@@ -189,7 +216,7 @@ function EditorForm(props: FormProps) {
   const pathErrors = attached.byField.get('/signal/path') ?? []
 
   const refused = (err: unknown) => {
-    if (err instanceof RuleRejectedError && err.errors.length > 0) setErrors(err.errors)
+    if (err instanceof RuleRejectedError && err.errors.length > 0) showErrors(err.errors)
     else setFailure(failureMessage(err))
   }
 
@@ -207,7 +234,7 @@ function EditorForm(props: FormProps) {
     setFailure(undefined)
     const result = toRule(form, units)
     if (!result.ok) {
-      setErrors(result.errors)
+      showErrors(result.errors)
       return
     }
     setErrors([])
@@ -221,7 +248,7 @@ function EditorForm(props: FormProps) {
         ).map(({ name, total }) => (name === '' ? total : `${name}: ${total}`))
         const lines = editConsequences(preview, totals)
         if (lines.length > 0) {
-          setPending({ form, rule: result.rule, lines })
+          confirming.show({ form, rule: result.rule, lines })
           return
         }
       }
@@ -235,14 +262,14 @@ function EditorForm(props: FormProps) {
 
   /** Leaves at once without changes, else asks first. */
   const leave = (to: Destination) => {
-    if (dirty) setLeaving(to)
+    if (dirty) leaving.show(to)
     else if (to === 'close') onClose()
     else window.location.hash = to.hash
   }
   const guarded = (href: string) => (event: MouseEvent<HTMLAnchorElement>) => {
     if (!dirty) return
     event.preventDefault()
-    setLeaving({ hash: href })
+    leaving.show({ hash: href })
   }
 
   const title =
@@ -281,6 +308,7 @@ function EditorForm(props: FormProps) {
         )}
         <div className="skar-editor-grid">
           <form
+            ref={formRef}
             className="skar-card skar-editor-form"
             aria-label={title}
             noValidate
@@ -313,6 +341,7 @@ function EditorForm(props: FormProps) {
                       value={slot.path}
                       paths={paths}
                       errors={pathErrors}
+                      inputRef={searchRef}
                       onChange={(path) => {
                         update({
                           ...form,
@@ -326,6 +355,7 @@ function EditorForm(props: FormProps) {
                           type="button"
                           className="skar-btn skar-btn-ghost skar-btn-small"
                           onClick={() => {
+                            pathFocus.current = 'change'
                             setChangingPath(false)
                           }}
                         >
@@ -341,10 +371,12 @@ function EditorForm(props: FormProps) {
                       <span className="skar-mono">{slot.path}</span>
                     </div>
                     <button
+                      ref={changeRef}
                       type="button"
                       className="skar-link-btn skar-link-small"
                       aria-label="Change the value to watch"
                       onClick={() => {
+                        pathFocus.current = 'search'
                         setChangingPath(true)
                       }}
                     >
@@ -545,12 +577,12 @@ function EditorForm(props: FormProps) {
                 await store(pending.rule)
               } catch (err) {
                 if (!(err instanceof RuleRejectedError) || err.errors.length === 0) throw err
-                setPending(undefined)
-                setErrors(err.errors)
+                confirming.close(false)
+                showErrors(err.errors)
               }
             }}
             onCancel={() => {
-              setPending(undefined)
+              confirming.close()
             }}
           >
             {pending.lines.map((line) => (
@@ -558,18 +590,19 @@ function EditorForm(props: FormProps) {
             ))}
           </ConfirmSheet>
         )}
-        {leaving !== undefined && (
+        {leaving.value !== undefined && (
           <ConfirmSheet
             title="Discard your changes?"
             confirmLabel="Discard changes"
             tone="danger"
             onConfirm={() => {
-              if (leaving === 'close') onClose()
-              else window.location.hash = leaving.hash
+              const to = leaving.value
+              if (to === 'close') onClose()
+              else if (to !== undefined) window.location.hash = to.hash
               return Promise.resolve()
             }}
             onCancel={() => {
-              setLeaving(undefined)
+              leaving.close()
             }}
           >
             <p>The changes to this rule have not been saved.</p>
