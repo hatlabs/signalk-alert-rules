@@ -176,10 +176,62 @@ export function alertsWhen(rule: RuleInfo, display: RuleDisplay): string {
   return held === '' ? each : `${each}, each for at least ${held}`
 }
 
-/** The side a value is back on once it no longer holds past a limit. */
-export const BACK_FROM: Readonly<Partial<Record<string, string>>> = {
+/** Each side of a limit mapped to the other: where a value past a limit is back. */
+export const OPPOSITE_SIDE: Readonly<Partial<Record<string, 'above' | 'below'>>> = {
   below: 'above',
   above: 'below'
+}
+
+/** One side of a limit in SI; no limit for a zone limit, which the panel does not know. */
+export interface BackPastLimit {
+  side: 'above' | 'below'
+  limit?: number
+}
+
+/** Between a range's limits, in SI. */
+export interface BackInRange {
+  side: 'between'
+  low: number
+  high: number
+}
+
+export interface ClearPoint<Back extends BackPastLimit | BackInRange> {
+  /** The limits moved back by the margin: where the value must be back. */
+  back: Back
+  /** The clear margin in SI, when it is set. */
+  margin?: number
+  /** The clear delay in seconds, when it is set. */
+  delay?: number
+  /** A margin or a delay is set, so the wording is "once back … for …". */
+  eased: boolean
+}
+
+/**
+ * Where a value must be back for a condition to stop holding, and whether
+ * the wording is eased, from the side it must be back on, the clear margin
+ * in SI and the clear delay in seconds. A margin or delay of zero is unset,
+ * as the engine treats it.
+ */
+export function clearPoint<Back extends BackPastLimit | BackInRange>(
+  back: Back,
+  margin = 0,
+  delay = 0
+): ClearPoint<Back> {
+  const by = Math.max(margin, 0)
+  const given: BackPastLimit | BackInRange = back
+  const moved =
+    given.side === 'between'
+      ? { ...given, low: given.low + by, high: given.high - by }
+      : given.limit === undefined
+        ? given
+        : { ...given, limit: given.side === 'above' ? given.limit + by : given.limit - by }
+  return {
+    // Only the limits move, so the result has the shape it was given.
+    back: moved as Back,
+    ...(by > 0 ? { margin: by } : {}),
+    ...(delay > 0 ? { delay } : {}),
+    eased: by > 0 || delay > 0
+  }
 }
 
 /** A difference in the signal's unit: the linear part only, as a clear margin is. */
@@ -195,19 +247,20 @@ function formatInterval(value: number, measure: Measure): string {
 export function gateCondition(gate: RuleGate, units: UnitLookup): string {
   const measure = signalMeasure(gate, units)
   const { direction = '', limit, zoneLevel = '', duration = 0 } = gate
-  const { hysteresis = 0, clearDuration = 0 } = gate
   const held = duration > 0 ? ` for ${formatDuration(duration)}` : ''
   const condition =
     limit === undefined
       ? `${direction} the ${zoneLevel} zone${held}`
       : `${direction} ${formatValue(limit, measure)}${held}`
-  const back = BACK_FROM[direction]
-  if ((hysteresis <= 0 && clearDuration <= 0) || back === undefined) return condition
+  const side = OPPOSITE_SIDE[direction]
+  if (side === undefined) return condition
+  const clear = clearPoint({ side, limit }, gate.hysteresis, gate.clearDuration)
+  if (!clear.eased) return condition
   const where =
-    limit === undefined
-      ? `${back} the ${zoneLevel} zone${hysteresis > 0 ? ` by ${formatInterval(hysteresis, measure)}` : ''}`
-      : `${back} ${formatValue(back === 'above' ? limit + hysteresis : limit - hysteresis, measure)}`
-  const delay = clearDuration > 0 ? ` for ${formatDuration(clearDuration)}` : ''
+    clear.back.limit === undefined
+      ? `${side} the ${zoneLevel} zone${clear.margin === undefined ? '' : ` by ${formatInterval(clear.margin, measure)}`}`
+      : `${side} ${formatValue(clear.back.limit, measure)}`
+  const delay = clear.delay === undefined ? '' : ` for ${formatDuration(clear.delay)}`
   return `${condition}; stops holding once back ${where}${delay}`
 }
 

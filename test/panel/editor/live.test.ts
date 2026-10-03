@@ -14,6 +14,11 @@ const units = unitLookup(
     },
     { path: 'electrical.inverters.main.state', unit: displayUnit({}) },
     {
+      path: 'propulsion.main.temperature',
+      units: 'K',
+      unit: displayUnit({ units: 'K', displayUnits: { formula: 'value - 273.15', symbol: '°C' } })
+    },
+    {
       path: 'environment.wind.angleApparent',
       units: 'rad',
       unit: displayUnit({
@@ -139,6 +144,17 @@ describe('ladderText', () => {
     f.detector.hysteresis = '0.2'
     expect(ladderText(f, units)).toBe(
       'The alert is raised as a warning above 14.4 V and becomes an alarm above 14.8 V. It clears only once back below 14.2 V.'
+    )
+  })
+
+  // An offset unit tells a margin converted as a difference from one converted as a temperature.
+  it('moves the clear point by the margin as a difference, in an offset unit', () => {
+    const f = withKind(emptyForm(), 'above')
+    f.signal.slots[0].path = 'propulsion.main.temperature'
+    f.steps = [step({ limit: '95' }), step({ limit: '100', priority: 'alarm' })]
+    f.detector.hysteresis = '2'
+    expect(ladderText(f, units)).toBe(
+      'The alert is raised as a warning above 95 °C and becomes an alarm above 100 °C. It clears only once back below 93 °C.'
     )
   })
 

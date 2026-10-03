@@ -5,15 +5,25 @@
 import { formatNumber } from '../../format'
 import type { Priority } from '../../model/rule'
 import type { SignalValue } from '../api'
-import { article, formatValue } from '../rules/describe'
+import {
+  article,
+  clearPoint,
+  formatValue,
+  OPPOSITE_SIDE,
+  type BackInRange,
+  type BackPastLimit,
+  type ClearPoint
+} from '../rules/describe'
 import { signalMeasure, type Measure, type UnitLookup } from '../signalUnits'
-import { toSI } from '../units'
+import { fromSI, toSI } from '../units'
 import { kindOf } from './conditionKinds'
 import {
+  DURATION_FACTORS,
   isZoneLimited,
   parsedNumber,
   signalShape,
   stepQuantity,
+  type DurationField,
   type RuleForm,
   type StepForm
 } from './formModel'
@@ -109,12 +119,10 @@ function passedText(
   return limit === undefined ? undefined : `${side === 'low' ? 'below' : 'above'} ${limit}`
 }
 
-const CLEARS: Readonly<Partial<Record<string, string>>> = { below: 'above', above: 'below' }
-
-/** A typed number moved by `by`, as the editor shows a number; the text as typed when either is not a number. */
-function shifted(text: string, by: number | undefined): string {
-  const value = parsedNumber(text)
-  return value === undefined || by === undefined ? text : formatNumber(value + by)
+/** A typed duration in seconds; undefined while empty or not a number. */
+function durationSeconds(field: DurationField): number | undefined {
+  const amount = parsedNumber(field.amount)
+  return amount === undefined ? undefined : amount * DURATION_FACTORS[field.unit]
 }
 
 /**
@@ -125,31 +133,36 @@ function clearsText(form: RuleForm, measure: Measure): string | undefined {
   const first = form.steps.at(0)
   if (first === undefined) return undefined
   const kind = kindOf(form.detector)
-  const margin = parsedNumber(form.detector.hysteresis)
-  const delay = durationText(form.detector.clearDuration)
-  const eased = (back: string) =>
-    (margin ?? 0) > 0 || delay !== undefined
-      ? `once back ${back}${delay === undefined ? '' : ` for ${delay}`}`
-      : back
+  const typedMargin = parsedNumber(form.detector.hysteresis)
+  const margin =
+    typedMargin === undefined
+      ? undefined
+      : toSI(measure.kind === 'ratio' ? 'ratio' : 'interval', typedMargin, measure.unit)
+  const delay = durationSeconds(form.detector.clearDuration)
+  const shown = (si: number) => formatNumber(fromSI(measure.kind, si, measure.unit))
+  const worded = (clear: ClearPoint<BackPastLimit | BackInRange>, where: string) =>
+    clear.eased
+      ? `once back ${where}${clear.delay === undefined ? '' : ` for ${durationText(form.detector.clearDuration) ?? ''}`}`
+      : where
   if (kind === 'outside') {
-    const narrowed = {
-      ...first,
-      low: shifted(first.low, margin),
-      high: shifted(first.high, margin === undefined ? undefined : -margin)
-    }
-    const high = rangeLimitText(narrowed, 'high', measure)
-    const low = narrowed.low.trim()
-    return high === undefined || low === '' ? undefined : eased(`between ${low} and ${high}`)
+    const [low, high] = [siValue(first.low, measure), siValue(first.high, measure)]
+    if (low === undefined || high === undefined) return undefined
+    const clear = clearPoint({ side: 'between', low, high }, margin, delay)
+    const range = rangeLimitText({ ...first, high: shown(clear.back.high) }, 'high', measure)
+    return range === undefined
+      ? undefined
+      : worded(clear, `between ${shown(clear.back.low)} and ${range}`)
   }
-  const back = CLEARS[kind ?? '']
-  if (back === undefined) return undefined
-  const by = margin === undefined ? undefined : back === 'above' ? margin : -margin
-  const limit = stepLimitText(
-    { ...first, limit: shifted(first.limit, by) },
+  const side = OPPOSITE_SIDE[kind ?? '']
+  const limit = siValue(first.limit, measure)
+  if (side === undefined || limit === undefined) return undefined
+  const clear = clearPoint({ side, limit }, margin, delay)
+  const text = stepLimitText(
+    { ...first, limit: shown(clear.back.limit) },
     stepQuantity(form.detector),
     measure
   )
-  return limit === undefined ? undefined : eased(`${back} ${limit}`)
+  return text === undefined ? undefined : worded(clear, `${side} ${text}`)
 }
 
 /** How the alert climbs through several steps, and when a comparison clears. */
