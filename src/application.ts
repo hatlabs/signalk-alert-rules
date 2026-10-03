@@ -337,19 +337,23 @@ export class Application {
   }
 
   /**
-   * Dismisses the notice of every template installed now, for everyone. A
-   * template stays dismissed when its set is gone or fails to load, so an
-   * update that breaks a set and the next that fixes it raise no notice.
-   * Throws when the store cannot write.
+   * Dismisses the notice of the templates shown, by set id, for everyone.
+   * Only those installed now are recorded, so one installed after the notice
+   * was drawn stays new. A template stays dismissed when its set is gone or
+   * fails to load, so an update that breaks a set and the next that fixes it
+   * raise no notice. Throws when the store cannot write.
    */
-  dismissTemplates(): TemplateListing {
+  dismissTemplates(shown: Readonly<Record<string, readonly string[]>>): TemplateListing {
     const found = this.discover()
     const before = this.controls.dismissedTemplates ?? {}
     const after = { ...before }
     for (const { set } of found.sets) {
       const seen = new Set(own(before, set.id) ?? [])
-      if (set.templates.every((t) => seen.has(t.id))) continue
-      after[set.id] = [...seen, ...set.templates.map((t) => t.id).filter((id) => !seen.has(id))]
+      const dismissed = new Set(own(shown, set.id) ?? [])
+      const added = set.templates
+        .map((t) => t.id)
+        .filter((id) => dismissed.has(id) && !seen.has(id))
+      if (added.length > 0) after[set.id] = [...seen, ...added]
     }
     if (JSON.stringify(after) !== JSON.stringify(before))
       this.saveControls({ ...this.controls, dismissedTemplates: after })

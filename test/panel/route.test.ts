@@ -83,6 +83,50 @@ describe('parseRoute', () => {
     expect(parseRoute(`${ADMIN}#add=path&when=below`)).toEqual({ kind: 'add', from: 'path' })
   })
 
+  it('reads the template set, the template, the picks and the editor of From a template', () => {
+    expect(parseRoute(`${ADMIN}#add=template&set=builtin`)).toEqual({
+      kind: 'add',
+      from: 'template',
+      set: 'builtin'
+    })
+    expect(parseRoute(`${ADMIN}#add=template&set=builtin&template=low`)).toEqual({
+      kind: 'add',
+      from: 'template',
+      set: 'builtin',
+      template: 'low'
+    })
+    const picks = encodeURIComponent(JSON.stringify([{ instance: 'house' }, { source: 'a.1' }]))
+    expect(parseRoute(`${ADMIN}#add=template&set=s&template=t&picks=${picks}&step=edit`)).toEqual({
+      kind: 'add',
+      from: 'template',
+      set: 's',
+      template: 't',
+      picks: [{ instance: 'house' }, { source: 'a.1' }],
+      step: 'edit'
+    })
+  })
+
+  it('reads picks it cannot read as none, and a template without its set as the sets', () => {
+    for (const picks of ['[', '{}', '[1]', '[{"instance":2}]', '[{"other":"x"}]']) {
+      expect(
+        parseRoute(`${ADMIN}#add=template&set=s&template=t&picks=${encodeURIComponent(picks)}`)
+      ).toEqual({ kind: 'add', from: 'template', set: 's', template: 't' })
+    }
+    expect(parseRoute(`${ADMIN}#add=template&template=t`)).toEqual({
+      kind: 'add',
+      from: 'template'
+    })
+  })
+
+  it('reads the editor step without picks as the picker', () => {
+    expect(parseRoute(`${ADMIN}#add=template&set=s&template=t&step=edit`)).toEqual({
+      kind: 'add',
+      from: 'template',
+      set: 's',
+      template: 't'
+    })
+  })
+
   it('reads Add rule from an unknown starting point as the list', () => {
     expect(parseRoute(`${ADMIN}#add=elsewhere`)).toEqual({ kind: 'list' })
   })
@@ -126,7 +170,16 @@ describe('hashWithRoute', () => {
     { kind: 'add', from: 'path' },
     { kind: 'add', from: 'template' },
     { kind: 'add', from: 'path', path: 'a.*.b c' },
-    { kind: 'add', from: 'path', path: 'a.b', when: 'often' }
+    { kind: 'add', from: 'path', path: 'a.b', when: 'often' },
+    { kind: 'add', from: 'template', set: 'a&b' },
+    {
+      kind: 'add',
+      from: 'template',
+      set: 'builtin',
+      template: 'low',
+      picks: [{ instance: 'a&b' }, { instance: 'c', source: 'd.e' }]
+    },
+    { kind: 'add', from: 'template', set: 's', template: 't', picks: [{}], step: 'edit' }
   ])('reads back what it writes: %o', (route) => {
     expect(parseRoute(hashWithRoute(ADMIN, route))).toEqual(route)
   })

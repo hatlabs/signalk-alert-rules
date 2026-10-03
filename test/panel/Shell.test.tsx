@@ -14,7 +14,7 @@ import {
 import type { PathSource } from '../../src/panel/paths/selfPaths'
 import { Shell } from '../../src/panel/Shell'
 import { POLL_INTERVAL_MS } from '../../src/panel/shellState'
-import { instance, invalidEntry, noAuthoring, noControls, ruleEntry } from './fixtures'
+import { instance, invalidEntry, noAuthoring, noControls, noTemplates, ruleEntry } from './fixtures'
 
 interface Server {
   state: PluginState | Error
@@ -31,7 +31,8 @@ function mockApi(server: Server) {
       Promise.reject(new Error('not expected'))
     ),
     ...noAuthoring,
-    ...noControls
+    ...noControls,
+    ...noTemplates
   } satisfies PanelApi
   return api
 }
@@ -347,7 +348,8 @@ describe('Shell views', () => {
       expect(screen.getByRole('link', { name: /From a data path/ }).getAttribute('href')).toBe(
         `${ADMIN}#add=path`
       )
-      expect(screen.getByText('Adding a rule from a template is not available yet.')).toBeTruthy()
+      await settle()
+      expect(screen.getByText('No template set is installed.')).toBeTruthy()
     })
 
     it('opens the path search from a data path', async () => {
@@ -372,10 +374,11 @@ describe('Shell views', () => {
       )
     })
 
-    it('opens Add rule for a template step, until templates can be picked', async () => {
+    it('says so for a link to a template set that is not installed', async () => {
       window.history.replaceState(null, '', `/${ADMIN}#add=template&set=builtin`)
       await renderShell({ state: running, rules: [rule] })
-      expect(screen.getByRole('heading', { name: 'Add rule' })).toBeTruthy()
+      await settle()
+      expect(screen.getByRole('heading', { name: 'Template not found' })).toBeTruthy()
     })
 
     it('lands an add link it does not know on the list', async () => {

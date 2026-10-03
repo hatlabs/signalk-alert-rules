@@ -44,7 +44,7 @@ const houseLow = ruleEntry({
     duration: 30,
     message: '{instance} voltage below {limit} for {duration}: {value}',
     signal: { paths: [HOUSE] },
-    template: { set: 'builtin', id: 'lifepo4-voltage-low' }
+    template: { set: 'builtin', id: 'lifepo4-voltage-low', pick: { instance: 'house' } }
   },
   status: {
     ...alertingStatus,

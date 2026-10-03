@@ -62,6 +62,11 @@ function pathWords(path: string): string {
   return before === undefined ? segmentWords(leaf) : `${segmentWords(before)} ${segmentWords(leaf)}`
 }
 
+/** `1 rule`, `2 rules`. */
+export function rulesWord(n: number): string {
+  return n === 1 ? '1 rule' : `${String(n)} rules`
+}
+
 /** `a, b and c`. */
 export function joined(words: string[]): string {
   if (words.length <= 1) return words.join('')

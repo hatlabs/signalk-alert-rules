@@ -11,6 +11,7 @@ import {
   parseRuleEntry,
   parseRules,
   parseState,
+  parseTemplates,
   UNAUTHENTICATED_ACTOR,
   type RuleEntry
 } from '../../src/panel/api'
@@ -18,6 +19,7 @@ import { byAttention, chipOf, summary } from '../../src/panel/list/attention'
 import { currentFact } from '../../src/panel/list/fact'
 import { NO_UNITS } from '../../src/panel/signalUnits'
 import { Store } from '../../src/store/store'
+import { BUILTIN_TEMPLATES, discoverTemplateSets } from '../../src/templates/discovery'
 import { MockServerAPI } from '../helpers/MockServerAPI'
 
 /**
@@ -234,6 +236,29 @@ describe('panel parsers against the Application', () => {
       })
     )
     expect(state.issues).toEqual([expect.stringMatching(/garbled\.json could not be read/)])
+  })
+})
+
+describe('the template listing over what the Application answers', () => {
+  function withBuiltin() {
+    const server = new MockServerAPI(true, dir)
+    const application = new Application(
+      serverDeps(server.asServerAPI(), PLUGIN),
+      new Store(dir),
+      () => discoverTemplateSets({ builtin: BUILTIN_TEMPLATES })
+    )
+    application.start()
+    return application
+  }
+
+  it('reads the built-in set with every template new, and none once dismissed', () => {
+    const application = withBuiltin()
+    const [builtin] = parseTemplates(wire(application.templates()), '/templates').sets
+    expect(builtin.source).toBe('built-in')
+    expect(builtin.new).toEqual(builtin.templates.map((t) => t.id))
+    const shown = { builtin: builtin.new }
+    const dismissed = parseTemplates(wire(application.dismissTemplates(shown)), '/templates')
+    expect(dismissed.sets.map((s) => s.new)).toEqual([[]])
   })
 })
 

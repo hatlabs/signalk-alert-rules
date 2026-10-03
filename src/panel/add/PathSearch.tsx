@@ -1,11 +1,9 @@
 import { useId, useState, type Ref } from 'react'
 import { BackIcon } from '../detail/icons'
 import { matches } from '../paths/PathPicker'
-import { useSelfPaths, type PathEntry, type PathSource } from '../paths/selfPaths'
+import { LIVE_POLL_MS, useSelfPaths, type PathEntry, type PathSource } from '../paths/selfPaths'
 import { formatValue } from '../rules/describe'
 
-/** How often the values listed are read again. */
-const LIVE_POLL_MS = 5000
 /** Rows shown at once; more words narrow the list. */
 const SHOWN = 30
 

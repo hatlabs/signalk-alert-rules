@@ -11,7 +11,12 @@
  * - Add rule: `#add`; its two ways to start: `#add=template` and `#add=path`,
  *   which goes on with the value chosen, `&path=<path>`, and then what should
  *   alert, `&when=<kind>`
+ * - From a template goes on with the set, `&set=<id>`, the template,
+ *   `&template=<id>`, the picks as a JSON list, `&picks=<json>`, and then
+ *   the rules they make, `&step=edit`
  */
+import type { TemplatePick } from '../model/rule'
+import { isRecord } from './api'
 import { CONDITION_KINDS, type ConditionKind } from './editor/conditionKinds'
 
 export type Route =
@@ -32,6 +37,50 @@ export interface AddRoute {
   path?: string
   /** From a path: what should alert, once the value is chosen. */
   when?: ConditionKind
+  /** From a template: the template set chosen. */
+  set?: string
+  /** From a template: the template chosen from the set. */
+  template?: string
+  /** From a template: the instances or sources picked for the template. */
+  picks?: TemplatePick[]
+  /** From a template: the picks made, the rules they make are edited. */
+  step?: 'edit'
+}
+
+/** A list of picks as the route carries it; anything else is no picks. */
+function picksOf(json: string | undefined): TemplatePick[] | undefined {
+  if (json === undefined) return undefined
+  let value: unknown
+  try {
+    value = JSON.parse(json)
+  } catch {
+    return undefined
+  }
+  if (!Array.isArray(value)) return undefined
+  const picks: TemplatePick[] = []
+  for (const item of value) {
+    if (!isRecord(item)) return undefined
+    const { instance, source, ...rest } = item
+    const text = (v: unknown) => v === undefined || typeof v === 'string'
+    if (Object.keys(rest).length > 0 || !text(instance) || !text(source)) return undefined
+    picks.push({
+      ...(typeof instance === 'string' ? { instance } : {}),
+      ...(typeof source === 'string' ? { source } : {})
+    })
+  }
+  return picks
+}
+
+function templateRoute(params: Map<string, string>): AddRoute {
+  const set = params.get('set')
+  if (set === undefined) return { kind: 'add', from: 'template' }
+  const template = params.get('template')
+  if (template === undefined) return { kind: 'add', from: 'template', set }
+  const picks = picksOf(params.get('picks'))
+  if (picks === undefined || picks.length === 0)
+    return { kind: 'add', from: 'template', set, template }
+  const step = params.get('step') === 'edit' ? { step: 'edit' as const } : {}
+  return { kind: 'add', from: 'template', set, template, picks, ...step }
 }
 
 function conditionKind(value: string | undefined): ConditionKind | undefined {
@@ -88,7 +137,7 @@ export function parseRoute(hash: string): Route {
   }
   const from = params.get('add')
   if (from === undefined) return { kind: 'add' }
-  if (from === 'template') return { kind: 'add', from }
+  if (from === 'template') return templateRoute(params)
   if (from !== 'path') return LIST
   const path = params.get('path')
   if (path === undefined) return { kind: 'add', from }
@@ -106,10 +155,19 @@ function fragmentOf(route: Route): string | undefined {
       return `rule=${encodeURIComponent(route.slug)}${param('instance', route.instance)}`
     case 'edit':
       return `edit=${encodeURIComponent(route.slug)}`
-    case 'add':
-      return route.from === undefined
-        ? 'add'
-        : `add=${route.from}${param('path', route.path)}${param('when', route.when)}`
+    case 'add': {
+      if (route.from === undefined) return 'add'
+      const picks = route.picks === undefined ? undefined : JSON.stringify(route.picks)
+      return [
+        `add=${route.from}`,
+        param('path', route.path),
+        param('when', route.when),
+        param('set', route.set),
+        param('template', route.template),
+        param('picks', picks),
+        param('step', route.step)
+      ].join('')
+    }
   }
 }
 

@@ -13,7 +13,7 @@ import {
   viewMessage,
   type ReadyView
 } from '../../src/panel/shellState'
-import { invalidEntry, noAuthoring, noControls, ruleEntry } from './fixtures'
+import { invalidEntry, noAuthoring, noControls, noTemplates, ruleEntry } from './fixtures'
 
 interface FakeServer {
   state?: PluginState | Error
@@ -30,7 +30,8 @@ function fakeApi(server: FakeServer): PanelApi {
     rules: () => answer(server.rules),
     resetAccumulator: () => Promise.reject(new Error('not expected to be asked')),
     ...noAuthoring,
-    ...noControls
+    ...noControls,
+    ...noTemplates
   }
 }
 

@@ -368,7 +368,7 @@ describe('httpApi', () => {
         ],
         duration: 30,
         source: 'shunt.1',
-        template: { set: 'builtin', id: 'lifepo4-voltage-low' }
+        template: { set: 'builtin', id: 'lifepo4-voltage-low', pick: { instance: 'house' } }
       })
       expect(read.status).toMatchObject({ priority: 'alarm', step: 1 })
       expect(matched.rule.detector.op).toBe('equals')
@@ -660,6 +660,50 @@ describe('httpApi', () => {
         [`${BASE}/rules/gone`]: { status: 404, body: { error: 'no such rule' } }
       })
       await expect(httpApi(fetchFn).deleteRule('gone')).rejects.toThrow('no such rule')
+    })
+  })
+  describe('templates', () => {
+    const lifepo4 = {
+      id: 'battery-voltage-low-lifepo4',
+      description: 'A LiFePO4 bank stays low.',
+      open: ['instance'],
+      condition: 'voltageLow',
+      rule: { name: 'Battery ${instance} voltage low', signal: { path: 'a.${instance}.b' } }
+    }
+    const listing = {
+      sets: [
+        {
+          id: 'builtin',
+          name: 'Alert Rules',
+          version: '1.0.0',
+          source: 'built-in',
+          templates: [lifepo4],
+          new: ['battery-voltage-low-lifepo4']
+        }
+      ],
+      problems: [{ source: 'file broken.yaml', message: '/id: is required' }]
+    }
+
+    it('reads the sets with their templates and the new ones, and the sets that failed', async () => {
+      const read = await httpApi(
+        fakeFetch({ [`${BASE}/templates`]: { body: listing } })
+      ).templates()
+      expect(read).toEqual(listing)
+    })
+
+    it('rejects a set without its templates', async () => {
+      const { templates: _templates, ...bare } = listing.sets[0] ?? {}
+      const api = httpApi(fakeFetch({ [`${BASE}/templates`]: { body: { sets: [bare] } } }))
+      await expect(api.templates()).rejects.toThrow('unexpected response from')
+    })
+
+    it('dismisses the templates shown with a JSON POST and reads the listing it answers', async () => {
+      const fetchFn = fakeFetch({ [`${BASE}/templates/dismiss`]: { body: listing } })
+      const read = await httpApi(fetchFn).dismissTemplates({ builtin: ['a', 'b'] })
+      expect(read.sets).toHaveLength(1)
+      const [, init] = fetchFn.mock.calls[0]
+      expect(init?.method).toBe('POST')
+      expect(init?.body).toBe(JSON.stringify({ templates: { builtin: ['a', 'b'] } }))
     })
   })
 })
