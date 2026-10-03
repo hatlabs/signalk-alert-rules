@@ -169,6 +169,7 @@ const LABELS: Readonly<Record<string, string>> = {
   '/condition': 'the condition name',
   '/signal/path': 'the value to watch',
   '/signal/source': 'the source',
+  '/signal/inputs': 'the paths to combine',
   '/detector/type': 'what should alert',
   '/detector/direction': 'the direction',
   '/detector/op': 'the state',

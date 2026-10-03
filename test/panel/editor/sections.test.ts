@@ -310,6 +310,7 @@ describe('saveHint', () => {
 
   it.each([
     ['/signal', 'the value to watch'],
+    ['/signal/inputs', 'the paths to combine'],
     ['/detector/event', 'the event'],
     ['/detector/event/op', 'the event'],
     ['/gates/0/signal', 'Only while condition 1'],
