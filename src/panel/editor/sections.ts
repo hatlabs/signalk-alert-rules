@@ -137,7 +137,8 @@ export interface AttachedErrors {
 
 /**
  * Puts each error on the field it names, else on the closest field it lies
- * under, else on the first field of the group it names.
+ * under, else on the first field of the group it names that is not a limit's
+ * kind.
  */
 export function attachErrors(
   errors: readonly FieldError[],
@@ -150,7 +151,9 @@ export function attachErrors(
       .filter((f) => error.path === f || error.path.startsWith(`${f}/`))
       .sort((a, b) => b.length - a.length)
       .at(0)
-    const field = under ?? fields.find((f) => f.startsWith(`${error.path}/`))
+    const group = fields.filter((f) => f.startsWith(`${error.path}/`))
+    // A limit's kind is always chosen, so an error on the whole limit is about the rest of it.
+    const field = under ?? group.find((f) => !f.endsWith('/limit/kind')) ?? group.at(0)
     if (field === undefined) unattached.push(error)
     else byField.set(field, [...(byField.get(field) ?? []), error.message])
   }

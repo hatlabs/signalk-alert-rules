@@ -63,6 +63,29 @@ describe('attachErrors', () => {
     expect(byField.get('/signal/inputs/0/path')).toEqual(['difference needs exactly two inputs'])
   })
 
+  it('attaches an error on a whole limit to what is left to fill in, not to its kind', () => {
+    const attached = (pointer: string, f: RuleForm) => [
+      ...attachErrors(
+        [{ path: pointer, message: 'is required' }],
+        fieldPointers(f, false)
+      ).byField.keys()
+    ]
+    const zone = { ...emptyGate().limit, kind: 'zone' as const }
+    const fixedGate = form((f) => {
+      f.gates = [emptyGate()]
+    })
+    const zoneGate = form((f) => {
+      f.gates = [{ ...emptyGate(), limit: zone }]
+    })
+    const zones = form((f) => {
+      f.detector.type = 'sustained'
+      f.detector.limit = zone
+    })
+    expect(attached('/gates/0/limit', fixedGate)).toEqual(['/gates/0/limit/value'])
+    expect(attached('/gates/0/limit', zoneGate)).toEqual(['/gates/0/limit/level'])
+    expect(attached('/detector/limit', zones)).toEqual(['/detector/limit/level'])
+  })
+
   it('keeps an error that no field shows', () => {
     const error = { path: '/gates/3/limit', message: 'x' }
     expect(attachErrors([error], fields).unattached).toEqual([error])
