@@ -329,8 +329,10 @@ describe('Shell views', () => {
       hasProvider: vi.fn(() => Promise.resolve(true)),
       values: vi.fn(() =>
         Promise.resolve([
-          { time: Date.now() - 1_200_000, value: 250_000 },
-          { time: Date.now() - 600_000, value: 240_000 }
+          [
+            { time: Date.now() - 1_200_000, value: 250_000 },
+            { time: Date.now() - 600_000, value: 240_000 }
+          ]
         ])
       )
     }
@@ -341,7 +343,7 @@ describe('Shell views', () => {
     await settle()
     expect(screen.getByRole('img', { name: 'Last 24 hours with the limit' })).toBeTruthy()
     expect(history.values).toHaveBeenCalledWith(
-      expect.objectContaining({ path: 'propulsion.port.oilPressure', method: 'min' })
+      expect.objectContaining({ path: 'propulsion.port.oilPressure', methods: ['min'] })
     )
   })
 

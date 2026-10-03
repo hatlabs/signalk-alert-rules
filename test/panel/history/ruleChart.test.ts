@@ -35,7 +35,7 @@ describe('detailChart', () => {
     )
     expect(spec).toMatchObject({
       path: COOLANT,
-      method: 'max',
+      methods: ['max'],
       side: 'above',
       limits: [{ value: 95, priority: 'warning' }]
     })
@@ -54,7 +54,7 @@ describe('detailChart', () => {
       }),
       units
     )
-    expect(spec?.method).toBe('min')
+    expect(spec?.methods).toEqual(['min'])
     expect(spec?.limits).toEqual([
       { value: 5, priority: 'warning' },
       { value: 0, priority: 'alarm' }
@@ -71,11 +71,37 @@ describe('detailChart', () => {
       units
     )
     expect(spec).toMatchObject({
-      method: 'max',
+      methods: ['max'],
       side: 'above',
       limits: [{ value: 100 }],
       verdict: false
     })
+  })
+
+  it('charts an outside rule with each bucket’s lowest and highest, both limits of each step', () => {
+    const spec = detailChart(
+      rule({
+        signal: { paths: [COOLANT] },
+        detector: { type: 'outside' },
+        steps: [
+          { low: 278.15, high: 368.15, priority: 'warning' },
+          { low: 273.15, high: 373.15, priority: 'alarm' }
+        ]
+      }),
+      units
+    )
+    expect(spec).toMatchObject({
+      path: COOLANT,
+      methods: ['min', 'max'],
+      side: 'outside',
+      verdict: true
+    })
+    expect(spec?.limits).toEqual([
+      { value: 5, priority: 'warning', bound: 'low' },
+      { value: 95, priority: 'warning', bound: 'high' },
+      { value: 0, priority: 'alarm', bound: 'low' },
+      { value: 100, priority: 'alarm', bound: 'high' }
+    ])
   })
 
   it('lets the summary judge a sustained rule, which alerts on the recorded value', () => {
@@ -99,7 +125,7 @@ describe('detailChart', () => {
       }),
       units
     )
-    expect(spec).toMatchObject({ method: 'average', side: 'above', limits: [] })
+    expect(spec).toMatchObject({ methods: ['average'], side: 'above', limits: [] })
   })
 
   it('charts a zone limit without a line, as the zones are the path’s', () => {
@@ -157,7 +183,7 @@ describe('editorChart', () => {
     )
     expect(spec).toMatchObject({
       path: COOLANT,
-      method: 'max',
+      methods: ['max'],
       side: 'above',
       limits: [{ value: 95.5, priority: 'warning' }]
     })
@@ -173,7 +199,7 @@ describe('editorChart', () => {
 
   it('leaves out a step whose limit is not a number yet', () => {
     const spec = editorChart(form('below', COOLANT), units)
-    expect(spec).toMatchObject({ method: 'min', side: 'below', limits: [] })
+    expect(spec).toMatchObject({ methods: ['min'], side: 'below', limits: [] })
   })
 
   it('draws no line for a zone limit', () => {
@@ -216,6 +242,6 @@ describe('editorChart', () => {
       }),
       units
     )
-    expect(spec).toMatchObject({ method: 'average', side: 'below', limits: [] })
+    expect(spec).toMatchObject({ methods: ['average'], side: 'below', limits: [] })
   })
 })

@@ -719,7 +719,7 @@ describe('RuleDetail', () => {
       value: 12.5
     }))
     const history = (
-      values: () => Promise<HistoryPoint[]> = () => Promise.resolve(day)
+      values: () => Promise<HistoryPoint[][]> = () => Promise.resolve([day])
     ): HistorySource => ({ hasProvider: () => Promise.resolve(true), values })
 
     async function settle() {

@@ -33,7 +33,8 @@ export type Aggregate = 'average' | 'min' | 'max'
 
 export interface HistoryQuery {
   path: string
-  method: Aggregate
+  /** One series is answered per aggregate, in this order. */
+  methods: readonly Aggregate[]
   /** The one source to read, as a rule pinned to it does; absent for whichever the provider records. */
   source?: string
   /** How far back from now. */
@@ -52,7 +53,8 @@ export interface HistoryPoint {
 export interface HistorySource {
   /** Whether the server has a history provider; false when it cannot tell. */
   hasProvider(): Promise<boolean>
-  values(query: HistoryQuery): Promise<HistoryPoint[]>
+  /** One series per aggregate asked, in the order asked. */
+  values(query: HistoryQuery): Promise<HistoryPoint[][]>
 }
 
 /**
@@ -71,18 +73,33 @@ export function resolutionFor(seconds: number, widthPx: number): number {
 }
 
 /**
- * The rows of `GET /values` for a query of one path. A value that is not a
- * finite number, or a bucket with no samples, is a gap in the line.
+ * The rows of `GET /values` for a query of one path, as one series per
+ * aggregate asked. The body names each column's aggregate, which places it;
+ * without them the columns are taken in the order asked. A value that is not
+ * a finite number, or a bucket with no samples, is a gap in the line.
  */
-export function parseValues(body: unknown, what: string): HistoryPoint[] {
+export function parseValues(
+  body: unknown,
+  what: string,
+  methods: readonly Aggregate[]
+): HistoryPoint[][] {
   if (!isRecord(body) || !Array.isArray(body.data)) throw malformed(what)
-  return body.data.flatMap((row: unknown) => {
+  const listed = Array.isArray(body.values) ? body.values : []
+  const columns = methods.map((method, asked) => {
+    const at = listed.findIndex((v: unknown) => isRecord(v) && v.method === method)
+    return 1 + (at === -1 ? asked : at)
+  })
+  const rows = body.data.flatMap((row: unknown) => {
     if (!Array.isArray(row) || typeof row[0] !== 'string') return []
     const time = Date.parse(row[0])
-    if (Number.isNaN(time)) return []
-    const value: unknown = row[1]
-    return [{ time, value: typeof value === 'number' && Number.isFinite(value) ? value : null }]
+    return Number.isNaN(time) ? [] : [{ time, row: row as unknown[] }]
   })
+  return columns.map((column) =>
+    rows.map(({ time, row }) => {
+      const value = row[column]
+      return { time, value: typeof value === 'number' && Number.isFinite(value) ? value : null }
+    })
+  )
 }
 
 /** The History API over HTTP, relative to the admin UI's origin. */
@@ -103,14 +120,15 @@ export function httpHistorySource(
       )
       return provider
     },
-    values: async ({ path, method, source, seconds, resolution }) => {
+    values: async ({ path, methods, source, seconds, resolution }) => {
+      const pinned = source === undefined ? '' : `|${source}`
       const query = new URLSearchParams({
-        paths: `${path}:${method}${source === undefined ? '' : `|${source}`}`,
+        paths: methods.map((method) => `${path}:${method}${pinned}`).join(','),
         duration: `PT${String(seconds)}S`,
         resolution: String(resolution)
       })
       const url = `${HISTORY_API}/values?${query.toString()}`
-      return parseValues(await getJson(fetchFn, url), url)
+      return parseValues(await getJson(fetchFn, url), url, methods)
     }
   }
 }

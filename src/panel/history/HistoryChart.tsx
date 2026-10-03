@@ -2,7 +2,13 @@ import { useEffect, useId, useLayoutEffect, useState } from 'react'
 import { formatNumber } from '../../format'
 import type { Measure } from '../signalUnits'
 import { fromSI } from '../units'
-import { CHART_HEIGHT, chartGeometry, historySummary, type SummaryLimit } from './chart'
+import {
+  CHART_HEIGHT,
+  chartGeometry,
+  historySummary,
+  type SummaryLimit,
+  type SummaryRule
+} from './chart'
 import {
   DEFAULT_SPAN,
   resolutionFor,
@@ -16,7 +22,8 @@ import {
 /** What to chart: one path, how its buckets aggregate, and the limits to draw. */
 export interface ChartSpec {
   path: string
-  method: Aggregate
+  /** A line per aggregate: an outside rule's lowest and highest, in that order, else one. */
+  methods: readonly Aggregate[]
   /** The source the rule is pinned to; absent for the preferred one. */
   source?: string
   /** How the recorded SI values are shown. */
@@ -24,7 +31,7 @@ export interface ChartSpec {
   /** The limits in display units, in step order, each with its priority when there are several. */
   limits: SummaryLimit[]
   /** The side the rule alerts on, whose extreme the summary names; absent for none. */
-  side?: 'below' | 'above'
+  side?: SummaryRule['side']
   /** Whether the summary may say the rule would not have alerted; see `SummaryRule`. */
   verdict: boolean
 }
@@ -58,7 +65,7 @@ const LIMIT_LABEL_INSET = 4
 
 /**
  * An answer and the frame it was asked in: the span ending when it arrived,
- * and the bucket length asked for. `of` names the path, aggregate, source and
+ * and the bucket length asked for. `of` names the path, aggregates, source and
  * span, but not the bucket length, so an answer for another width still fits.
  */
 type Loaded =
@@ -66,7 +73,7 @@ type Loaded =
   | { status: 'failed' }
   | {
       status: 'ready'
-      points: HistoryPoint[]
+      series: HistoryPoint[][]
       of: string
       to: number
       seconds: number
@@ -136,14 +143,16 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
   const [ref, width] = useWidth()
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' })
   const resolution = width === undefined ? undefined : resolutionFor(span.seconds, width)
-  const { path, method, source, measure } = spec
+  const { path, methods, source, measure } = spec
+  // A spec is built afresh on each render, so its list of aggregates is too; their names are not.
+  const asked = methods.join(',')
 
   useEffect(() => {
     if (resolution === undefined) return undefined
     let cancelled = false
     let next: ReturnType<typeof setTimeout> | undefined
     const { seconds } = span
-    const of = `${path}:${method}|${source ?? ''}:${String(seconds)}`
+    const of = `${path}:${asked}|${source ?? ''}:${String(seconds)}`
     // A new width asks for finer or coarser buckets of the same line; the
     // line drawn stays until they come, rather than blinking out.
     setLoaded((last) => (last.status === 'ready' && last.of === of ? last : { status: 'loading' }))
@@ -153,10 +162,10 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
       const again = () => {
         if (!cancelled) next = setTimeout(ask, resolution * 1000)
       }
-      history.values({ path, method, source, seconds, resolution }).then(
-        (points) => {
+      history.values({ path, methods, source, seconds, resolution }).then(
+        (series) => {
           if (cancelled) return
-          setLoaded({ status: 'ready', points, of, to: Date.now(), seconds, resolution })
+          setLoaded({ status: 'ready', series, of, to: Date.now(), seconds, resolution })
           again()
         },
         () => {
@@ -174,18 +183,20 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
       cancelled = true
       clearTimeout(next)
     }
-  }, [history, path, method, source, span, resolution])
+  }, [history, path, asked, source, span, resolution])
 
   const symbol = measure.kind === 'ratio' ? '' : measure.unit.symbol
   const shown = (v: number) => (symbol === '' ? formatNumber(v) : `${formatNumber(v)} ${symbol}`)
-  const points =
+  const series =
     loaded.status === 'ready'
-      ? loaded.points.map((p) => ({
-          time: p.time,
-          value: p.value === null ? null : fromSI(measure.kind, p.value, measure.unit)
-        }))
+      ? loaded.series.map((points) =>
+          points.map((p) => ({
+            time: p.time,
+            value: p.value === null ? null : fromSI(measure.kind, p.value, measure.unit)
+          }))
+        )
       : []
-  const recorded = points.some((p) => p.value !== null)
+  const recorded = series.some((points) => points.some((p) => p.value !== null))
   const several = spec.limits.length > 1
   const limits = spec.limits.map((l) => ({
     value: l.value,
@@ -197,7 +208,7 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
   // between answers however often the page around it renders.
   const geometry =
     loaded.status === 'ready'
-      ? chartGeometry(points, limits, {
+      ? chartGeometry(series, limits, {
           from: loaded.to - loaded.seconds * 1000,
           to: loaded.to,
           width: drawnWidth,
@@ -208,7 +219,7 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
     spec.side === undefined
       ? undefined
       : historySummary(
-          points,
+          series,
           { side: spec.side, limits: spec.limits, verdict: spec.verdict },
           { value: shown, time: timeOf(span) }
         )

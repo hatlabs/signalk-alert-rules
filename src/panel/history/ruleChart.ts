@@ -4,26 +4,45 @@
  * History API records paths, not a rule's combined or per-instance signal.
  */
 import type { RuleInfo } from '../api'
+import type { Aggregate } from './historySource'
 import { isZoneLimited, parsedNumber, signalShape, type RuleForm } from '../editor/formModel'
 import { signalMeasure, type SignalShape, type UnitLookup } from '../signalUnits'
 import { fromSI } from '../units'
 import type { SummaryLimit } from './chart'
 import type { ChartSpec } from './HistoryChart'
 
+type Side = NonNullable<ChartSpec['side']>
+
 /** The detectors whose condition is on the value itself, by their direction. */
-const SIDES: Readonly<Partial<Record<string, Partial<Record<string, 'below' | 'above'>>>>> = {
+const SIDES: Readonly<Partial<Record<string, Partial<Record<string, Side>>>>> = {
   sustained: { below: 'below', above: 'above' },
   projection: { falling: 'below', rising: 'above' },
   slope: { falling: 'below', rising: 'above' }
 }
 
 /** A slope's limit is a rate, which has no place on the value axis. */
-const VALUE_LIMITED = new Set(['sustained', 'projection'])
+const VALUE_LIMITED = new Set(['sustained', 'projection', 'outside'])
+
+/** The detectors that alert on the recorded value itself, rather than one ahead of it. */
+const JUDGED = new Set(['sustained', 'outside'])
+
+/**
+ * Each bucket keeps its extreme on the rule's side, so a dip shorter than a
+ * bucket still shows, and a limit never passed was never passed; an outside
+ * rule's has both.
+ */
+const EXTREMES: Readonly<Record<Side, readonly Aggregate[]>> = {
+  below: ['min'],
+  above: ['max'],
+  outside: ['min', 'max']
+}
+
+const AVERAGE: readonly Aggregate[] = ['average']
 
 function specOf(
   signal: SignalShape,
   type: string,
-  direction: string,
+  side: Side | undefined,
   limits: SummaryLimit[],
   source: string | undefined,
   units: UnitLookup
@@ -31,39 +50,38 @@ function specOf(
   const [path] = signal.paths
   if (signal.combinator !== undefined || signal.paths.length !== 1 || path === '') return undefined
   if (path.split('.').includes('*')) return undefined
-  const side = SIDES[type]?.[direction]
   if (side === undefined) return undefined
   const reported = units.entry(path)?.value
   if (reported !== undefined && typeof reported !== 'number') return undefined
   return {
     path,
-    // Each bucket keeps its extreme on the rule's side, so a dip shorter than
-    // a bucket still shows, and a limit never passed was never passed.
-    method: type === 'slope' ? 'average' : side === 'below' ? 'min' : 'max',
+    methods: type === 'slope' ? AVERAGE : EXTREMES[side],
     source,
     measure: signalMeasure(signal, units),
     limits: VALUE_LIMITED.has(type) ? limits : [],
     side,
-    verdict: type === 'sustained'
+    verdict: JUDGED.has(type)
   }
 }
 
 /** The chart in a rule's detail, from the rule as the server lists it. */
 export function detailChart(rule: RuleInfo, units: UnitLookup): ChartSpec | undefined {
   const { kind, unit } = signalMeasure(rule.signal, units)
-  const limits = rule.steps.flatMap((step) =>
-    step.limit === undefined
-      ? []
-      : [{ value: fromSI(kind, step.limit, unit), priority: step.priority }]
-  )
-  return specOf(
-    rule.signal,
-    rule.detector.type,
-    rule.detector.direction ?? '',
-    limits,
-    rule.source,
-    units
-  )
+  const { type, direction } = rule.detector
+  const limits = rule.steps.flatMap(({ priority, limit, low, high }) => {
+    const shown = (value: number) => fromSI(kind, value, unit)
+    if (type === 'outside') {
+      return low === undefined || high === undefined
+        ? []
+        : [
+            { value: shown(low), priority, bound: 'low' as const },
+            { value: shown(high), priority, bound: 'high' as const }
+          ]
+    }
+    return limit === undefined ? [] : [{ value: shown(limit), priority }]
+  })
+  const side = type === 'outside' ? 'outside' : SIDES[type]?.[direction ?? '']
+  return specOf(rule.signal, type, side, limits, rule.source, units)
 }
 
 /** The chart beside the editor, following the form's path, kind and limits as typed. */
@@ -82,7 +100,7 @@ export function editorChart(form: RuleForm, units: UnitLookup): ChartSpec | unde
   return specOf(
     signalShape(form.signal),
     detector.type,
-    direction,
+    SIDES[detector.type]?.[direction],
     limits,
     source === '' ? undefined : source,
     units

@@ -24,7 +24,7 @@ const celsius = displayUnit({
 
 const coolant: ChartSpec = {
   path: 'propulsion.port.coolantTemperature',
-  method: 'max',
+  methods: ['max'],
   measure: { kind: 'absolute', unit: celsius },
   limits: [{ value: 95 }],
   side: 'above',
@@ -40,7 +40,7 @@ const series: HistoryPoint[] = Array.from({ length: 144 }, (_, i) => {
 })
 
 function fakeHistory(
-  answer: (q: HistoryQuery) => Promise<HistoryPoint[]> = () => Promise.resolve(series),
+  answer: (q: HistoryQuery) => Promise<HistoryPoint[][]> = () => Promise.resolve([series]),
   provider = true
 ) {
   return {
@@ -73,7 +73,7 @@ describe('HistoryChart', () => {
     ).toBeTruthy()
     expect(history.values).toHaveBeenCalledWith({
       path: 'propulsion.port.coolantTemperature',
-      method: 'max',
+      methods: ['max'],
       seconds: 86_400,
       resolution: 600
     })
@@ -132,6 +132,84 @@ describe('HistoryChart', () => {
     }
   })
 
+  describe('of an outside rule', () => {
+    /** Coolant kept between 70 and 95 °C at warning, 65 and 100 °C at alarm. */
+    const band: ChartSpec = {
+      ...coolant,
+      methods: ['min', 'max'],
+      side: 'outside',
+      limits: [
+        { value: 70, priority: 'warning', bound: 'low' },
+        { value: 95, priority: 'warning', bound: 'high' },
+        { value: 65, priority: 'alarm', bound: 'low' },
+        { value: 100, priority: 'alarm', bound: 'high' }
+      ]
+    }
+    /** Each bucket's lowest 5 °C under its highest, with a stretch of gaps at the middle. */
+    const lows = series.map((p, i) => ({
+      time: p.time,
+      value: i >= 70 && i < 75 ? null : (p.value ?? 0) - 5
+    }))
+    const highs = lows.map((p) => ({ time: p.time, value: p.value === null ? null : p.value + 5 }))
+
+    it('asks for each bucket’s lowest and highest in one query', async () => {
+      const history = fakeHistory(() => Promise.resolve([lows, highs]))
+      render(<HistoryChart history={history} spec={band} />)
+      await settle()
+      expect(history.values).toHaveBeenCalledTimes(1)
+      expect(history.values).toHaveBeenCalledWith(
+        expect.objectContaining({ methods: ['min', 'max'] })
+      )
+    })
+
+    it('draws both limits of each step labelled with its priority, and both lines broken at the gap', async () => {
+      render(
+        <HistoryChart history={fakeHistory(() => Promise.resolve([lows, highs]))} spec={band} />
+      )
+      await settle()
+      const chart = screen.getByRole('img', { name: 'Last 24 hours with the limits' })
+      expect(chart.querySelectorAll('line')).toHaveLength(4)
+      for (const label of ['warning 70 °C', 'warning 95 °C', 'alarm 65 °C', 'alarm 100 °C']) {
+        expect(chart.textContent).toContain(label)
+      }
+      expect(chart.querySelectorAll('polyline')).toHaveLength(4)
+    })
+
+    it('names both extremes, and the furthest limit passed on each side', async () => {
+      const history = fakeHistory(() => Promise.resolve([lows, highs]))
+      const { rerender } = render(<HistoryChart history={history} spec={band} />)
+      await settle()
+      expect(screen.getByRole('status').textContent).toMatch(
+        /^Lowest 75 °C at .+; highest 90 °C at .+\. The rule would not have alerted\.$/
+      )
+      const narrow: ChartSpec = {
+        ...band,
+        limits: [
+          { value: 76, priority: 'warning', bound: 'low' },
+          { value: 85, priority: 'warning', bound: 'high' },
+          { value: 70, priority: 'alarm', bound: 'low' },
+          { value: 88, priority: 'alarm', bound: 'high' }
+        ]
+      }
+      rerender(<HistoryChart history={history} spec={narrow} />)
+      expect(screen.getByRole('status').textContent).toMatch(
+        /^Lowest 75 °C at .+; highest 90 °C at .+\. It went below the warning limit and above the alarm limit\.$/
+      )
+    })
+
+    it('asks again when a one-sided spec becomes an outside one', async () => {
+      const history = fakeHistory(() => Promise.resolve([lows, highs]))
+      const { rerender } = render(<HistoryChart history={history} spec={coolant} />)
+      await settle()
+      rerender(<HistoryChart history={history} spec={band} />)
+      await settle()
+      expect(history.values).toHaveBeenCalledTimes(2)
+      rerender(<HistoryChart history={history} spec={{ ...band, methods: ['min', 'max'] }} />)
+      await settle()
+      expect(history.values).toHaveBeenCalledTimes(2)
+    })
+  })
+
   it('takes the title it is given, as the detail names the path', async () => {
     render(<HistoryChart history={fakeHistory()} spec={coolant} title="Port coolant" />)
     await settle()
@@ -176,7 +254,7 @@ describe('HistoryChart', () => {
   })
 
   it('announces the summary of each span chosen in one status region that stays put', async () => {
-    const history = fakeHistory((q) => Promise.resolve(q.seconds === 86_400 ? series : []))
+    const history = fakeHistory((q) => Promise.resolve(q.seconds === 86_400 ? [series] : []))
     render(<HistoryChart history={history} spec={coolant} />)
     await settle()
     const status = screen.getByRole('status')
@@ -200,14 +278,14 @@ describe('HistoryChart', () => {
     expect(screen.getByRole('heading', { name: 'Last hour' })).toBeTruthy()
     expect(history.values).toHaveBeenLastCalledWith({
       path: 'propulsion.port.coolantTemperature',
-      method: 'max',
+      methods: ['max'],
       seconds: 3600,
       resolution: 30
     })
   })
 
   it('shows the answer to the span chosen last, not to one asked before', async () => {
-    let answerDay: (points: HistoryPoint[]) => void = () => undefined
+    let answerDay: (points: HistoryPoint[][]) => void = () => undefined
     const history = fakeHistory((q) =>
       q.seconds === 86_400
         ? new Promise((resolve) => {
@@ -219,7 +297,7 @@ describe('HistoryChart', () => {
     await settle()
     fireEvent.click(screen.getByRole('button', { name: '1 h' }))
     await settle()
-    answerDay(series)
+    answerDay([series])
     await settle()
     expect(screen.getByText('Nothing recorded in the last hour.')).toBeTruthy()
   })
@@ -289,7 +367,7 @@ describe('HistoryChart', () => {
     it('asks again once a bucket has passed, keeping the line while it asks', async () => {
       const history = fakeHistory()
       history.values
-        .mockImplementationOnce(() => Promise.resolve(series))
+        .mockImplementationOnce(() => Promise.resolve([series]))
         .mockImplementation(() => new Promise(() => undefined))
       render(<HistoryChart history={history} spec={coolant} />)
       await settle()
@@ -308,7 +386,7 @@ describe('HistoryChart', () => {
     it('keeps the line drawn when asking again fails', async () => {
       const history = fakeHistory()
       history.values
-        .mockImplementationOnce(() => Promise.resolve(series))
+        .mockImplementationOnce(() => Promise.resolve([series]))
         .mockImplementation(() => Promise.reject(new Error('provider restarting')))
       render(<HistoryChart history={history} spec={coolant} />)
       await settle()
@@ -371,7 +449,7 @@ describe('HistoryChart', () => {
       .mockImplementation(() => width)
     try {
       const history = fakeHistory((q) =>
-        q.resolution === 600 ? Promise.resolve(series) : new Promise(() => undefined)
+        q.resolution === 600 ? Promise.resolve([series]) : new Promise(() => undefined)
       )
       render(<HistoryChart history={history} spec={coolant} />)
       await settle()

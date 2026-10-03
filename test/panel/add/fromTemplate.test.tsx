@@ -287,7 +287,7 @@ describe('Add rule from a template', () => {
     }))
     const history = {
       hasProvider: vi.fn(() => Promise.resolve(true)),
-      values: vi.fn(() => Promise.resolve(day))
+      values: vi.fn(() => Promise.resolve([day]))
     } satisfies HistorySource
     renderShell(fresh(), { history })
     await openLifepo4()
@@ -298,7 +298,7 @@ describe('Add rule from a template', () => {
     expect(chart.textContent).toContain('warning 12.8 V')
     expect(chart.textContent).toContain('alarm 12 V')
     expect(history.values).toHaveBeenLastCalledWith(
-      expect.objectContaining({ path: 'electrical.batteries.house.voltage', method: 'min' })
+      expect.objectContaining({ path: 'electrical.batteries.house.voltage', methods: ['min'] })
     )
     fireEvent.click(tab(/starter/))
     await waitFor(() => {
