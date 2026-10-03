@@ -239,6 +239,19 @@ describe('RuleEditor, from a path', () => {
     expect(screen.getByText('Fill in the state to save.')).toBeTruthy()
   })
 
+  it('has the browser ask before unloading only once the form has changes', async () => {
+    const unload = () => {
+      const event = new Event('beforeunload', { cancelable: true })
+      window.dispatchEvent(event)
+      return event.defaultPrevented
+    }
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    expect(unload()).toBe(false)
+    type(textbox('Limit for step 1'), '11.8')
+    expect(unload()).toBe(true)
+  })
+
   it('takes a state of a text value as text, with no unit', async () => {
     renderEditor({ start: { path: 'propulsion.port.state', kind: 'state' } })
     await formShown()
@@ -495,10 +508,13 @@ describe('RuleEditor, editing', () => {
     }
   )
 
-  it('lists a pinned source once, and keeps it', async () => {
+  it.each([
+    ['reporting now', 'gnss.bow'],
+    ['not reporting now', 'gnss.masthead']
+  ])('lists a pinned source %s once, and keeps it', async (_, source) => {
     const pinned: Rule = {
       ...stepped,
-      signal: { path: 'navigation.speedOverGround', source: 'gnss.bow' },
+      signal: { path: 'navigation.speedOverGround', source },
       detector: {
         type: 'sustained',
         direction: 'above',
@@ -510,8 +526,8 @@ describe('RuleEditor, editing', () => {
     const options = within(select('Source'))
       .getAllByRole('option')
       .map((o) => o.textContent)
-    expect(options.filter((o) => o === 'gnss.bow')).toHaveLength(1)
-    expect(select('Source')).toHaveProperty('value', 'gnss.bow')
+    expect(options.filter((o) => o === source)).toHaveLength(1)
+    expect(select('Source')).toHaveProperty('value', source)
     click(button('Save'))
     await saved(onSaved)
     expect(api.updateRule.mock.calls[0]?.[1].signal).toEqual(pinned.signal)
