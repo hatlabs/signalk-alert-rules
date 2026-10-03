@@ -6,13 +6,16 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { kindOf } from '../../../src/panel/editor/conditionKinds'
 import {
   fromRule,
+  signalShape,
   stepQuantity,
   type DurationField,
   type EventForm,
   type RuleForm,
   type SignalForm,
+  type StepForm,
   type ValueField
 } from '../../../src/panel/editor/formModel'
+import { signalMeasure } from '../../../src/panel/signalUnits'
 import {
   button,
   checkbox,
@@ -112,9 +115,30 @@ function conditionFields(form: RuleForm) {
   }
 }
 
+/**
+ * A step's limit typed unrounded where the editor would show it rounded, as
+ * docs/examples.md tells the user to: typing the rounded text stores another
+ * number (0.027 nmi is not 50 m). Computed here, not read from the docs, whose
+ * strings may differ in the last digit while storing the same value.
+ */
+function limitText(form: RuleForm, step: StepForm): string {
+  const exact = step.exact?.limit
+  if (exact === undefined) return step.limit
+  if (stepQuantity(form.detector) !== 'value') {
+    throw new Error('no worked example has a rate or total limit that shows rounded')
+  }
+  const { kind, unit } = signalMeasure(signalShape(form.signal), units)
+  if (kind === 'ratio') throw new Error('no worked example has a ratio limit that shows rounded')
+  const shift = kind === 'absolute' ? unit.offset : 0
+  return String(exact.value * unit.scale + shift)
+}
+
 function steps(form: RuleForm) {
   const quantity = stepQuantity(form.detector)
   form.steps.forEach((step, i) => {
+    if (step.exact?.low !== undefined || step.exact?.high !== undefined) {
+      throw new Error('no worked example has a range limit that shows rounded')
+    }
     const n = String(i + 1)
     if (i > 0) click(button(/^Escalate/))
     choose(`Priority for step ${n}`, step.priority)
@@ -123,7 +147,7 @@ function steps(form: RuleForm) {
     else if (quantity === 'range') {
       type(textbox(`Low limit for step ${n}`), step.low)
       type(textbox(`High limit for step ${n}`), step.high)
-    } else if (quantity !== 'none') type(textbox(`Limit for step ${n}`), step.limit)
+    } else if (quantity !== 'none') type(textbox(`Limit for step ${n}`), limitText(form, step))
   })
 }
 

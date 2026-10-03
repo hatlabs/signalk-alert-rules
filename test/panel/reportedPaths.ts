@@ -13,7 +13,23 @@ const celsius = displayUnit({
   units: 'K',
   displayUnits: { formula: 'value - 273.15', symbol: '°C' }
 })
-export const distance = si('m')
+// The default nautical-metric preset's units, which the docs screenshots show.
+export const distance = displayUnit({
+  units: 'm',
+  displayUnits: { formula: 'value * 0.0005399568034557236', symbol: 'nmi' }
+})
+const degrees = displayUnit({
+  units: 'rad',
+  displayUnits: { formula: 'value * 57.29577951308231', symbol: '°' }
+})
+const knots = displayUnit({
+  units: 'm/s',
+  displayUnits: { formula: 'value * 1.94384', symbol: 'kn' }
+})
+const percent = displayUnit({
+  units: 'ratio',
+  displayUnits: { formula: 'value * 100', symbol: '%' }
+})
 
 /** What the server reports: every path the worked examples read, and a few more. */
 export const reported: PathEntry[] = [
@@ -40,7 +56,7 @@ export const reported: PathEntry[] = [
   {
     path: 'navigation.headingMagnetic',
     units: 'rad',
-    unit: si('rad'),
+    unit: degrees,
     value: 1.2,
     sources: ['compass.a', 'compass.b']
   },
@@ -52,7 +68,7 @@ export const reported: PathEntry[] = [
   { path: 'propulsion.port.state', unit: displayUnit({}), value: 'started' },
   { path: 'propulsion.starboard.state', unit: displayUnit({}), value: 'started' },
   { path: 'environment.depth.belowTransducer', units: 'm', unit: si('m'), value: 4.2 },
-  { path: 'tanks.freshWater.0.currentLevel', units: 'ratio', unit: si('ratio'), value: 0.6 },
+  { path: 'tanks.freshWater.0.currentLevel', units: 'ratio', unit: percent, value: 0.6 },
   {
     path: 'navigation.position',
     unit: displayUnit({}),
@@ -62,7 +78,7 @@ export const reported: PathEntry[] = [
   {
     path: 'navigation.speedOverGround',
     units: 'm/s',
-    unit: si('m/s'),
+    unit: knots,
     value: 2.5,
     sources: ['gnss.bow', 'gnss.stern'],
     preferredSource: 'gnss.stern'
