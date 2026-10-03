@@ -108,6 +108,21 @@ export function signalMeasure(signal: SignalShape, lookup: UnitLookup): Measure 
 }
 
 /**
+ * Whether `signalMeasure` is settled: by the combinator, by a path whose unit
+ * is known, or by every input having a path, SI then being final. A path of
+ * unknown unit beside an empty input settles nothing: the input may yet be
+ * given a path shown in another unit.
+ */
+export function measureSettled(signal: SignalShape, lookup: UnitLookup): boolean {
+  const { combinator, paths } = signal
+  return (
+    (combinator !== undefined && (POSITION_KINDS.has(combinator) || combinator === 'ratio')) ||
+    paths.some((p) => p !== '' && lookup.entry(p)?.unit !== undefined) ||
+    (paths.length > 0 && paths.every((p) => p !== ''))
+  )
+}
+
+/**
  * The Signal K groups whose children are instances, as the specification
  * names them; `null` stands for any one segment, such as a tank's type.
  */

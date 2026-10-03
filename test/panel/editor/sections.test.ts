@@ -63,6 +63,40 @@ describe('attachErrors', () => {
     expect(byField.get('/signal/inputs/0/path')).toEqual(['difference needs exactly two inputs'])
   })
 
+  it('attaches an error on a whole limit to what is left to fill in, not to its kind', () => {
+    const attached = (pointer: string, f: RuleForm) => [
+      ...attachErrors(
+        [{ path: pointer, message: 'is required' }],
+        fieldPointers(f, false)
+      ).byField.keys()
+    ]
+    const zone = { ...emptyGate().limit, kind: 'zone' as const }
+    const fixedGate = form((f) => {
+      f.gates = [emptyGate()]
+    })
+    const zoneGate = form((f) => {
+      f.gates = [{ ...emptyGate(), limit: zone }]
+    })
+    const zones = form((f) => {
+      f.detector.type = 'sustained'
+      f.detector.limit = zone
+    })
+    expect(attached('/gates/0/limit', fixedGate)).toEqual(['/gates/0/limit/value'])
+    expect(attached('/gates/0/limit', zoneGate)).toEqual(['/gates/0/limit/level'])
+    expect(attached('/detector/limit', zones)).toEqual(['/detector/limit/level'])
+  })
+
+  it('keeps an error on the gates as a whole off the first gate', () => {
+    const error = { path: '/gates', message: 'must be an array' }
+    const fields = fieldPointers(
+      form((f) => {
+        f.gates = [emptyGate()]
+      }),
+      false
+    )
+    expect(attachErrors([error], fields)).toEqual({ byField: new Map(), unattached: [error] })
+  })
+
   it('keeps an error that no field shows', () => {
     const error = { path: '/gates/3/limit', message: 'x' }
     expect(attachErrors([error], fields).unattached).toEqual([error])
@@ -274,8 +308,46 @@ describe('saveHint', () => {
     )
   })
 
+  it.each([
+    ['/signal', 'the value to watch'],
+    ['/signal/inputs', 'the paths to combine'],
+    ['/detector/event', 'the event'],
+    ['/detector/event/op', 'the event'],
+    ['/gates/0/signal', 'the path of Only while condition 1'],
+    ['/gates/0/limit', 'the limit of Only while condition 1'],
+    ['/gates/0', 'Only while condition 1'],
+    ['/gates', 'the Only while conditions']
+  ])('names %s, a part a stored rule can lack, by its field', (pointer, label) => {
+    expect(fieldLabel(pointer, sustained)).toBe(label)
+  })
+
   it('names a gate and a combined input by their numbers', () => {
-    expect(fieldLabel('/gates/1/limit/value', sustained)).toBe('Only while condition 2')
+    expect(fieldLabel('/gates/1/direction', sustained)).toBe('Only while condition 2')
     expect(fieldLabel('/signal/inputs/0/path', sustained)).toBe('path 1 to combine')
+  })
+
+  it("names a gate's limit and path within the gate", () => {
+    const gates = form((f) => {
+      f.gates = [emptyGate(), { ...emptyGate(), signal: setMode(emptyGate().signal, 'combine') }]
+    })
+    expect(fieldLabel('/gates/0/limit/value', gates)).toBe('the limit of Only while condition 1')
+    expect(fieldLabel('/gates/0/limit/level', gates)).toBe('the limit of Only while condition 1')
+    expect(fieldLabel('/gates/0/signal/path', gates)).toBe('the path of Only while condition 1')
+    expect(fieldLabel('/gates/0/signal/source', gates)).toBe('Only while condition 1')
+    expect(fieldLabel('/gates/1/signal', gates)).toBe('the paths of Only while condition 2')
+    expect(fieldLabel('/gates/1/signal/inputs/1/path', gates)).toBe(
+      'the paths of Only while condition 2'
+    )
+    expect(
+      saveHint(
+        [
+          { path: '/gates/0/signal/path', message: 'is required' },
+          { path: '/gates/0/limit/value', message: 'is required' }
+        ],
+        gates
+      )
+    ).toBe(
+      'Fill in the path of Only while condition 1 and the limit of Only while condition 1 to save.'
+    )
   })
 })

@@ -9,6 +9,7 @@ import {
   canLatch,
   isZoneLimited,
   holdsFor,
+  RETYPE_IN_UNIT,
   stepLimitFields,
   stepPointer,
   stepQuantity,
@@ -137,7 +138,9 @@ export interface AttachedErrors {
 
 /**
  * Puts each error on the field it names, else on the closest field it lies
- * under, else on the first field of the group it names.
+ * under, else on the first field of the group it names that is not a limit's
+ * kind. An error on the gates as a whole stays off the fields: on the first
+ * gate's it would read as that gate's own.
  */
 export function attachErrors(
   errors: readonly FieldError[],
@@ -150,7 +153,10 @@ export function attachErrors(
       .filter((f) => error.path === f || error.path.startsWith(`${f}/`))
       .sort((a, b) => b.length - a.length)
       .at(0)
-    const field = under ?? fields.find((f) => f.startsWith(`${error.path}/`))
+    const group =
+      error.path === '/gates' ? [] : fields.filter((f) => f.startsWith(`${error.path}/`))
+    // A limit's kind is always chosen, so an error on the whole limit is about the rest of it.
+    const field = under ?? group.find((f) => !f.endsWith('/limit/kind')) ?? group.at(0)
     if (field === undefined) unattached.push(error)
     else byField.set(field, [...(byField.get(field) ?? []), error.message])
   }
@@ -164,6 +170,7 @@ const LABELS: Readonly<Record<string, string>> = {
   '/condition': 'the condition name',
   '/signal/path': 'the value to watch',
   '/signal/source': 'the source',
+  '/signal/inputs': 'the paths to combine',
   '/detector/type': 'what should alert',
   '/detector/direction': 'the direction',
   '/detector/op': 'the state',
@@ -177,6 +184,7 @@ const LABELS: Readonly<Record<string, string>> = {
   '/detector/hysteresis': 'the clear margin',
   '/detector/clearDuration': 'the clear delay',
   '/detector/limit': 'the zones',
+  '/gates': 'the Only while conditions',
   '/latching': 'Keep the alert until acknowledged'
 }
 
@@ -193,8 +201,19 @@ export function fieldLabel(pointer: string, form: RuleForm): string {
     if (field === 'low' || field === 'high') return `the ${field} limit`
     return stepQuantity(form.detector) === 'match' ? 'the state' : 'the limit'
   }
-  const gate = /^\/gates\/(\d+)/.exec(pointer)
-  if (gate !== null) return `Only while condition ${String(Number(gate[1]) + 1)}`
+  const gate = /^\/gates\/(\d+)(.*)$/.exec(pointer)
+  if (gate !== null) {
+    const index = Number(gate[1])
+    const condition = `Only while condition ${String(index + 1)}`
+    const within = gate[2]
+    const paths = `the paths of ${condition}`
+    const path = `the path of ${condition}`
+    if (/^\/limit(\/|$)/.test(within)) return `the limit of ${condition}`
+    if (/^\/signal\/inputs(\/\d+(\/path)?)?$/.test(within)) return paths
+    if (within === '/signal/path') return path
+    if (within === '/signal') return form.gates[index]?.signal.mode === 'combine' ? paths : path
+    return condition
+  }
   const input = /^\/signal\/inputs\/(\d+)/.exec(pointer)
   if (input !== null) return `path ${String(Number(input[1]) + 1)} to combine`
   const keys = Object.keys(LABELS)
@@ -216,10 +235,12 @@ export function saveHint(errors: readonly FieldError[], form: RuleForm): string 
 
 /** The fields to fill in and those to fix, as a phrase: "fill in the limit and fix the name". */
 export function whatStops(errors: readonly FieldError[], form: RuleForm): string | undefined {
-  if (errors.length === 0) return undefined
+  // A clear margin to retype may stay empty, so it does not stop Save.
+  const stopping = errors.filter((e) => e.message !== RETYPE_IN_UNIT)
+  if (stopping.length === 0) return undefined
   const labels = (missing: boolean) => [
     ...new Set(
-      errors
+      stopping
         .filter((e) => (e.message === 'is required') === missing)
         .map((e) => fieldLabel(e.path, form))
     )

@@ -24,6 +24,7 @@ import {
   COMBINATOR_KINDS,
   defaultFormCondition,
   emptyForm,
+  emptyGate,
   emptyStep,
   forgetEdited,
   formAlertPrefix,
@@ -45,7 +46,12 @@ import {
   type RuleForm
 } from '../../../src/panel/editor/formModel'
 import type { PathEntry } from '../../../src/panel/paths/selfPaths'
-import { NO_UNITS, POSITION_KINDS, unitLookup } from '../../../src/panel/signalUnits'
+import {
+  NO_UNITS,
+  POSITION_KINDS,
+  unitLookup,
+  type UnitLookup
+} from '../../../src/panel/signalUnits'
 import { displayUnit } from '../../../src/panel/units'
 
 const EXAMPLES = join(import.meta.dirname, '../../../examples/rules')
@@ -111,6 +117,9 @@ function authored(edit: (form: RuleForm) => void): RuleForm {
   edit(form)
   return form
 }
+
+/** A stored body as the form opens it. */
+const bodyForm = (body: unknown, units: UnitLookup): RuleForm => fromBody(body, units).form
 
 function saved(form: RuleForm, units = displayed): Rule {
   const result = toRule(form, units)
@@ -252,6 +261,24 @@ describe('worked examples round-trip through the form', () => {
 
   it.each(examples())('%s, in display units', (_, rule) => {
     expect(saved(fromRule(rule, displayed))).toEqual(rule)
+  })
+})
+
+describe('every event op round-trips through the form', () => {
+  const ops = ['changes', 'decreases'] as const
+  it.each(ops)('a count event that %s', (op) => {
+    const bilge = example('bilge-pump-cycling')
+    const rule = { ...bilge, detector: { ...bilge.detector, event: { op } } } as Rule
+    expect(saved(fromRule(rule, NO_UNITS), NO_UNITS)).toEqual(rule)
+  })
+
+  it.each(ops)('an accumulator reset when its event %s', (op) => {
+    const engine = example('engine-service-due')
+    const rule = {
+      ...engine,
+      detector: { ...engine.detector, resetOn: { op } }
+    } as Rule
+    expect(saved(fromRule(rule, NO_UNITS), NO_UNITS)).toEqual(rule)
   })
 })
 
@@ -445,7 +472,7 @@ describe('an outside rule', () => {
 
   it('opens an outside rule that does not validate with its kind kept', () => {
     const body = { ...heel, detector: { ...heel.detector, hysteresis: 1 } }
-    expect(fromBody(body, displayed).detector.type).toBe('outside')
+    expect(bodyForm(body, displayed).detector.type).toBe('outside')
   })
 
   it('holds for a duration and takes up to four steps', () => {
@@ -735,19 +762,19 @@ describe('combinator slots', () => {
 describe('a stored rule that does not validate', () => {
   it('opens as stored when its shape is a rule, so it saves unchanged once fixed', () => {
     const rule = example('house-battery-low')
-    expect(saved(fromBody(rule, NO_UNITS), NO_UNITS)).toEqual(rule)
+    expect(saved(bodyForm(rule, NO_UNITS), NO_UNITS)).toEqual(rule)
   })
 
   it('keeps what it can read of a body that is not a rule', () => {
-    const form = fromBody({ name: 'Coolant high', slug: 'coolant-high', detector: 7 }, NO_UNITS)
+    const form = bodyForm({ name: 'Coolant high', slug: 'coolant-high', detector: 7 }, NO_UNITS)
     expect(form).toMatchObject({ name: 'Coolant high', slug: 'coolant-high', nameFollows: false })
     expect(form.detector.type).toBe('')
-    expect(fromBody('junk', NO_UNITS).name).toBe('')
+    expect(bodyForm('junk', NO_UNITS).name).toBe('')
   })
 
   it('opens a rule-shaped body missing its texts with them empty, to be filled in', () => {
     const { name: _name, message: _message, ...body } = example('house-battery-low')
-    const form = fromBody(body, NO_UNITS)
+    const form = bodyForm(body, NO_UNITS)
     expect(form).toMatchObject({ name: '', message: '', condition: '' })
     const result = toRule(form, NO_UNITS)
     expect(!result.ok && result.errors.map((e) => e.path)).toEqual(['/name', '/message'])
@@ -755,7 +782,7 @@ describe('a stored rule that does not validate', () => {
 
   it('keeps the signal and gates of a body without a detector, asking only for its kind', () => {
     const { detector: _detector, ...body } = example('coolant-temperature-rising')
-    const form = fromBody(body, NO_UNITS)
+    const form = bodyForm(body, NO_UNITS)
     expect(form.signal.slots[0]?.path).toBe('propulsion.*.coolantTemperature')
     expect(form.gates).toHaveLength(1)
     expect(form.detector.type).toBe('')
@@ -768,15 +795,307 @@ describe('a stored rule that does not validate', () => {
   it.each([null, [], 'sustained'])(
     'keeps the signal of a body whose detector is %j',
     (detector) => {
-      const form = fromBody({ ...example('coolant-temperature-rising'), detector }, NO_UNITS)
+      const form = bodyForm({ ...example('coolant-temperature-rising'), detector }, NO_UNITS)
       expect(form.signal.slots[0]?.path).toBe('propulsion.*.coolantTemperature')
       expect(form.detector.type).toBe('')
     }
   )
 
+  const pointers = (form: RuleForm) => {
+    const result = toRule(form, NO_UNITS)
+    return result.ok ? [] : result.errors.map((e) => e.path)
+  }
+
+  it('keeps the detector and gates of a body without a signal, asking for its path and limit', () => {
+    const { signal: _signal, ...body } = example('coolant-temperature-rising')
+    const form = bodyForm(body, NO_UNITS)
+    expect(form.detector).toMatchObject({ type: 'slope', trend: 'rising' })
+    expect(form.steps[0]).toMatchObject({ priority: 'warning', limit: '' })
+    expect(form.gates[0]?.signal.slots[0]?.path).toBe('propulsion.*.revolutions')
+    expect(pointers(form)).toEqual(['/signal/path', '/detector/steps/0/limit'])
+  })
+
+  const bilge = example('bilge-pump-cycling')
+  const { event: _event, ...countDetector } = bilge.detector as Extract<
+    Rule['detector'],
+    { type: 'count' }
+  >
+  it.each([
+    ['count', countDetector],
+    ['absence', { type: 'absence', steps: [{ within: 60, priority: 'warning' }] }]
+  ])(
+    'keeps the rest of a body whose %s detector has no event, asking only for it',
+    (type, detector) => {
+      const form = bodyForm({ ...bilge, detector }, NO_UNITS)
+      expect(form.signal.slots[0]?.path).toBe('electrical.switches.bilgePump.state')
+      expect(form.detector.type).toBe(type)
+      expect(form.steps[0]?.priority).toBe('warning')
+      expect(form.detector.event.op).toBe('')
+      expect(pointers(form)).toEqual(['/detector/event/op'])
+    }
+  )
+
+  it.each([{}, { value: true }, { op: 'nonsense' }])(
+    'asks for the event of a body whose event is %j',
+    (event) => {
+      const form = bodyForm({ ...bilge, detector: { ...countDetector, event } }, NO_UNITS)
+      expect(form.detector.event.op).toBe('')
+      expect(pointers(form)).toEqual(['/detector/event/op'])
+    }
+  )
+
+  it('asks for the path and limit of a body whose signal has no path', () => {
+    const form = bodyForm({ ...example('coolant-temperature-rising'), signal: {} }, NO_UNITS)
+    expect(form.signal.slots[0]?.path).toBe('')
+    expect(pointers(form)).toEqual(['/signal/path', '/detector/steps/0/limit'])
+  })
+
+  it.each(['many', { first: 1 }, [null]])(
+    'keeps the rest of a body whose steps are %j, asking only for a step',
+    (steps) => {
+      const rule = example('coolant-temperature-rising')
+      const form = bodyForm({ ...rule, detector: { ...rule.detector, steps } }, NO_UNITS)
+      expect(form.signal.slots[0]?.path).toBe('propulsion.*.coolantTemperature')
+      expect(form.detector).toMatchObject({ type: 'slope', window: { amount: '5', unit: 'min' } })
+      expect(form.gates).toHaveLength(1)
+      expect(form.steps).toEqual([emptyStep()])
+      expect(pointers(form)).toEqual(['/detector/steps/0/limit', '/detector/steps/0/priority'])
+    }
+  )
+
+  const noPath = ['/signal/inputs/0/path', '/signal/inputs/1/path', '/detector/steps/0/limit']
+  it.each([
+    { inputs: undefined, missing: noPath },
+    { inputs: 'a.b', missing: noPath },
+    // a.b has no known unit, and the empty input may yet get a path that has one.
+    {
+      inputs: [null, { path: 'a.b' }],
+      missing: ['/signal/inputs/0/path', '/detector/steps/0/limit']
+    }
+  ])(
+    'keeps the rest of a body whose combined signal has inputs $inputs, asking for each path',
+    ({ inputs, missing }) => {
+      const rule = example('coolant-temperature-rising')
+      const form = bodyForm({ ...rule, signal: { combinator: 'difference', inputs } }, NO_UNITS)
+      expect(form.signal.mode).toBe('combine')
+      expect(form.detector.type).toBe('slope')
+      expect(form.gates).toHaveLength(1)
+      expect(pointers(form)).toEqual(missing)
+    }
+  )
+
+  it('keeps the rest of a body whose gate has a combined signal without inputs', () => {
+    const rule = example('coolant-temperature-rising')
+    const gate = { ...rule.gates?.[0], signal: { combinator: 'difference' } }
+    const form = bodyForm({ ...rule, gates: [gate] }, NO_UNITS)
+    expect(form.signal.slots[0]?.path).toBe('propulsion.*.coolantTemperature')
+    expect(form.gates[0]?.limit.value).toBe('')
+    expect(pointers(form)).toEqual([
+      '/gates/0/signal/inputs/0/path',
+      '/gates/0/signal/inputs/1/path',
+      '/gates/0/limit/value'
+    ])
+  })
+
+  describe('a malformed gate', () => {
+    const rule = example('coolant-temperature-rising')
+    const gate = rule.gates?.[0]
+    const withGates = (gates: unknown) => bodyForm({ ...rule, gates }, NO_UNITS)
+
+    it('keeps the rest of a gate without a signal, asking for its path and limit', () => {
+      const form = withGates([{ ...gate, signal: undefined }])
+      expect(form.signal.slots[0]?.path).toBe('propulsion.*.coolantTemperature')
+      expect(form.detector.type).toBe('slope')
+      expect(form.gates[0]).toMatchObject({ direction: 'above', limit: { value: '' } })
+      expect(pointers(form)).toEqual(['/gates/0/signal/path', '/gates/0/limit/value'])
+    })
+
+    it('keeps the signal of a gate without a limit, asking only for it', () => {
+      const form = withGates([{ ...gate, limit: undefined }])
+      expect(form.gates[0]?.signal.slots[0]?.path).toBe('propulsion.*.revolutions')
+      expect(pointers(form)).toEqual(['/gates/0/limit/value'])
+    })
+
+    it('reads a gate that is not an object as one to fill in', () => {
+      const form = withGates([null])
+      expect(form.signal.slots[0]?.path).toBe('propulsion.*.coolantTemperature')
+      expect(form.gates).toEqual([emptyGate()])
+      expect(pointers(form)).toEqual(['/gates/0/signal/path', '/gates/0/limit/value'])
+    })
+
+    it('reads a lone gate as a list of one', () => {
+      const form = withGates(gate)
+      expect(form.gates[0]?.signal.slots[0]?.path).toBe('propulsion.*.revolutions')
+      expect(pointers(form)).toEqual([])
+    })
+
+    it('asks to fill in gates that are an object but not a gate, rather than drop them', () => {
+      const form = withGates({ first: gate })
+      expect(form.signal.slots[0]?.path).toBe('propulsion.*.coolantTemperature')
+      expect(form.gates).toHaveLength(1)
+      expect(pointers(form)).toEqual(['/gates/0/signal/path', '/gates/0/limit/value'])
+    })
+
+    it('asks to fill in gates that are neither a list nor an object, rather than drop them', () => {
+      const form = withGates('many')
+      expect(form.signal.slots[0]?.path).toBe('propulsion.*.coolantTemperature')
+      expect(form.gates).toEqual([emptyGate()])
+      expect(pointers(form)).toEqual(['/gates/0/signal/path', '/gates/0/limit/value'])
+    })
+  })
+
+  describe('the numbers of a signal without a path', () => {
+    const withoutSignal = (slug: string, signal?: unknown) =>
+      bodyForm({ ...example(slug), signal }, displayed)
+
+    it('asks again for a step limit rather than read it in the unit of the path picked later', () => {
+      // 3 Hz is 180 rpm: shown as 3 before a path is picked, it would save as 3 rpm.
+      const form = withoutSignal('engine-rpm-mismatch', { combinator: 'absDifference' })
+      const picked: RuleForm = {
+        ...form,
+        signal: {
+          ...form.signal,
+          slots: [
+            { path: 'propulsion.port.revolutions', source: '' },
+            { path: 'propulsion.starboard.revolutions', source: '' }
+          ]
+        }
+      }
+      const result = toRule(picked, displayed)
+      expect(!result.ok && result.errors).toEqual([
+        { path: '/detector/steps/0/limit', message: 'is required' }
+      ])
+    })
+
+    it('drops the range and clear margin, keeping the durations', () => {
+      const form = withoutSignal('shore-power-frequency')
+      expect(form.steps.map((s) => [s.low, s.high, s.priority])).toEqual([
+        ['', '', 'warning'],
+        ['', '', 'alarm']
+      ])
+      expect(form.detector).toMatchObject({
+        hysteresis: '',
+        duration: { amount: '10', unit: 's' },
+        clearDuration: { amount: '30', unit: 's' }
+      })
+    })
+
+    it('drops a number to total while, keeping a limit in time', () => {
+      const form = withoutSignal('engine-service-due')
+      expect(form.detector.whileValue).toMatchObject({ type: 'number', text: '' })
+      expect(form.steps[0]?.duration).toEqual({ amount: '250', unit: 'h' })
+    })
+
+    it('keeps a value that is not a number', () => {
+      expect(withoutSignal('engine-stopped').steps[0]?.value).toEqual({
+        type: 'text',
+        text: 'stopped'
+      })
+    })
+
+    it('asks again for the limit of a combination whose only path has no known unit', () => {
+      // The empty input may yet be given a path the server shows in rpm.
+      const starboardOnly = unitLookup(
+        shown.filter((p) => p.path === 'propulsion.starboard.revolutions'),
+        displayed.distance
+      )
+      const rule = example('engine-rpm-mismatch')
+      const form = bodyForm(
+        {
+          ...rule,
+          signal: {
+            combinator: 'absDifference',
+            inputs: [{ path: 'propulsion.port.revolutions' }, {}]
+          }
+        },
+        starboardOnly
+      )
+      expect(form.steps[0]?.limit).toBe('')
+    })
+
+    it('asks again for the limit of a combination stored without inputs', () => {
+      const form = withoutSignal('engine-rpm-mismatch', { combinator: 'absDifference', inputs: [] })
+      expect(form.steps[0]?.limit).toBe('')
+    })
+
+    it('keeps the limit of a combination whose every input has a path of unknown unit', () => {
+      const form = bodyForm(example('engine-rpm-mismatch'), NO_UNITS)
+      expect(form.steps[0]?.limit).toBe('3')
+    })
+
+    it('keeps the limit of a combination one of whose paths has a known unit', () => {
+      const rule = example('engine-rpm-mismatch')
+      const form = bodyForm(
+        {
+          ...rule,
+          signal: {
+            combinator: 'absDifference',
+            inputs: [{ path: 'propulsion.port.revolutions' }, {}]
+          }
+        },
+        displayed
+      )
+      expect(form.steps[0]?.limit).toBe('180')
+    })
+
+    it('keeps the limit of a combination whose unit does not come from its paths', () => {
+      const form = withoutSignal('gnss-disagree', { combinator: 'positionSpread' })
+      expect(form.steps[0]?.limit).not.toBe('')
+    })
+
+    it('drops the limit and clear margin of a gate without a signal, keeping its delays', () => {
+      const rule = example('engine-rpm-mismatch')
+      const [gate, other] = rule.gates ?? []
+      const form = bodyForm(
+        {
+          ...rule,
+          gates: [{ ...gate, signal: undefined, hysteresis: 1, clearDuration: 5 }, other]
+        },
+        displayed
+      )
+      expect(form.gates[0]).toMatchObject({
+        limit: { value: '' },
+        hysteresis: '',
+        duration: { amount: '10', unit: 's' },
+        clearDuration: { amount: '5', unit: 's' }
+      })
+      expect(form.gates[1]?.limit.value).toBe('480')
+    })
+  })
+
+  describe('the numbers it leaves empty for want of a unit', () => {
+    const rule = example('engine-rpm-mismatch')
+    const [gate, other] = rule.gates ?? []
+
+    it('names each at its field, a clear margin as one to type again', () => {
+      const { signal: _signal, ...body } = rule
+      const { emptied } = fromBody(
+        {
+          ...body,
+          detector: { ...rule.detector, hysteresis: 1 },
+          gates: [{ ...gate, signal: undefined, hysteresis: 1 }, other]
+        },
+        displayed
+      )
+      const retype = 'must be typed again in the unit of the chosen path'
+      expect(emptied).toEqual([
+        { path: '/detector/hysteresis', message: retype },
+        { path: '/detector/steps/0/limit', message: 'is required' },
+        { path: '/gates/0/hysteresis', message: retype },
+        { path: '/gates/0/limit/value', message: 'is required' }
+      ])
+    })
+
+    it('names none when every unit is settled', () => {
+      expect(
+        fromBody({ ...rule, detector: { ...rule.detector, hysteresis: 1 } }, displayed).emptied
+      ).toEqual([])
+    })
+  })
+
   it('asks for the kind of a detector it does not know', () => {
     const rule = example('house-battery-low')
-    const form = fromBody({ ...rule, detector: { type: 'nonsense' } }, NO_UNITS)
+    const form = bodyForm({ ...rule, detector: { type: 'nonsense' } }, NO_UNITS)
     const result = toRule(form, NO_UNITS)
     expect(!result.ok && result.errors).toEqual([
       { path: '/detector/type', message: 'is required' }

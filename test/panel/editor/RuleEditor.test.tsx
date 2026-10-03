@@ -978,6 +978,114 @@ describe('RuleEditor, an invalid stored rule', () => {
     expect(screen.getByText('Fill in what should alert to save.')).toBeTruthy()
   })
 
+  it('opens a count body without an event keeping the rest, asking only for the event', async () => {
+    const bilge = example('bilge-pump-cycling')
+    const { event: _event, ...detector } = bilge.detector as Extract<
+      Rule['detector'],
+      { type: 'count' }
+    >
+    renderEditor({
+      invalid: {
+        slug: bilge.slug,
+        name: bilge.name,
+        body: { ...bilge, detector },
+        errors: [{ path: '/detector/event', message: 'is required' }]
+      }
+    })
+    await formShown()
+    const event = select(/^Count each time the value/)
+    expect(event).toHaveProperty('value', '')
+    expect(event.querySelector('option[value=""]')?.textContent).toBe('Choose…')
+    expect(textbox(/^Message/)).toHaveProperty('value', bilge.message)
+    expect(document.querySelectorAll('[aria-invalid="true"]')).toHaveLength(1)
+    expect(screen.getByText('Fill in the event to save.')).toBeTruthy()
+  })
+
+  it('opens a body without a signal keeping its detector, its limit marked to type in the new unit', async () => {
+    const coolant = example('coolant-temperature-rising')
+    const { signal: _signal, ...body } = coolant
+    renderEditor({
+      invalid: {
+        slug: coolant.slug,
+        name: coolant.name,
+        body,
+        errors: [{ path: '/signal', message: 'is required' }]
+      }
+    })
+    await formShown()
+    expect(select(/^Alert when/)).not.toHaveProperty('value', '')
+    expect(textbox('Limit for step 1')).toHaveProperty('value', '')
+    expect(description(textbox('Limit for step 1'))).toContain('Fill in the limit')
+    expect(textbox(/^Message/)).toHaveProperty('value', coolant.message)
+    const search = screen.getByRole('combobox', { name: /^Search by name or path/ })
+    expect(description(search)).toContain('is required')
+    expect(document.querySelectorAll('[aria-invalid="true"]')).toHaveLength(2)
+    expect(screen.getByText('Fill in the value to watch and the limit to save.')).toBeTruthy()
+  })
+
+  const openStored = async (body: Record<string, unknown>) => {
+    const result = validateRule(body)
+    renderEditor({
+      invalid: {
+        slug: String(body.slug),
+        name: String(body.name),
+        body,
+        errors: result.ok ? [] : result.errors
+      }
+    })
+    await formShown()
+  }
+
+  it('names a number the server already reports once, not again as emptied', async () => {
+    const coolant = example('coolant-temperature-rising')
+    const gate = { signal: { path: '' }, direction: 'above', limit: { kind: 'fixed' } }
+    await openStored({ ...coolant, gates: [gate] })
+    expect(description(textbox('Condition 1 limit')).match(/is required/g)).toHaveLength(1)
+  })
+
+  it('names no emptied number the form has no field for', async () => {
+    const house = example('house-battery-low')
+    const detector = { ...house.detector, steps: [{ limit: 12, priority: 'warning' }] }
+    await openStored({ ...house, signal: { path: '' }, detector })
+    expect(document.body.textContent).not.toContain('/detector/steps/0/limit')
+  })
+
+  it('opens a body without a signal naming the numbers to type again, saving without the clear margin', async () => {
+    const { signal: _signal, ...rest } = battery
+    const detector = {
+      type: 'sustained',
+      direction: 'below',
+      steps: [{ limit: 11.8, priority: 'warning' }],
+      duration: 60,
+      hysteresis: 0.2,
+      clearDuration: 30
+    } as const
+    const { api, onSaved } = renderEditor({
+      invalid: {
+        slug: battery.slug,
+        name: battery.name,
+        body: { ...rest, detector },
+        errors: [{ path: '/signal', message: 'is required' }]
+      }
+    })
+    await formShown()
+    expect(description(textbox('Limit for step 1'))).toContain('Fill in the limit')
+    expect(description(textbox('Clear margin'))).toContain(
+      'must be typed again in the unit of the chosen path'
+    )
+    expect(screen.getByText('Fill in the value to watch and the limit to save.')).toBeTruthy()
+    type(select('Search by name or path'), HOUSE)
+    type(textbox('Limit for step 1'), '11.8')
+    click(button('Save'))
+    await saved(onSaved)
+    const { hysteresis: _hysteresis, ...kept } = detector
+    expect(api.updateRule).toHaveBeenCalledWith(battery.slug, {
+      ...rest,
+      signal: { path: HOUSE },
+      detector: kept
+    })
+  })
+
   it('opens a rule-shaped body without a message, asking for one', async () => {
     const { message: _message, ...body } = battery
     renderEditor({

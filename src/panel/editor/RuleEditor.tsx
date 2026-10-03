@@ -16,7 +16,7 @@ import { useLeaveGuard } from './leaveGuard'
 import { emptyForm, fromBody, fromRule, toRule, type RuleForm } from './formModel'
 import { withGenerated } from './message'
 import { checkedErrors, RuleFields } from './RuleFields'
-import { saveHint } from './sections'
+import { fieldPointers, saveHint } from './sections'
 
 export interface RuleEditorProps {
   api: PanelApi
@@ -59,15 +59,29 @@ interface FormProps extends Omit<RuleEditorProps, 'paths'> {
   live: UnitLookup
 }
 
-function initialForm(props: FormProps, units: UnitLookup): RuleForm {
+/**
+ * The form as it opens, with the errors it opens with: a stored rule's own,
+ * and each number its reading left to type again.
+ */
+function initialForm(
+  props: FormProps,
+  units: UnitLookup
+): { form: RuleForm; errors: FieldError[] } {
   const { editing, invalid, start } = props
-  if (editing !== undefined) return fromRule(editing.rule, units)
-  // Saved to the slug it is stored under, which the form does not show for an edit.
-  if (invalid !== undefined) return { ...fromBody(invalid.body, units), slug: invalid.slug }
-  if (start === undefined) return emptyForm()
+  if (editing !== undefined) return { form: fromRule(editing.rule, units), errors: [] }
+  if (invalid !== undefined) {
+    const { form, emptied } = fromBody(invalid.body, units)
+    // A number the server already names, or one the form has no field for, is not named again.
+    const named = new Set(invalid.errors.map((e) => e.path))
+    const shown = new Set(fieldPointers(form, false))
+    const retype = emptied.filter((e) => !named.has(e.path) && shown.has(e.path))
+    // Saved to the slug it is stored under, which the form does not show for an edit.
+    return { form: { ...form, slug: invalid.slug }, errors: [...invalid.errors, ...retype] }
+  }
+  if (start === undefined) return { form: emptyForm(), errors: [] }
   const form = withKind(emptyForm(), start.kind)
   form.signal.slots[0] = { path: start.path, source: '' }
-  return withGenerated(form, units)
+  return { form: withGenerated(form, units), errors: [] }
 }
 
 function EditorForm(props: FormProps) {
@@ -77,9 +91,10 @@ function EditorForm(props: FormProps) {
   // The form's numbers are text in the units it opened with, so every
   // conversion keeps those units; a unit reported later would rescale them.
   const [units] = useState(live)
-  const [initial] = useState<RuleForm>(() => initialForm(props, units))
+  const [opened] = useState(() => initialForm(props, units))
+  const initial = opened.form
   const [form, setForm] = useState<RuleForm>(initial)
-  const [errors, setErrors] = useState<FieldError[]>(invalid?.errors ?? [])
+  const [errors, setErrors] = useState<FieldError[]>(opened.errors)
   const [failure, setFailure] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   // Held with the form it was previewed for: a field changed under the

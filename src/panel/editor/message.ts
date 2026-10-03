@@ -28,6 +28,8 @@ function eventVerb(event: EventForm, measure: Measure): string {
       return `changed to ${valueText(event.value, measure) ?? '…'}`
     case 'decreases':
       return 'decreased'
+    case '':
+      return '…'
   }
 }
 
