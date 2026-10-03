@@ -73,6 +73,28 @@ describe('the generated message', () => {
     expect(generatedMessage(f, units)).toBe('House voltage below {limit} for 30 s: {value}')
   })
 
+  it('says out of range, with the range of a single step as typed', () => {
+    const f = form('propulsion.port.coolantTemperature', 'outside', (f) => {
+      f.steps = [step({ low: '60', high: '95' })]
+      f.detector.duration = { amount: '30', unit: 's' }
+    })
+    expect(generatedMessage(f, units)).toBe(
+      'Port coolant temperature out of range 60 to 95 °C for 30 s: {value}'
+    )
+    expect(generatedName(f, units)).toBe('Port coolant temperature out of range')
+  })
+
+  it('says out of range alone for several steps or a range not yet typed', () => {
+    const several = form('propulsion.port.coolantTemperature', 'outside', (f) => {
+      f.steps = [step({ low: '60', high: '95' }), step({ low: '50', high: '100' })]
+    })
+    expect(generatedMessage(several, units)).toBe('Port coolant temperature out of range: {value}')
+    const partial = form('propulsion.port.coolantTemperature', 'outside', (f) => {
+      f.steps = [step({ low: '60' })]
+    })
+    expect(generatedMessage(partial, units)).toBe('Port coolant temperature out of range: {value}')
+  })
+
   it('says {limit} until a limit is typed', () => {
     expect(generatedMessage(form('electrical.batteries.house.voltage', 'below'), units)).toBe(
       'House voltage below {limit}: {value}'

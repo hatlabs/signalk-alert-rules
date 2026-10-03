@@ -2,17 +2,19 @@
  * How the editor words a rule's parts: the value it watches, a step's limit
  * as typed, and the unit each kind of field is entered in.
  */
+import { formatNumber } from '../../format'
 import type { CombinatorKind } from '../../model/rule'
 import { capitalised } from '../list/PriorityBadge'
 import type { Measure, UnitLookup } from '../signalUnits'
 import { unitLabel } from '../units'
-import type {
-  DetectorForm,
-  DurationField,
-  SignalForm,
-  StepForm,
-  StepQuantity,
-  ValueField
+import {
+  parsedNumber,
+  type DetectorForm,
+  type DurationField,
+  type SignalForm,
+  type StepForm,
+  type StepQuantity,
+  type ValueField
 } from './formModel'
 
 /** The unit labels of each kind of field on a signal measured by `measure`. */
@@ -99,6 +101,8 @@ export function stepWord(d: DetectorForm): string {
   switch (d.type) {
     case 'sustained':
       return d.direction
+    case 'outside':
+      return 'outside'
     case 'slope':
       return 'faster than'
     case 'projection':
@@ -156,7 +160,37 @@ export function valueText(value: ValueField, measure: Measure): string | undefin
   }
 }
 
-/** A step's limit as typed, with its unit; undefined while empty or for a step without one. */
+/** One limit of a range step as typed, with its unit: `25 °`. */
+export function rangeLimitText(
+  step: StepForm,
+  side: 'low' | 'high',
+  measure: Measure
+): string | undefined {
+  return stepLimitText({ ...step, limit: step[side] }, 'value', measure)
+}
+
+/**
+ * The clear margin an outside rule's first step allows, as a sentence:
+ * `The clear margin must be less than 25 °, half the warning's range -25 to 25 °.`
+ * Undefined while the range is not filled in.
+ */
+export function clearMarginText(first: StepForm, measure: Measure): string | undefined {
+  const range = stepLimitText(first, 'range', measure)
+  const [low, high] = [parsedNumber(first.low), parsedNumber(first.high)]
+  if (range === undefined || low === undefined || high === undefined) return undefined
+  const half = withUnit(
+    formatNumber((high - low) / 2),
+    unitLabels(measure).interval.replace(/ \(SI\)$/, '')
+  )
+  const whose = first.priority === '' ? 'the first step' : `the ${first.priority}`
+  return `The clear margin must be less than ${half}, half ${whose}'s range ${range}.`
+}
+
+/**
+ * A step's limit as typed, with its unit, a range as `-25 to 25 °`;
+ * undefined while empty, a range while either limit is, or for a step
+ * without one.
+ */
 export function stepLimitText(
   step: StepForm,
   quantity: StepQuantity | undefined,
@@ -169,6 +203,12 @@ export function stepLimitText(
   switch (quantity) {
     case 'value':
       return plain(labels.value)
+    case 'range': {
+      const [low, high] = [step.low.trim(), step.high.trim()]
+      return low === '' || high === ''
+        ? undefined
+        : withUnit(`${low} to ${high}`, labels.value.replace(/ \(SI\)$/, ''))
+    }
     case 'slope':
       return plain(labels.slope)
     case 'integral':

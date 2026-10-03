@@ -27,6 +27,7 @@ import {
   formAlertPrefix,
   fromBody,
   fromRule,
+  holdsFor,
   maxSteps,
   MAX_GATES,
   MAX_INPUTS,
@@ -48,13 +49,9 @@ import { displayUnit } from '../../../src/panel/units'
 const EXAMPLES = join(import.meta.dirname, '../../../examples/rules')
 
 function examples(): [string, Rule][] {
-  return (
-    readdirSync(EXAMPLES)
-      .filter((f) => f.endsWith('.json'))
-      .map((f): [string, Rule] => [f, JSON.parse(readFileSync(join(EXAMPLES, f), 'utf8')) as Rule])
-      // The editor has no outside condition kind until issue 88's Unit 4.
-      .filter(([, rule]) => rule.detector.type !== 'outside')
-  )
+  return readdirSync(EXAMPLES)
+    .filter((f) => f.endsWith('.json'))
+    .map((f): [string, Rule] => [f, JSON.parse(readFileSync(join(EXAMPLES, f), 'utf8')) as Rule])
 }
 
 function example(slug: string): Rule {
@@ -167,7 +164,8 @@ describe('the condition name of a form', () => {
       'voltageAccumulated'
     ],
     [{ type: 'count', event, window: 60, steps: [{ ...warning, limit: 3 }] }, 'voltageFrequent'],
-    [{ type: 'absence', event, steps: [{ ...warning, within: 60 }] }, 'voltageMissing']
+    [{ type: 'absence', event, steps: [{ ...warning, within: 60 }] }, 'voltageMissing'],
+    [{ type: 'outside', steps: [{ ...warning, low: 11, high: 15 }] }, 'voltageOutOfRange']
   ]
 
   it.each(states)('is the default of the detector the form saves: %j', (detector, condition) => {
@@ -379,6 +377,79 @@ describe('a rule with escalation steps', () => {
     expect(!result.ok && result.errors).toEqual([
       { path: '/detector/steps/1/limit', message: 'is required' }
     ])
+  })
+})
+
+describe('an outside rule', () => {
+  const heel: Rule = {
+    name: 'Heading off course',
+    slug: 'heading-off-course',
+    message: 'Heading off course',
+    signal: { path: 'navigation.headingMagnetic' },
+    detector: {
+      type: 'outside',
+      steps: [
+        { low: -0.4363323129985824, high: 0.4363323129985824, priority: 'warning' },
+        { low: -0.6108652381980153, high: 0.6108652381980153, priority: 'alarm' }
+      ],
+      duration: 10,
+      hysteresis: 0.03490658503988659,
+      clearDuration: 30
+    }
+  }
+
+  function outside(low: string, high: string, path = 'environment.outside.temperature') {
+    return authored((f) => {
+      Object.assign(f, { name: 'r', slug: 'r', message: 'm' })
+      f.signal.slots[0].path = path
+      f.detector.type = 'outside'
+      f.steps = [{ ...emptyStep('warning'), low, high }]
+    })
+  }
+
+  it('shows each step as typed low and high limits in the display unit', () => {
+    const form = fromRule(heel, displayed)
+    expect(form.detector.type).toBe('outside')
+    expect(form.steps.map((s) => [s.priority, s.low, s.high])).toEqual([
+      ['warning', '-25', '25'],
+      ['alarm', '-35', '35']
+    ])
+    expect(form.detector.hysteresis).toBe('2')
+    expect(form.detector.duration).toEqual({ amount: '10', unit: 's' })
+    expect(form.detector.clearDuration).toEqual({ amount: '30', unit: 's' })
+  })
+
+  it('round-trips with every step and its timing', () => {
+    expect(saved(fromRule(heel, displayed))).toEqual(heel)
+    expect(saved(fromRule(heel, NO_UNITS), NO_UNITS)).toEqual(heel)
+  })
+
+  it('stores a range typed in °F in kelvin, and shows it back in °F', () => {
+    const rule = saved(outside('-4', '104'))
+    const steps = rule.detector.type === 'outside' ? rule.detector.steps : []
+    expect(steps[0]?.low).toBeCloseTo(253.15)
+    expect(steps[0]?.high).toBeCloseTo(313.15)
+    const [back] = fromRule(rule, displayed).steps
+    expect([back.low, back.high]).toEqual(['-4', '104'])
+  })
+
+  it('names a missing or malformed limit by its side', () => {
+    const result = toRule(outside('', 'x'), displayed)
+    expect(!result.ok && result.errors).toEqual([
+      { path: '/detector/steps/0/low', message: 'is required' },
+      { path: '/detector/steps/0/high', message: 'must be a number' }
+    ])
+  })
+
+  it('opens an outside rule that does not validate with its kind kept', () => {
+    const body = { ...heel, detector: { ...heel.detector, hysteresis: 1 } }
+    expect(fromBody(body, displayed).detector.type).toBe('outside')
+  })
+
+  it('holds for a duration and takes up to four steps', () => {
+    const form = fromRule(heel, displayed)
+    expect(holdsFor(form.detector)).toBe(true)
+    expect(maxSteps(form.detector)).toBe(4)
   })
 })
 

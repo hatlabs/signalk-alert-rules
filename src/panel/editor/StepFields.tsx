@@ -1,5 +1,6 @@
 import { useContext, useId, useState } from 'react'
 import type { Priority } from '../../model/rule'
+import { RANGE_INVERTED, RANGE_NOT_WIDER } from '../../model/rangeMessages'
 import type { SignalValue } from '../api'
 import { capitalised } from '../list/PriorityBadge'
 import { article } from '../rules/describe'
@@ -15,15 +16,17 @@ import {
 import {
   emptyStep,
   maxSteps,
+  parsedNumber,
   PRIORITY_LEVELS,
-  stepLimitField,
+  stepLimitFields,
+  type StepLimitField,
   stepPointer,
   stepQuantity,
   type RuleForm,
   type StepForm
 } from './formModel'
 import { ladderText, nowText, priorityMeaning } from './live'
-import { stepLimitText, stepWord, unitLabels } from './words'
+import { rangeLimitText, stepLimitText, stepWord, unitLabels } from './words'
 
 /** Least severe first, as a climb reads. */
 const CLIMB: readonly Priority[] = [...PRIORITY_LEVELS].reverse()
@@ -71,17 +74,55 @@ function CrossIcon() {
 
 const ORDER = /^must be (above|below) the previous step's limit$/
 
+interface StepError {
+  index: number
+  pointer: string
+  message: string
+}
+
+/** A range step's error in words, naming the side and the previous step's limit it must pass. */
+function rangeError(
+  form: RuleForm,
+  { index, pointer, message }: StepError,
+  measure: Measure
+): string | undefined {
+  if (message === RANGE_INVERTED) return 'the high limit must be above the low limit.'
+  const step = form.steps.at(index)
+  const previous = index > 0 ? form.steps.at(index - 1) : undefined
+  if (message !== RANGE_NOT_WIDER || step === undefined || previous === undefined) return undefined
+  if (step.priority === '' || previous.priority === '') return undefined
+  const whose = `${article(step.priority)} ${step.priority}'s`
+  const equal = (a: string, b: string) => {
+    const x = parsedNumber(a)
+    return x !== undefined && x === parsedNumber(b)
+  }
+  const same = equal(step.low, previous.low) && equal(step.high, previous.high)
+  if (same) {
+    const range = stepLimitText(previous, 'range', measure)
+    return range === undefined
+      ? undefined
+      : `${whose} range must be wider than ${range}, the ${previous.priority}'s range.`
+  }
+  const side = pointer.endsWith('/low') ? 'low' : 'high'
+  const limit = rangeLimitText(previous, side, measure)
+  const beyond = side === 'low' ? 'above' : 'below'
+  return limit === undefined
+    ? undefined
+    : `${whose} ${side} limit must not be ${beyond} ${limit}, the ${previous.priority}'s ${side} limit.`
+}
+
+/** A range's limits by their side; every other limit by what the step compares. */
+const LIMIT_LABELS: Readonly<Partial<Record<string, string>>> = {
+  low: 'low limit',
+  high: 'high limit'
+}
+
 /**
  * A step's error in words: a missing field is asked for by what it is, and
  * an out-of-order limit names the limit it must pass and whose it is, as
  * the user sees them.
  */
-function stepError(
-  form: RuleForm,
-  error: { index: number; pointer: string; message: string },
-  limitLabel: string,
-  measure: Measure
-): string {
+function stepError(form: RuleForm, error: StepError, limitLabel: string, measure: Measure): string {
   const { index, pointer, message } = error
   const step = form.steps.at(index)
   const previous = index > 0 ? form.steps.at(index - 1) : undefined
@@ -93,7 +134,12 @@ function stepError(
       return `${prefix}${article(step.priority)} ${step.priority} must be ${order[1]} ${limit}, the ${previous.priority}'s limit.`
     }
   }
-  const missing = pointer.endsWith('/priority') ? 'choose a priority' : `fill in the ${limitLabel}`
+  const range =
+    stepQuantity(form.detector) === 'range' ? rangeError(form, error, measure) : undefined
+  if (range !== undefined) return capitalised(`${prefix}${range}`)
+  const missing = pointer.endsWith('/priority')
+    ? 'choose a priority'
+    : `fill in the ${LIMIT_LABELS[pointer.split('/').at(-1) ?? ''] ?? limitLabel}`
   return capitalised(`${prefix}${message === 'is required' ? missing : message}`)
 }
 
@@ -124,10 +170,11 @@ export function StepFields({ form, onChange, measure, units, valueKind, value }:
   const unit = { value: labels.value, slope: labels.slope, integral: labels.integral }[
     quantity === 'value' || quantity === 'slope' || quantity === 'integral' ? quantity : 'value'
   ]
-  const limitField = stepLimitField(quantity)
-  const limitPointer = (i: number) => `${stepPointer(i)}/${limitField ?? ''}`
+  const limitFields = stepLimitFields(quantity)
+  const limitPointer = (i: number, field: StepLimitField | undefined = limitFields.at(0)) =>
+    `${stepPointer(i)}/${field ?? ''}`
   const stepErrors = steps.flatMap((_, i) =>
-    [`${stepPointer(i)}/priority`, limitPointer(i)].flatMap((p) =>
+    [`${stepPointer(i)}/priority`, ...limitFields.map((f) => limitPointer(i, f))].flatMap((p) =>
       (errors.get(p) ?? []).map((message) => ({ index: i, pointer: p, message }))
     )
   )
@@ -159,11 +206,15 @@ export function StepFields({ form, onChange, measure, units, valueKind, value }:
         {steps.map((step, i) => {
           const n = String(i + 1)
           const at = stepPointer(i)
-          const limitControl = {
-            'aria-label': `${capitalised(limitLabel)} for step ${n}`,
-            className: `skar-input${stepErrors.some((e) => e.pointer === limitPointer(i)) ? ' skar-input-invalid' : ''}`,
-            ...invalid(limitPointer(i))
+          const control = (label: string, field?: StepLimitField) => {
+            const pointer = limitPointer(i, field)
+            return {
+              'aria-label': `${label} for step ${n}`,
+              className: `skar-input${stepErrors.some((e) => e.pointer === pointer) ? ' skar-input-invalid' : ''}`,
+              ...invalid(pointer)
+            }
           }
+          const limitControl = control(capitalised(limitLabel))
           return (
             <li key={i} className="skar-step">
               <span className="skar-step-number" aria-hidden="true">
@@ -209,10 +260,11 @@ export function StepFields({ form, onChange, measure, units, valueKind, value }:
                   quantity === 'integral' ||
                   quantity === 'count') && (
                   <span className="skar-input-row">
+                    {/* Only a count is never negative; the decimal keypad has no minus key. */}
                     <input
                       {...limitControl}
                       type="text"
-                      inputMode="decimal"
+                      inputMode={quantity === 'count' ? 'decimal' : undefined}
                       value={step.limit}
                       onChange={(e) => {
                         setStep(i, { limit: e.target.value })
@@ -221,6 +273,28 @@ export function StepFields({ form, onChange, measure, units, valueKind, value }:
                     {quantity !== 'count' && unit !== '' && (
                       <span className="skar-unit">{unit}</span>
                     )}
+                  </span>
+                )}
+                {quantity === 'range' && (
+                  <span className="skar-input-row">
+                    <input
+                      {...control('Low limit', 'low')}
+                      type="text"
+                      value={step.low}
+                      onChange={(e) => {
+                        setStep(i, { low: e.target.value })
+                      }}
+                    />
+                    <span className="skar-unit">to</span>
+                    <input
+                      {...control('High limit', 'high')}
+                      type="text"
+                      value={step.high}
+                      onChange={(e) => {
+                        setStep(i, { high: e.target.value })
+                      }}
+                    />
+                    {unit !== '' && <span className="skar-unit">{unit}</span>}
                   </span>
                 )}
               </span>

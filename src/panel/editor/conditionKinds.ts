@@ -7,7 +7,16 @@ import type { SignalValue } from '../api'
 import { withDetector, type DetectorForm, type RuleForm } from './formModel'
 
 export type ConditionKind =
-  'below' | 'above' | 'rate' | 'projection' | 'silent' | 'state' | 'often' | 'total' | 'missing'
+  | 'below'
+  | 'above'
+  | 'outside'
+  | 'rate'
+  | 'projection'
+  | 'silent'
+  | 'state'
+  | 'often'
+  | 'total'
+  | 'missing'
 
 export interface KindInfo {
   kind: ConditionKind
@@ -31,6 +40,13 @@ export const CONDITION_KINDS: readonly KindInfo[] = [
     kind: 'above',
     label: 'Above a limit',
     example: 'e.g. coolant temperature over 95 °C',
+    main: true,
+    numeric: true
+  },
+  {
+    kind: 'outside',
+    label: 'Outside a range',
+    example: 'e.g. heel more than 25° either way',
     main: true,
     numeric: true
   },
@@ -96,6 +112,8 @@ export function kindOf(d: DetectorForm): ConditionKind | undefined {
   switch (d.type) {
     case 'sustained':
       return d.direction === '' ? undefined : d.direction
+    case 'outside':
+      return 'outside'
     case 'slope':
       return 'rate'
     case 'projection':
@@ -118,6 +136,9 @@ function detectorOf(kind: ConditionKind, d: DetectorForm): Partial<DetectorForm>
     case 'below':
     case 'above':
       return { type: 'sustained', direction: kind }
+    case 'outside':
+      // Its steps are always typed; zones left on would return with a later kind.
+      return { type: 'outside', limit: { ...d.limit, kind: 'fixed' } }
     case 'rate':
       return { type: 'slope' }
     case 'projection':
