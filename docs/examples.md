@@ -121,7 +121,7 @@ Raises a caution when the port and starboard engine speeds differ by more than 3
 
 ![The editor for Engine RPM mismatch](images/examples/engine-rpm-mismatch-editor.png)
 
-The rule detail names the combination and its inputs, and the paths the rule is gated on.
+The rule detail names the combination and its inputs, and each condition the rule is gated on, with its limit.
 
 ![The detail of Engine RPM mismatch](images/examples/engine-rpm-mismatch-detail.png)
 
@@ -212,6 +212,6 @@ Warns when the shore power frequency is outside 49-51 Hz for 10 s, and climbs to
 
 ![The editor for Shore power frequency](images/examples/shore-power-frequency-editor.png)
 
-The rule detail shows the steps the alert climbs.
+The rule detail shows the steps the alert climbs, and where the value must be back for the alert to clear.
 
 ![The detail of Shore power frequency](images/examples/shore-power-frequency-detail.png)
