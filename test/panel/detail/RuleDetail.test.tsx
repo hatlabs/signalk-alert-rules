@@ -224,22 +224,21 @@ describe('RuleDetail', () => {
       )
     })
 
-    it('clears past the first step by the clear margin, after the clear delay', () => {
+    it('clears past the first step by the clear margin, after the clear delay, stated once', () => {
       renderDetail({ ...stepped, rule: { ...stepped.rule, hysteresis: 0.2, clearDuration: 30 } })
-      expect(screen.getByText(/^Clears once/).textContent).toBe(
-        'Clears once the value is back above 12.4 V for 30 s. It stays an alarm until then.'
-      )
+      expect(fact(/^clears/i)).toBe('once back above 12.4 V for 30 s')
+      expect(screen.getByText(/^It stays/).textContent).toBe('It stays an alarm until it clears.')
+      expect(screen.queryByText(/^Clears (when|once)/)).toBeNull()
     })
 
-    it('words a clear delay without a margin', () => {
+    it('words a clear delay without a margin, and leaves the ladder without a hint', () => {
       renderDetail({
         ...stepped,
         rule: { ...stepped.rule, clearDuration: 30 },
         status: { ...stepped.status, ...ruleEntry().status }
       })
-      expect(screen.getByText(/^Clears once/).textContent).toBe(
-        'Clears once the value is back above 12.2 V for 30 s.'
-      )
+      expect(fact(/^clears/i)).toBe('once back above 12.2 V for 30 s')
+      expect(screen.queryByText(/^(Clears (when|once)|It stays)/)).toBeNull()
     })
 
     it('clears below the first step less the clear margin, for a rule above it', () => {
@@ -255,14 +254,80 @@ describe('RuleDetail', () => {
           hysteresis: 0.1
         }
       })
-      expect(screen.getByText(/^Clears once/).textContent).toBe(
-        'Clears once the value is back below 14.9 V. It stays an alarm until then.'
-      )
+      expect(fact(/^clears/i)).toBe('once back below 14.9 V')
     })
 
     it('shows no ladder for a rule with one step', () => {
       renderDetail(houseLow)
       expect(screen.queryByRole('list', { name: 'Steps' })).toBeNull()
+    })
+  })
+
+  describe('when the alert clears', () => {
+    const noClearsRow = () => screen.queryByRole('definition', { name: /^clears/i })
+
+    it('states the clear margin and delay of a one-step rule under Alerts when', () => {
+      renderDetail({ ...houseLow, rule: { ...houseLow.rule, hysteresis: 0.2, clearDuration: 30 } })
+      const terms = screen.getAllByRole('term').map((t) => t.textContent)
+      expect(terms.indexOf('Clears')).toBe(terms.indexOf('Alerts when') + 1)
+      expect(fact(/^clears/i)).toBe('once back above 12.2 V for 30 s')
+    })
+
+    it('narrows a one-step outside rule’s range by the clear margin', () => {
+      renderDetail(
+        ruleEntry({
+          rule: {
+            steps: [{ low: 11.5, high: 14.8, priority: 'warning' }],
+            detector: { type: 'outside' },
+            signal: { paths: [HOUSE] },
+            hysteresis: 0.2
+          }
+        })
+      )
+      expect(fact(/^clears/i)).toBe('once back between 11.7 and 14.6 V')
+    })
+
+    it('words a zone limit’s clear margin from the zone, as the house-battery-low example', () => {
+      renderDetail(
+        ruleEntry({
+          rule: {
+            name: 'House battery low',
+            steps: [],
+            duration: 60,
+            hysteresis: 0.2,
+            clearDuration: 30,
+            detector: { type: 'sustained', direction: 'below', zoneLevel: 'warn' },
+            signal: { paths: [HOUSE] }
+          }
+        })
+      )
+      expect(fact(/alerts when/i)).toBe('below the warn zone for at least 60 s')
+      expect(fact(/^clears/i)).toBe('once back above the warn zone by 0.2 V for 30 s')
+    })
+
+    it('words a zone limit’s clear delay without a margin', () => {
+      renderDetail(
+        ruleEntry({
+          rule: {
+            name: 'House battery low',
+            steps: [],
+            clearDuration: 30,
+            detector: { type: 'sustained', direction: 'below', zoneLevel: 'warn' },
+            signal: { paths: [HOUSE] }
+          }
+        })
+      )
+      expect(fact(/^clears/i)).toBe('once back above the warn zone for 30 s')
+    })
+
+    it('shows no row for a rule without a clear margin or delay', () => {
+      renderDetail(houseLow)
+      expect(noClearsRow()).toBeNull()
+    })
+
+    it('shows no row for a clear margin and delay of zero, which are unset', () => {
+      renderDetail({ ...houseLow, rule: { ...houseLow.rule, hysteresis: 0, clearDuration: 0 } })
+      expect(noClearsRow()).toBeNull()
     })
   })
 
@@ -332,9 +397,8 @@ describe('RuleDetail', () => {
 
     it('narrows the range it clears in by the clear margin on both sides', () => {
       renderDetail({ ...heel, rule: { ...heel.rule, hysteresis: 2 } }, { units: heelUnits })
-      expect(screen.getByText(/^Clears once/).textContent).toBe(
-        'Clears once the value is back between -23 and 23 °. It stays a warning until then.'
-      )
+      expect(fact(/^clears/i)).toBe('once back between -23 and 23 °')
+      expect(screen.getByText(/^It stays/).textContent).toBe('It stays a warning until it clears.')
     })
 
     it('says when it clears without a range, for a first step that has none', () => {

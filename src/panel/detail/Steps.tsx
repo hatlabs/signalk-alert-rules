@@ -1,60 +1,30 @@
 import { useId } from 'react'
-import type { RuleEntry, RuleInfo } from '../api'
-import {
-  article,
-  clearPoint,
-  OPPOSITE_SIDE,
-  stepCondition,
-  type BackInRange,
-  type BackPastLimit,
-  type ClearPoint,
-  type RuleDisplay
-} from '../rules/describe'
+import type { RuleEntry } from '../api'
+import { article, clearsWhen, ruleClear, stepCondition, type RuleDisplay } from '../rules/describe'
 import { CheckIcon } from './icons'
 import { PriorityBadge } from '../list/PriorityBadge'
-import { formatDuration } from '../../format'
 
 /**
- * Where the value must be back once the first step no longer holds, for a
- * limit on the value: past the first step by the rule's clear margin.
+ * When the alert ends: only once the condition is back past the first step.
+ * A clear margin or delay puts that point in the facts' Clears row, so the
+ * ladder then says only that the alert keeps the step it reached.
  */
-function backTo(
-  rule: RuleInfo,
-  display: RuleDisplay
-): { where: string; clear: ClearPoint<BackPastLimit | BackInRange> } | undefined {
-  const first = rule.steps[0]
-  const { hysteresis, clearDuration } = rule
-  if (rule.detector.type === 'outside') {
-    if (first.low === undefined || first.high === undefined) return undefined
-    const clear = clearPoint(
-      { side: 'between', low: first.low, high: first.high },
-      hysteresis,
-      clearDuration
-    )
-    return { where: `between ${display.range(clear.back.low, clear.back.high, 'and')}`, clear }
+function clearHint(
+  entry: RuleEntry,
+  display: RuleDisplay,
+  reached: string | undefined
+): string | undefined {
+  // The row decides: the ladder drops its clear point exactly when the row shows it.
+  if (clearsWhen(entry.rule, display) !== undefined) {
+    return reached === undefined
+      ? undefined
+      : `It stays ${article(reached)} ${reached} until it clears.`
   }
-  const side = OPPOSITE_SIDE[rule.detector.direction ?? '']
-  const limit = first.limit
-  if (rule.detector.type !== 'sustained' || side === undefined || limit === undefined) {
-    return undefined
-  }
-  const clear = clearPoint({ side, limit }, hysteresis, clearDuration)
-  return { where: `${side} ${display.value(clear.back.limit)}`, clear }
-}
-
-/**
- * When the alert ends: only once the condition is back past the first step,
- * by the clear margin and for the clear delay when the rule sets them.
- */
-function clearHint(entry: RuleEntry, display: RuleDisplay, reached: string | undefined): string {
-  const back = backTo(entry.rule, display)
-  const delay = back?.clear.delay
+  const back = ruleClear(entry.rule, display)
   const clears =
     back === undefined
       ? 'Clears when the first step no longer holds.'
-      : back.clear.eased
-        ? `Clears once the value is back ${back.where}${delay === undefined ? '' : ` for ${formatDuration(delay)}`}.`
-        : `Clears when the value is back ${back.where}.`
+      : `Clears when the value is back ${back.where}.`
   return reached === undefined
     ? clears
     : `${clears} It stays ${article(reached)} ${reached} until then.`
@@ -70,6 +40,7 @@ export function Steps({ entry, display }: { entry: RuleEntry; display: RuleDispl
   if (rule.steps.length < 2) return null
   const alerting = status.condition === 'alerting'
   const reached = alerting ? (status.step ?? 0) : undefined
+  const hint = clearHint(entry, display, reached === undefined ? undefined : status.priority)
   return (
     <section className="skar-card" aria-labelledby={headingId}>
       <h3 id={headingId} className="skar-card-title">
@@ -96,9 +67,7 @@ export function Steps({ entry, display }: { entry: RuleEntry; display: RuleDispl
           </li>
         ))}
       </ol>
-      <p className="skar-hint">
-        {clearHint(entry, display, reached === undefined ? undefined : status.priority)}
-      </p>
+      {hint !== undefined && <p className="skar-hint">{hint}</p>}
     </section>
   )
 }
