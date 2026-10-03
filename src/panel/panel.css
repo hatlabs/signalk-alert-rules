@@ -957,6 +957,11 @@
   gap: 0.5rem;
 }
 
+/* A focused control scrolls clear of the sticky actions bar: its buttons and a two-line status. */
+.skar-editor-form :is(input, select, textarea, button, summary, a) {
+  scroll-margin-bottom: 9rem;
+}
+
 /* Fields. */
 
 .skar-field {
