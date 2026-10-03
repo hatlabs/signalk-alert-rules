@@ -671,6 +671,55 @@ describe('the new templates notice', () => {
     })
   })
 
+  /** The built-in set, two of its templates still new, and a second set whose every template is. */
+  function twoSets(): TemplateListing {
+    const builtin = builtinListing().sets.at(0)
+    if (builtin === undefined) throw new Error('no built-in set')
+    const extra = builtin.templates.slice(0, 3)
+    return {
+      sets: [
+        { ...builtin, new: builtin.new.slice(0, 2) },
+        {
+          ...builtin,
+          id: 'boatyard',
+          name: 'Boatyard templates',
+          templates: extra,
+          new: extra.map((t) => t.id)
+        },
+        { ...builtin, id: 'old', name: 'Old templates', new: [] }
+      ],
+      problems: []
+    }
+  }
+
+  it('counts the new templates of several sets, dismissing each set’s own', async () => {
+    const server: Server = { rules: listed, listing: twoSets() }
+    const api = renderShell(server)
+    const notice = await screen.findByText(/template sets offer/)
+    expect(notice.textContent).toContain('2 template sets offer 5 new templates')
+    expect(within(notice).getByRole('link', { name: 'See them' }).getAttribute('href')).toBe(
+      '#add=template'
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+    await waitFor(() => {
+      expect(screen.queryByText(/template sets offer/)).toBeNull()
+    })
+    const { sets } = twoSets()
+    expect(api.dismissTemplates).toHaveBeenCalledWith({
+      builtin: sets.at(0)?.new,
+      boatyard: sets.at(1)?.new
+    })
+  })
+
+  it('moves focus to the list heading once dismissed', async () => {
+    renderShell(fresh(listed))
+    await screen.findByText(/Alert Rules offers/)
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Alert rules' }))
+    })
+  })
+
   it('keeps the notice, saying why, when dismissing fails', async () => {
     const server = fresh(listed)
     const api = renderShell(server)

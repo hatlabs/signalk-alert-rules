@@ -453,6 +453,8 @@ function Views({ api: serverApi, view, paths, refresh, stale }: ViewsProps) {
               dismiss={async (shown) => {
                 const listing = await api.dismissTemplates(shown)
                 setTemplates(listing)
+                // The notice held focus, and goes; focus would drop to the page body.
+                heading.current?.focus()
                 return listing
               }}
             />
