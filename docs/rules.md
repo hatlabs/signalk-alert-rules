@@ -259,7 +259,7 @@ A zone-limit rule has no steps of its own: its steps come from the path's zones,
 | `alarm` | `alarm` |
 | `emergency` | `emergency` |
 
-Everything after the raise, acknowledgment, silencing and escalation included, is core's alert lifecycle. Alert Rules never acknowledges, silences or escalates. It reads core's alert state once, at start, to adopt or clear its own alerts (see [Restart reconciliation](#restart-reconciliation)), and not after that.
+Everything after the raise, acknowledgment, silencing and the escalation of an unacknowledged alert included, is core's alert lifecycle. Alert Rules never acknowledges or silences an alert, and never escalates one on time. It reads core's alert state once, at start, to adopt or clear its own alerts (see [Restart reconciliation](#restart-reconciliation)), and not after that.
 
 ## Latching
 
