@@ -106,8 +106,8 @@ export interface RuleFieldsProps {
  * most rules leave alone under More options, and each error on its field.
  */
 export function RuleFields(props: RuleFieldsProps) {
-  const { form, paths, units, live, isNew, checked: clash, ruleName, editHref } = props
-  const { attached } = clash
+  const { form, paths, units, live, isNew, checked, ruleName, editHref } = props
+  const { attached } = checked
   // Open from the start on a rule with no value yet, so the first keystroke does not close it.
   const [changingPath, setChangingPath] = useState(() => form.signal.slots[0]?.path === '')
   const [moreOpen, setMoreOpen] = useState(() => hasMoreOptions(form))
@@ -126,7 +126,7 @@ export function RuleFields(props: RuleFieldsProps) {
     if ([...attached.byField.keys()].some((p) => underMoreOptions(form, isNew, p))) {
       setMoreOpen(true)
     }
-  }, [clash.set])
+  }, [checked.set])
 
   const update = (next: RuleForm) => {
     props.onChange(withGenerated(next, units))
@@ -324,10 +324,10 @@ export function RuleFields(props: RuleFieldsProps) {
               : defaultCondition === undefined
                 ? 'There is no default name here; type one.'
                 : 'Follows the value and the condition until you type a name.'}
-            {clash.holder !== undefined && editHref !== undefined && (
+            {checked.holder !== undefined && editHref !== undefined && (
               <span className="skar-preview">
                 To raise the same alert at a higher priority, add a step to{' '}
-                <a href={editHref(clash.holder)}>{ruleName(clash.holder) ?? clash.holder}</a>{' '}
+                <a href={editHref(checked.holder)}>{ruleName(checked.holder) ?? checked.holder}</a>{' '}
                 instead.
               </span>
             )}

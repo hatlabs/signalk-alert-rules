@@ -206,6 +206,9 @@ export type PathList =
   | { status: 'ready'; paths: PathEntry[] }
   | { status: 'failed'; error: string }
 
+/** How often a view showing values as they are reads the paths again. */
+export const LIVE_POLL_MS = 5000
+
 /**
  * Loads the self paths once per source, for every picker on a form to share,
  * and again `pollMs` after each read answers when given, so the values shown

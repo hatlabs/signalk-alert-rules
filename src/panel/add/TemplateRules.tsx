@@ -16,7 +16,7 @@ import { toRule, type RuleForm } from '../editor/formModel'
 import { UnattachedErrors, useFocusInvalid, WithPaths } from '../editor/editorFrame'
 import { useLeaveGuard } from '../editor/leaveGuard'
 import { checkedErrors, RuleFields } from '../editor/RuleFields'
-import { joined } from '../editor/words'
+import { joined, rulesWord } from '../editor/words'
 import { failureMessage } from '../failure'
 import type { PathList, PathSource } from '../paths/selfPaths'
 import type { UnitLookup } from '../signalUnits'
@@ -118,10 +118,6 @@ function initialTabs(props: FormProps): Tab[] {
       kept: false
     }
   })
-}
-
-function rulesWord(n: number): string {
-  return n === 1 ? '1 rule' : `${String(n)} rules`
 }
 
 function TabsForm(props: FormProps) {

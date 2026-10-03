@@ -3,7 +3,8 @@ import type { TemplatePick } from '../../model/rule'
 import type { Template } from '../../model/template'
 import type { ListedRule } from '../api'
 import { BackIcon } from '../detail/icons'
-import type { PathEntry, PathSource } from '../paths/selfPaths'
+import { LIVE_POLL_MS, type PathEntry, type PathSource } from '../paths/selfPaths'
+import { rulesWord } from '../editor/words'
 import { formatValue } from '../rules/describe'
 import { useUnits } from '../signalUnits'
 import {
@@ -15,9 +16,6 @@ import {
   typedCandidate,
   type Candidate
 } from './templatePicks'
-
-/** How often the values listed are read again. */
-const LIVE_POLL_MS = 5000
 
 export interface TemplatePickerProps {
   paths: PathSource
@@ -38,10 +36,6 @@ function shownValue(entry: PathEntry | undefined): string {
   return entry?.value === undefined
     ? 'no data'
     : formatValue(entry.value, { kind: 'absolute', unit: entry.unit })
-}
-
-function rulesWord(n: number): string {
-  return n === 1 ? '1 rule' : `${String(n)} rules`
 }
 
 /** From a template, second step: the instances or sources it should watch, each its own rule. */

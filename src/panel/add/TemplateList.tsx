@@ -1,7 +1,6 @@
 import type { Ref } from 'react'
 import type { TemplateSetEntry } from '../api'
-import { BackIcon } from '../detail/icons'
-import { ChevronIcon } from './AddRule'
+import { BackIcon, ChevronIcon } from '../detail/icons'
 import { templateTitle } from './templatePicks'
 import { setLabel } from './templateSets'
 

@@ -4,11 +4,8 @@
  */
 import { useEffect, useRef, type ReactNode } from 'react'
 import type { FieldError } from '../api'
-import type { PathList, PathSource } from '../paths/selfPaths'
+import { LIVE_POLL_MS, type PathList, type PathSource } from '../paths/selfPaths'
 import { useUnits, type UnitLookup } from '../signalUnits'
-
-/** How often the values shown next to the limits are read again. */
-const LIVE_POLL_MS = 5000
 
 /**
  * Renders the form once the paths have loaded: stored values are converted
