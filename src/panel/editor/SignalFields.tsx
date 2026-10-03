@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { PathPicker } from '../paths/PathPicker'
 import type { PathList } from '../paths/selfPaths'
+import { COMBINATOR_LABELS } from '../rules/describe'
 import { matchedInstances, withInstanceWildcard, type UnitLookup } from '../signalUnits'
 import { CheckField, RadioGroup, SelectField, useFieldErrors, type Option } from './fields'
 import {
@@ -14,17 +15,6 @@ import {
   type SignalForm,
   type SlotForm
 } from './formModel'
-
-const COMBINATOR_LABELS: Readonly<Record<(typeof COMBINATOR_KINDS)[number], string>> = {
-  difference: 'Difference: first minus second',
-  absDifference: 'Absolute difference of two',
-  ratio: 'Ratio: first divided by second',
-  spread: 'Spread: largest minus smallest',
-  mean: 'Mean',
-  median: 'Median',
-  distance: 'Distance between two positions',
-  positionSpread: 'Largest distance between positions'
-}
 
 const COMBINATOR_OPTIONS: readonly Option<(typeof COMBINATOR_KINDS)[number]>[] =
   COMBINATOR_KINDS.map((value) => ({ value, label: COMBINATOR_LABELS[value] }))

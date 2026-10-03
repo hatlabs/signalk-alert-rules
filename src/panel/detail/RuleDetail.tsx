@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode, type Ref, type RefObject } from 'react'
-import { UNAUTHENTICATED_ACTOR, type RuleEntry } from '../api'
+import { UNAUTHENTICATED_ACTOR, type RuleEntry, type RuleInfo } from '../api'
 import { failureMessage } from '../failure'
 import { chipOf } from '../list/attention'
 import { elapsed, MINUTE } from '../list/fact'
@@ -10,11 +10,11 @@ import {
   activeCount,
   alertsWhen,
   clearsWhen,
-  describeInput,
   discardedTotals,
   formatTime,
   gateCondition,
   hasInstances,
+  combinatorLabel,
   MAX_NOTE_LENGTH,
   plural,
   ruleDisplay,
@@ -100,6 +100,19 @@ function Fact({ term, children }: { term: string; children: ReactNode }) {
   )
 }
 
+/** A signal's paths, after the editor's name for a combined signal's combinator. */
+function SignalWords({ signal }: { signal: RuleInfo['signal'] }) {
+  const paths = <span className="skar-mono">{signal.paths.join(', ')}</span>
+  const label = combinatorLabel(signal)
+  return label === undefined ? (
+    paths
+  ) : (
+    <>
+      {label} ({paths})
+    </>
+  )
+}
+
 /** What the rule watches, when it alerts and what it sends, as its author set it. */
 function Facts({
   entry,
@@ -116,7 +129,9 @@ function Facts({
   return (
     <dl className="skar-card skar-facts">
       <Fact term="Watches">
-        <span className="skar-mono">{describeInput(rule.signal)}</span>
+        <div>
+          <SignalWords signal={rule.signal} />
+        </div>
       </Fact>
       {!combined && <Fact term="Source">{rule.source ?? 'Preferred source'}</Fact>}
       <Fact term="Alerts when">{alertsWhen(rule, display)}</Fact>
@@ -131,7 +146,9 @@ function Facts({
         <Fact term="Only while">
           {rule.gates.map((g, n) => (
             <div key={n}>
-              <span className="skar-mono">{describeInput(g)}</span> {gateCondition(g, units)}
+              <div>
+                <SignalWords signal={g} /> {gateCondition(g, units)}
+              </div>
             </div>
           ))}
         </Fact>
