@@ -8,6 +8,7 @@ import type {
   RuleStep,
   SignalValue
 } from '../api'
+import type { CombinatorKind } from '../../model/rule'
 import { signalMeasure, type Measure, type UnitLookup } from '../signalUnits'
 import { fromSI } from '../units'
 import { formatDuration, formatNumber } from '../../format'
@@ -49,9 +50,33 @@ export function discardedTotals(
   )
 }
 
-export function describeInput(s: RuleInfo['signal']): string {
-  const paths = s.paths.join(', ')
-  return s.combinator === undefined ? paths : `${s.combinator} of ${paths}`
+/** Each combinator's name, as the editor offers it and the rule detail shows it. */
+export const COMBINATOR_LABELS: Readonly<Record<CombinatorKind, string>> = {
+  difference: 'Difference: first minus second',
+  absDifference: 'Absolute difference of two',
+  ratio: 'Ratio: first divided by second',
+  spread: 'Spread: largest minus smallest',
+  mean: 'Mean',
+  median: 'Median',
+  distance: 'Distance between two positions',
+  positionSpread: 'Largest distance between positions'
+}
+
+/** What a combined signal's `angular` flag means, as the editor and the rule detail word it. */
+export const ANGULAR_LABEL = 'Values are angles, wrapping at a full turn'
+
+function isCombinatorKind(kind: string): kind is CombinatorKind {
+  return Object.hasOwn(COMBINATOR_LABELS, kind)
+}
+
+/**
+ * A combined signal's combinator, by the editor's label; a combinator from a newer
+ * server goes by its id. Undefined for a single path.
+ */
+export function combinatorLabel(s: RuleInfo['signal']): string | undefined {
+  const kind = s.combinator
+  if (kind === undefined) return undefined
+  return isCombinatorKind(kind) ? COMBINATOR_LABELS[kind] : kind
 }
 
 export function isWildcard(rule: RuleInfo): boolean {

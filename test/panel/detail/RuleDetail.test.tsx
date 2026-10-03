@@ -842,6 +842,41 @@ describe('RuleDetail', () => {
     ).toEqual(['evaluation threw', 'subscription refused'])
   })
 
+  describe('watches', () => {
+    const HEADINGS = ['navigation.headingMagnetic', 'navigation.headingTrue']
+    const watching = (signal: RuleEntry['rule']['signal']) =>
+      ruleEntry({ rule: { detector: { type: 'sustained', direction: 'above' }, signal } })
+    const lines = () =>
+      Array.from(screen.getByRole('definition', { name: /watches/i }).children).map(
+        (c) => c.textContent
+      )
+
+    it('names a combined signal as the editor does, with its paths', () => {
+      renderDetail(
+        watching({
+          paths: ['propulsion.port.revolutions', 'propulsion.starboard.revolutions'],
+          combinator: 'absDifference'
+        })
+      )
+      expect(lines()).toEqual([
+        'Absolute difference of two (propulsion.port.revolutions, propulsion.starboard.revolutions)'
+      ])
+    })
+
+    it('says a combined signal’s values are angles, as the editor does', () => {
+      renderDetail(watching({ paths: HEADINGS, combinator: 'mean', angular: true }))
+      expect(lines()).toEqual([
+        `Mean (${HEADINGS.join(', ')})`,
+        'Values are angles, wrapping at a full turn'
+      ])
+    })
+
+    it('shows a single path as it is', () => {
+      renderDetail(watching({ paths: [HOUSE] }))
+      expect(lines()).toEqual([HOUSE])
+    })
+  })
+
   describe('only while', () => {
     const PORT = 'propulsion.port.revolutions'
     const STBD = 'propulsion.starboard.revolutions'
@@ -896,6 +931,34 @@ describe('RuleDetail', () => {
         units: rpmUnits
       })
       expect(conditions()).toEqual([`${PORT} above the warn zone`])
+    })
+
+    it('names a combined gate as the editor does', () => {
+      renderDetail(
+        gated([{ paths: [PORT, STBD], combinator: 'absDifference', direction: 'above', limit: 8 }]),
+        { units: rpmUnits }
+      )
+      expect(conditions()).toEqual([`Absolute difference of two (${PORT}, ${STBD}) above 480 rpm`])
+    })
+
+    it('says a combined gate’s values are angles', () => {
+      renderDetail(
+        gated([
+          {
+            paths: [PORT, STBD],
+            combinator: 'difference',
+            angular: true,
+            direction: 'above',
+            limit: 8
+          }
+        ]),
+        { units: rpmUnits }
+      )
+      const gate = screen.getByRole('definition', { name: /only while/i }).children[0]
+      expect(Array.from(gate.children).map((c) => c.textContent)).toEqual([
+        `Difference: first minus second (${PORT}, ${STBD}) above 480 rpm`,
+        'Values are angles, wrapping at a full turn'
+      ])
     })
 
     it('words a zone gate’s clear margin as a difference', () => {

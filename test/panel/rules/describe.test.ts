@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { formatDuration } from '../../../src/format'
 import type { RuleInfo } from '../../../src/panel/api'
-import { alertsWhen, discardedTotals, ruleDisplay } from '../../../src/panel/rules/describe'
+import {
+  alertsWhen,
+  discardedTotals,
+  combinatorLabel,
+  ruleDisplay
+} from '../../../src/panel/rules/describe'
 import { unitLookup } from '../../../src/panel/signalUnits'
 import { displayUnit } from '../../../src/panel/units'
 import { instance, ruleEntry } from '../fixtures'
@@ -27,6 +32,30 @@ describe('discardedTotals', () => {
       status: { instances: [instance({ progress: { kind: 'total', total: 60, limit: 90 } })] }
     })
     expect(discardedTotals(single, formatDuration)).toEqual([{ name: '', total: '60 s' }])
+  })
+})
+
+describe('combinatorLabel', () => {
+  const PATHS = ['a.b', 'c.d']
+  it.each([
+    ['difference', 'Difference: first minus second'],
+    ['absDifference', 'Absolute difference of two'],
+    ['ratio', 'Ratio: first divided by second'],
+    ['spread', 'Spread: largest minus smallest'],
+    ['mean', 'Mean'],
+    ['median', 'Median'],
+    ['distance', 'Distance between two positions'],
+    ['positionSpread', 'Largest distance between positions']
+  ])('names %s as the editor does', (combinator, name) => {
+    expect(combinatorLabel({ paths: PATHS, combinator })).toBe(name)
+  })
+
+  it('names a combinator the panel does not know by its id', () => {
+    expect(combinatorLabel({ paths: PATHS, combinator: 'max' })).toBe('max')
+  })
+
+  it('names nothing for a single path', () => {
+    expect(combinatorLabel({ paths: ['a.b'] })).toBeUndefined()
   })
 })
 
