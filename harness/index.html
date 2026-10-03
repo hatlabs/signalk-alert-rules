@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Alert Rules render harness</title>
+    <link rel="icon" href="data:," />
+    <!-- The admin UI's CoreUI theme builds on Bootstrap 5, whose alert classes the panel uses. -->
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css"
+    />
+    <!--
+      The admin UI's body text and background (signalk-server
+      packages/server-admin-ui/scss/_bootstrap-variables.scss), and the column
+      its sidebar takes from lg up (scss/core: $sidebar-width), so the panel
+      lays out as wide as it does there with the sidebar open.
+    -->
+    <style>
+      body {
+        margin: 0;
+        font-size: 0.875rem;
+        background: #e4e5e6;
+      }
+      @media (min-width: 992px) {
+        #root {
+          margin-left: 200px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>

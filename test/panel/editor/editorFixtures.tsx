@@ -4,11 +4,12 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { expect, vi } from 'vitest'
 import type { Rule } from '../../../src/model/rule'
 import { validateRule } from '../../../src/model/validate'
-import type { EditPreview, PanelApi, RuleEntry } from '../../../src/panel/api'
+import type { PanelApi, RuleEntry } from '../../../src/panel/api'
 import { RuleEditor, type RuleEditorProps } from '../../../src/panel/editor/RuleEditor'
-import { noAuthoring, noControls, noTemplates, ruleEntry } from '../fixtures'
+import { noAuthoring, noChange, noControls, noTemplates, ruleEntry } from '../fixtures'
 import { pathSource } from '../reportedPaths'
 
+export { noChange } from '../fixtures'
 export { distance, pathSource, reported, units } from '../reportedPaths'
 
 const EXAMPLES = join(import.meta.dirname, '../../../examples/rules')
@@ -18,14 +19,6 @@ export function example(slug: string): Rule {
   const result = validateRule(JSON.parse(readFileSync(join(EXAMPLES, `${slug}.json`), 'utf8')))
   if (!result.ok) throw new Error(`${slug} is not valid`)
   return result.value
-}
-
-export const noChange: EditPreview = {
-  restarts: false,
-  changes: [],
-  activeAlerts: 0,
-  clearsActiveAlert: false,
-  discardsTotal: false
 }
 
 export function fakeApi() {

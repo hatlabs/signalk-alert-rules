@@ -9,17 +9,20 @@ const shim = (file: string) => path.resolve(import.meta.dirname, 'src/panel/host
 // replaced (server-admin-ui src/views/Webapps/dynamicutilities.ts, toSafeModuleId).
 const containerName = packageJson.name.replace(/[-@/]/g, '_')
 
+/**
+ * React resolves to shims over the admin UI's own React, so the panel
+ * neither bundles a second copy nor takes part in share-scope negotiation.
+ * The render harness (harness/vite.config.ts) resolves the panel's React the same way.
+ */
+export const hostReactAliases = [
+  { find: /^react\/jsx-(dev-)?runtime$/, replacement: shim('react-jsx-runtime.ts') },
+  { find: /^react-dom\/client$/, replacement: shim('react-dom-client.ts') },
+  { find: /^react-dom$/, replacement: shim('react-dom.ts') },
+  { find: /^react$/, replacement: shim('react.ts') }
+]
+
 export default defineConfig({
-  // React resolves to shims over the admin UI's own React, so the panel
-  // neither bundles a second copy nor takes part in share-scope negotiation.
-  resolve: {
-    alias: [
-      { find: /^react\/jsx-(dev-)?runtime$/, replacement: shim('react-jsx-runtime.ts') },
-      { find: /^react-dom\/client$/, replacement: shim('react-dom-client.ts') },
-      { find: /^react-dom$/, replacement: shim('react-dom.ts') },
-      { find: /^react$/, replacement: shim('react.ts') }
-    ]
-  },
+  resolve: { alias: hostReactAliases },
   esbuild: { jsx: 'automatic' },
   plugins: [
     federation({
