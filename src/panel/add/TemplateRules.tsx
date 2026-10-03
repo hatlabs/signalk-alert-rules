@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type MouseEvent } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { Rule, TemplatePick } from '../../model/rule'
 import type { Template } from '../../model/template'
 import { proposeSlug } from '../../templates/instantiate'
@@ -13,17 +13,15 @@ import {
 } from '../api'
 import { BackIcon } from '../detail/icons'
 import { toRule, type RuleForm } from '../editor/formModel'
-import { joined } from '../editor/words'
+import { UnattachedErrors, WithPaths } from '../editor/editorFrame'
+import { useLeaveGuard } from '../editor/leaveGuard'
 import { checkedErrors, RuleFields } from '../editor/RuleFields'
+import { joined } from '../editor/words'
 import { failureMessage } from '../failure'
 import type { PathList, PathSource } from '../paths/selfPaths'
-import { ConfirmSheet } from '../rules/Confirm'
-import { useUnits, type UnitLookup } from '../signalUnits'
+import type { UnitLookup } from '../signalUnits'
 import { candidates, pickKey, templateTitle } from './templatePicks'
 import { copySettings, drafts, tabsHint } from './templateDrafts'
-
-/** How often the values shown next to the limits are read again. */
-const LIVE_POLL_MS = 5000
 
 /**
  * How many slugs a create tries when the one proposed is taken by a stored
@@ -56,9 +54,11 @@ export interface TemplateRulesProps {
  * template's values and edited on its own, all created with one save.
  */
 export function TemplateRules(props: TemplateRulesProps) {
-  const { paths, units, ready } = useUnits(props.paths, LIVE_POLL_MS)
-  if (!ready) return <div role="status">Loading paths…</div>
-  return <TabsForm {...props} paths={paths} live={units} />
+  return (
+    <WithPaths source={props.paths}>
+      {(paths, live) => <TabsForm {...props} paths={paths} live={live} />}
+    </WithPaths>
+  )
 }
 
 interface Tab {
@@ -119,7 +119,6 @@ function TabsForm(props: FormProps) {
   const [failure, setFailure] = useState<string | undefined>(undefined)
   const [note, setNote] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
-  const [leaving, setLeaving] = useState<{ hash: string } | 'close' | undefined>(undefined)
   const headingRef = useRef<HTMLHeadingElement>(null)
 
   useEffect(() => {
@@ -132,16 +131,14 @@ function TabsForm(props: FormProps) {
       JSON.stringify(initial.filter((t) => tabs.some((s) => s.key === t.key)).map((t) => t.form)),
     [tabs, initial]
   )
-  useEffect(() => {
-    if (!dirty) return undefined
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault()
-    }
-    window.addEventListener('beforeunload', warn)
-    return () => {
-      window.removeEventListener('beforeunload', warn)
-    }
-  }, [dirty])
+  const guard = useLeaveGuard({
+    dirty,
+    onClose,
+    unsaved:
+      tabs.length === 1
+        ? 'The rule has not been created.'
+        : `None of the ${String(tabs.length)} rules has been created.`
+  })
 
   const title = templateTitle(template)
   if (tabs.length === 0 && created.length === 0) {
@@ -166,17 +163,6 @@ function TabsForm(props: FormProps) {
 
   const replaceTab = (key: string, patch: Partial<Tab>) => {
     setTabs((last) => last.map((t) => (t.key === key ? { ...t, ...patch } : t)))
-  }
-
-  const leave = (to: { hash: string } | 'close') => {
-    if (dirty) setLeaving(to)
-    else if (to === 'close') onClose()
-    else window.location.hash = to.hash
-  }
-  const guarded = (href: string) => (event: MouseEvent<HTMLAnchorElement>) => {
-    if (!dirty) return
-    event.preventDefault()
-    setLeaving({ hash: href })
   }
 
   const copyToOthers = () => {
@@ -250,6 +236,7 @@ function TabsForm(props: FormProps) {
         remaining = remaining.filter((t) => t.key !== tab.key)
         props.onCreated()
       }
+      guard.release()
       props.onSaved(done)
     } finally {
       setCreated(done)
@@ -271,7 +258,7 @@ function TabsForm(props: FormProps) {
 
   return (
     <div className="skar-editor">
-      <a className="skar-back" href={back.href} onClick={guarded(back.href)}>
+      <a className="skar-back" href={back.href}>
         <BackIcon />
         <span>{back.label}</span>
       </a>
@@ -346,15 +333,7 @@ function TabsForm(props: FormProps) {
 
       <div className="skar-editor-actions">
         <div className="skar-editor-status">
-          {checked !== undefined && checked.attached.unattached.length > 0 && (
-            <ul className="skar-error" role="alert">
-              {checked.attached.unattached.map((e) => (
-                <li key={`${e.path} ${e.message}`}>
-                  {e.path === '' ? e.message : `${e.path}: ${e.message}`}
-                </li>
-              ))}
-            </ul>
-          )}
+          {checked !== undefined && <UnattachedErrors errors={checked.attached.unattached} />}
           {failure !== undefined && (
             <p className="skar-error" role="alert">
               {failure}
@@ -372,7 +351,7 @@ function TabsForm(props: FormProps) {
             className="skar-btn skar-btn-ghost"
             disabled={busy}
             onClick={() => {
-              leave('close')
+              guard.leave()
             }}
           >
             Cancel
@@ -388,29 +367,7 @@ function TabsForm(props: FormProps) {
         </div>
       </div>
 
-      {leaving !== undefined && (
-        <ConfirmSheet
-          title={
-            tabs.length === 1 ? 'Discard this rule?' : `Discard these ${String(tabs.length)} rules?`
-          }
-          confirmLabel="Discard"
-          tone="danger"
-          onConfirm={() => {
-            if (leaving === 'close') onClose()
-            else window.location.hash = leaving.hash
-            return Promise.resolve()
-          }}
-          onCancel={() => {
-            setLeaving(undefined)
-          }}
-        >
-          <p>
-            {tabs.length === 1
-              ? 'The rule has not been created.'
-              : `None of the ${String(tabs.length)} rules has been created.`}
-          </p>
-        </ConfirmSheet>
-      )}
+      {guard.prompt}
     </div>
   )
 }

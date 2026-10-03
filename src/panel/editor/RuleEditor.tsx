@@ -6,17 +6,15 @@ import { failureMessage } from '../failure'
 import type { PathList, PathSource } from '../paths/selfPaths'
 import { ConfirmSheet, useSheet } from '../rules/Confirm'
 import { discardedTotals, ruleDisplay } from '../rules/describe'
-import { useUnits, type UnitLookup } from '../signalUnits'
+import type { UnitLookup } from '../signalUnits'
 import { withKind, type ConditionKind } from './conditionKinds'
 import { editConsequences } from './consequences'
+import { UnattachedErrors, WithPaths } from './editorFrame'
 import { useLeaveGuard } from './leaveGuard'
 import { emptyForm, fromBody, fromRule, toRule, type RuleForm } from './formModel'
 import { withGenerated } from './message'
 import { checkedErrors, RuleFields } from './RuleFields'
 import { saveHint } from './sections'
-
-/** How often the values shown next to the limits are read again. */
-const LIVE_POLL_MS = 5000
 
 export interface RuleEditorProps {
   api: PanelApi
@@ -41,14 +39,14 @@ export interface RuleEditorProps {
 
 /**
  * The rule editor: one form whose fields follow the choices made, with what
- * most rules leave alone under More options. Stored values are converted to
- * display units and a new rule's message is written from the path's display
- * name, so the form waits for the paths to load.
+ * most rules leave alone under More options.
  */
 export function RuleEditor(props: RuleEditorProps) {
-  const { paths, units, ready } = useUnits(props.paths, LIVE_POLL_MS)
-  if (!ready) return <div role="status">Loading paths…</div>
-  return <EditorForm {...props} paths={paths} live={units} />
+  return (
+    <WithPaths source={props.paths}>
+      {(paths, live) => <EditorForm {...props} paths={paths} live={live} />}
+    </WithPaths>
+  )
 }
 
 interface FormProps extends Omit<RuleEditorProps, 'paths'> {
@@ -219,15 +217,7 @@ function EditorForm(props: FormProps) {
 
       <div className="skar-editor-actions">
         <div className="skar-editor-status">
-          {checked.attached.unattached.length > 0 && (
-            <ul className="skar-error" role="alert">
-              {checked.attached.unattached.map((e) => (
-                <li key={`${e.path} ${e.message}`}>
-                  {e.path === '' ? e.message : `${e.path}: ${e.message}`}
-                </li>
-              ))}
-            </ul>
-          )}
+          <UnattachedErrors errors={checked.attached.unattached} />
           {failure !== undefined && (
             <p className="skar-error" role="alert">
               {failure}

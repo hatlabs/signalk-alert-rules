@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { Rule } from '../../../src/model/rule'
 import { validateRule } from '../../../src/model/validate'
@@ -385,10 +385,51 @@ describe('Add rule from a template', () => {
     await continueWith('Continue with 2 rules')
     change(limit(), '12.2')
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-    const sheet = await screen.findByRole('alertdialog', { name: 'Discard these 2 rules?' })
-    fireEvent.click(within(sheet).getByRole('button', { name: 'Discard' }))
+    const sheet = await screen.findByRole('alertdialog', { name: 'Discard your changes?' })
+    expect(sheet.textContent).toContain('None of the 2 rules has been created.')
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Discard changes' }))
     expect(await screen.findByRole('heading', { name: 'No alert rules yet' })).toBeTruthy()
     expect(api.createRule).not.toHaveBeenCalled()
+  })
+
+  it('asks before a hash change from outside drops the edited rules', async () => {
+    renderShell(fresh())
+    await openLifepo4()
+    pick(/^House bank/)
+    pick(/^starter/)
+    await continueWith('Continue with 2 rules')
+    change(limit(), '12.2')
+    act(() => {
+      window.history.pushState(null, '', '#')
+      window.dispatchEvent(new HashChangeEvent('hashchange'))
+    })
+    const sheet = screen.getByRole('alertdialog', { name: 'Discard your changes?' })
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Cancel' }))
+    expect(limit().value).toBe('12.2')
+  })
+
+  it('asks before the link to the rule holding the alert path leaves an edited rule', async () => {
+    const holder = ruleEntry({ slug: 'old-starter', rule: { name: 'Old starter alarm' } })
+    const server = fresh([holder])
+    server.refuse = (rule) =>
+      rule.slug.endsWith('starter')
+        ? new RuleRejectedError('another rule has this alert path', [
+            {
+              path: '/condition',
+              message:
+                'makes an alert path overlapping that of rule old-starter; each rule needs its own'
+            }
+          ])
+        : undefined
+    renderShell(server)
+    await openLifepo4()
+    pick(/^starter/)
+    await continueWith('Continue with 1 rule')
+    change(limit(), '12.2')
+    fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+    fireEvent.click(await screen.findByRole('link', { name: 'Old starter alarm' }))
+    expect(screen.getByRole('alertdialog', { name: 'Discard your changes?' })).toBeTruthy()
+    expect(limit().value).toBe('12.2')
   })
 
   it('goes back from the rules to the picker with the picks still made', async () => {
