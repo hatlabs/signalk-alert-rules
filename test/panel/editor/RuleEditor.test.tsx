@@ -4,7 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { RANGE_HYSTERESIS, RANGE_INVERTED, RANGE_NOT_WIDER } from '../../../src/model/rangeMessages'
 import { LEVEL_PRIORITY, type CombinatorKind, type Rule } from '../../../src/model/rule'
 import { validateRule } from '../../../src/model/validate'
-import { RuleRejectedError, type EditPreview } from '../../../src/panel/api'
+import { RuleRejectedError, type EditPreview, type FieldError } from '../../../src/panel/api'
 import { ZONE_PRIORITY } from '../../../src/panel/editor/MoreOptions'
 import type { PathSource } from '../../../src/panel/paths/selfPaths'
 import { instance, onceShown, ruleEntry } from '../fixtures'
@@ -1145,7 +1145,66 @@ describe('RuleEditor, an invalid stored rule', () => {
     await openStored({ ...rpm, signal: { ...rpm.signal, combinator: 'ratio', angular: true } })
     expect(screen.queryByRole('checkbox', { name: /angle/i })).toBeNull()
     expect(screen.getByText('/signal/angular: ratio cannot wrap angles')).toBeTruthy()
-    expect(screen.getByText('Fix whether the values are angles to save.')).toBeTruthy()
+    expect(screen.getByText('Fix the error listed above to save.')).toBeTruthy()
+  })
+
+  describe('an error no field shows', () => {
+    const steps = [{ limit: 12, priority: 'warning' }]
+
+    it('names the list, not the event, for a value on an event that takes none', async () => {
+      await openStored({
+        ...bilge,
+        detector: { ...bilge.detector, event: { op: 'changes', value: true } }
+      })
+      expect(screen.getByText('/detector/event/value: changes takes no value')).toBeTruthy()
+      expect(screen.getByText('Fix the error listed above to save.')).toBeTruthy()
+    })
+
+    it('names the list, not the priority, for steps on a zone-limit rule', async () => {
+      await openStored({ ...battery, detector: { ...battery.detector, steps } })
+      expect(
+        screen.getByText('/detector/steps: a rule has steps or a zone limit, never both')
+      ).toBeTruthy()
+      expect(screen.getByText('Fix the error listed above to save.')).toBeTruthy()
+    })
+
+    // The validator stops at the first malformed part, so a stored rule's
+    // errors from several checks are given as the server could report them.
+    const openWith = async (body: Record<string, unknown>, errors: FieldError[]) => {
+      renderEditor({ invalid: { slug: String(body.slug), name: String(body.name), body, errors } })
+      await formShown()
+    }
+    const stepsAndZones = {
+      path: '/detector/steps',
+      message: 'a rule has steps or a zone limit, never both'
+    }
+
+    it('names the list after the fields that show theirs', async () => {
+      const { message: _message, ...body } = battery
+      await openWith({ ...body, detector: { ...battery.detector, steps } }, [
+        { path: '/message', message: 'is required' },
+        stepsAndZones
+      ])
+      expect(description(textbox(/^Message/))).toContain('is required')
+      expect(
+        screen.getByText('Fill in the message and fix the error listed above to save.')
+      ).toBeTruthy()
+    })
+
+    it('names the list once for several errors', async () => {
+      const angular = { path: '/signal/angular', message: 'is not a known property' }
+      await openWith(
+        {
+          ...battery,
+          signal: { ...battery.signal, angular: true },
+          detector: { ...battery.detector, steps }
+        },
+        [stepsAndZones, angular]
+      )
+      expect(screen.getByText(`${angular.path}: ${angular.message}`)).toBeTruthy()
+      expect(screen.getByText(`${stepsAndZones.path}: ${stepsAndZones.message}`)).toBeTruthy()
+      expect(screen.getByText('Fix the errors listed above to save.')).toBeTruthy()
+    })
   })
 
   const withoutDirection = (rule: Rule): Rule => {

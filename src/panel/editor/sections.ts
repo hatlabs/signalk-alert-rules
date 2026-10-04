@@ -196,7 +196,7 @@ const LABELS: Readonly<Record<string, string>> = {
   '/signal/path': 'the value to watch',
   '/signal/source': 'the source',
   '/signal/inputs': 'the paths to combine',
-  // Named for what it says, as a combination that cannot wrap angles shows no checkbox for it.
+  // Named for what the checkbox decides; its label is a statement that reads oddly after "fix".
   '/signal/angular': 'whether the values are angles',
   '/detector/type': 'what should alert',
   '/detector/direction': 'the direction',
@@ -270,14 +270,16 @@ export function fieldLabel(pointer: string, form: RuleForm): string {
 /**
  * What Save says stops it: the fields to fill in, and those to fix, then the
  * clear margins a change of unit emptied (`marginsHint`). `named` holds the
- * margins whose note a footer has already named.
+ * margins whose note a footer has already named; `unattached` the errors
+ * listed above Save (`attachErrors`).
  */
 export function saveHint(
   errors: readonly FieldError[],
   form: RuleForm,
-  named: ReadonlySet<string> = new Set()
+  named: ReadonlySet<string> = new Set(),
+  unattached: readonly FieldError[] = []
 ): string | undefined {
-  const stops = whatStops(errors, form)
+  const stops = whatStops(errors, form, unattached)
   const retypes = standingRetypes(form, errors)
   const margins = marginsHint(
     [...new Set(retypes.map((e) => fieldLabel(e.path, form)))],
@@ -300,21 +302,36 @@ export function marginsHint(margins: readonly string[], last: boolean): string[]
   return [capitalised(`${joined([...margins])} ${verb} emptied: ${choice}.`)]
 }
 
-/** The fields to fill in and those to fix, as a phrase: "fill in the limit and fix the name". */
-export function whatStops(errors: readonly FieldError[], form: RuleForm): string | undefined {
+/**
+ * The fields to fill in and those to fix, as a phrase: "fill in the limit and
+ * fix the name". The errors in `unattached` are named by the list above Save
+ * that shows them, as a field a pointer merely starts with shows none of them.
+ */
+export function whatStops(
+  errors: readonly FieldError[],
+  form: RuleForm,
+  unattached: readonly FieldError[] = []
+): string | undefined {
   // A clear margin to retype may stay empty, so it does not stop Save; `marginsHint` names it.
   const stopping = errors.filter((e) => e.message !== RETYPE_IN_UNIT)
   if (stopping.length === 0) return undefined
+  const isListed = (e: FieldError) =>
+    unattached.some((u) => u.path === e.path && u.message === e.message)
+  const listed = stopping.filter(isListed).length
+  const onFields = stopping.filter((e) => !isListed(e))
   // The zones checkbox is ticked or not, never filled in, so what it holds is to fix.
   const isMissing = (e: FieldError) =>
     e.message === 'is required' && detectorLimitField(e.path, form) !== ZONES
   const labels = (missing: boolean) => [
     ...new Set(
-      stopping.filter((e) => isMissing(e) === missing).map((e) => fieldLabel(e.path, form))
+      onFields.filter((e) => isMissing(e) === missing).map((e) => fieldLabel(e.path, form))
     )
   ]
   const fill = labels(true)
-  const fix = labels(false).filter((label) => !fill.includes(label))
+  const fix = [
+    ...labels(false).filter((label) => !fill.includes(label)),
+    ...(listed === 0 ? [] : [listed === 1 ? 'the error listed above' : 'the errors listed above'])
+  ]
   const parts = [
     ...(fill.length > 0 ? [`fill in ${joined(fill)}`] : []),
     ...(fix.length > 0 ? [`fix ${joined(fix)}`] : [])

@@ -198,7 +198,7 @@ function EditorForm(props: FormProps) {
       : invalid !== undefined
         ? `Fix “${invalid.name}”`
         : 'New rule'
-  const hint = saveHint(checked.errors, form, named)
+  const hint = saveHint(checked.errors, form, named, checked.attached.unattached)
 
   return (
     <div className="skar-editor">
