@@ -269,6 +269,16 @@ describe('PathPicker', () => {
     expect(status()).toMatch(/loading paths/i)
   })
 
+  it('lets clicks through a floating status shown without options, to the control below', () => {
+    render(<Harness />)
+    const popup = () => screen.getByRole('status').parentElement
+    fireEvent.change(input(), { target: { value: 'my.custom.path' } })
+    expect(popup()?.classList.contains('skar-path-picker-passive')).toBe(true)
+    fireEvent.change(input(), { target: { value: 'port' } })
+    expect(screen.getByRole('listbox')).toBeTruthy()
+    expect(popup()?.classList.contains('skar-path-picker-passive')).toBe(false)
+  })
+
   it('marks the input invalid and describes it by its errors', () => {
     render(
       <PathPicker

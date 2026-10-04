@@ -29,6 +29,10 @@
   box-shadow: 0 6px 18px rgba(21, 27, 30, 0.15);
 }
 
+.skar-path-picker-floating.skar-path-picker-passive {
+  pointer-events: none;
+}
+
 .skar-path-picker-floating .skar-path-picker-status:not(:empty) {
   padding: 8px 12px 4px;
 }

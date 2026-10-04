@@ -163,7 +163,9 @@ export function PathPicker({
   const popupClass = [
     'skar-path-picker-popup',
     paths.status === 'ready' ? 'skar-path-picker-floating' : '',
-    status === '' ? '' : 'skar-path-picker-popup-shown'
+    status === '' ? '' : 'skar-path-picker-popup-shown',
+    // A status line alone floats over the control below, whose click would be lost to it.
+    expanded ? '' : 'skar-path-picker-passive'
   ]
     .filter((c) => c !== '')
     .join(' ')
