@@ -1069,6 +1069,22 @@ describe('RuleEditor, an invalid stored rule', () => {
     expect(screen.queryByText(/^\/detector\//)).toBeNull()
   })
 
+  it('opens an unknown op with its error on the op alone', async () => {
+    const body = {
+      ...engine,
+      detector: { ...engine.detector, while: { op: 'nonsense', value: 5 } }
+    }
+    await openStored(body)
+    const result = validateRule(body)
+    const message = result.ok ? '' : (result.errors[0]?.message ?? '')
+    expect(message).not.toBe('')
+    const op = select('Count while the value is')
+    expect(op.getAttribute('aria-invalid')).toBe('true')
+    expect(description(op)).toContain(message)
+    expect(textbox('Count while: value').getAttribute('aria-invalid')).toBeNull()
+    expect(document.querySelectorAll('[aria-invalid="true"]')).toHaveLength(1)
+  })
+
   it.each([
     ['a fixed value', { kind: 'fixed', value: 12 }],
     ['an unknown kind', { kind: 'nonsense', level: 'warn' }]
