@@ -87,7 +87,7 @@ function Zones({ form, onChange, measure, paths, units }: ZonesProps) {
                 "Empty uses the zones of the value's path."
               ) : (
                 <>
-                  Empty uses the zones of <span className="skar-mono">{single}</span>
+                  Empty uses the zones of <span className="skar-mono">{single}</span>.
                 </>
               )
             }

@@ -699,8 +699,16 @@ describe('RuleEditor, editing', () => {
       renderEditor({ editing: { entry: active, rule: battery } })
       await formShown()
       expect(zonePicker()).toHaveProperty('value', '')
-      expect(description(zonePicker())).toContain(`Empty uses the zones of ${HOUSE}`)
+      expect(description(zonePicker())).toContain(`Empty uses the zones of ${HOUSE}.`)
       expect(screen.getByText(/^From the zones of/).textContent).toBe(`From the zones of ${HOUSE}`)
+    })
+
+    it('labels the picker plainly, with no hint, while combining', async () => {
+      renderEditor({ editing: { entry: active, rule: battery } })
+      await formShown()
+      click(checkbox('Combine with other paths'))
+      expect(screen.getByRole('combobox', { name: 'Zones from path' })).toBeTruthy()
+      expect(description(zonePicker())).not.toContain('Empty uses')
     })
 
     it('shows a stored path in the picker and the zones it names', async () => {
@@ -1184,6 +1192,13 @@ describe('RuleEditor, an invalid stored rule', () => {
     >
     await openStored({ ...rpm, detector: { ...detector, limit: { kind: 'zone', level: 'warn' } } })
     expect(screen.getByText('Fix the path of the zones to save.')).toBeTruthy()
+  })
+
+  it("says an empty zone path uses the value's path while the signal has none", async () => {
+    await openStored({ ...battery, signal: { path: '' } })
+    const picker = select(/^Zones from path/)
+    expect(picker).toHaveProperty('value', '')
+    expect(description(picker)).toContain("Empty uses the zones of the value's path.")
   })
 
   it("opens a single signal's stray zone path with its error on the picker", async () => {
