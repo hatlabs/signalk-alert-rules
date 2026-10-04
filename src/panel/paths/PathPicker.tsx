@@ -9,6 +9,12 @@ export interface PathPickerProps {
   value: string
   paths: PathList
   onChange: (path: string) => void
+  /**
+   * The path is settled: an option was picked, Enter was pressed or focus
+   * left for elsewhere in the page. Each keystroke reaches only `onChange`,
+   * as a path typed passes through partial paths on its way.
+   */
+  onCommit?: (path: string) => void
   /** Why the path is not accepted, announced with the input. */
   errors?: readonly string[]
   inputRef?: Ref<HTMLInputElement>
@@ -54,6 +60,7 @@ export function PathPicker({
   value,
   paths,
   onChange,
+  onCommit,
   errors = [],
   inputRef
 }: PathPickerProps) {
@@ -88,6 +95,7 @@ export function PathPicker({
   const pick = (entry: PathEntry) => {
     onChange(entry.path)
     close()
+    onCommit?.(entry.path)
   }
 
   const move = (step: 1 | -1) => {
@@ -118,6 +126,9 @@ export function PathPicker({
         if (entry !== undefined) {
           event.preventDefault()
           pick(entry)
+        } else {
+          close()
+          onCommit?.(value)
         }
         break
       }
@@ -161,7 +172,13 @@ export function PathPicker({
           setActive(null)
         }}
         onKeyDown={onKeyDown}
-        onBlur={close}
+        onBlur={(event) => {
+          close()
+          // A switch to another window or tab blurs the input but leaves it the active element,
+          // the path perhaps half typed; the blur once the user is back and moves on commits it.
+          const away = !document.hasFocus() && document.activeElement === event.currentTarget
+          if (!away) onCommit?.(value)
+        }}
       />
       {expanded && (
         <ul id={listboxId} role="listbox" aria-label={label} className="skar-path-picker-list">

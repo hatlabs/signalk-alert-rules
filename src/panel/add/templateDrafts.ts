@@ -6,8 +6,15 @@ import type { Rule, TemplatePick } from '../../model/rule'
 import type { Template } from '../../model/template'
 import { instantiate } from '../../templates/instantiate'
 import type { FieldError } from '../api'
-import { fromRule, signalShape, toRule, type RuleForm } from '../editor/formModel'
-import { whatStops } from '../editor/sections'
+import {
+  fromRule,
+  marginUnnamed,
+  signalShape,
+  standingRetypes,
+  toRule,
+  type RuleForm
+} from '../editor/formModel'
+import { fieldLabel, marginsHint, whatStops } from '../editor/sections'
 import { joined } from '../editor/words'
 import { capitalised } from '../list/PriorityBadge'
 import { signalMeasure, type UnitLookup } from '../signalUnits'
@@ -77,13 +84,30 @@ export interface TabErrors {
   label: string
   form: RuleForm
   errors: readonly FieldError[]
+  /** The clear margins whose note a footer has named; see `saveHint`. */
+  named?: ReadonlySet<string>
 }
 
-/** What stops Save, naming each tab: "Fill in the limit on windlass to save." */
+/**
+ * What stops Save, naming each tab: "Fill in the limit on windlass to save.",
+ * then each tab's clear margins a change of unit emptied, as `saveHint` does.
+ */
 export function tabsHint(tabs: readonly TabErrors[]): string | undefined {
   const parts = tabs.flatMap((tab) => {
     const stops = whatStops(tab.errors, tab.form)
     return stops === undefined ? [] : [`${stops} on ${tab.label}`]
   })
-  return parts.length === 0 ? undefined : capitalised(`${joined(parts)} to save.`)
+  const retypes = tabs.map((tab) => ({ tab, notes: standingRetypes(tab.form, tab.errors) }))
+  const margins = marginsHint(
+    retypes.flatMap(({ tab, notes }) => [
+      ...new Set(notes.map((e) => `${fieldLabel(e.path, tab.form)} on ${tab.label}`))
+    ]),
+    parts.length === 0 &&
+      retypes.every(({ tab, notes }) => !marginUnnamed(notes, tab.named ?? new Set()))
+  )
+  const sentences = [
+    ...(parts.length === 0 ? [] : [capitalised(`${joined(parts)} to save.`)]),
+    ...margins
+  ]
+  return sentences.length === 0 ? undefined : sentences.join(' ')
 }

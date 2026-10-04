@@ -13,7 +13,17 @@ import { withKind, type ConditionKind } from './conditionKinds'
 import { editConsequences } from './consequences'
 import { UnattachedErrors, useFocusInvalid, WithPaths } from './editorFrame'
 import { useLeaveGuard } from './leaveGuard'
-import { emptyForm, fromBody, fromRule, toRule, type RuleForm } from './formModel'
+import {
+  emptyForm,
+  fromBody,
+  fromRule,
+  forgetNamed,
+  marginUnnamed,
+  standingRetypes,
+  toRule,
+  withUnitErrors,
+  type RuleForm
+} from './formModel'
 import { withGenerated } from './message'
 import { checkedErrors, RuleFields } from './RuleFields'
 import { fieldPointers, saveHint } from './sections'
@@ -95,6 +105,10 @@ function EditorForm(props: FormProps) {
   const initial = opened.form
   const [form, setForm] = useState<RuleForm>(initial)
   const [errors, setErrors] = useState<FieldError[]>(opened.errors)
+  // The emptied clear margins a footer has named: on opening, and at each refused Save.
+  const [named, setNamed] = useState<ReadonlySet<string>>(
+    () => new Set(standingRetypes(initial, opened.errors).map((e) => e.path))
+  )
   const [failure, setFailure] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   // Held with the form it was previewed for: a field changed under the
@@ -125,9 +139,13 @@ function EditorForm(props: FormProps) {
   }
 
   const checked = checkedErrors(form, errors, isNew, ruleName)
+  // A Save's errors keep the notes on numbers emptied for a unit until each is typed again.
+  const retypes = standingRetypes(form, errors)
+  const keepingNotes = (next: readonly FieldError[]) => withUnitErrors(next, retypes)
 
   const refused = (err: unknown) => {
-    if (err instanceof RuleRejectedError && err.errors.length > 0) showErrors(err.errors)
+    if (err instanceof RuleRejectedError && err.errors.length > 0)
+      showErrors(keepingNotes(err.errors))
     else setFailure(failureMessage(err))
   }
 
@@ -145,11 +163,13 @@ function EditorForm(props: FormProps) {
   const save = async () => {
     setFailure(undefined)
     const result = toRule(form, units)
-    if (!result.ok) {
-      showErrors(result.errors)
+    if (!result.ok || marginUnnamed(retypes, named)) {
+      showErrors(keepingNotes(result.ok ? [] : result.errors))
+      // The footer of this refused Save names every margin still empty.
+      setNamed(new Set([...named, ...retypes.map((e) => e.path)]))
       return
     }
-    setErrors([])
+    setErrors(retypes)
     setBusy(true)
     try {
       if (editing !== undefined) {
@@ -178,7 +198,7 @@ function EditorForm(props: FormProps) {
       : invalid !== undefined
         ? `Fix “${invalid.name}”`
         : 'New rule'
-  const hint = saveHint(checked.errors, form)
+  const hint = saveHint(checked.errors, form, named)
 
   return (
     <div className="skar-editor">
@@ -211,6 +231,10 @@ function EditorForm(props: FormProps) {
             onChange={setForm}
             onStepsShifted={() => {
               setErrors(errors.filter((e) => !e.path.startsWith('/detector/steps/')))
+            }}
+            onUnitChange={(emptied) => {
+              setErrors((last) => withUnitErrors(last, emptied))
+              setNamed((last) => forgetNamed(last, emptied))
             }}
             paths={paths}
             units={units}
@@ -271,7 +295,7 @@ function EditorForm(props: FormProps) {
             } catch (err) {
               if (!(err instanceof RuleRejectedError) || err.errors.length === 0) throw err
               confirming.close(false)
-              showErrors(err.errors)
+              showErrors(keepingNotes(err.errors))
             }
           }}
           onCancel={() => {

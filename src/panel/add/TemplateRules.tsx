@@ -20,7 +20,14 @@ import {
   type TemplateSetEntry
 } from '../api'
 import { BackIcon } from '../detail/icons'
-import { toRule, type RuleForm } from '../editor/formModel'
+import {
+  forgetNamed,
+  marginUnnamed,
+  standingRetypes,
+  toRule,
+  withUnitErrors,
+  type RuleForm
+} from '../editor/formModel'
 import { UnattachedErrors, useFocusInvalid, WithPaths } from '../editor/editorFrame'
 import { useLeaveGuard } from '../editor/leaveGuard'
 import { checkedErrors, RuleFields } from '../editor/RuleFields'
@@ -84,6 +91,8 @@ interface Tab {
   /** The slug the template proposed; a slug the user typed is not changed on a conflict. */
   proposed: string
   errors: FieldError[]
+  /** The emptied clear margins a footer has named, at a refused Save. */
+  named: ReadonlySet<string>
   /**
    * The name of a rule from this template that already watches what the pick
    * does, as when the rules are opened again after some were created.
@@ -126,6 +135,7 @@ function initialTabs(props: FormProps): Tab[] {
       form,
       proposed: form.slug,
       errors: [],
+      named: new Set(),
       ...(existing === undefined ? {} : { existing }),
       kept: false
     }
@@ -254,14 +264,32 @@ function TabsForm(props: FormProps) {
   const save = async () => {
     setFailure(undefined)
     setNote(undefined)
-    const read = tabs.filter(included).map((t) => ({ tab: t, result: toRule(t.form, units) }))
-    const refused = read.filter(({ result }) => !result.ok)
+    const read = tabs.filter(included).map((t) => ({
+      tab: t,
+      result: toRule(t.form, units),
+      // Kept until each number emptied for a unit is typed again; see standingRetypes.
+      retypes: standingRetypes(t.form, t.errors)
+    }))
+    const refused = read.filter(
+      ({ tab, result, retypes }) => !result.ok || marginUnnamed(retypes, tab.named)
+    )
     const errorsOf = new Map(
-      read.map(({ tab, result }) => [tab.key, result.ok ? [] : result.errors])
+      read.map(({ tab, result, retypes }) => [
+        tab.key,
+        withUnitErrors(result.ok ? [] : result.errors, retypes)
+      ])
     )
     setTabs(tabs.map((t) => ({ ...t, errors: errorsOf.get(t.key) ?? [] })))
     const firstRefused = refused.at(0)
     if (firstRefused !== undefined) {
+      // The footer of this refused Save names every tab's margins still empty.
+      const shown = new Map(read.map(({ tab, retypes }) => [tab.key, retypes]))
+      setTabs((last) =>
+        last.map((t) => ({
+          ...t,
+          named: new Set([...t.named, ...(shown.get(t.key) ?? []).map((e) => e.path)])
+        }))
+      )
       setActiveKey(firstRefused.tab.key)
       focusInvalid()
       return
@@ -272,13 +300,13 @@ function TabsForm(props: FormProps) {
     // What befell the tab Save stopped at, applied over the tabs as they are by then.
     let stopped: { key: string; patch: Partial<Tab> } | undefined
     try {
-      for (const { tab, result } of read) {
+      for (const { tab, result, retypes } of read) {
         if (!result.ok) continue
         try {
           done.push(await create(tab, result.rule))
         } catch (err) {
           if (err instanceof RuleRejectedError && err.errors.length > 0) {
-            stopped = { key: tab.key, patch: { errors: err.errors } }
+            stopped = { key: tab.key, patch: { errors: withUnitErrors(err.errors, retypes) } }
             focusInvalid()
           } else {
             stopped = { key: tab.key, patch: { unanswered: true } }
@@ -304,7 +332,9 @@ function TabsForm(props: FormProps) {
     }
   }
 
-  const hint = tabsHint(tabs.map((t) => ({ label: t.label, form: t.form, errors: t.errors })))
+  const hint = tabsHint(
+    tabs.map((t) => ({ label: t.label, form: t.form, errors: t.errors, named: t.named }))
+  )
   const createdNote =
     created.length === 0
       ? undefined
@@ -440,6 +470,12 @@ function TabsForm(props: FormProps) {
                 onStepsShifted={() => {
                   replaceTab(active.key, {
                     errors: active.errors.filter((e) => !e.path.startsWith('/detector/steps/'))
+                  })
+                }}
+                onUnitChange={(emptied) => {
+                  replaceTab(active.key, {
+                    errors: withUnitErrors(active.errors, emptied),
+                    named: forgetNamed(active.named, emptied)
                   })
                 }}
                 units={units}

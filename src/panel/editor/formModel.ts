@@ -1225,3 +1225,208 @@ export function toRule(form: RuleForm, units: UnitLookup): ToRuleResult {
   }) as Rule
   return { ok: true, rule }
 }
+
+// ---- a path shown in another unit ----
+
+/** A number shown in its signal's display unit, at its pointer, and how to empty it. */
+interface UnitNumber {
+  at: string
+  optional: boolean
+  text: string
+  clear: (form: RuleForm) => RuleForm
+}
+
+/** `holder` with `field` empty and its exact value forgotten. */
+function withEmpty<K extends string, T extends Holder<K>>(holder: T, field: K): T {
+  const entries = Object.entries(holder.exact ?? {}) as [K, Exact | undefined][]
+  const { exact: _exact, ...rest } = holder
+  return { ...rest, [field]: '', ...exacts(entries.filter(([key]) => key !== field)) } as T
+}
+
+/**
+ * What a signal's numbers are typed in. A ratio is a unit of its own: it shares SI with a
+ * signal of no known unit, yet a number typed for one means nothing for the other.
+ */
+function unitKey(signal: SignalForm, units: UnitLookup): string {
+  const { kind, unit } = signalMeasure(signalShape(signal), units)
+  if (kind === 'ratio') return 'ratio'
+  return [unit.symbol, String(unit.scale), String(unit.offset)].join('|')
+}
+
+/** The numbers of gate `index` typed in its signal's display unit: its limit and clear margin. */
+function gateNumbers(form: RuleForm, index: number): UnitNumber[] {
+  const at = `/gates/${String(index)}`
+  const gate = form.gates[index]
+  const patch = (f: RuleForm, change: (g: GateForm) => GateForm): RuleForm => ({
+    ...f,
+    gates: f.gates.map((g, i) => (i === index ? change(g) : g))
+  })
+  return [
+    {
+      at: `${at}/limit/value`,
+      optional: false,
+      text: gate.limit.value,
+      clear: (f: RuleForm) => patch(f, (g) => ({ ...g, limit: withEmpty(g.limit, 'value') }))
+    },
+    {
+      at: `${at}/hysteresis`,
+      optional: true,
+      text: gate.hysteresis,
+      clear: (f: RuleForm) => patch(f, (g) => withEmpty(g, 'hysteresis'))
+    }
+  ]
+}
+
+/**
+ * Every number of the rule's own signal typed in its display unit.
+ * Durations, counts, text and true/false values have no unit and are left out.
+ */
+function signalNumbers(form: RuleForm): UnitNumber[] {
+  const d = form.detector
+  const detector = (f: RuleForm, change: (d: DetectorForm) => DetectorForm): RuleForm => ({
+    ...f,
+    detector: change(f.detector)
+  })
+  type ValueAt = [
+    string,
+    (d: DetectorForm) => ValueField,
+    (d: DetectorForm, v: ValueField) => DetectorForm
+  ]
+  const values: ValueAt[] = [
+    ['/detector/while/value', (dd) => dd.whileValue, (dd, v) => ({ ...dd, whileValue: v })],
+    [
+      '/detector/resetOn/value',
+      (dd) => dd.resetOn.value,
+      (dd, v) => ({ ...dd, resetOn: { ...dd.resetOn, value: v } })
+    ],
+    [
+      '/detector/event/value',
+      (dd) => dd.event.value,
+      (dd, v) => ({ ...dd, event: { ...dd.event, value: v } })
+    ]
+  ]
+  const quantity = stepQuantity(d)
+  const limitInUnit = quantity === 'value' || quantity === 'slope' || quantity === 'integral'
+  const steps = form.steps.flatMap((step, index): UnitNumber[] => {
+    const at = stepPointer(index)
+    const patch = (f: RuleForm, change: (s: StepForm) => StepForm): RuleForm => ({
+      ...f,
+      steps: f.steps.map((s, i) => (i === index ? change(s) : s))
+    })
+    const field = (name: 'limit' | 'low' | 'high'): UnitNumber => ({
+      at: `${at}/${name}`,
+      optional: false,
+      text: step[name],
+      clear: (f: RuleForm) => patch(f, (st) => withEmpty(st, name))
+    })
+    return [
+      ...(limitInUnit ? [field('limit')] : []),
+      field('low'),
+      field('high'),
+      ...(step.value.type === 'number'
+        ? [
+            {
+              at: `${at}/value`,
+              optional: false,
+              text: step.value.text,
+              clear: (f: RuleForm) =>
+                patch(f, (st) => ({ ...st, value: withEmpty(st.value, 'text') }))
+            }
+          ]
+        : [])
+    ]
+  })
+  return [
+    {
+      at: '/detector/limit/value',
+      optional: false,
+      text: d.limit.value,
+      clear: (f: RuleForm) => detector(f, (dd) => ({ ...dd, limit: withEmpty(dd.limit, 'value') }))
+    },
+    {
+      at: '/detector/hysteresis',
+      optional: true,
+      text: d.hysteresis,
+      clear: (f: RuleForm) => detector(f, (dd) => withEmpty(dd, 'hysteresis'))
+    },
+    ...values
+      .filter(([, get]) => get(d).type === 'number')
+      .map(([at, get, set]) => ({
+        at,
+        optional: false,
+        text: get(d).text,
+        clear: (f: RuleForm) => detector(f, (dd) => set(dd, withEmpty(get(dd), 'text')))
+      })),
+    ...steps
+  ]
+}
+
+/**
+ * `form` with every number typed in a display unit emptied where its signal
+ * is in another unit than in `settled`, the form as last settled: shown as
+ * typed, the number would be read in the new unit, 2.57 m/s saved as 2.57 kn.
+ * Each emptied number is returned as an error at its field; with none, `form`
+ * itself is returned.
+ */
+export function withNumbersInUnit(
+  settled: RuleForm,
+  form: RuleForm,
+  units: UnitLookup
+): { form: RuleForm; emptied: FieldError[] } {
+  let next = form
+  const emptied: FieldError[] = []
+  const empty = (numbers: (f: RuleForm) => UnitNumber[]) => {
+    for (const n of numbers(next)) {
+      if (n.text === '') continue
+      next = n.clear(next)
+      emptied.push({ path: n.at, message: n.optional ? RETYPE_IN_UNIT : 'is required' })
+    }
+  }
+  const moved = (before: SignalForm, after: SignalForm) =>
+    unitKey(before, units) !== unitKey(after, units)
+  if (moved(settled.signal, form.signal)) empty(signalNumbers)
+  // Gates added or removed since are not the ones settled at the same index.
+  if (settled.gates.length === form.gates.length) {
+    form.gates.forEach((gate, i) => {
+      if (moved(settled.gates[i].signal, gate.signal)) empty((f) => gateNumbers(f, i))
+    })
+  }
+  return { form: next, emptied }
+}
+
+/** `errors` with those on the numbers a change of unit emptied replaced by theirs. */
+export function withUnitErrors(
+  errors: readonly FieldError[],
+  emptied: readonly FieldError[]
+): FieldError[] {
+  const touched = new Set(emptied.map((e) => e.path))
+  return [...errors.filter((e) => !touched.has(e.path)), ...emptied]
+}
+
+/**
+ * The notes on clear margins emptied for want of their unit whose fields are
+ * still empty: the only sign a margin was emptied, which a Save keeps.
+ */
+export function standingRetypes(form: RuleForm, errors: readonly FieldError[]): FieldError[] {
+  const numbers = [...signalNumbers(form), ...form.gates.flatMap((_, i) => gateNumbers(form, i))]
+  const empty = new Set(numbers.filter((n) => n.text === '').map((n) => n.at))
+  return errors.filter((e) => e.message === RETYPE_IN_UNIT && empty.has(e.path))
+}
+
+/**
+ * Whether Save stops for an emptied clear margin: one whose note no footer
+ * has named yet, at a refused Save or on opening (`named`). A margin emptied
+ * as focus leaves a path search for Save would otherwise be dropped unseen.
+ */
+export function marginUnnamed(retypes: readonly FieldError[], named: ReadonlySet<string>): boolean {
+  return retypes.some((e) => !named.has(e.path))
+}
+
+/** `named` with the notes on fields a change of unit emptied again forgotten. */
+export function forgetNamed(
+  named: ReadonlySet<string>,
+  emptied: readonly FieldError[]
+): Set<string> {
+  const again = new Set(emptied.map((e) => e.path))
+  return new Set([...named].filter((p) => !again.has(p)))
+}

@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RANGE_HYSTERESIS, RANGE_INVERTED, RANGE_NOT_WIDER } from '../../../src/model/rangeMessages'
-import { LEVEL_PRIORITY, type Rule } from '../../../src/model/rule'
+import { LEVEL_PRIORITY, type CombinatorKind, type Rule } from '../../../src/model/rule'
 import { validateRule } from '../../../src/model/validate'
 import { RuleRejectedError, type EditPreview } from '../../../src/panel/api'
 import { ZONE_PRIORITY } from '../../../src/panel/editor/MoreOptions'
@@ -1286,8 +1286,15 @@ describe('RuleEditor, an invalid stored rule', () => {
     expect(description(textbox('Clear margin'))).toContain(
       'must be typed again in the unit of the chosen path'
     )
-    expect(screen.getByText('Fill in the value to watch and the limit to save.')).toBeTruthy()
+    // The footer names the clear margin from the start, so Save need not stop for it.
+    expect(
+      screen.getByText(
+        'Fill in the value to watch and the limit to save. The clear margin was emptied: type it again or leave it empty.'
+      )
+    ).toBeTruthy()
     type(select('Search by name or path'), HOUSE)
+    // Moving to the limit takes focus from the search, which settles the path.
+    fireEvent.blur(select('Search by name or path'))
     type(textbox('Limit for step 1'), '11.8')
     click(button('Save'))
     await saved(onSaved)
@@ -1703,6 +1710,365 @@ describe('RuleEditor, the keyboard a number brings up', () => {
     expect(inputMode('For at least')).toBe('decimal')
     openMoreOptions()
     expect(inputMode('Clear margin')).toBe('decimal')
+  })
+})
+
+describe('RuleEditor, a path changed to one shown in another unit', () => {
+  afterEach(cleanup)
+
+  const SPEED = 'navigation.speedOverGround'
+  const KNOT = 1 / 1.94384
+  // A speed rule on a path the server does not report, its numbers shown in SI.
+  const logSpeed: Rule = {
+    name: 'Speed high',
+    slug: 'speed-high',
+    message: 'Speed is high',
+    signal: { path: 'navigation.logSpeed' },
+    detector: {
+      type: 'sustained',
+      direction: 'above',
+      steps: [{ limit: 2.57, priority: 'warning' }],
+      duration: 60,
+      hysteresis: 0.1
+    }
+  }
+  const editing = { entry: ruleEntry({ slug: logSpeed.slug }), rule: logSpeed }
+
+  /** Types a path into the search, opening it first if need be, without settling it. */
+  const typePath = (path: string) => {
+    const change = screen.queryByRole('button', { name: 'Change the value to watch' })
+    if (change !== null) click(change)
+    type(select('Search by name or path'), path)
+  }
+  /** Types a path and settles it, as leaving the search does. */
+  const changePath = (path: string) => {
+    typePath(path)
+    fireEvent.blur(select('Search by name or path'))
+  }
+
+  it('empties the limit and the clear margin once the path is settled, keeping the duration', async () => {
+    const { api } = renderEditor({ editing })
+    await formShown()
+    expect(textbox('Limit for step 1')).toHaveProperty('value', '2.57')
+    typePath(SPEED)
+    expect(textbox('Limit for step 1')).toHaveProperty('value', '2.57')
+    fireEvent.blur(select('Search by name or path'))
+    expect(textbox('Limit for step 1')).toHaveProperty('value', '')
+    expect(description(textbox('Limit for step 1'))).toContain('Fill in the limit')
+    expect(textbox('Clear margin')).toHaveProperty('value', '')
+    expect(description(textbox('Clear margin'))).toContain(
+      'must be typed again in the unit of the chosen path'
+    )
+    expect(textbox('For at least')).toHaveProperty('value', '1')
+    expect(
+      screen.getByText(
+        'Fill in the limit to save. The clear margin was emptied: type it again or leave it empty.'
+      )
+    ).toBeTruthy()
+    click(button('Save'))
+    expect(api.previewRule).not.toHaveBeenCalled()
+  })
+
+  const RETYPE = 'must be typed again in the unit of the chosen path'
+  const MARGIN = 'The clear margin was emptied: type it again or leave it empty.'
+  const MARGIN_ALONE = 'The clear margin was emptied: type it again, or Save leaves it empty.'
+  /** What the footer says stops Save. */
+  const footer = () => document.querySelector('.skar-editor-status')?.textContent ?? ''
+  const savedDetector = (api: FakeApi) =>
+    api.updateRule.mock.calls[0]?.[1].detector as Extract<Rule['detector'], { type: 'sustained' }>
+
+  it('names the emptied clear margin in the footer, beside the limit', async () => {
+    renderEditor({ editing })
+    await formShown()
+    changePath(SPEED)
+    expect(footer()).toBe(`Fill in the limit to save. ${MARGIN}`)
+    expect(description(textbox('Clear margin'))).toContain(RETYPE)
+  })
+
+  it('saves without the clear margin once a refused Save’s footer named it, limits retyped', async () => {
+    const { api, onSaved } = renderEditor({ editing })
+    await formShown()
+    changePath(SPEED)
+    click(button('Save'))
+    expect(api.previewRule).not.toHaveBeenCalled()
+    expect(footer()).toBe(`Fill in the limit to save. ${MARGIN}`)
+    expect(description(textbox('Clear margin'))).toContain(RETYPE)
+    type(textbox('Limit for step 1'), '5')
+    click(button('Save'))
+    await saved(onSaved)
+    const [[, rule]] = api.updateRule.mock.calls
+    expect(rule.signal).toEqual({ path: SPEED })
+    const detector = savedDetector(api)
+    expect(detector.steps?.[0]?.limit).toBeCloseTo(5 * KNOT)
+    expect(detector.hysteresis).toBeUndefined()
+    expect(detector.duration).toBe(60)
+  })
+
+  it('refuses once for a clear margin no refused Save named, the limit retyped first', async () => {
+    const { api, onSaved } = renderEditor({ editing })
+    await formShown()
+    changePath(SPEED)
+    type(textbox('Limit for step 1'), '5')
+    click(button('Save'))
+    expect(api.previewRule).not.toHaveBeenCalled()
+    expect(footer()).toBe(MARGIN_ALONE)
+    await waitFor(() => {
+      expect(document.activeElement).toBe(textbox('Clear margin'))
+    })
+    click(button('Save'))
+    await saved(onSaved)
+    expect(savedDetector(api).hysteresis).toBeUndefined()
+  })
+
+  it('empties the numbers of a path typed and saved straight away, focus leaving for Save', async () => {
+    const { api } = renderEditor({ editing })
+    await formShown()
+    typePath(SPEED)
+    expect(document.activeElement).toBe(select('Search by name or path'))
+    // A browser moves focus on the button's mousedown, a discrete event rendered before its click.
+    act(() => {
+      button('Save').focus()
+    })
+    click(button('Save'))
+    expect(textbox('Limit for step 1')).toHaveProperty('value', '')
+    expect(description(textbox('Limit for step 1'))).toContain('Fill in the limit')
+    expect(footer()).toBe(`Fill in the limit to save. ${MARGIN}`)
+    expect(api.previewRule).not.toHaveBeenCalled()
+    expect(api.updateRule).not.toHaveBeenCalled()
+  })
+
+  it('saves a clear margin retyped after Save named it', async () => {
+    const { api, onSaved } = renderEditor({ editing })
+    await formShown()
+    changePath(SPEED)
+    click(button('Save'))
+    type(textbox('Limit for step 1'), '5')
+    type(textbox('Clear margin'), '0.5')
+    click(button('Save'))
+    await saved(onSaved)
+    expect(savedDetector(api).hysteresis).toBeCloseTo(0.5 * KNOT)
+  })
+
+  it('names a clear margin again once another change of unit empties it again', async () => {
+    const { api } = renderEditor({ editing })
+    await formShown()
+    changePath(SPEED)
+    click(button('Save'))
+    type(textbox('Limit for step 1'), '5')
+    type(textbox('Clear margin'), '0.5')
+    changePath(HOUSE)
+    expect(textbox('Clear margin')).toHaveProperty('value', '')
+    type(textbox('Limit for step 1'), '12')
+    click(button('Save'))
+    expect(api.previewRule).not.toHaveBeenCalled()
+    expect(footer()).toBe(MARGIN_ALONE)
+  })
+
+  it('refuses a zone rule’s Save once, its footer naming the emptied clear margin, then saves', async () => {
+    const zoned = example('house-battery-low')
+    const { api, onSaved } = renderEditor({
+      editing: { entry: ruleEntry({ slug: zoned.slug }), rule: zoned }
+    })
+    await formShown()
+    typePath(SPEED)
+    act(() => {
+      button('Save').focus()
+    })
+    click(button('Save'))
+    expect(textbox('Clear margin')).toHaveProperty('value', '')
+    expect(description(textbox('Clear margin'))).toContain(RETYPE)
+    expect(footer()).toBe(MARGIN_ALONE)
+    expect(api.previewRule).not.toHaveBeenCalled()
+    click(button('Save'))
+    await saved(onSaved)
+    const detector = savedDetector(api)
+    expect(detector.hysteresis).toBeUndefined()
+    expect(detector.limit).toEqual(zoned.detector.type === 'sustained' && zoned.detector.limit)
+  })
+
+  it('empties the numbers of a stored rule fixed by correcting its path', async () => {
+    const { api, onSaved } = renderEditor({
+      invalid: {
+        slug: logSpeed.slug,
+        name: logSpeed.name,
+        body: { ...logSpeed, signal: { path: 'navigation..speedOverGround' } },
+        errors: [{ path: '/signal/path', message: 'must be a Signal K path' }]
+      }
+    })
+    await formShown()
+    expect(textbox('Limit for step 1')).toHaveProperty('value', '2.57')
+    changePath(SPEED)
+    expect(textbox('Limit for step 1')).toHaveProperty('value', '')
+    expect(description(textbox('Limit for step 1'))).toContain('Fill in the limit')
+    click(button('Save'))
+    expect(api.updateRule).not.toHaveBeenCalled()
+    type(textbox('Limit for step 1'), '5')
+    click(button('Save'))
+    await saved(onSaved)
+    const detector = api.updateRule.mock.calls[0]?.[1].detector as Extract<
+      Rule['detector'],
+      { type: 'sustained' }
+    >
+    expect(detector.steps?.[0]?.limit).toBeCloseTo(5 * KNOT)
+  })
+
+  it('empties a range’s low and high limits and its clear margin', async () => {
+    const shore = example('shore-power-frequency')
+    const { api } = renderEditor({
+      editing: { entry: ruleEntry({ slug: shore.slug }), rule: shore }
+    })
+    await formShown()
+    expect(textbox('Low limit for step 2')).toHaveProperty('value', '48')
+    changePath(SPEED)
+    for (const n of ['1', '2']) {
+      expect(textbox(`Low limit for step ${n}`)).toHaveProperty('value', '')
+      expect(textbox(`High limit for step ${n}`)).toHaveProperty('value', '')
+    }
+    expect(textbox('Clear margin')).toHaveProperty('value', '')
+    expect(textbox('Each step must hold for at least')).toHaveProperty('value', '10')
+    click(button('Save'))
+    expect(api.previewRule).not.toHaveBeenCalled()
+    expect(api.updateRule).not.toHaveBeenCalled()
+  })
+
+  const battery = example('house-battery-low')
+  const stepped: Rule = {
+    ...battery,
+    detector: {
+      type: 'sustained',
+      direction: 'below',
+      steps: [
+        { limit: 12.2, priority: 'warning' },
+        { limit: 11.8, priority: 'alarm' }
+      ],
+      duration: 60,
+      hysteresis: 0.2
+    }
+  }
+  const steppedEdit = { entry: ruleEntry({ slug: battery.slug }), rule: stepped }
+
+  it('keeps the numbers for a path shown in the same unit', async () => {
+    const { api, onSaved } = renderEditor({ editing: steppedEdit })
+    await formShown()
+    changePath('electrical.batteries.start.voltage')
+    expect(textbox('Limit for step 1')).toHaveProperty('value', '12.2')
+    expect(textbox('Limit for step 2')).toHaveProperty('value', '11.8')
+    expect(textbox('Clear margin')).toHaveProperty('value', '0.2')
+    click(button('Save'))
+    await saved(onSaved)
+    expect(api.updateRule.mock.calls[0]?.[1].detector).toEqual(stepped.detector)
+  })
+
+  it('keeps the numbers while a path in the same unit is typed through partial paths', async () => {
+    renderEditor({ editing: steppedEdit })
+    await formShown()
+    typePath('electrical.batteries.st')
+    expect(textbox('Limit for step 1')).toHaveProperty('value', '12.2')
+    typePath('electrical.batteries.start')
+    changePath('electrical.batteries.start.voltage')
+    expect(textbox('Limit for step 1')).toHaveProperty('value', '12.2')
+    expect(textbox('Limit for step 2')).toHaveProperty('value', '11.8')
+    expect(textbox('Clear margin')).toHaveProperty('value', '0.2')
+    expect(document.querySelectorAll('[aria-invalid="true"]')).toHaveLength(0)
+    expect(screen.queryByText(/to save\.$/)).toBeNull()
+  })
+
+  it('keeps a count, its window and its event value, which have no unit', async () => {
+    const bilge = example('bilge-pump-cycling')
+    const { api, onSaved } = renderEditor({
+      editing: { entry: ruleEntry({ slug: bilge.slug }), rule: bilge }
+    })
+    await formShown()
+    changePath(HOUSE)
+    expect(textbox('Limit for step 1')).toHaveProperty('value', '4')
+    click(button('Save'))
+    await saved(onSaved)
+    expect(api.updateRule.mock.calls[0]?.[1].detector).toEqual(bilge.detector)
+  })
+
+  it('empties a combination’s limit when an input brings another unit, and a condition’s apart', async () => {
+    const rpm = example('engine-rpm-mismatch')
+    renderEditor({ editing: { entry: ruleEntry({ slug: rpm.slug }), rule: rpm } })
+    await formShown()
+    openMoreOptions()
+    type(select('Condition 1 input path'), 'propulsion.port.coolantTemperature')
+    expect(textbox('Condition 1 limit')).toHaveProperty('value', '480')
+    fireEvent.blur(select('Condition 1 input path'))
+    expect(textbox('Condition 1 limit')).toHaveProperty('value', '')
+    expect(textbox('Condition 2 limit')).toHaveProperty('value', '480')
+    expect(textbox('Limit for step 1')).toHaveProperty('value', '180')
+    type(select('Combined path 1'), 'propulsion.port.coolantTemperature')
+    fireEvent.blur(select('Combined path 1'))
+    expect(textbox('Limit for step 1')).toHaveProperty('value', '')
+    expect(textbox('Condition 2 limit')).toHaveProperty('value', '480')
+  })
+
+  it('empties a combination’s limit when another kind of combination changes its unit', async () => {
+    const rpm = example('engine-rpm-mismatch')
+    const { api } = renderEditor({ editing: { entry: ruleEntry({ slug: rpm.slug }), rule: rpm } })
+    await formShown()
+    openMoreOptions()
+    choose('Combined combination', 'ratio')
+    expect(textbox('Limit for step 1')).toHaveProperty('value', '')
+    expect(description(textbox('Limit for step 1'))).toContain('Fill in the limit')
+    expect(textbox('Condition 1 limit')).toHaveProperty('value', '480')
+    click(button('Save'))
+    expect(api.previewRule).not.toHaveBeenCalled()
+  })
+
+  describe('over paths the server does not report', () => {
+    const unreported = (combinator: CombinatorKind): Rule => ({
+      name: 'Tanks apart',
+      slug: 'tanks-apart',
+      message: 'Tanks apart',
+      signal: {
+        combinator,
+        inputs: [{ path: 'tanks.fuel.port.level' }, { path: 'tanks.fuel.starboard.level' }]
+      },
+      detector: {
+        type: 'sustained',
+        direction: 'above',
+        steps: [{ limit: 0.2, priority: 'warning' }],
+        duration: 60
+      }
+    })
+    const editingCombination = (combinator: CombinatorKind) => {
+      const rule = unreported(combinator)
+      return renderEditor({ editing: { entry: ruleEntry({ slug: rule.slug }), rule } })
+    }
+
+    it.each<[CombinatorKind, CombinatorKind]>([
+      ['difference', 'ratio'],
+      ['ratio', 'difference']
+    ])('empties the limit of a %s changed to a %s', async (from, to) => {
+      const { api } = editingCombination(from)
+      await formShown()
+      openMoreOptions()
+      expect(textbox('Limit for step 1')).toHaveProperty('value', '0.2')
+      choose('Combined combination', to)
+      expect(textbox('Limit for step 1')).toHaveProperty('value', '')
+      expect(description(textbox('Limit for step 1'))).toContain('Fill in the limit')
+      click(button('Save'))
+      expect(api.previewRule).not.toHaveBeenCalled()
+    })
+
+    it('keeps the limit of a difference changed to a sum', async () => {
+      editingCombination('difference')
+      await formShown()
+      openMoreOptions()
+      choose('Combined combination', 'sum')
+      expect(textbox('Limit for step 1')).toHaveProperty('value', '0.2')
+    })
+  })
+
+  it('keeps a combination’s limit when another kind of combination keeps its unit', async () => {
+    const rpm = example('engine-rpm-mismatch')
+    renderEditor({ editing: { entry: ruleEntry({ slug: rpm.slug }), rule: rpm } })
+    await formShown()
+    openMoreOptions()
+    choose('Combined combination', 'difference')
+    expect(textbox('Limit for step 1')).toHaveProperty('value', '180')
+    expect(document.querySelectorAll('[aria-invalid="true"]')).toHaveLength(0)
   })
 })
 
