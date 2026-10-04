@@ -63,6 +63,8 @@ export interface EvaluatorContext {
   clock: Clock
   /** How a pinned source is matched; absent, refs are compared as given. */
   canonicalSource?: Canonicalise
+  /** Called when an accumulator's `resetOn` event zeroes a total, so it can be saved at once. */
+  onAccumulatorReset?: () => void
 }
 
 /** An alert core already holds for this rule, adopted at start. */
@@ -871,7 +873,8 @@ export class RuleEvaluator {
         start: now,
         active: i === 0 && unit.startActive,
         // A step added later starts from the total the first step has reached.
-        accumulated: (i === 0 ? undefined : accumulatedOf(unit)) ?? this.carried.get(unit.key)
+        accumulated: (i === 0 ? undefined : accumulatedOf(unit)) ?? this.carried.get(unit.key),
+        onReset: this.ctx.onAccumulatorReset
       }
       return this.run(track, step.spec, options, unit.last, now, feed)
     })

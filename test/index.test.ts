@@ -18,6 +18,16 @@ const hours = {
   detector: { type: 'accumulator', measure: 'time', steps: [{ limit: 180, priority: 'caution' }] }
 }
 
+/** Accumulates while running, and resets when the engine stops. */
+const resettable = {
+  ...hours,
+  detector: {
+    ...hours.detector,
+    while: { op: 'above', value: 0 },
+    resetOn: { op: 'changesTo', value: 0 }
+  }
+}
+
 let dir: string
 
 beforeEach(() => {
@@ -26,6 +36,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   vi.useRealTimers()
   rmSync(dir, { recursive: true, force: true })
 })
@@ -195,6 +206,90 @@ describe('plugin', () => {
     vi.advanceTimersByTime(1_000)
     expect(new Store(dir).load().accumulators).toEqual({
       'engine-hours': { measure: 'time', totals: { '': 60 } }
+    })
+
+    await plugin.stop()
+  })
+
+  it('writes a resetOn reset within a tick, without waiting for the checkpoint', async () => {
+    storeRule(resettable)
+    const app = new MockServerAPI(true, dir)
+    const plugin = createPlugin(app.asServerAPI())
+    plugin.start({}, () => undefined)
+    app.subscriptionmanager.publish(RPM, 'src', 30)
+    vi.advanceTimersByTime(60_000)
+    expect(new Store(dir).load().accumulators).toEqual({
+      'engine-hours': { measure: 'time', totals: { '': 60 } }
+    })
+
+    vi.advanceTimersByTime(10_000)
+    app.subscriptionmanager.publish(RPM, 'src', 0)
+    vi.advanceTimersByTime(1_000)
+    expect(new Store(dir).load().accumulators).toEqual({
+      'engine-hours': { measure: 'time', totals: { '': 0 } }
+    })
+
+    await plugin.stop()
+  })
+
+  it('writes a reset when the plugin stops right after it, before the next tick', async () => {
+    storeRule(resettable)
+    const app = new MockServerAPI(true, dir)
+    const plugin = createPlugin(app.asServerAPI())
+    plugin.start({}, () => undefined)
+    app.subscriptionmanager.publish(RPM, 'src', 30)
+    vi.advanceTimersByTime(60_000)
+    vi.advanceTimersByTime(500)
+    app.subscriptionmanager.publish(RPM, 'src', 0)
+    await plugin.stop()
+    expect(new Store(dir).load().accumulators).toEqual({
+      'engine-hours': { measure: 'time', totals: { '': 0 } }
+    })
+  })
+
+  it('reports a failed reset write once, and clears it when the checkpoint succeeds', async () => {
+    storeRule(resettable)
+    const app = new MockServerAPI(true, dir)
+    const plugin = createPlugin(app.asServerAPI())
+    plugin.start({}, () => undefined)
+    app.subscriptionmanager.publish(RPM, 'src', 30)
+    vi.advanceTimersByTime(30_000)
+    // A directory where the file belongs makes the rename fail.
+    mkdirSync(join(dir, 'accumulators.json', 'blocker'), { recursive: true })
+    app.subscriptionmanager.publish(RPM, 'src', 0)
+
+    vi.advanceTimersByTime(1_000)
+    expect(app.pluginError).toMatch(/accumulator totals/)
+    // The periodic checkpoint fails as well, and is not logged again.
+    vi.advanceTimersByTime(29_000)
+    expect(app.errors.filter((e) => e.includes('accumulator totals'))).toHaveLength(1)
+
+    rmSync(join(dir, 'accumulators.json'), { recursive: true })
+    vi.spyOn(Application.prototype, 'checkpointResets').mockImplementation(() => false)
+    vi.advanceTimersByTime(59_000)
+    expect(app.pluginError).toMatch(/accumulator totals/)
+    vi.advanceTimersByTime(1_000)
+    expect(app.pluginError).toBeUndefined()
+
+    await plugin.stop()
+  })
+
+  it('clears a failed checkpoint when a reset write succeeds', async () => {
+    storeRule(resettable)
+    const app = new MockServerAPI(true, dir)
+    const plugin = createPlugin(app.asServerAPI())
+    plugin.start({}, () => undefined)
+    app.subscriptionmanager.publish(RPM, 'src', 30)
+    mkdirSync(join(dir, 'accumulators.json', 'blocker'), { recursive: true })
+    vi.advanceTimersByTime(60_000)
+    expect(app.pluginError).toMatch(/accumulator totals/)
+
+    rmSync(join(dir, 'accumulators.json'), { recursive: true })
+    app.subscriptionmanager.publish(RPM, 'src', 0)
+    vi.advanceTimersByTime(1_000)
+    expect(app.pluginError).toBeUndefined()
+    expect(new Store(dir).load().accumulators).toEqual({
+      'engine-hours': { measure: 'time', totals: { '': 0 } }
     })
 
     await plugin.stop()

@@ -24,6 +24,13 @@ export const TICK_MS = 1000
 /** How often accumulator totals are saved, bounding what a crash loses. */
 export const CHECKPOINT_MS = 60_000
 
+/**
+ * The least time between two checkpoints made for `resetOn` resets. An event
+ * such as a numeric value changing can fire on almost every sample, which
+ * would otherwise rewrite the totals every tick.
+ */
+export const RESET_CHECKPOINT_MS = 10_000
+
 /** How many operator actions the log keeps. */
 export const LOG_LIMIT = 200
 
@@ -195,6 +202,10 @@ export class Application {
   private readonly actions: LogEntry[]
   /** The totals last written, serialised; undefined until a checkpoint succeeds. */
   private lastCheckpoint: string | undefined
+  /** Set by a `resetOn` reset until a checkpoint after it succeeds. */
+  private resetPending = false
+  /** The monotonic time of the last checkpoint made for a reset. */
+  private lastResetCheckpoint = -Infinity
   private controls: Controls
   /** Set while starting: a failed write is then an issue, not a failed start. */
   private starting = false
@@ -276,10 +287,29 @@ export class Application {
       ])
     )
     const text = JSON.stringify(checkpoints)
-    if (text === this.lastCheckpoint) return
-    this.store.saveCheckpoints(checkpoints)
-    this.lastCheckpoint = text
-    this.saved(TOTALS)
+    if (text !== this.lastCheckpoint) {
+      this.store.saveCheckpoints(checkpoints)
+      this.lastCheckpoint = text
+      this.saved(TOTALS)
+    }
+    this.resetPending = false
+  }
+
+  /**
+   * Checkpoints soon after a `resetOn` reset: a restart before the next
+   * periodic checkpoint would restore the total from before it and could
+   * raise the alert again. Called every tick; writes at most once per
+   * {@link RESET_CHECKPOINT_MS}, a reset within it waiting for the next, and
+   * a failed write is retried at the next tick. Returns whether it
+   * checkpointed; throws when the store cannot write.
+   */
+  checkpointResets(): boolean {
+    const now = this.deps.clock()
+    if (!this.resetPending || (now - this.lastResetCheckpoint) * 1000 < RESET_CHECKPOINT_MS)
+      return false
+    this.checkpoint()
+    this.lastResetCheckpoint = now
+    return true
   }
 
   /**
@@ -616,7 +646,13 @@ export class Application {
         .filter(([slug]) => this.rulesBySlug.has(slug))
         .map(([slug, { totals }]) => [slug, totals])
     )
-    const runner = new RuleRunner(this.deps, loaded, accumulated, this.isDisabled)
+    const deps = {
+      ...this.deps,
+      onAccumulatorReset: () => {
+        this.resetPending = true
+      }
+    }
+    const runner = new RuleRunner(deps, loaded, accumulated, this.isDisabled)
     try {
       runner.start()
     } catch (err) {

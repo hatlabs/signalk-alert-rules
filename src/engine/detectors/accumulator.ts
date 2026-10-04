@@ -51,11 +51,13 @@ export class AccumulatorDetector extends ConditionDetector<AccumulatorSpec> {
   private last: number
   private lastSample = -Infinity
   private readonly resetEvents: EventWatcher | undefined
+  private readonly onReset: (() => void) | undefined
 
   constructor(spec: AccumulatorSpec, options: DetectorOptions) {
     super(spec, options)
     this.total = options.accumulated ?? 0
     this.last = options.start
+    this.onReset = options.onReset
     this.resetEvents =
       spec.resetOn === undefined ? undefined : new EventWatcher(spec.resetOn, false)
   }
@@ -91,7 +93,10 @@ export class AccumulatorDetector extends ConditionDetector<AccumulatorSpec> {
         this.rate = reading.value
       }
     }
-    return reset ? this.reset(now) : this.evaluate()
+    if (!reset) return this.evaluate()
+    const transition = this.reset(now)
+    this.onReset?.()
+    return transition
   }
 
   tick(now: number): Transition | undefined {
