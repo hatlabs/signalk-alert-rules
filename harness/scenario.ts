@@ -16,9 +16,10 @@ export const OPTIONS = {
    * `/rules`: the worked examples, none, or the examples with a stored rule
    * that does not run and a file that could not be read; or the examples with
    * a stored rule the editor cannot make: a sustained rule with a fixed
-   * detector limit, or a ratio flagged as angles.
+   * detector limit, a ratio flagged as angles, a count whose "changes" event
+   * carries a value, or a zone-limit rule that also has steps.
    */
-  rules: ['examples', 'empty', 'partial', 'fixedLimit', 'angularRatio'],
+  rules: ['examples', 'empty', 'partial', 'fixedLimit', 'angularRatio', 'eventValue', 'zoneSteps'],
   /** The rules' states: a mix of conditions, or the ones docs/examples.md shows where they differ. */
   states: ['mixed', 'docs'],
   access: ['admin', 'readwrite', 'readonly'],

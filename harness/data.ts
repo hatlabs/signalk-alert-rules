@@ -274,7 +274,10 @@ function brokenExample(
 }
 
 /** Stored rules the editor cannot make, each beside the examples under its `rules` value. */
-export const brokenRules: Record<'fixedLimit' | 'angularRatio', () => InvalidRuleEntry> = {
+export const brokenRules: Record<
+  'fixedLimit' | 'angularRatio' | 'eventValue' | 'zoneSteps',
+  () => InvalidRuleEntry
+> = {
   fixedLimit: () =>
     brokenExample('house-battery-low', 'house-battery-fixed-limit', (rule) => ({
       ...rule,
@@ -286,6 +289,18 @@ export const brokenRules: Record<'fixedLimit' | 'angularRatio', () => InvalidRul
       ...rule,
       name: 'Engine RPM ratio',
       signal: { ...rule.signal, combinator: 'ratio', angular: true }
+    })),
+  eventValue: () =>
+    brokenExample('bilge-pump-cycling', 'bilge-pump-changes-value', (rule) => ({
+      ...rule,
+      name: 'Bilge pump changes',
+      detector: { ...rule.detector, event: { op: 'changes', value: true } }
+    })),
+  zoneSteps: () =>
+    brokenExample('house-battery-low', 'house-battery-zone-steps', (rule) => ({
+      ...rule,
+      name: 'House battery zone and steps',
+      detector: { ...rule.detector, steps: [{ limit: 12, priority: 'warning' }] }
     }))
 }
 
