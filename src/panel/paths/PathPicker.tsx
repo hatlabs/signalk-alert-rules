@@ -11,8 +11,8 @@ export interface PathPickerProps {
   onChange: (path: string) => void
   /**
    * The path is settled: an option was picked, Enter was pressed or focus
-   * left. Each keystroke reaches only `onChange`, as a path typed passes
-   * through partial paths on its way.
+   * left for elsewhere in the page. Each keystroke reaches only `onChange`,
+   * as a path typed passes through partial paths on its way.
    */
   onCommit?: (path: string) => void
   /** Why the path is not accepted, announced with the input. */
@@ -171,9 +171,12 @@ export function PathPicker({
           setActive(null)
         }}
         onKeyDown={onKeyDown}
-        onBlur={() => {
+        onBlur={(event) => {
           close()
-          onCommit?.(value)
+          // A switch to another window or tab blurs the input but leaves it the active element,
+          // the path perhaps half typed; the blur once the user is back and moves on commits it.
+          const away = !document.hasFocus() && document.activeElement === event.currentTarget
+          if (!away) onCommit?.(value)
         }}
       />
       {expanded && (

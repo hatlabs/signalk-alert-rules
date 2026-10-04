@@ -202,6 +202,28 @@ describe('PathPicker', () => {
       fireEvent.blur(input())
       expect(onCommit).toHaveBeenLastCalledWith('not.reported.either')
     })
+
+    it('not when the window loses focus, but when focus leaves once it is back', () => {
+      const onCommit = vi.fn()
+      const hasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(false)
+      try {
+        render(<Harness onCommit={onCommit} />)
+        input().focus()
+        fireEvent.change(input(), { target: { value: 'navigation.speedOver' } })
+        // Another window took focus: the input is blurred yet stays the active element.
+        fireEvent.blur(input())
+        expect(document.activeElement).toBe(input())
+        expect(onCommit).not.toHaveBeenCalled()
+        hasFocus.mockReturnValue(true)
+        fireEvent.focus(input())
+        fireEvent.change(input(), { target: { value: 'navigation.speedOverGround' } })
+        fireEvent.blur(input())
+        expect(onCommit).toHaveBeenCalledOnce()
+        expect(onCommit).toHaveBeenLastCalledWith('navigation.speedOverGround')
+      } finally {
+        hasFocus.mockRestore()
+      }
+    })
   })
 
   it('says the paths are loading, and still accepts a typed path', () => {
