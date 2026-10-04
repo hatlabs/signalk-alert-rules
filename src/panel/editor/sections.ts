@@ -183,6 +183,8 @@ const LABELS: Readonly<Record<string, string>> = {
   '/signal/path': 'the value to watch',
   '/signal/source': 'the source',
   '/signal/inputs': 'the paths to combine',
+  // Named for what it says, as a combination that cannot wrap angles shows no checkbox for it.
+  '/signal/angular': 'whether the values are angles',
   '/detector/type': 'what should alert',
   '/detector/direction': 'the direction',
   '/detector/op': 'the state',
