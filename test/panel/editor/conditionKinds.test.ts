@@ -33,6 +33,42 @@ describe('condition kinds', () => {
     expect(kindOf(form.detector)).toBe(kind)
   })
 
+  it('swaps an untouched event for the default of a count or an absence', () => {
+    const count = withKind(emptyForm(), 'often')
+    expect(count.detector.event.op).toBe('changesTo')
+    const absence = withKind(count, 'missing')
+    expect(absence.detector.event.op).toBe('changes')
+    expect(withKind(absence, 'often').detector.event.op).toBe('changesTo')
+  })
+
+  it.each<[string, (f: RuleForm) => void]>([
+    [
+      'a typed value',
+      (f) => {
+        f.detector.event.value = { type: 'number', text: '0' }
+      }
+    ],
+    [
+      'a chosen true',
+      (f) => {
+        f.detector.event = { op: 'changes', value: { type: 'true', text: '' } }
+      }
+    ],
+    [
+      'an op neither defaults to',
+      (f) => {
+        f.detector.event.op = 'decreases'
+      }
+    ]
+  ])('keeps an event with %s across a switch between count and absence', (_kind, touch) => {
+    const count = withKind(emptyForm(), 'often')
+    touch(count)
+    const event = count.detector.event
+    const absence = withKind(count, 'missing')
+    expect(absence.detector.event).toEqual(event)
+    expect(withKind(absence, 'often').detector.event).toEqual(event)
+  })
+
   it('reads any match other than a timeout as a given state', () => {
     for (const matchOp of ['notEquals', 'changesTo', 'decreases'] as const) {
       expect(kindOf({ ...emptyForm().detector, type: 'match', matchOp })).toBe('state')

@@ -144,7 +144,9 @@ export function kindOf(d: DetectorForm): ConditionKind | undefined {
  * an absence expecting any change suits a heartbeat.
  */
 function eventDefault(event: EventForm, other: EventOp, own: EventOp): EventForm {
-  return event.op === other && event.value.text === '' ? { ...event, op: own } : event
+  // A chosen true or false is a type with no text, so only an empty number is untouched.
+  const untouched = event.value.type === 'number' && event.value.text === ''
+  return event.op === other && untouched ? { ...event, op: own } : event
 }
 
 function detectorOf(kind: ConditionKind, d: DetectorForm): Partial<DetectorForm> {
