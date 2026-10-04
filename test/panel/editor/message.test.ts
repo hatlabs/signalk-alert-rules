@@ -120,6 +120,7 @@ describe('the generated message', () => {
     [
       'often',
       (f) => {
+        f.detector.event = { ...f.detector.event, op: 'changes' }
         f.steps = [step({ limit: '4' })]
         f.detector.window = { amount: '1', unit: 'h' }
       },

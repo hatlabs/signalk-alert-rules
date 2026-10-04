@@ -4,7 +4,13 @@
  * vocabulary stays out of the editor.
  */
 import type { SignalValue } from '../api'
-import { withDetector, type DetectorForm, type RuleForm } from './formModel'
+import {
+  withDetector,
+  type DetectorForm,
+  type EventForm,
+  type EventOp,
+  type RuleForm
+} from './formModel'
 
 export type ConditionKind =
   | 'below'
@@ -131,6 +137,16 @@ export function kindOf(d: DetectorForm): ConditionKind | undefined {
   }
 }
 
+/**
+ * The event, swapped for this kind's default while it is still the other
+ * event kind's, untouched. A count of any change counts each start of a pump
+ * twice, once on and once off, and a number changes on nearly every sample;
+ * an absence expecting any change suits a heartbeat.
+ */
+function eventDefault(event: EventForm, other: EventOp, own: EventOp): EventForm {
+  return event.op === other && event.value.text === '' ? { ...event, op: own } : event
+}
+
 function detectorOf(kind: ConditionKind, d: DetectorForm): Partial<DetectorForm> {
   switch (kind) {
     case 'below':
@@ -151,11 +167,11 @@ function detectorOf(kind: ConditionKind, d: DetectorForm): Partial<DetectorForm>
         matchOp: d.matchOp === '' || d.matchOp === 'timedOut' ? 'equals' : d.matchOp
       }
     case 'often':
-      return { type: 'count' }
+      return { type: 'count', event: eventDefault(d.event, 'changes', 'changesTo') }
     case 'total':
       return { type: 'accumulator', measure: d.measure === '' ? 'time' : d.measure }
     case 'missing':
-      return { type: 'absence' }
+      return { type: 'absence', event: eventDefault(d.event, 'changesTo', 'changes') }
   }
 }
 

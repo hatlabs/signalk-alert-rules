@@ -990,6 +990,53 @@ describe("RuleEditor, a total's reset", () => {
   })
 })
 
+describe("RuleEditor, a count's event", () => {
+  afterEach(cleanup)
+
+  const PUMP = 'electrical.switches.bilgePump.state'
+  const eventOp = () => select('Count each time the value')
+  const eventValue = () => select('Count each time the value: value')
+
+  it('asks for the value the input changes to on a new count', async () => {
+    const { api } = renderEditor({ start: { path: PUMP, kind: 'often' } })
+    await formShown()
+    expect(eventOp()).toHaveProperty('value', 'changesTo')
+    expect(eventValue()).toHaveProperty('value', '')
+    expect(eventValue().getAttribute('aria-required')).toBe('true')
+    choose('Priority for step 1', 'warning')
+    type(textbox('Limit for step 1'), '4')
+    type(textbox('Within'), '1')
+    choose('Within unit', 'h')
+    create()
+    expect(eventValue().getAttribute('aria-invalid')).toBe('true')
+    expect(screen.getByText('Fill in the event to save.')).toBeTruthy()
+    expect(api.createRule).not.toHaveBeenCalled()
+  })
+
+  it('keeps any change as the event a new absence expects', async () => {
+    renderEditor({ start: { path: 'navigation.watch.acknowledged', kind: 'missing' } })
+    await formShown()
+    expect(select('Expect the value to')).toHaveProperty('value', 'changes')
+  })
+
+  it('keeps a stored count of any change', async () => {
+    const bilge = example('bilge-pump-cycling')
+    const stored: Rule = {
+      ...bilge,
+      detector: { ...bilge.detector, event: { op: 'changes' } } as Rule['detector']
+    }
+    const { api, onSaved } = renderEditor({
+      editing: { entry: ruleEntry({ slug: stored.slug }), rule: stored }
+    })
+    await formShown()
+    expect(eventOp()).toHaveProperty('value', 'changes')
+    type(textbox(/^Message/), 'Bilge pump runs often')
+    click(button('Save'))
+    await saved(onSaved)
+    expect(api.updateRule.mock.calls[0]?.[1].detector).toMatchObject({ event: { op: 'changes' } })
+  })
+})
+
 describe('RuleEditor, an invalid stored rule', () => {
   afterEach(cleanup)
 
