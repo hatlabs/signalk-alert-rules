@@ -180,9 +180,14 @@ describe('fieldPointers', () => {
   })
 
   it.each([
-    ['mean', true],
     ['difference', true],
-    ['ratio', false]
+    ['absDifference', true],
+    ['spread', true],
+    ['mean', true],
+    ['ratio', false],
+    ['median', false],
+    ['distance', false],
+    ['positionSpread', false]
   ] as const)('lists the angular flag of a %s only where it can wrap angles', (kind, listed) => {
     const f = form((f) => {
       f.signal = setCombinator(setMode(f.signal, 'combine'), kind)
