@@ -922,6 +922,74 @@ describe('RuleEditor, editing', () => {
   })
 })
 
+describe("RuleEditor, a total's reset", () => {
+  afterEach(cleanup)
+
+  const hours = example('engine-service-due')
+  const openHours = async (rule: Rule = hours) => {
+    const rendered = renderEditor({ editing: { entry: ruleEntry({ slug: rule.slug }), rule } })
+    await formShown()
+    return rendered
+  }
+  const turnOnReset = () => {
+    click(checkbox('Start the total again when…'))
+  }
+  const resetValue = () => textbox('Start again when the value: value')
+
+  it('asks for the value the input changes to once turned on', async () => {
+    await openHours()
+    turnOnReset()
+    expect(select('Start again when the value')).toHaveProperty('value', 'changesTo')
+    expect(resetValue()).toHaveProperty('value', '')
+    expect(resetValue().getAttribute('aria-required')).toBe('true')
+  })
+
+  it('asks for it on a new total as well', async () => {
+    renderEditor({ start: { path: 'propulsion.main.revolutions', kind: 'total' } })
+    await formShown()
+    turnOnReset()
+    expect(select('Start again when the value')).toHaveProperty('value', 'changesTo')
+    expect(resetValue()).toHaveProperty('value', '')
+  })
+
+  it('refuses to save until the value is filled in, naming the reset', async () => {
+    const { api } = await openHours()
+    turnOnReset()
+    click(button('Save'))
+    expect(resetValue().getAttribute('aria-invalid')).toBe('true')
+    expect(description(resetValue())).toContain('is required')
+    expect(screen.getByText('Fill in the reset to save.')).toBeTruthy()
+    expect(api.previewRule).not.toHaveBeenCalled()
+    expect(api.updateRule).not.toHaveBeenCalled()
+  })
+
+  it('saves the reset as a change to the value typed', async () => {
+    const { api, onSaved } = await openHours()
+    turnOnReset()
+    type(resetValue(), '0')
+    click(button('Save'))
+    await saved(onSaved)
+    expect(api.updateRule.mock.calls[0]?.[1].detector).toMatchObject({
+      resetOn: { op: 'changesTo', value: 0 }
+    })
+  })
+
+  it('keeps a stored reset on any change', async () => {
+    const stored: Rule = {
+      ...hours,
+      detector: { ...hours.detector, resetOn: { op: 'changes' } } as Rule['detector']
+    }
+    const { api, onSaved } = await openHours(stored)
+    expect(select('Start again when the value')).toHaveProperty('value', 'changes')
+    type(textbox(/^Message/), 'Engine service is due now')
+    click(button('Save'))
+    await saved(onSaved)
+    expect(api.updateRule.mock.calls[0]?.[1].detector).toMatchObject({
+      resetOn: { op: 'changes' }
+    })
+  })
+})
+
 describe('RuleEditor, an invalid stored rule', () => {
   afterEach(cleanup)
 
