@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { renderMessage } from '../../alerts/message'
 import type { FieldError } from '../api'
 import { PathPicker } from '../paths/PathPicker'
@@ -14,12 +14,13 @@ import {
   isZoneLimited,
   signalShape,
   toRule,
+  withNumbersInUnit,
   type RuleForm
 } from './formModel'
 import { strayBraces, withGenerated } from './message'
 import { MoreOptions } from './MoreOptions'
 import { attachErrors, fieldPointers, underMoreOptions, type AttachedErrors } from './sections'
-import { sourceOptions, withPath } from './SignalFields'
+import { PathTyping, sourceOptions, withPath } from './SignalFields'
 import { StepFields } from './StepFields'
 import { subjectOf } from './words'
 
@@ -89,6 +90,8 @@ export interface RuleFieldsProps {
   onChange: (form: RuleForm) => void
   /** Steps were added or removed, which shifts the index a step's errors are held by. */
   onStepsShifted: () => void
+  /** A change of display unit emptied these shown numbers, each an error at its field. */
+  onUnitChange: (emptied: FieldError[]) => void
   paths: PathList
   /** The units the form opened with, which every conversion keeps. */
   units: UnitLookup
@@ -133,8 +136,43 @@ export function RuleFields(props: RuleFieldsProps) {
     }
   }, [checked.set])
 
+  // The form as last settled, whose units a change is compared with; the form as last changed,
+  // which a commit in the same event as a change has not rendered; and whether the change on its
+  // way is a keystroke in a path search, which passes through partial paths and settles nothing.
+  // Any other change is made with focus out of the search, which committed the path typed there.
+  const settled = useRef(form)
+  const latest = useRef(form)
+  const typing = useRef(false)
+  useLayoutEffect(() => {
+    latest.current = form
+  }, [form])
+
+  /** `next` with the numbers of a signal now in another unit emptied, the emptied reported. */
+  const settle = (next: RuleForm): RuleForm => {
+    const { form: kept, emptied } = withNumbersInUnit(settled.current, next, units)
+    settled.current = kept
+    if (emptied.length > 0) {
+      const shown = new Set(fieldPointers(kept, isNew))
+      props.onUnitChange(emptied.filter((e) => shown.has(e.path)))
+    }
+    return kept
+  }
   const update = (next: RuleForm) => {
-    props.onChange(withGenerated(forgetEdited(next), units))
+    const edited = forgetEdited(next)
+    latest.current = withGenerated(typing.current ? edited : settle(edited), units)
+    typing.current = false
+    props.onChange(latest.current)
+  }
+  const pathTyping: PathTyping = {
+    typing: () => {
+      typing.current = true
+    },
+    committed: () => {
+      const kept = settle(latest.current)
+      if (kept === latest.current) return
+      latest.current = withGenerated(kept, units)
+      props.onChange(latest.current)
+    }
   }
   const measure = signalMeasure(signalShape(form.signal), units)
   const single = form.signal.mode === 'single'
@@ -197,11 +235,13 @@ export function RuleFields(props: RuleFieldsProps) {
                 errors={pathErrors}
                 inputRef={searchRef}
                 onChange={(path) => {
+                  pathTyping.typing()
                   update({
                     ...form,
                     signal: { ...form.signal, slots: [withPath(slot, path, live)] }
                   })
                 }}
+                onCommit={pathTyping.committed}
               />
               {slot.path !== '' && (
                 <div>
@@ -356,16 +396,19 @@ export function RuleFields(props: RuleFieldsProps) {
         }}
       />
 
-      <MoreOptions
-        form={form}
-        onChange={update}
-        measure={measure}
-        paths={paths}
-        units={units}
-        isNew={isNew}
-        open={moreOpen}
-        onToggle={setMoreOpen}
-      />
+      {/* The combined inputs' and the conditions' path searches. */}
+      <PathTyping.Provider value={pathTyping}>
+        <MoreOptions
+          form={form}
+          onChange={update}
+          measure={measure}
+          paths={paths}
+          units={units}
+          isNew={isNew}
+          open={moreOpen}
+          onToggle={setMoreOpen}
+        />
+      </PathTyping.Provider>
     </FieldErrors.Provider>
   )
 }

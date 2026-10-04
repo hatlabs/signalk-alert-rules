@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { createContext, useContext, useState } from 'react'
 import { PathPicker } from '../paths/PathPicker'
 import type { PathList } from '../paths/selfPaths'
 import { ANGULAR_LABEL, COMBINATOR_LABELS } from '../rules/describe'
@@ -15,6 +15,17 @@ import {
   type SignalForm,
   type SlotForm
 } from './formModel'
+
+/**
+ * How an input's path search tells the form holding it that a keystroke is
+ * on its way, which settles nothing, and that the path is settled
+ * (`PathPicker`'s `onCommit`).
+ */
+export interface PathTyping {
+  typing: () => void
+  committed: () => void
+}
+export const PathTyping = createContext<PathTyping | undefined>(undefined)
 
 const COMBINATOR_OPTIONS: readonly Option<(typeof COMBINATOR_KINDS)[number]>[] =
   COMBINATOR_KINDS.map((value) => ({ value, label: COMBINATOR_LABELS[value] }))
@@ -105,6 +116,7 @@ function Slot({ label, at, slot, onChange, paths, units, unitError, wildcard }: 
     ...new Set([...useFieldErrors(`${at}/path`), ...(unitError === undefined ? [] : [unitError])])
   ]
   const all = useAllInstances(slot, paths, onChange)
+  const typed = useContext(PathTyping)
   return (
     <div className="skar-slot">
       <PathPicker
@@ -113,8 +125,10 @@ function Slot({ label, at, slot, onChange, paths, units, unitError, wildcard }: 
         paths={paths}
         errors={pathErrors}
         onChange={(path) => {
+          typed?.typing()
           onChange(withPath(slot, path, units))
         }}
+        {...(typed === undefined ? {} : { onCommit: typed.committed })}
       />
       <SelectField
         label={`Source for ${label.toLowerCase()}`}

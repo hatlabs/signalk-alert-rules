@@ -1225,3 +1225,178 @@ export function toRule(form: RuleForm, units: UnitLookup): ToRuleResult {
   }) as Rule
   return { ok: true, rule }
 }
+
+// ---- a path shown in another unit ----
+
+/** The numbers one display unit applies to: the rule's own signal's, or a gate's by its index. */
+type UnitScope = 'signal' | number
+
+/** A number shown in its signal's display unit, at its pointer, and how to empty it. */
+interface UnitNumber {
+  at: string
+  optional: boolean
+  text: string
+  clear: (form: RuleForm) => RuleForm
+}
+
+/** `holder` with `field` empty and its exact value forgotten. */
+function withEmpty<K extends string, T extends Holder<K>>(holder: T, field: K): T {
+  const entries = Object.entries(holder.exact ?? {}) as [K, Exact | undefined][]
+  const { exact: _exact, ...rest } = holder
+  return { ...rest, [field]: '', ...exacts(entries.filter(([key]) => key !== field)) } as T
+}
+
+function scopeSignal(form: RuleForm, scope: UnitScope): SignalForm | undefined {
+  return scope === 'signal' ? form.signal : form.gates[scope]?.signal
+}
+
+function unitKey(signal: SignalForm, units: UnitLookup): string {
+  const { unit } = signalMeasure(signalShape(signal), units)
+  return [unit.symbol, String(unit.scale), String(unit.offset)].join('|')
+}
+
+/**
+ * Every number in `scope` that is typed in its signal's display unit.
+ * Durations, counts, text and true/false values have no unit and are left out.
+ */
+function unitNumbers(form: RuleForm, scope: UnitScope): UnitNumber[] {
+  if (scope !== 'signal') {
+    const at = `/gates/${String(scope)}`
+    const gate = form.gates[scope]
+    const patch = (f: RuleForm, change: (g: GateForm) => GateForm): RuleForm => ({
+      ...f,
+      gates: f.gates.map((g, i) => (i === scope ? change(g) : g))
+    })
+    return [
+      {
+        at: `${at}/limit/value`,
+        optional: false,
+        text: gate.limit.value,
+        clear: (f: RuleForm) => patch(f, (g) => ({ ...g, limit: withEmpty(g.limit, 'value') }))
+      },
+      {
+        at: `${at}/hysteresis`,
+        optional: true,
+        text: gate.hysteresis,
+        clear: (f: RuleForm) => patch(f, (g) => withEmpty(g, 'hysteresis'))
+      }
+    ]
+  }
+  const d = form.detector
+  const detector = (f: RuleForm, change: (d: DetectorForm) => DetectorForm): RuleForm => ({
+    ...f,
+    detector: change(f.detector)
+  })
+  type ValueAt = [
+    string,
+    (d: DetectorForm) => ValueField,
+    (d: DetectorForm, v: ValueField) => DetectorForm
+  ]
+  const values: ValueAt[] = [
+    ['/detector/while/value', (dd) => dd.whileValue, (dd, v) => ({ ...dd, whileValue: v })],
+    [
+      '/detector/resetOn/value',
+      (dd) => dd.resetOn.value,
+      (dd, v) => ({ ...dd, resetOn: { ...dd.resetOn, value: v } })
+    ],
+    [
+      '/detector/event/value',
+      (dd) => dd.event.value,
+      (dd, v) => ({ ...dd, event: { ...dd.event, value: v } })
+    ]
+  ]
+  const quantity = stepQuantity(d)
+  const limitInUnit = quantity === 'value' || quantity === 'slope' || quantity === 'integral'
+  const steps = form.steps.flatMap((step, index): UnitNumber[] => {
+    const at = stepPointer(index)
+    const patch = (f: RuleForm, change: (s: StepForm) => StepForm): RuleForm => ({
+      ...f,
+      steps: f.steps.map((s, i) => (i === index ? change(s) : s))
+    })
+    const field = (name: 'limit' | 'low' | 'high'): UnitNumber => ({
+      at: `${at}/${name}`,
+      optional: false,
+      text: step[name],
+      clear: (f: RuleForm) => patch(f, (st) => withEmpty(st, name))
+    })
+    return [
+      ...(limitInUnit ? [field('limit')] : []),
+      field('low'),
+      field('high'),
+      ...(step.value.type === 'number'
+        ? [
+            {
+              at: `${at}/value`,
+              optional: false,
+              text: step.value.text,
+              clear: (f: RuleForm) =>
+                patch(f, (st) => ({ ...st, value: withEmpty(st.value, 'text') }))
+            }
+          ]
+        : [])
+    ]
+  })
+  return [
+    {
+      at: '/detector/limit/value',
+      optional: false,
+      text: d.limit.value,
+      clear: (f: RuleForm) => detector(f, (dd) => ({ ...dd, limit: withEmpty(dd.limit, 'value') }))
+    },
+    {
+      at: '/detector/hysteresis',
+      optional: true,
+      text: d.hysteresis,
+      clear: (f: RuleForm) => detector(f, (dd) => withEmpty(dd, 'hysteresis'))
+    },
+    ...values
+      .filter(([, get]) => get(d).type === 'number')
+      .map(([at, get, set]) => ({
+        at,
+        optional: false,
+        text: get(d).text,
+        clear: (f: RuleForm) => detector(f, (dd) => set(dd, withEmpty(get(dd), 'text')))
+      })),
+    ...steps
+  ]
+}
+
+/**
+ * `form` with every number typed in a display unit emptied where its signal
+ * is in another unit than in `settled`, the form as last settled: shown as
+ * typed, the number would be read in the new unit, 2.57 m/s saved as 2.57 kn.
+ * Each emptied number is returned as an error at its field; with none, `form`
+ * itself is returned.
+ */
+export function withNumbersInUnit(
+  settled: RuleForm,
+  form: RuleForm,
+  units: UnitLookup
+): { form: RuleForm; emptied: FieldError[] } {
+  // Gates added or removed since are not the ones settled at the same index.
+  const gates = settled.gates.length === form.gates.length ? form.gates.map((_, i) => i) : []
+  const scopes: UnitScope[] = ['signal', ...gates]
+  let next = form
+  const emptied: FieldError[] = []
+  for (const scope of scopes) {
+    const before = scopeSignal(settled, scope)
+    const after = scopeSignal(form, scope)
+    if (before === undefined || after === undefined) continue
+    if (unitKey(before, units) === unitKey(after, units)) continue
+    for (const n of unitNumbers(next, scope)) {
+      if (n.text === '') continue
+      next = n.clear(next)
+      emptied.push({ path: n.at, message: n.optional ? RETYPE_IN_UNIT : 'is required' })
+    }
+  }
+  return { form: next, emptied }
+}
+
+/** `errors` with those on the numbers a change of unit emptied replaced by theirs. */
+export function withUnitErrors(
+  errors: readonly FieldError[],
+  emptied: readonly FieldError[]
+): FieldError[] {
+  const touched = new Set(emptied.map((e) => e.path))
+  return [...errors.filter((e) => !touched.has(e.path)), ...emptied]
+}

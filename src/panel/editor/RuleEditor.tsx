@@ -13,7 +13,7 @@ import { withKind, type ConditionKind } from './conditionKinds'
 import { editConsequences } from './consequences'
 import { UnattachedErrors, useFocusInvalid, WithPaths } from './editorFrame'
 import { useLeaveGuard } from './leaveGuard'
-import { emptyForm, fromBody, fromRule, toRule, type RuleForm } from './formModel'
+import { emptyForm, fromBody, fromRule, toRule, withUnitErrors, type RuleForm } from './formModel'
 import { withGenerated } from './message'
 import { checkedErrors, RuleFields } from './RuleFields'
 import { fieldPointers, saveHint } from './sections'
@@ -211,6 +211,9 @@ function EditorForm(props: FormProps) {
             onChange={setForm}
             onStepsShifted={() => {
               setErrors(errors.filter((e) => !e.path.startsWith('/detector/steps/')))
+            }}
+            onUnitChange={(emptied) => {
+              setErrors((last) => withUnitErrors(last, emptied))
             }}
             paths={paths}
             units={units}

@@ -20,7 +20,7 @@ import {
   type TemplateSetEntry
 } from '../api'
 import { BackIcon } from '../detail/icons'
-import { toRule, type RuleForm } from '../editor/formModel'
+import { toRule, withUnitErrors, type RuleForm } from '../editor/formModel'
 import { UnattachedErrors, useFocusInvalid, WithPaths } from '../editor/editorFrame'
 import { useLeaveGuard } from '../editor/leaveGuard'
 import { checkedErrors, RuleFields } from '../editor/RuleFields'
@@ -441,6 +441,9 @@ function TabsForm(props: FormProps) {
                   replaceTab(active.key, {
                     errors: active.errors.filter((e) => !e.path.startsWith('/detector/steps/'))
                   })
+                }}
+                onUnitChange={(emptied) => {
+                  replaceTab(active.key, { errors: withUnitErrors(active.errors, emptied) })
                 }}
                 units={units}
                 live={live}
