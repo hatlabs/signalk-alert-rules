@@ -475,6 +475,39 @@ describe('Add rule from a template', () => {
         expect(rule.detector.type === 'sustained' && rule.detector.hysteresis).toBeUndefined()
       }
     })
+
+    it('moves a later condition’s emptied numbers with it when an earlier one is removed', async () => {
+      renderShell(fresh())
+      await openLifepo4()
+      pick(/^House bank/)
+      await continueWith('Continue with 1 rule')
+      const summary = screen.getByText('More options')
+      if (summary.closest('details')?.open !== true) fireEvent.click(summary)
+      const textbox = (name: string) => screen.getByRole<HTMLInputElement>('textbox', { name })
+      const addCondition = () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Add a condition' }))
+      }
+      const settleConditionPath = (path: string) => {
+        const search = screen.getByRole('combobox', { name: 'Condition 2 input path' })
+        change(search, path)
+        fireEvent.blur(search)
+      }
+      addCondition()
+      addCondition()
+      settleConditionPath('electrical.batteries.house.voltage')
+      change(textbox('Condition 2 limit'), '12')
+      change(textbox('Condition 2 clear margin'), '0.5')
+      settleConditionPath('electrical.batteries.house.current')
+      expect(textbox('Condition 2 clear margin').value).toBe('')
+      fireEvent.click(screen.getByRole('button', { name: 'Remove condition 1' }))
+      expect(describedBy(textbox('Condition 1 limit'))).toContain('is required')
+      expect(describedBy(textbox('Condition 1 clear margin'))).toContain(
+        'must be typed again in the unit of the chosen path'
+      )
+      expect(footer()).toBe(
+        'Fill in the limit of Only while condition 1 on House bank to save. The clear margin of Only while condition 1 on House bank was emptied: type it again or leave it empty.'
+      )
+    })
   })
 
   it('keeps the tab the server refuses, having created the rules before it', async () => {

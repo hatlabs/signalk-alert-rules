@@ -21,6 +21,7 @@ import {
   marginUnnamed,
   standingRetypes,
   toRule,
+  withoutGate,
   withUnitErrors,
   type RuleForm
 } from './formModel'
@@ -231,6 +232,11 @@ function EditorForm(props: FormProps) {
             onChange={setForm}
             onStepsShifted={() => {
               setErrors(errors.filter((e) => !e.path.startsWith('/detector/steps/')))
+            }}
+            onGateRemoved={(index) => {
+              const moved = withoutGate(errors, named, index)
+              setErrors(moved.errors)
+              setNamed(moved.named)
             }}
             onUnitChange={(emptied) => {
               setErrors((last) => withUnitErrors(last, emptied))

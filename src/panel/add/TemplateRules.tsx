@@ -25,6 +25,7 @@ import {
   marginUnnamed,
   standingRetypes,
   toRule,
+  withoutGate,
   withUnitErrors,
   type RuleForm
 } from '../editor/formModel'
@@ -471,6 +472,9 @@ function TabsForm(props: FormProps) {
                   replaceTab(active.key, {
                     errors: active.errors.filter((e) => !e.path.startsWith('/detector/steps/'))
                   })
+                }}
+                onGateRemoved={(index) => {
+                  replaceTab(active.key, withoutGate(active.errors, active.named, index))
                 }}
                 onUnitChange={(emptied) => {
                   replaceTab(active.key, {

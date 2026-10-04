@@ -2003,6 +2003,65 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     expect(textbox('Condition 2 limit')).toHaveProperty('value', '480')
   })
 
+  describe('a condition removed', () => {
+    const COOLANT = 'propulsion.port.coolantTemperature'
+    // Two conditions, the second with a clear margin to empty.
+    const twoGated = (): Rule => {
+      const rpm = example('engine-rpm-mismatch')
+      return { ...rpm, gates: rpm.gates?.map((g, i) => (i === 1 ? { ...g, hysteresis: 1 } : g)) }
+    }
+    async function openTwoGated() {
+      const rule = twoGated()
+      const rendered = renderEditor({ editing: { entry: ruleEntry({ slug: rule.slug }), rule } })
+      await formShown()
+      openMoreOptions()
+      return rendered
+    }
+    const changeGatePath = (n: number, path: string) => {
+      const search = select(`Condition ${String(n)} input path`)
+      type(search, path)
+      fireEvent.blur(search)
+    }
+
+    it('moves a later condition’s emptied limit and clear margin with it', async () => {
+      await openTwoGated()
+      changeGatePath(2, COOLANT)
+      expect(textbox('Condition 2 clear margin')).toHaveProperty('value', '')
+      click(button('Remove condition 1'))
+      expect(textbox('Condition 1 limit')).toHaveProperty('value', '')
+      expect(description(textbox('Condition 1 limit'))).toContain('is required')
+      expect(description(textbox('Condition 1 clear margin'))).toContain(RETYPE)
+      expect(footer()).toBe(
+        'Fill in the limit of Only while condition 1 to save. The clear margin of Only while condition 1 was emptied: type it again or leave it empty.'
+      )
+    })
+
+    it('drops the removed condition’s errors from the condition now at its place', async () => {
+      await openTwoGated()
+      changeGatePath(1, COOLANT)
+      expect(textbox('Condition 1 limit')).toHaveProperty('value', '')
+      click(button('Remove condition 1'))
+      expect(textbox('Condition 1 limit')).toHaveProperty('value', '480')
+      expect(textbox('Condition 1 limit').getAttribute('aria-invalid')).not.toBe('true')
+      expect(textbox('Condition 1 clear margin').getAttribute('aria-invalid')).not.toBe('true')
+      expect(footer()).toBe('')
+    })
+
+    it('keeps a clear margin a refused Save named as named once its condition moves', async () => {
+      const { api, onSaved } = await openTwoGated()
+      changeGatePath(2, COOLANT)
+      click(button('Save'))
+      expect(api.previewRule).not.toHaveBeenCalled()
+      click(button('Remove condition 1'))
+      type(textbox('Condition 1 limit'), '90')
+      click(button('Save'))
+      await saved(onSaved)
+      const [gate] = api.updateRule.mock.calls[0]?.[1].gates ?? []
+      expect(gate.signal).toEqual({ path: COOLANT })
+      expect(gate.hysteresis).toBeUndefined()
+    })
+  })
+
   it('empties a combination’s limit when another kind of combination changes its unit', async () => {
     const rpm = example('engine-rpm-mismatch')
     const { api } = renderEditor({ editing: { entry: ruleEntry({ slug: rpm.slug }), rule: rpm } })
