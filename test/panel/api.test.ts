@@ -254,6 +254,91 @@ describe('httpApi', () => {
       expect(read).toMatchObject({ rule: { signal: combined, gates: [combined] } })
     })
 
+    it('reads each combined input’s source, none for one without', async () => {
+      const positions = {
+        combinator: 'positionSpread',
+        inputs: [
+          { path: 'navigation.position', source: 'gnss.bow' },
+          { path: 'navigation.position' },
+          { path: 'navigation.position', source: 'gnss.mast' }
+        ]
+      }
+      const entry = {
+        ...notStartedAccumulator,
+        rule: {
+          ...notStartedAccumulator.rule,
+          signal: positions,
+          gates: [{ signal: positions, direction: 'below', limit: { kind: 'fixed', value: 1 } }]
+        }
+      }
+      const api = httpApi(fakeFetch({ [`${BASE}/rules`]: { body: [entry] } }))
+      const [read] = await api.rules()
+      const combined = {
+        paths: ['navigation.position', 'navigation.position', 'navigation.position'],
+        sources: ['gnss.bow', undefined, 'gnss.mast'],
+        combinator: 'positionSpread'
+      }
+      expect(read).toMatchObject({ rule: { signal: combined, gates: [combined] } })
+    })
+
+    it('reads a single-path gate’s source, the rule’s own staying in its Source row', async () => {
+      const entry = {
+        ...notStartedAccumulator,
+        rule: {
+          ...notStartedAccumulator.rule,
+          signal: { path: 'navigation.position', source: 'gnss.bow' },
+          gates: [
+            {
+              signal: { path: 'navigation.speedOverGround', source: 'gnss.mast' },
+              direction: 'above',
+              limit: { kind: 'fixed', value: 1 }
+            }
+          ]
+        }
+      }
+      const api = httpApi(fakeFetch({ [`${BASE}/rules`]: { body: [entry] } }))
+      const [read] = await api.rules()
+      expect(read).toMatchObject({
+        rule: {
+          signal: { paths: ['navigation.position'] },
+          source: 'gnss.bow',
+          gates: [{ paths: ['navigation.speedOverGround'], sources: ['gnss.mast'] }]
+        }
+      })
+      expect(read).not.toHaveProperty('rule.signal.sources')
+    })
+
+    it('drops a source that is not text', async () => {
+      const entry = {
+        ...notStartedAccumulator,
+        rule: {
+          ...notStartedAccumulator.rule,
+          signal: {
+            combinator: 'positionSpread',
+            inputs: [
+              { path: 'navigation.position', source: null },
+              { path: 'navigation.position', source: 42 }
+            ]
+          },
+          gates: [
+            {
+              signal: { path: 'navigation.speedOverGround', source: 7 },
+              direction: 'above',
+              limit: { kind: 'fixed', value: 1 }
+            }
+          ]
+        }
+      }
+      const api = httpApi(fakeFetch({ [`${BASE}/rules`]: { body: [entry] } }))
+      const [read] = await api.rules()
+      expect(read).toHaveProperty('rule.signal.paths', [
+        'navigation.position',
+        'navigation.position'
+      ])
+      expect(read).not.toHaveProperty('rule.signal.sources')
+      expect(read).not.toHaveProperty('rule.gates.0.sources')
+    })
+
     it('reads each entry with its rule, controls and status', async () => {
       const api = httpApi(
         fakeFetch({ [`${BASE}/rules`]: { body: [ruleEntry, notStartedAccumulator] } })
