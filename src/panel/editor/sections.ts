@@ -41,16 +41,28 @@ function limitPointers(limit: LimitForm, at: string): string[] {
 }
 
 /**
- * The pointer whose errors the zones checkbox shows. A fixed detector limit
- * has no fields, typed steps standing in for it, so the checkbox, which
- * switches to and from the zones, holds every error under it.
+ * The zones checkbox stands for the detector's limit as a whole. A fixed
+ * detector limit has no fields, typed steps standing in for it, so the
+ * checkbox, which switches to and from the zones, holds every error on the
+ * limit that the zone level and path do not.
  */
-export function zonesPointer(limit: LimitForm): string {
-  return limit.kind === 'zone' ? '/detector/limit/kind' : '/detector/limit'
+export const ZONES = '/detector/limit'
+
+function showsZones(d: DetectorForm): boolean {
+  return d.type === 'sustained' || d.type === 'projection'
 }
 
 function zoneLimitPointers(limit: LimitForm): string[] {
-  return limit.kind === 'zone' ? limitPointers(limit, '/detector/limit') : [zonesPointer(limit)]
+  return limit.kind === 'zone' ? [ZONES, `${ZONES}/level`, `${ZONES}/path`] : [ZONES]
+}
+
+/** The field that shows an error on the detector's limit; undefined where the form shows no limit. */
+function detectorLimitField(pointer: string, form: RuleForm): string | undefined {
+  if (!showsZones(form.detector)) return undefined
+  return zoneLimitPointers(form.detector.limit)
+    .filter((f) => pointer === f || pointer.startsWith(`${f}/`))
+    .sort((a, b) => b.length - a.length)
+    .at(0)
 }
 
 function eventPointers(event: EventForm, at: string): string[] {
@@ -115,7 +127,7 @@ function moreOptionsPointers(form: RuleForm, isNew: boolean): string[] {
       ]
     }),
     ...(form.signal.mode === 'combine' ? signalPointers(form.signal, '/signal') : []),
-    ...(d.type === 'sustained' || d.type === 'projection' ? zoneLimitPointers(d.limit) : []),
+    ...(showsZones(d) ? zoneLimitPointers(d.limit) : []),
     ...(isNew ? ['/slug'] : [])
   ]
 }
@@ -197,7 +209,7 @@ const LABELS: Readonly<Record<string, string>> = {
   '/detector/duration': 'how long it must hold',
   '/detector/hysteresis': 'the clear margin',
   '/detector/clearDuration': 'the clear delay',
-  '/detector/limit': "Use the value's zones",
+  [ZONES]: "Use the value's zones",
   '/detector/limit/level': 'the zone to start at',
   '/detector/limit/path': 'the path of the zones',
   '/gates': 'the Only while conditions',
@@ -235,6 +247,11 @@ export function fieldLabel(pointer: string, form: RuleForm): string {
   if (pointer === '/detector/direction' && form.detector.type === 'sustained') {
     return LABELS['/detector/type'] ?? ''
   }
+  if (pointer === ZONES || pointer.startsWith(`${ZONES}/`)) {
+    const field = detectorLimitField(pointer, form)
+    // Without the zones checkbox the limit has no field to name.
+    return field === undefined ? 'the zone limit' : (LABELS[field] ?? '')
+  }
   const input = /^\/signal\/inputs\/(\d+)/.exec(pointer)
   if (input !== null) return `path ${String(Number(input[1]) + 1)} to combine`
   const keys = Object.keys(LABELS)
@@ -259,11 +276,12 @@ export function whatStops(errors: readonly FieldError[], form: RuleForm): string
   // A clear margin to retype may stay empty, so it does not stop Save.
   const stopping = errors.filter((e) => e.message !== RETYPE_IN_UNIT)
   if (stopping.length === 0) return undefined
+  // The zones checkbox is ticked or not, never filled in, so what it holds is to fix.
+  const isMissing = (e: FieldError) =>
+    e.message === 'is required' && detectorLimitField(e.path, form) !== ZONES
   const labels = (missing: boolean) => [
     ...new Set(
-      stopping
-        .filter((e) => (e.message === 'is required') === missing)
-        .map((e) => fieldLabel(e.path, form))
+      stopping.filter((e) => isMissing(e) === missing).map((e) => fieldLabel(e.path, form))
     )
   ]
   const fill = labels(true)

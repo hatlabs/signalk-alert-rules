@@ -1098,7 +1098,34 @@ describe('RuleEditor, an invalid stored rule', () => {
       expect(description(zones)).toContain(error.message)
     }
     expect(screen.queryByText(/^\/detector\//)).toBeNull()
-    expect(screen.getByText(/fix Use the value's zones to save\.$/i)).toBeTruthy()
+    expect(screen.getByText("Fix Use the value's zones to save.")).toBeTruthy()
+  })
+
+  it("opens a zone limit's stray setting with its error on the zones", async () => {
+    const limit = { kind: 'zone', level: 'warn', value: 5 }
+    await openStored({ ...battery, detector: { ...battery.detector, limit } })
+    const zones = checkbox(/Use the value's zones/)
+    expect(zones.getAttribute('aria-invalid')).toBe('true')
+    expect(description(zones)).toContain('is not a known property')
+    expect(select('Starting at the zone').getAttribute('aria-invalid')).toBeNull()
+    expect(screen.queryByText(/^\/detector\//)).toBeNull()
+    expect(screen.getByText("Fix Use the value's zones to save.")).toBeTruthy()
+  })
+
+  it('keeps the errors of a fixed detector limit on the zones once they are chosen', async () => {
+    const limit = { kind: 'fixed', value: 12 }
+    await openStored({ ...battery, detector: { ...battery.detector, limit } })
+    click(checkbox(/Use the value's zones/))
+    const zones = checkbox(/Use the value's zones/)
+    expect(zones.getAttribute('aria-invalid')).toBe('true')
+    expect(description(zones)).toContain('must be equal to constant')
+    expect(description(zones)).toContain('is not a known property')
+    expect(description(zones)).not.toContain('is required')
+    expect(description(select('Starting at the zone'))).toContain('is required')
+    expect(screen.queryByText(/^\/detector\//)).toBeNull()
+    expect(
+      screen.getByText("Fill in the zone to start at and fix Use the value's zones to save.")
+    ).toBeTruthy()
   })
 
   const rpm = example('engine-rpm-mismatch')

@@ -17,7 +17,7 @@ import {
   type RuleForm
 } from './formModel'
 import { GateFields, zoneText } from './GateFields'
-import { zonesPointer } from './sections'
+import { ZONES } from './sections'
 import { SignalFields, useAllInstances } from './SignalFields'
 import { clearMarginText, unitLabels } from './words'
 
@@ -56,7 +56,7 @@ function Zones({ form, onChange, measure, paths, units }: ZonesProps) {
     <>
       <CheckField
         label={<strong>Use the value&apos;s zones</strong>}
-        pointer={zonesPointer(limit)}
+        pointer={ZONES}
         hint="Instead of typing the steps"
         checked={on}
         onChange={(checked) => {
