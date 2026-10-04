@@ -1191,6 +1191,29 @@ describe('RuleEditor, an invalid stored rule', () => {
       ).toBeTruthy()
     })
 
+    it('names a field to fix before the list', async () => {
+      await openWith({ ...battery, detector: { ...battery.detector, steps } }, [
+        { path: '/name', message: 'must not be empty' },
+        stepsAndZones
+      ])
+      expect(screen.getByText('Fix the name and the error listed above to save.')).toBeTruthy()
+    })
+
+    it('names the field once a change shows the error there', async () => {
+      await openStored({ ...rpm, signal: { ...rpm.signal, combinator: 'ratio', angular: true } })
+      expect(screen.getByText('Fix the error listed above to save.')).toBeTruthy()
+      openMoreOptions()
+      choose('Combined combination', 'difference')
+      const angles = checkbox(/Values are angles/)
+      expect(angles.getAttribute('aria-invalid')).toBe('true')
+      expect(description(angles)).toContain('ratio cannot wrap angles')
+      expect(screen.queryByText(/^\/signal\/angular/)).toBeNull()
+      // A ratio has no unit and a difference has its inputs', so the limit empties too.
+      expect(
+        screen.getByText('Fill in the limit and fix whether the values are angles to save.')
+      ).toBeTruthy()
+    })
+
     it('names the list once for several errors', async () => {
       const angular = { path: '/signal/angular', message: 'is not a known property' }
       await openWith(
