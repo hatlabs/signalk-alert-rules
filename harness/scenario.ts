@@ -14,6 +14,8 @@ export const OPTIONS = {
   after: ['ready', 'unreachable', 'session', 'notRunning'],
   /** `/rules`: the worked examples, none, or the examples with a stored rule that does not run and a file that could not be read. */
   rules: ['examples', 'empty', 'partial'],
+  /** The rules' states: a mix of conditions, or the ones docs/examples.md shows where they differ. */
+  states: ['mixed', 'docs'],
   access: ['admin', 'readwrite', 'readonly'],
   security: ['on', 'off'],
   /** The server's paths: the test fixtures' paths, none, never answering, or failing. */
@@ -56,6 +58,7 @@ export function scenarioOf(search: string): Scenario {
     plugin: choice(params, 'plugin'),
     after: choice(params, 'after'),
     rules: choice(params, 'rules'),
+    states: choice(params, 'states'),
     access: choice(params, 'access'),
     security: choice(params, 'security'),
     paths: choice(params, 'paths'),

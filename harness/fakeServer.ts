@@ -86,8 +86,8 @@ export function fakeApi(scenario: Scenario): PanelApi {
     scenario.rules === 'empty'
       ? []
       : scenario.rules === 'partial'
-        ? [...exampleEntries(), invalidRuleEntry()]
-        : exampleEntries()
+        ? [...exampleEntries(scenario.states), invalidRuleEntry()]
+        : exampleEntries(scenario.states)
   const store = new Map(initial.map((e) => [e.slug, e]))
   const loadedAt = Date.now()
   let listing: TemplateListing = {
