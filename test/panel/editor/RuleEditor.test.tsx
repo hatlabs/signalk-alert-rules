@@ -687,6 +687,51 @@ describe('RuleEditor, editing', () => {
     expect(button('Save')).toBeTruthy()
   })
 
+  describe("a single signal's zones from another path", () => {
+    const START = 'electrical.batteries.start.voltage'
+    const zonePicker = () => select(/^Zones from path/)
+    const fromStart: Rule = {
+      ...battery,
+      detector: { ...battery.detector, limit: { kind: 'zone', level: 'warn', path: START } }
+    } as Rule
+
+    it('shows an empty picker that says empty uses the zones of the value', async () => {
+      renderEditor({ editing: { entry: active, rule: battery } })
+      await formShown()
+      expect(zonePicker()).toHaveProperty('value', '')
+      expect(description(zonePicker())).toContain(`Empty uses the zones of ${HOUSE}`)
+      expect(screen.getByText(/^From the zones of/).textContent).toBe(`From the zones of ${HOUSE}`)
+    })
+
+    it('shows a stored path in the picker and the zones it names', async () => {
+      renderEditor({ editing: { entry: active, rule: fromStart } })
+      await formShown()
+      expect(zonePicker()).toHaveProperty('value', START)
+      expect(screen.getByText(/^From the zones of/).textContent).toBe(`From the zones of ${START}`)
+    })
+
+    it('saves without a path once the picker is cleared', async () => {
+      const { api, onSaved } = renderEditor({ editing: { entry: active, rule: fromStart } })
+      await formShown()
+      type(zonePicker(), '')
+      click(button('Save'))
+      await saved(onSaved)
+      expect(api.updateRule.mock.calls[0]?.[1].detector).toEqual(battery.detector)
+    })
+
+    it('keeps a path chosen while combining in view once back to a single path', async () => {
+      const { api, onSaved } = renderEditor({ editing: { entry: active, rule: battery } })
+      await formShown()
+      click(checkbox('Combine with other paths'))
+      type(zonePicker(), START)
+      click(checkbox('Combine with other paths'))
+      expect(zonePicker()).toHaveProperty('value', START)
+      click(button('Save'))
+      await saved(onSaved)
+      expect(api.updateRule.mock.calls[0]?.[1].detector).toEqual(fromStart.detector)
+    })
+  })
+
   it('opens every stored step and saves them as changed', async () => {
     const { api } = renderEditor({ editing: { entry: active, rule: stepped } })
     await formShown()
@@ -1138,6 +1183,21 @@ describe('RuleEditor, an invalid stored rule', () => {
       { type: 'sustained' }
     >
     await openStored({ ...rpm, detector: { ...detector, limit: { kind: 'zone', level: 'warn' } } })
+    expect(screen.getByText('Fix the path of the zones to save.')).toBeTruthy()
+  })
+
+  it("opens a single signal's stray zone path with its error on the picker", async () => {
+    const limit = { kind: 'zone', level: 'warn', path: 'electrical.batteries.*.voltage' }
+    const body = { ...battery, detector: { ...battery.detector, limit } }
+    await openStored(body)
+    const result = validateRule(body)
+    const message = result.ok ? '' : (result.errors[0]?.message ?? '')
+    expect(message).not.toBe('')
+    const picker = select(/^Zones from path/)
+    expect(picker).toHaveProperty('value', limit.path)
+    expect(picker.getAttribute('aria-invalid')).toBe('true')
+    expect(description(picker)).toContain(message)
+    expect(document.querySelectorAll('[aria-invalid="true"]')).toHaveLength(1)
     expect(screen.getByText('Fix the path of the zones to save.')).toBeTruthy()
   })
 

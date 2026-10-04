@@ -1,4 +1,12 @@
-import { useEffect, useId, useMemo, useState, type KeyboardEvent, type Ref } from 'react'
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+  type Ref
+} from 'react'
 import { unitLabel } from '../units'
 import type { PathEntry, PathList } from './selfPaths'
 import './PathPicker.css'
@@ -15,6 +23,8 @@ export interface PathPickerProps {
    * as a path typed passes through partial paths on its way.
    */
   onCommit?: (path: string) => void
+  /** What the path means, announced with the input. */
+  hint?: ReactNode
   /** Why the path is not accepted, announced with the input. */
   errors?: readonly string[]
   inputRef?: Ref<HTMLInputElement>
@@ -61,6 +71,7 @@ export function PathPicker({
   paths,
   onChange,
   onCommit,
+  hint,
   errors = [],
   inputRef
 }: PathPickerProps) {
@@ -68,6 +79,7 @@ export function PathPicker({
   const inputId = `${id}-input`
   const listboxId = `${id}-listbox`
   const statusId = `${id}-status`
+  const hintId = `${id}-hint`
   const errorId = `${id}-error`
   const optionId = (index: number) => `${id}-option-${String(index)}`
 
@@ -163,7 +175,13 @@ export function PathPicker({
         aria-expanded={expanded}
         aria-controls={expanded ? listboxId : undefined}
         aria-activedescendant={expanded && active !== null ? optionId(active) : undefined}
-        aria-describedby={errors.length === 0 ? statusId : `${statusId} ${errorId}`}
+        aria-describedby={[
+          hint === undefined ? undefined : hintId,
+          statusId,
+          errors.length === 0 ? undefined : errorId
+        ]
+          .filter((d) => d !== undefined)
+          .join(' ')}
         aria-invalid={errors.length === 0 ? undefined : true}
         value={value}
         onChange={(event) => {
@@ -206,6 +224,11 @@ export function PathPicker({
             </li>
           ))}
         </ul>
+      )}
+      {hint !== undefined && (
+        <div id={hintId} className="skar-hint">
+          {hint}
+        </div>
       )}
       {/* Rendered even when empty, so screen readers track it as a live region from the start. */}
       <div id={statusId} role="status" className="skar-hint skar-path-picker-status">

@@ -76,17 +76,25 @@ function Zones({ form, onChange, measure, paths, units }: ZonesProps) {
               onChange(withDetector(form, { limit: { ...limit, level } }))
             }}
           />
-          {single === undefined && (
-            <PathPicker
-              label="Zones from path"
-              value={limit.path}
-              paths={paths}
-              errors={zonePathErrors}
-              onChange={(path) => {
-                onChange(withDetector(form, { limit: { ...limit, path } }))
-              }}
-            />
-          )}
+          {/* A rule on a single path may take its zones from another path. */}
+          <PathPicker
+            label={single === undefined ? 'Zones from path' : 'Zones from path (optional)'}
+            value={limit.path}
+            paths={paths}
+            errors={zonePathErrors}
+            hint={
+              single === undefined ? undefined : single === '' ? (
+                "Empty uses the zones of the value's path."
+              ) : (
+                <>
+                  Empty uses the zones of <span className="skar-mono">{single}</span>
+                </>
+              )
+            }
+            onChange={(path) => {
+              onChange(withDetector(form, { limit: { ...limit, path } }))
+            }}
+          />
           <div className="skar-card skar-zones">
             {zonePath === undefined || zonePath === '' ? (
               <p className="skar-hint">Choose the path whose zones the rule uses.</p>
