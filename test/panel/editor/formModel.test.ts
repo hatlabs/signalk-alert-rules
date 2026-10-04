@@ -42,6 +42,7 @@ import {
   toRule,
   TWO_INPUT_KINDS,
   withDetector,
+  withNumbersInUnit,
   ZONE_LEVEL_NAMES,
   type RuleForm
 } from '../../../src/panel/editor/formModel'
@@ -1581,4 +1582,92 @@ describe('a converted value shown rounded', () => {
       expect(stored(saved(form))).not.toBe(0.1)
     })
   })
+})
+
+describe('withNumbersInUnit', () => {
+  const RPM = 'propulsion.port.revolutions'
+  const TEMPERATURE = 'propulsion.port.coolantTemperature'
+  const gate = {
+    signal: { path: RPM },
+    direction: 'above',
+    limit: { kind: 'fixed', value: 10 },
+    hysteresis: 1
+  }
+  const priority = 'warning'
+  // Every number of each detector typed in its signal's unit, filled; a fixed detector limit is
+  // read from a stored body that does not validate.
+  const detectors: [string, Record<string, unknown>][] = [
+    ['match', { type: 'match', op: 'equals', steps: [{ value: 3, priority }] }],
+    [
+      'sustained',
+      {
+        type: 'sustained',
+        direction: 'above',
+        limit: { kind: 'fixed', value: 5 },
+        steps: [
+          { limit: 3, priority },
+          { limit: 4, priority: 'alarm' }
+        ],
+        hysteresis: 1
+      }
+    ],
+    ['outside', { type: 'outside', steps: [{ low: 1, high: 2, priority }], hysteresis: 1 }],
+    ['slope', { type: 'slope', direction: 'rising', window: 60, steps: [{ limit: 1, priority }] }],
+    [
+      'projection',
+      {
+        type: 'projection',
+        direction: 'rising',
+        limit: { kind: 'fixed', value: 5 },
+        window: 60,
+        horizon: 600
+      }
+    ],
+    [
+      'accumulator',
+      {
+        type: 'accumulator',
+        measure: 'integral',
+        while: { op: 'above', value: 2 },
+        resetOn: { op: 'changesTo', value: 0 },
+        steps: [{ limit: 100, priority }]
+      }
+    ],
+    [
+      'count',
+      {
+        type: 'count',
+        event: { op: 'changesTo', value: 1 },
+        window: 60,
+        steps: [{ limit: 3, priority }]
+      }
+    ],
+    ['absence', { type: 'absence', event: { op: 'changesTo', value: 1 }, steps: [{ within: 60 }] }]
+  ]
+  const byPath = (errors: readonly { path: string; message: string }[]) =>
+    [...errors].sort((a, b) => a.path.localeCompare(b.path))
+
+  it.each(detectors)(
+    '%s: empties for another unit the numbers that opening without paths leaves empty',
+    (_type, detector) => {
+      const rule = { name: 'R', slug: 'r', message: 'm', signal: { path: RPM }, detector }
+      const withPaths = (path: string) => ({
+        ...rule,
+        signal: { path },
+        gates: [{ ...gate, signal: { path } }]
+      })
+      const opened = fromBody(withPaths(''), displayed).emptied
+      const form = fromBody(withPaths(RPM), displayed).form
+      const moved = fromBody(withPaths(TEMPERATURE), displayed).form
+      const changed: RuleForm = {
+        ...form,
+        signal: moved.signal,
+        gates: form.gates.map((g, i) => ({ ...g, signal: moved.gates[i]?.signal ?? g.signal }))
+      }
+      const { emptied } = withNumbersInUnit(form, changed, displayed)
+      // Beyond the gate's limit and clear margin, the detector's own.
+      expect(emptied.length).toBeGreaterThan(2)
+      expect(byPath(emptied)).toEqual(byPath(opened))
+    }
+  )
 })

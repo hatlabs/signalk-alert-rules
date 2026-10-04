@@ -1817,6 +1817,25 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     expect(detector.steps?.[0]?.limit).toBeCloseTo(5 * KNOT)
   })
 
+  it('empties a range’s low and high limits and its clear margin', async () => {
+    const shore = example('shore-power-frequency')
+    const { api } = renderEditor({
+      editing: { entry: ruleEntry({ slug: shore.slug }), rule: shore }
+    })
+    await formShown()
+    expect(textbox('Low limit for step 2')).toHaveProperty('value', '48')
+    changePath(SPEED)
+    for (const n of ['1', '2']) {
+      expect(textbox(`Low limit for step ${n}`)).toHaveProperty('value', '')
+      expect(textbox(`High limit for step ${n}`)).toHaveProperty('value', '')
+    }
+    expect(textbox('Clear margin')).toHaveProperty('value', '')
+    expect(textbox('Each step must hold for at least')).toHaveProperty('value', '10')
+    click(button('Save'))
+    expect(api.previewRule).not.toHaveBeenCalled()
+    expect(api.updateRule).not.toHaveBeenCalled()
+  })
+
   const battery = example('house-battery-low')
   const stepped: Rule = {
     ...battery,
