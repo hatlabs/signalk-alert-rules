@@ -176,8 +176,12 @@ describe('Add rule from a template', () => {
   it('offers each set with its new templates counted', async () => {
     window.history.replaceState(null, '', '/#add')
     renderShell(fresh())
-    const set = await screen.findByRole('link', { name: /^Built in/ })
     const count = String(builtinListing().sets[0]?.templates.length)
+    // Polling by role computes every accessible name on each render, cold in
+    // a file's first test; under load that alone outlasts the wait. The chip
+    // renders with the link, and a text query is cheap.
+    await screen.findByText(`${count} new`)
+    const set = screen.getByRole('link', { name: /^Built in/ })
     expect(set.textContent).toContain(`${count} templates: Battery voltage low (lead-acid)`)
     expect(within(set).getByText(`${count} new`)).toBeTruthy()
   })
