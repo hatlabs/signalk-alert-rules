@@ -321,8 +321,20 @@ describe('saveHint', () => {
     expect(fieldLabel(pointer, sustained)).toBe(label)
   })
 
+  it('names the direction of a limit by Alert when, which chooses it', () => {
+    expect(saveHint([{ path: '/detector/direction', message: 'is required' }], sustained)).toBe(
+      'Fill in what should alert to save.'
+    )
+    const slope = form((f) => {
+      f.detector.type = 'slope'
+    })
+    expect(fieldLabel('/detector/direction', slope)).toBe('the direction')
+  })
+
   it('names a gate and a combined input by their numbers', () => {
-    expect(fieldLabel('/gates/1/direction', sustained)).toBe('Only while condition 2')
+    expect(fieldLabel('/gates/1/direction', sustained)).toBe(
+      'the direction of Only while condition 2'
+    )
     expect(fieldLabel('/signal/inputs/0/path', sustained)).toBe('path 1 to combine')
   })
 
@@ -334,6 +346,8 @@ describe('saveHint', () => {
     expect(fieldLabel('/gates/0/limit/level', gates)).toBe('the limit of Only while condition 1')
     expect(fieldLabel('/gates/0/signal/path', gates)).toBe('the path of Only while condition 1')
     expect(fieldLabel('/gates/0/signal/source', gates)).toBe('Only while condition 1')
+    expect(fieldLabel('/detector/limit/level', gates)).toBe('the zone to start at')
+    expect(fieldLabel('/detector/while/op', gates)).toBe('what to count while')
     expect(fieldLabel('/gates/1/signal', gates)).toBe('the paths of Only while condition 2')
     expect(fieldLabel('/gates/1/signal/inputs/1/path', gates)).toBe(
       'the paths of Only while condition 2'

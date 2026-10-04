@@ -1036,6 +1036,107 @@ describe('RuleEditor, an invalid stored rule', () => {
     await formShown()
   }
 
+  const withoutDirection = (rule: Rule): Rule => {
+    const { direction: _direction, ...detector } = rule.detector as Extract<
+      Rule['detector'],
+      { direction: string }
+    >
+    return { ...rule, detector } as Rule
+  }
+  const gateWithoutDirection = (rule: Rule): Rule => {
+    const { direction: _direction, ...gate } = { ...rule.gates?.[0] }
+    return { ...rule, gates: [gate] } as Rule
+  }
+  it.each([
+    [
+      'a below-a-limit',
+      'house-battery-low',
+      withoutDirection,
+      /^Alert when/,
+      'below',
+      'what should alert'
+    ],
+    [
+      'a rate',
+      'coolant-temperature-rising',
+      withoutDirection,
+      /^Changing/,
+      'rising',
+      'the direction'
+    ],
+    [
+      'an Only while',
+      'coolant-temperature-rising',
+      gateWithoutDirection,
+      /^Condition 1 holds while the input is/,
+      'above',
+      'the direction of Only while condition 1'
+    ]
+  ])(
+    'opens %s condition without a direction unchosen, asking only for it, and saves it once chosen',
+    async (_kind, slug, strip, control, choice, label) => {
+      const rule = example(slug)
+      const body = strip(rule)
+      const result = validateRule(body)
+      const { api, onSaved } = renderEditor({
+        invalid: { slug, name: rule.name, body, errors: result.ok ? [] : result.errors }
+      })
+      await formShown()
+      const direction = select(control)
+      expect(direction).toHaveProperty('value', '')
+      expect(direction.querySelector('option[value=""]')?.textContent).toBe('Choose…')
+      expect(description(direction)).toContain('is required')
+      expect(document.querySelectorAll('[aria-invalid="true"]')).toHaveLength(1)
+      expect(screen.getByText(`Fill in ${label} to save.`)).toBeTruthy()
+      choose(control, choice)
+      click(button('Save'))
+      await saved(onSaved)
+      expect(api.updateRule).toHaveBeenCalledWith(slug, rule)
+    }
+  )
+
+  it('offers below and above for a lost direction on a path whose value is not a number', async () => {
+    const rule = example('house-battery-low')
+    const body = withoutDirection({
+      ...rule,
+      signal: { path: 'electrical.switches.bilgePump.state' }
+    })
+    const result = validateRule(body)
+    renderEditor({
+      invalid: { slug: rule.slug, name: rule.name, body, errors: result.ok ? [] : result.errors }
+    })
+    await formShown()
+    const offered = [...select(/^Alert when/).querySelectorAll('option')].map((o) => o.value)
+    expect(offered).toEqual(expect.arrayContaining(['below', 'above']))
+  })
+
+  it('opens zones without a level unchosen, listing no zones until one is chosen', async () => {
+    const body = { ...battery, detector: { ...battery.detector, limit: { kind: 'zone' } } }
+    const result = validateRule(body)
+    renderEditor({
+      invalid: {
+        slug: battery.slug,
+        name: battery.name,
+        body,
+        errors: result.ok ? [] : result.errors
+      }
+    })
+    await formShown()
+    const level = select('Starting at the zone')
+    expect(level).toHaveProperty('value', '')
+    expect(level.getAttribute('aria-required')).toBe('true')
+    expect(description(level)).toContain('is required')
+    expect(screen.getByText('Choose the zone to start at.')).toBeTruthy()
+    expect(screen.getByText('Fill in the zone to start at to save.')).toBeTruthy()
+  })
+
+  it('marks what a total counts while as required', async () => {
+    const rule = example('engine-service-due')
+    renderEditor({ editing: { entry: ruleEntry({ slug: rule.slug }), rule } })
+    await formShown()
+    expect(select('Count while the value is').getAttribute('aria-required')).toBe('true')
+  })
+
   it('names a number the server already reports once, not again as emptied', async () => {
     const coolant = example('coolant-temperature-rising')
     const gate = { signal: { path: '' }, direction: 'above', limit: { kind: 'fixed' } }

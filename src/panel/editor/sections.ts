@@ -176,6 +176,7 @@ const LABELS: Readonly<Record<string, string>> = {
   '/detector/op': 'the state',
   '/detector/measure': 'what to total',
   '/detector/while': 'what to total while',
+  '/detector/while/op': 'what to count while',
   '/detector/resetOn': 'the reset',
   '/detector/event': 'the event',
   '/detector/window': 'the window',
@@ -184,6 +185,7 @@ const LABELS: Readonly<Record<string, string>> = {
   '/detector/hysteresis': 'the clear margin',
   '/detector/clearDuration': 'the clear delay',
   '/detector/limit': 'the zones',
+  '/detector/limit/level': 'the zone to start at',
   '/gates': 'the Only while conditions',
   '/latching': 'Keep the alert until acknowledged'
 }
@@ -211,8 +213,13 @@ export function fieldLabel(pointer: string, form: RuleForm): string {
     if (/^\/limit(\/|$)/.test(within)) return `the limit of ${condition}`
     if (/^\/signal\/inputs(\/\d+(\/path)?)?$/.test(within)) return paths
     if (within === '/signal/path') return path
+    if (within === '/direction') return `the direction of ${condition}`
     if (within === '/signal') return form.gates[index]?.signal.mode === 'combine' ? paths : path
     return condition
+  }
+  // A limit's direction is chosen with its kind, under Alert when.
+  if (pointer === '/detector/direction' && form.detector.type === 'sustained') {
+    return LABELS['/detector/type'] ?? ''
   }
   const input = /^\/signal\/inputs\/(\d+)/.exec(pointer)
   if (input !== null) return `path ${String(Number(input[1]) + 1)} to combine`

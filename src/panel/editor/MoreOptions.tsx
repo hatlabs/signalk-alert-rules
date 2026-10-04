@@ -66,6 +66,7 @@ function Zones({ form, onChange, measure, paths, units }: ZonesProps) {
           <SelectField
             label="Starting at the zone"
             pointer="/detector/limit/level"
+            required
             value={limit.level}
             options={LEVELS}
             onChange={(level) => {
