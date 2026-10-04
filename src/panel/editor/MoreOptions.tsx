@@ -58,6 +58,7 @@ function Zones({ form, onChange, measure, paths, units }: ZonesProps) {
         label={<strong>Use the value&apos;s zones</strong>}
         pointer={ZONES}
         hint="Instead of typing the steps"
+        errorMessage="The stored zone setting is not valid: choose a zone, or turn this off and type the steps."
         checked={on}
         onChange={(checked) => {
           onChange(withDetector(form, { limit: { ...limit, kind: checked ? 'zone' : 'fixed' } }))

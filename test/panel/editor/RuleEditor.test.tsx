@@ -29,6 +29,9 @@ import {
   type FakeApi
 } from './editorFixtures'
 
+const ZONES_INVALID =
+  'The stored zone setting is not valid: choose a zone, or turn this off and type the steps.'
+
 const HOUSE = 'electrical.batteries.house.voltage'
 
 const create = () => {
@@ -1091,12 +1094,11 @@ describe('RuleEditor, an invalid stored rule', () => {
   ])('opens a detector limit of %s with its errors on the zones', async (_kind, limit) => {
     const body = { ...battery, detector: { ...battery.detector, limit } }
     await openStored(body)
-    const result = validateRule(body)
+    expect(validateRule(body).ok).toBe(false)
     const zones = checkbox(/Use the value's zones/)
     expect(zones.getAttribute('aria-invalid')).toBe('true')
-    for (const error of result.ok ? [] : result.errors) {
-      expect(description(zones)).toContain(error.message)
-    }
+    expect(description(zones)).toContain(ZONES_INVALID)
+    expect(description(zones)).not.toMatch(/is required|is not a known property|constant/)
     expect(screen.queryByText(/^\/detector\//)).toBeNull()
     expect(screen.getByText("Fix Use the value's zones to save.")).toBeTruthy()
   })
@@ -1106,7 +1108,7 @@ describe('RuleEditor, an invalid stored rule', () => {
     await openStored({ ...battery, detector: { ...battery.detector, limit } })
     const zones = checkbox(/Use the value's zones/)
     expect(zones.getAttribute('aria-invalid')).toBe('true')
-    expect(description(zones)).toContain('is not a known property')
+    expect(description(zones)).toContain(ZONES_INVALID)
     expect(select('Starting at the zone').getAttribute('aria-invalid')).toBeNull()
     expect(screen.queryByText(/^\/detector\//)).toBeNull()
     expect(screen.getByText("Fix Use the value's zones to save.")).toBeTruthy()
@@ -1118,9 +1120,8 @@ describe('RuleEditor, an invalid stored rule', () => {
     click(checkbox(/Use the value's zones/))
     const zones = checkbox(/Use the value's zones/)
     expect(zones.getAttribute('aria-invalid')).toBe('true')
-    expect(description(zones)).toContain('must be equal to constant')
-    expect(description(zones)).toContain('is not a known property')
-    expect(description(zones)).not.toContain('is required')
+    expect(description(zones)).toContain(ZONES_INVALID)
+    expect(description(zones)).not.toMatch(/is required|is not a known property|constant/)
     expect(description(select('Starting at the zone'))).toContain('is required')
     expect(screen.queryByText(/^\/detector\//)).toBeNull()
     expect(

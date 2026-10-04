@@ -231,9 +231,19 @@ interface CheckProps {
   onChange: (checked: boolean) => void
   disabled?: boolean
   hint?: ReactNode
+  /** Shown in place of the validator's messages, which name no field a checkbox could fix. */
+  errorMessage?: string
 }
 
-export function CheckField({ label, pointer, checked, onChange, disabled, hint }: CheckProps) {
+export function CheckField({
+  label,
+  pointer,
+  checked,
+  onChange,
+  disabled,
+  hint,
+  errorMessage
+}: CheckProps) {
   const id = useId()
   const errors = useFieldErrors(pointer)
   const hintId = `${id}-hint`
@@ -260,7 +270,7 @@ export function CheckField({ label, pointer, checked, onChange, disabled, hint }
         )}
         {errors.length > 0 && (
           <div id={errorId} className="skar-error">
-            {errors.join('; ')}
+            {errorMessage ?? errors.join('; ')}
           </div>
         )}
       </div>
