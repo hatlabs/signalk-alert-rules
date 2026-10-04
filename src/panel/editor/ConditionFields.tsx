@@ -7,6 +7,7 @@ import {
   Field,
   SelectControl,
   SelectField,
+  useFieldErrors,
   ValueControl,
   type ValueKind
 } from './fields'
@@ -101,17 +102,25 @@ interface ConditionFieldsProps {
 /** Alert when: the condition kind, and the fields it needs above its steps. */
 export function KindField({ form, onChange, value }: ConditionFieldsProps) {
   const kind = kindOf(form.detector)
+  // Below and Above a limit are a direction as much as a kind, so this field asks for it.
+  const directionErrors = useFieldErrors('/detector/direction')
   const kinds = kindsFor(value)
-  // A stored rule keeps its kind even where the value now would not offer it.
-  const offered =
-    kind === undefined || kinds.some((k) => k.kind === kind)
-      ? kinds
-      : [...kinds, ...kindsFor(undefined).filter((k) => k.kind === kind)]
+  // A stored rule keeps its kind even where the value now would not offer it;
+  // one that lost its direction keeps both, so it can be chosen again.
+  const kept: readonly ConditionKind[] =
+    kind !== undefined ? [kind] : form.detector.type === 'sustained' ? ['below', 'above'] : []
+  const offered = [
+    ...kinds,
+    ...kindsFor(undefined).filter(
+      (k) => kept.includes(k.kind) && !kinds.some((o) => o.kind === k.kind)
+    )
+  ]
   return (
     <SelectField<ConditionKind>
       label="Alert when"
       pointer="/detector/type"
       required
+      extraErrors={form.detector.type === 'sustained' ? directionErrors : []}
       value={kind ?? ''}
       options={offered.map((k) => ({ value: k.kind, label: k.label }))}
       onChange={(next) => {
@@ -257,7 +266,7 @@ export function ConditionFields({ form, onChange, measure, valueKind }: Conditio
             }}
           />
           {d.useWhile && (
-            <Field label="Count while the value is" pointer="/detector/while/op">
+            <Field label="Count while the value is" pointer="/detector/while/op" required>
               {(control) => (
                 <div className="skar-input-row skar-wrap">
                   <SelectControl

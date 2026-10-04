@@ -45,8 +45,9 @@ function Zones({ form, onChange, measure, paths, units }: ZonesProps) {
   const single = form.signal.mode === 'single' ? form.signal.slots[0]?.path : undefined
   const zonePath = limit.path === '' ? single : limit.path
   const entry = zonePath === undefined ? undefined : units.entry(zonePath)
-  const from = ZONE_LEVEL_NAMES.indexOf(limit.level)
-  const climbed = new Set(ZONE_LEVEL_NAMES.slice(from))
+  const climbed = new Set(
+    limit.level === '' ? [] : ZONE_LEVEL_NAMES.slice(ZONE_LEVEL_NAMES.indexOf(limit.level))
+  )
   const zones = (entry?.zones ?? []).filter((z) => climbed.has(z.state as ZoneLevel))
   const zoneMeasure = { ...measure, unit: entry?.unit ?? measure.unit }
   const on = isZoneLimited(form.detector)
@@ -65,6 +66,7 @@ function Zones({ form, onChange, measure, paths, units }: ZonesProps) {
           <SelectField
             label="Starting at the zone"
             pointer="/detector/limit/level"
+            required
             value={limit.level}
             options={LEVELS}
             onChange={(level) => {
@@ -90,7 +92,9 @@ function Zones({ form, onChange, measure, paths, units }: ZonesProps) {
                 <p className="skar-hint">
                   From the zones of <span className="skar-mono">{zonePath}</span>
                 </p>
-                {zones.length === 0 ? (
+                {limit.level === '' ? (
+                  <p className="skar-hint">Choose the zone to start at.</p>
+                ) : zones.length === 0 ? (
                   <p className="skar-hint">
                     It reports no zone at this level or above yet, so the rule cannot alert.
                   </p>

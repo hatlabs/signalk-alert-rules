@@ -282,6 +282,32 @@ describe('every event op round-trips through the form', () => {
   })
 })
 
+describe('every stored choice round-trips through the form', () => {
+  const roundTrips = (rule: Rule) => {
+    expect(saved(fromRule(rule, NO_UNITS), NO_UNITS)).toEqual(rule)
+  }
+
+  it.each(['equals', 'notEquals', 'changesTo'] as const)('a match that %s a state', (op) => {
+    // Only a change to a state can latch.
+    const { latching: _latching, ...engine } = example('engine-stopped')
+    roundTrips({ ...engine, detector: { ...engine.detector, op } } as Rule)
+  })
+
+  it.each(['time', 'integral'] as const)('an accumulator totalling %s', (measure) => {
+    const engine = example('engine-service-due')
+    roundTrips({ ...engine, detector: { ...engine.detector, measure } } as Rule)
+  })
+
+  it.each(['above', 'below', 'equals', 'notEquals'] as const)(
+    'an accumulator counting while the value is %s',
+    (op) => {
+      const engine = example('engine-service-due')
+      const detector = engine.detector as Extract<Rule['detector'], { type: 'accumulator' }>
+      roundTrips({ ...engine, detector: { ...detector, while: { op, value: 0 } } })
+    }
+  )
+})
+
 describe('a rule made from a template', () => {
   it('keeps the template it records through an edit', () => {
     const template = {
@@ -844,6 +870,143 @@ describe('a stored rule that does not validate', () => {
     }
   )
 
+  describe('a direction missing or unknown', () => {
+    const without = (slug: string, direction?: string) => {
+      const rule = example(slug)
+      const { direction: _direction, ...detector } = rule.detector as Extract<
+        Rule['detector'],
+        { direction: string }
+      >
+      return bodyForm(
+        { ...rule, detector: direction === undefined ? detector : { ...detector, direction } },
+        NO_UNITS
+      )
+    }
+
+    it.each([undefined, 'sideways'])(
+      'keeps the rest of a sustained detector whose direction is %s, asking only for it',
+      (direction) => {
+        const form = without('house-battery-low', direction)
+        expect(form.signal.slots[0]?.path).toBe('electrical.batteries.house.voltage')
+        expect(form.detector).toMatchObject({
+          type: 'sustained',
+          direction: '',
+          limit: { kind: 'zone', level: 'warn' },
+          duration: { amount: '1', unit: 'min' }
+        })
+        expect(pointers(form)).toEqual(['/detector/direction'])
+      }
+    )
+
+    it.each([
+      ['slope', 'coolant-temperature-rising', 'propulsion.*.coolantTemperature'],
+      ['projection', 'fresh-water-running-out', 'tanks.freshWater.0.currentLevel']
+    ])(
+      'keeps the rest of a %s detector without a direction, asking only for it',
+      (type, slug, path) => {
+        const rule = example(slug)
+        const form = without(slug)
+        expect(form.signal.slots[0]?.path).toBe(path)
+        expect(form.detector).toMatchObject({ type, trend: '' })
+        expect(form.steps[0]?.priority).toBe(rule.detector.steps?.[0]?.priority)
+        expect(form.gates).toHaveLength(rule.gates?.length ?? 0)
+        expect(pointers(form)).toEqual(['/detector/direction'])
+      }
+    )
+
+    it.each([undefined, 'x'])(
+      'keeps the rest of a gate whose direction is %s, asking only for it',
+      (direction) => {
+        const rule = example('coolant-temperature-rising')
+        const { direction: _direction, ...gate } = { ...rule.gates?.[0] }
+        const form = bodyForm(
+          { ...rule, gates: [direction === undefined ? gate : { ...gate, direction }] },
+          NO_UNITS
+        )
+        expect(form.detector).toMatchObject({ type: 'slope', trend: 'rising' })
+        expect(form.gates[0]).toMatchObject({
+          signal: { slots: [{ path: 'propulsion.*.revolutions' }] },
+          direction: '',
+          limit: { kind: 'fixed', value: '5' }
+        })
+        expect(pointers(form)).toEqual(['/gates/0/direction'])
+      }
+    )
+
+    it('gives a new gate a direction', () => {
+      expect(emptyGate().direction).toBe('above')
+    })
+  })
+
+  describe('another choice missing or unknown', () => {
+    type Body = Record<string, unknown> & { detector: Record<string, unknown> }
+    const body = (slug: string) => example(slug) as unknown as Body
+    it.each<[string, () => Body, (form: RuleForm) => unknown, string]>([
+      [
+        'the state of a match',
+        () => {
+          const b = body('engine-stopped')
+          return { ...b, detector: { ...b.detector, op: 'sometimes' } }
+        },
+        (form) => form.detector.matchOp,
+        '/detector/op'
+      ],
+      [
+        'what to total',
+        () => {
+          const { measure: _measure, ...detector } = body('engine-service-due').detector
+          return { ...body('engine-service-due'), detector }
+        },
+        (form) => form.detector.measure,
+        '/detector/measure'
+      ],
+      [
+        'what to total while',
+        () => {
+          const b = body('engine-service-due')
+          return { ...b, detector: { ...b.detector, while: { value: 0 } } }
+        },
+        (form) => form.detector.whileOp,
+        '/detector/while/op'
+      ],
+      [
+        'the zone level',
+        () => {
+          const b = body('house-battery-low')
+          return { ...b, detector: { ...b.detector, limit: { kind: 'zone' } } }
+        },
+        (form) => form.detector.limit.level,
+        '/detector/limit/level'
+      ],
+      [
+        'the zone level of a gate',
+        () => {
+          const b = body('coolant-temperature-rising')
+          const [gate] = example('coolant-temperature-rising').gates ?? []
+          return { ...b, gates: [{ ...gate, limit: { kind: 'zone', level: 'loud' } }] }
+        },
+        (form) => form.gates[0]?.limit.level,
+        '/gates/0/limit/level'
+      ],
+      [
+        'the priority of a step',
+        () => {
+          const b = body('coolant-temperature-rising')
+          return { ...b, detector: { ...b.detector, steps: [{ limit: 0.02, priority: 'urgent' }] } }
+        },
+        (form) => form.steps[0]?.priority,
+        '/detector/steps/0/priority'
+      ]
+    ])('reads %s as unchosen, asking only for it', (_name, stored, field, pointer) => {
+      const b = stored()
+      const form = bodyForm(b, NO_UNITS)
+      expect(form.signal.slots[0]?.path).toBe((b.signal as { path: string }).path)
+      expect(form.detector.type).toBe(b.detector.type)
+      expect(field(form)).toBe('')
+      expect(pointers(form)).toEqual([pointer])
+    })
+  })
+
   it('asks for the path and limit of a body whose signal has no path', () => {
     const form = bodyForm({ ...example('coolant-temperature-rising'), signal: {} }, NO_UNITS)
     expect(form.signal.slots[0]?.path).toBe('')
@@ -901,6 +1064,7 @@ describe('a stored rule that does not validate', () => {
     const rule = example('coolant-temperature-rising')
     const gate = rule.gates?.[0]
     const withGates = (gates: unknown) => bodyForm({ ...rule, gates }, NO_UNITS)
+    const gateToFill = ['/gates/0/signal/path', '/gates/0/direction', '/gates/0/limit/value']
 
     it('keeps the rest of a gate without a signal, asking for its path and limit', () => {
       const form = withGates([{ ...gate, signal: undefined }])
@@ -919,8 +1083,8 @@ describe('a stored rule that does not validate', () => {
     it('reads a gate that is not an object as one to fill in', () => {
       const form = withGates([null])
       expect(form.signal.slots[0]?.path).toBe('propulsion.*.coolantTemperature')
-      expect(form.gates).toEqual([emptyGate()])
-      expect(pointers(form)).toEqual(['/gates/0/signal/path', '/gates/0/limit/value'])
+      expect(form.gates).toEqual([{ ...emptyGate(), direction: '' }])
+      expect(pointers(form)).toEqual(gateToFill)
     })
 
     it('reads a lone gate as a list of one', () => {
@@ -933,14 +1097,14 @@ describe('a stored rule that does not validate', () => {
       const form = withGates({ first: gate })
       expect(form.signal.slots[0]?.path).toBe('propulsion.*.coolantTemperature')
       expect(form.gates).toHaveLength(1)
-      expect(pointers(form)).toEqual(['/gates/0/signal/path', '/gates/0/limit/value'])
+      expect(pointers(form)).toEqual(gateToFill)
     })
 
     it('asks to fill in gates that are neither a list nor an object, rather than drop them', () => {
       const form = withGates('many')
       expect(form.signal.slots[0]?.path).toBe('propulsion.*.coolantTemperature')
-      expect(form.gates).toEqual([emptyGate()])
-      expect(pointers(form)).toEqual(['/gates/0/signal/path', '/gates/0/limit/value'])
+      expect(form.gates).toEqual([{ ...emptyGate(), direction: '' }])
+      expect(pointers(form)).toEqual(gateToFill)
     })
   })
 

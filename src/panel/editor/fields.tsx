@@ -198,6 +198,7 @@ interface SelectProps<T extends string> {
   options: readonly Option<T>[]
   onChange: (value: T) => void
   hint?: ReactNode
+  extraErrors?: (string | undefined)[]
   required?: boolean
 }
 
