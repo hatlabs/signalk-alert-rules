@@ -349,6 +349,21 @@ describe('saveHint', () => {
     expect(fieldLabel('/signal/inputs/0/path', sustained)).toBe('path 1 to combine')
   })
 
+  // The field reads "Count while the value is" whatever the total measures.
+  it.each(['time', 'integral'] as const)(
+    'names what a total of %s counts while as its field does',
+    (measure) => {
+      const f = form((f) => {
+        f.detector.type = 'accumulator'
+        f.detector.measure = measure
+        f.detector.useWhile = true
+      })
+      for (const p of ['/detector/while', '/detector/while/op', '/detector/while/value']) {
+        expect(fieldLabel(p, f)).toBe('what to count while')
+      }
+    }
+  )
+
   it("names a gate's limit and path within the gate", () => {
     const gates = form((f) => {
       f.gates = [emptyGate(), { ...emptyGate(), signal: setMode(emptyGate().signal, 'combine') }]
