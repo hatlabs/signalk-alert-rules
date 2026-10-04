@@ -1036,6 +1036,39 @@ describe('RuleEditor, an invalid stored rule', () => {
     await formShown()
   }
 
+  const engine = example('engine-service-due')
+  const bilge = example('bilge-pump-cycling')
+  it.each([
+    [
+      'a count changing to no value',
+      { ...bilge, detector: { ...bilge.detector, event: { op: 'changesTo' } } },
+      () => select('Count each time the value: value'),
+      () => select('Count each time the value')
+    ],
+    [
+      'a total while above no value',
+      { ...engine, detector: { ...engine.detector, while: { op: 'above' } } },
+      () => textbox('Count while: value'),
+      () => select('Count while the value is')
+    ],
+    [
+      'a total reset on changing to no value',
+      { ...engine, detector: { ...engine.detector, resetOn: { op: 'changesTo' } } },
+      () => textbox('Start again when the value: value'),
+      () => select('Start again when the value')
+    ]
+  ])('opens %s with its error on the value', async (_kind, body, value, op) => {
+    await openStored(body)
+    const result = validateRule(body)
+    const message = result.ok ? '' : (result.errors[0]?.message ?? '')
+    expect(message).not.toBe('')
+    expect(description(value())).toContain(message)
+    expect(value().getAttribute('aria-invalid')).toBe('true')
+    expect(op().getAttribute('aria-invalid')).toBeNull()
+    expect(document.querySelectorAll('[aria-invalid="true"]')).toHaveLength(1)
+    expect(screen.queryByText(/^\/detector\//)).toBeNull()
+  })
+
   const withoutDirection = (rule: Rule): Rule => {
     const { direction: _direction, ...detector } = rule.detector as Extract<
       Rule['detector'],
