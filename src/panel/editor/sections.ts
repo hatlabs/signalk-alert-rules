@@ -11,6 +11,7 @@ import {
   isZoneLimited,
   holdsFor,
   RETYPE_IN_UNIT,
+  standingRetypes,
   stepLimitFields,
   stepPointer,
   stepQuantity,
@@ -240,6 +241,7 @@ export function fieldLabel(pointer: string, form: RuleForm): string {
     if (/^\/signal\/inputs(\/\d+(\/path)?)?$/.test(within)) return paths
     if (within === '/signal/path') return path
     if (within === '/direction') return `the direction of ${condition}`
+    if (within === '/hysteresis') return `the clear margin of ${condition}`
     if (within === '/signal') return form.gates[index]?.signal.mode === 'combine' ? paths : path
     return condition
   }
@@ -265,15 +267,42 @@ export function fieldLabel(pointer: string, form: RuleForm): string {
   return known === undefined ? 'a field under More options' : (LABELS[known] ?? '')
 }
 
-/** What Save says stops it: the fields to fill in, and those to fix. */
-export function saveHint(errors: readonly FieldError[], form: RuleForm): string | undefined {
+/**
+ * What Save says stops it: the fields to fill in, and those to fix, then the
+ * clear margins a change of unit emptied (`marginsHint`). `named` holds the
+ * margins whose note a footer has already named.
+ */
+export function saveHint(
+  errors: readonly FieldError[],
+  form: RuleForm,
+  named: ReadonlySet<string> = new Set()
+): string | undefined {
   const stops = whatStops(errors, form)
-  return stops === undefined ? undefined : capitalised(`${stops} to save.`)
+  const retypes = standingRetypes(form, errors)
+  const margins = marginsHint(
+    [...new Set(retypes.map((e) => fieldLabel(e.path, form)))],
+    stops === undefined && retypes.every((e) => named.has(e.path))
+  )
+  const parts = [...(stops === undefined ? [] : [capitalised(`${stops} to save.`)]), ...margins]
+  return parts.length === 0 ? undefined : parts.join(' ')
+}
+
+/**
+ * The sentence naming the clear margins a change of unit emptied, which may
+ * be typed again or left empty; `last` when the next Save leaves them empty.
+ */
+export function marginsHint(margins: readonly string[], last: boolean): string[] {
+  if (margins.length === 0) return []
+  const [verb, them] = margins.length === 1 ? ['was', 'it'] : ['were', 'them']
+  const choice = last
+    ? `type ${them} again, or Save leaves ${them} empty`
+    : `type ${them} again or leave ${them} empty`
+  return [capitalised(`${joined([...margins])} ${verb} emptied: ${choice}.`)]
 }
 
 /** The fields to fill in and those to fix, as a phrase: "fill in the limit and fix the name". */
 export function whatStops(errors: readonly FieldError[], form: RuleForm): string | undefined {
-  // A clear margin to retype may stay empty, so it does not stop Save.
+  // A clear margin to retype may stay empty, so it does not stop Save; `marginsHint` names it.
   const stopping = errors.filter((e) => e.message !== RETYPE_IN_UNIT)
   if (stopping.length === 0) return undefined
   // The zones checkbox is ticked or not, never filled in, so what it holds is to fix.

@@ -1405,3 +1405,34 @@ export function withUnitErrors(
   const touched = new Set(emptied.map((e) => e.path))
   return [...errors.filter((e) => !touched.has(e.path)), ...emptied]
 }
+
+/**
+ * The notes on clear margins emptied for want of their unit whose fields are
+ * still empty: the only sign a margin was emptied, which a Save keeps.
+ */
+export function standingRetypes(form: RuleForm, errors: readonly FieldError[]): FieldError[] {
+  const numbers = [
+    ...unitNumbers(form, 'signal'),
+    ...form.gates.flatMap((_, i) => unitNumbers(form, i))
+  ]
+  const empty = new Set(numbers.filter((n) => n.text === '').map((n) => n.at))
+  return errors.filter((e) => e.message === RETYPE_IN_UNIT && empty.has(e.path))
+}
+
+/**
+ * Whether Save stops for an emptied clear margin: one whose note no footer
+ * has named yet, at a refused Save or on opening (`named`). A margin emptied
+ * as focus leaves a path search for Save would otherwise be dropped unseen.
+ */
+export function marginUnnamed(retypes: readonly FieldError[], named: ReadonlySet<string>): boolean {
+  return retypes.some((e) => !named.has(e.path))
+}
+
+/** `named` with the notes on fields a change of unit emptied again forgotten. */
+export function forgetNamed(
+  named: ReadonlySet<string>,
+  emptied: readonly FieldError[]
+): Set<string> {
+  const again = new Set(emptied.map((e) => e.path))
+  return new Set([...named].filter((p) => !again.has(p)))
+}

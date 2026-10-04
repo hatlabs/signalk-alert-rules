@@ -269,6 +269,42 @@ describe('saveHint', () => {
     expect(saveHint([], sustained)).toBeUndefined()
   })
 
+  describe('clear margins a change of unit emptied', () => {
+    const retype = 'must be typed again in the unit of the chosen path'
+    const gated = form((f) => {
+      f.detector.type = 'sustained'
+      f.gates = [emptyGate()]
+    })
+    const notes = [
+      { path: '/detector/hysteresis', message: retype },
+      { path: '/gates/0/hysteresis', message: retype }
+    ]
+
+    it('names each after what else stops the save', () => {
+      expect(saveHint([{ path: '/name', message: 'is required' }, ...notes], gated)).toBe(
+        'Fill in the name to save. The clear margin and the clear margin of Only while condition 1 were emptied: type them again or leave them empty.'
+      )
+    })
+
+    it('says the next Save leaves them empty once a footer named them and nothing else stops it', () => {
+      const named = new Set(notes.map((e) => e.path))
+      expect(saveHint(notes, gated, named)).toBe(
+        'The clear margin and the clear margin of Only while condition 1 were emptied: type them again, or Save leaves them empty.'
+      )
+      expect(saveHint(notes, gated, new Set(['/detector/hysteresis']))).toBe(
+        'The clear margin and the clear margin of Only while condition 1 were emptied: type them again or leave them empty.'
+      )
+    })
+
+    it('forgets a margin typed again', () => {
+      const typed = form((f) => {
+        f.detector.type = 'sustained'
+        f.detector.hysteresis = '0.5'
+      })
+      expect(saveHint([notes[0] ?? { path: '', message: '' }], typed)).toBeUndefined()
+    })
+  })
+
   it('names the missing fields, then those to fix', () => {
     expect(
       saveHint(

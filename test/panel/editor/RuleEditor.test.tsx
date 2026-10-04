@@ -1286,7 +1286,12 @@ describe('RuleEditor, an invalid stored rule', () => {
     expect(description(textbox('Clear margin'))).toContain(
       'must be typed again in the unit of the chosen path'
     )
-    expect(screen.getByText('Fill in the value to watch and the limit to save.')).toBeTruthy()
+    // The footer names the clear margin from the start, so Save need not stop for it.
+    expect(
+      screen.getByText(
+        'Fill in the value to watch and the limit to save. The clear margin was emptied: type it again or leave it empty.'
+      )
+    ).toBeTruthy()
     type(select('Search by name or path'), HOUSE)
     // Moving to the limit takes focus from the search, which settles the path.
     fireEvent.blur(select('Search by name or path'))
@@ -1755,24 +1760,64 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
       'must be typed again in the unit of the chosen path'
     )
     expect(textbox('For at least')).toHaveProperty('value', '1')
-    expect(screen.getByText('Fill in the limit to save.')).toBeTruthy()
+    expect(
+      screen.getByText(
+        'Fill in the limit to save. The clear margin was emptied: type it again or leave it empty.'
+      )
+    ).toBeTruthy()
     click(button('Save'))
     expect(api.previewRule).not.toHaveBeenCalled()
   })
 
-  it('saves the limit retyped in the new unit', async () => {
+  const RETYPE = 'must be typed again in the unit of the chosen path'
+  const MARGIN = 'The clear margin was emptied: type it again or leave it empty.'
+  const MARGIN_ALONE = 'The clear margin was emptied: type it again, or Save leaves it empty.'
+  /** What the footer says stops Save. */
+  const footer = () => document.querySelector('.skar-editor-status')?.textContent ?? ''
+  const savedDetector = (api: FakeApi) =>
+    api.updateRule.mock.calls[0]?.[1].detector as Extract<Rule['detector'], { type: 'sustained' }>
+
+  it('names the emptied clear margin in the footer, beside the limit', async () => {
+    renderEditor({ editing })
+    await formShown()
+    changePath(SPEED)
+    expect(footer()).toBe(`Fill in the limit to save. ${MARGIN}`)
+    expect(description(textbox('Clear margin'))).toContain(RETYPE)
+  })
+
+  it('saves without the clear margin once a refused Save’s footer named it, limits retyped', async () => {
     const { api, onSaved } = renderEditor({ editing })
     await formShown()
     changePath(SPEED)
+    click(button('Save'))
+    expect(api.previewRule).not.toHaveBeenCalled()
+    expect(footer()).toBe(`Fill in the limit to save. ${MARGIN}`)
+    expect(description(textbox('Clear margin'))).toContain(RETYPE)
     type(textbox('Limit for step 1'), '5')
     click(button('Save'))
     await saved(onSaved)
     const [[, rule]] = api.updateRule.mock.calls
     expect(rule.signal).toEqual({ path: SPEED })
-    const detector = rule.detector as Extract<Rule['detector'], { type: 'sustained' }>
+    const detector = savedDetector(api)
     expect(detector.steps?.[0]?.limit).toBeCloseTo(5 * KNOT)
     expect(detector.hysteresis).toBeUndefined()
     expect(detector.duration).toBe(60)
+  })
+
+  it('refuses once for a clear margin no refused Save named, the limit retyped first', async () => {
+    const { api, onSaved } = renderEditor({ editing })
+    await formShown()
+    changePath(SPEED)
+    type(textbox('Limit for step 1'), '5')
+    click(button('Save'))
+    expect(api.previewRule).not.toHaveBeenCalled()
+    expect(footer()).toBe(MARGIN_ALONE)
+    await waitFor(() => {
+      expect(document.activeElement).toBe(textbox('Clear margin'))
+    })
+    click(button('Save'))
+    await saved(onSaved)
+    expect(savedDetector(api).hysteresis).toBeUndefined()
   })
 
   it('empties the numbers of a path typed and saved straight away, focus leaving for Save', async () => {
@@ -1787,8 +1832,58 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     click(button('Save'))
     expect(textbox('Limit for step 1')).toHaveProperty('value', '')
     expect(description(textbox('Limit for step 1'))).toContain('Fill in the limit')
+    expect(footer()).toBe(`Fill in the limit to save. ${MARGIN}`)
     expect(api.previewRule).not.toHaveBeenCalled()
     expect(api.updateRule).not.toHaveBeenCalled()
+  })
+
+  it('saves a clear margin retyped after Save named it', async () => {
+    const { api, onSaved } = renderEditor({ editing })
+    await formShown()
+    changePath(SPEED)
+    click(button('Save'))
+    type(textbox('Limit for step 1'), '5')
+    type(textbox('Clear margin'), '0.5')
+    click(button('Save'))
+    await saved(onSaved)
+    expect(savedDetector(api).hysteresis).toBeCloseTo(0.5 * KNOT)
+  })
+
+  it('names a clear margin again once another change of unit empties it again', async () => {
+    const { api } = renderEditor({ editing })
+    await formShown()
+    changePath(SPEED)
+    click(button('Save'))
+    type(textbox('Limit for step 1'), '5')
+    type(textbox('Clear margin'), '0.5')
+    changePath(HOUSE)
+    expect(textbox('Clear margin')).toHaveProperty('value', '')
+    type(textbox('Limit for step 1'), '12')
+    click(button('Save'))
+    expect(api.previewRule).not.toHaveBeenCalled()
+    expect(footer()).toBe(MARGIN_ALONE)
+  })
+
+  it('refuses a zone rule’s Save once, its footer naming the emptied clear margin, then saves', async () => {
+    const zoned = example('house-battery-low')
+    const { api, onSaved } = renderEditor({
+      editing: { entry: ruleEntry({ slug: zoned.slug }), rule: zoned }
+    })
+    await formShown()
+    typePath(SPEED)
+    act(() => {
+      button('Save').focus()
+    })
+    click(button('Save'))
+    expect(textbox('Clear margin')).toHaveProperty('value', '')
+    expect(description(textbox('Clear margin'))).toContain(RETYPE)
+    expect(footer()).toBe(MARGIN_ALONE)
+    expect(api.previewRule).not.toHaveBeenCalled()
+    click(button('Save'))
+    await saved(onSaved)
+    const detector = savedDetector(api)
+    expect(detector.hysteresis).toBeUndefined()
+    expect(detector.limit).toEqual(zoned.detector.type === 'sustained' && zoned.detector.limit)
   })
 
   it('empties the numbers of a stored rule fixed by correcting its path', async () => {

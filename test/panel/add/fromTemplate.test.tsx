@@ -385,6 +385,86 @@ describe('Add rule from a template', () => {
     expect(limit().value).toBe('12.9')
   })
 
+  describe('a tab’s path changed to one shown in another unit', () => {
+    /** Opens the house bank's rule and settles its path on one the server does not report, in SI. */
+    async function houseOnUnreportedPath() {
+      const api = renderShell(fresh())
+      await openLifepo4()
+      pick(/^House bank/)
+      await continueWith('Continue with 1 rule')
+      fireEvent.click(screen.getByRole('button', { name: 'Change the value to watch' }))
+      const search = screen.getByRole('combobox', { name: 'Search by name or path' })
+      change(search, 'electrical.batteries.house.current')
+      fireEvent.blur(search)
+      return api
+    }
+    const margin = () => screen.getByRole<HTMLInputElement>('textbox', { name: 'Clear margin' })
+    const footer = () => document.querySelector('.skar-editor-status')?.textContent ?? ''
+    /** Settles the shown tab's path on one in another unit, as leaving the search does. */
+    const changeShownPath = (path: string) => {
+      fireEvent.click(screen.getByRole('button', { name: 'Change the value to watch' }))
+      const search = screen.getByRole('combobox', { name: 'Search by name or path' })
+      change(search, path)
+      fireEvent.blur(search)
+    }
+    const fillLimits = () => {
+      change(limit(), '5')
+      change(screen.getByRole('textbox', { name: 'Limit for step 2' }), '4')
+    }
+    const describedBy = (element: HTMLElement) =>
+      (element.getAttribute('aria-describedby') ?? '')
+        .split(' ')
+        .map((id) => document.getElementById(id)?.textContent ?? '')
+        .join(' ')
+
+    it('keeps the emptied clear margin’s note through Create, until the rule is created without it', async () => {
+      const api = await houseOnUnreportedPath()
+      expect(margin().value).toBe('')
+      fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+      expect(api.createRule).not.toHaveBeenCalled()
+      expect(describedBy(margin())).toContain('must be typed again in the unit of the chosen path')
+      expect(footer()).toBe(
+        'Fill in step 1 and step 2 on House bank to save. The clear margin on House bank was emptied: type it again or leave it empty.'
+      )
+      change(limit(), '5')
+      change(screen.getByRole('textbox', { name: 'Limit for step 2' }), '4')
+      fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+      await waitFor(() => {
+        expect(api.createRule).toHaveBeenCalledOnce()
+      })
+      const [rule] = createdRules(api)
+      expect(rule.signal).toEqual({ path: 'electrical.batteries.house.current' })
+      expect(rule.detector.type === 'sustained' && rule.detector.hysteresis).toBeUndefined()
+    })
+
+    it('names every tab’s emptied clear margin at the Create that stops for the limits, then creates both', async () => {
+      const api = renderShell(fresh())
+      await openLifepo4()
+      pick(/^House bank/)
+      pick(/^starter/)
+      await continueWith('Continue with 2 rules')
+      changeShownPath('electrical.batteries.house.current')
+      fireEvent.click(tab(/starter/))
+      changeShownPath('electrical.batteries.starter.current')
+      fireEvent.click(screen.getByRole('button', { name: 'Create 2 rules' }))
+      expect(api.createRule).not.toHaveBeenCalled()
+      expect(footer()).toBe(
+        'Fill in step 1 and step 2 on House bank and fill in step 1 and step 2 on starter to save. The clear margin on House bank and the clear margin on starter were emptied: type them again or leave them empty.'
+      )
+      fireEvent.click(tab(/House bank/))
+      fillLimits()
+      fireEvent.click(tab(/starter/))
+      fillLimits()
+      fireEvent.click(screen.getByRole('button', { name: 'Create 2 rules' }))
+      await waitFor(() => {
+        expect(api.createRule).toHaveBeenCalledTimes(2)
+      })
+      for (const rule of createdRules(api)) {
+        expect(rule.detector.type === 'sustained' && rule.detector.hysteresis).toBeUndefined()
+      }
+    })
+  })
+
   it('keeps the tab the server refuses, having created the rules before it', async () => {
     const server = fresh()
     server.refuse = (rule) =>
