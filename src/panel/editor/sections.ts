@@ -6,6 +6,7 @@
 import type { FieldError } from '../api'
 import { capitalised } from '../list/PriorityBadge'
 import {
+  ANGULAR_KINDS,
   canLatch,
   isZoneLimited,
   holdsFor,
@@ -29,7 +30,7 @@ function signalPointers(signal: SignalForm, at: string): string[] {
       `${at}/inputs/${String(i)}/path`,
       `${at}/inputs/${String(i)}/source`
     ]),
-    `${at}/angular`
+    ...(ANGULAR_KINDS.has(signal.combinator) ? [`${at}/angular`] : [])
   ]
 }
 

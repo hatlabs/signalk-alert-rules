@@ -1095,6 +1095,12 @@ describe('RuleEditor, an invalid stored rule', () => {
     expect(screen.getByText('Fix the path of the zones to save.')).toBeTruthy()
   })
 
+  it('lists an angular flag on a combination that cannot wrap angles, which has no field', async () => {
+    await openStored({ ...rpm, signal: { ...rpm.signal, combinator: 'ratio', angular: true } })
+    expect(screen.queryByRole('checkbox', { name: /angle/i })).toBeNull()
+    expect(screen.getByText('/signal/angular: ratio cannot wrap angles')).toBeTruthy()
+  })
+
   const withoutDirection = (rule: Rule): Rule => {
     const { direction: _direction, ...detector } = rule.detector as Extract<
       Rule['detector'],
