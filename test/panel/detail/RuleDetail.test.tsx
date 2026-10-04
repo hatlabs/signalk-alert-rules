@@ -871,6 +871,27 @@ describe('RuleDetail', () => {
       ])
     })
 
+    it('names each combined input’s source', () => {
+      const POSITION = 'navigation.position'
+      renderDetail(
+        watching({
+          paths: [POSITION, POSITION, POSITION],
+          sources: ['gnss.bow', 'gnss.stern', 'gnss.mast'],
+          combinator: 'positionSpread'
+        })
+      )
+      expect(lines()).toEqual([
+        `Largest distance between positions (${POSITION} from\u00a0gnss.bow, ${POSITION} from\u00a0gnss.stern, ${POSITION} from\u00a0gnss.mast)`
+      ])
+    })
+
+    it('leaves a combined input without a source as its path', () => {
+      renderDetail(
+        watching({ paths: HEADINGS, sources: ['compass.a', undefined], combinator: 'mean' })
+      )
+      expect(lines()).toEqual([`Mean (${HEADINGS[0]} from\u00a0compass.a, ${HEADINGS[1]})`])
+    })
+
     it('shows a single path as it is', () => {
       renderDetail(watching({ paths: [HOUSE] }))
       expect(lines()).toEqual([HOUSE])
@@ -939,6 +960,32 @@ describe('RuleDetail', () => {
         { units: rpmUnits }
       )
       expect(conditions()).toEqual([`Absolute difference of two (${PORT}, ${STBD}) above 480 rpm`])
+    })
+
+    it('names a single-path gate’s source', () => {
+      renderDetail(
+        gated([{ paths: [PORT], sources: ['engine.port'], direction: 'above', limit: 8 }]),
+        { units: rpmUnits }
+      )
+      expect(conditions()).toEqual([`${PORT} from\u00a0engine.port, above 480 rpm`])
+    })
+
+    it('names each combined gate input’s source', () => {
+      renderDetail(
+        gated([
+          {
+            paths: [PORT, STBD],
+            sources: ['engine.port', 'engine.stbd'],
+            combinator: 'absDifference',
+            direction: 'above',
+            limit: 8
+          }
+        ]),
+        { units: rpmUnits }
+      )
+      expect(conditions()).toEqual([
+        `Absolute difference of two (${PORT} from\u00a0engine.port, ${STBD} from\u00a0engine.stbd) above 480 rpm`
+      ])
     })
 
     it('says a combined gate’s values are angles', () => {

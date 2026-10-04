@@ -169,10 +169,10 @@ export interface RuleInfo {
     window?: number
   }
   /**
-   * The paths the signal reads; several, with the combinator and whether its
-   * values are angles, for a combined signal.
+   * The paths the signal reads; several, with their sources, the combinator
+   * and whether its values are angles, for a combined signal.
    */
-  signal: { paths: string[]; combinator?: string; angular?: boolean }
+  signal: SignalPaths
   /** The source a single-path signal is pinned to; absent for the preferred source. */
   source?: string
   /** The alert is raised once per occurrence and held until acknowledged. */
@@ -182,11 +182,22 @@ export interface RuleInfo {
   gates: RuleGate[]
 }
 
-/** A condition on another signal that puts a rule in use only while it holds. */
-export interface RuleGate {
+/** What a rule's or gate's signal reads. */
+export interface SignalPaths {
   paths: string[]
+  /**
+   * Each input's source, by the index of its path, absent for an input on the
+   * preferred source; absent when no input names one. A gate on one path
+   * carries its source here, having no Source row; a rule's own single path
+   * keeps it in `RuleInfo.source`.
+   */
+  sources?: (string | undefined)[]
   combinator?: string
   angular?: boolean
+}
+
+/** A condition on another signal that puts a rule in use only while it holds. */
+export interface RuleGate extends SignalPaths {
   direction?: string
   /** A fixed limit, in SI; absent for a zone limit. */
   limit?: number
@@ -538,8 +549,11 @@ export function parseListedRule(body: unknown, what: string): ListedRule {
     const v = record(s)
     if (typeof v.path === 'string') return { paths: [v.path] }
     if (typeof v.combinator !== 'string' || !Array.isArray(v.inputs)) throw malformed(what)
+    const inputs = v.inputs.map(record)
+    const sources = inputs.map((i) => text(i.source))
     return {
-      paths: v.inputs.map((i) => string(record(i).path)),
+      paths: inputs.map((i) => string(i.path)),
+      ...optional('sources', sources.some((s) => s !== undefined) ? sources : undefined),
       combinator: v.combinator,
       ...optional('angular', v.angular === true ? true : undefined)
     }
@@ -576,8 +590,12 @@ export function parseListedRule(body: unknown, what: string): ListedRule {
       gates: (Array.isArray(v.gates) ? v.gates : []).map((g): RuleGate => {
         const gate = record(g)
         const limit = isRecord(gate.limit) ? gate.limit : {}
+        // A gate has no Source row, so a single path names its source with the path.
+        const watched = record(gate.signal)
+        const source = typeof watched.path === 'string' ? text(watched.source) : undefined
         return {
           ...signal(gate.signal),
+          ...optional('sources', source === undefined ? undefined : [source]),
           ...optional('direction', text(gate.direction)),
           ...optional('limit', limit.kind === 'fixed' ? num(limit.value) : undefined),
           ...optional('zoneLevel', limit.kind === 'zone' ? text(limit.level) : undefined),
