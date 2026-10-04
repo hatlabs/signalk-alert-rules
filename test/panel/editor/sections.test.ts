@@ -7,6 +7,7 @@ import {
   emptyGate,
   emptyStep,
   fromRule,
+  setCombinator,
   setMode,
   type RuleForm
 } from '../../../src/panel/editor/formModel'
@@ -174,6 +175,17 @@ describe('fieldPointers', () => {
     })
     expect(fieldPointers(f, false).filter((p) => p.includes('/steps/'))).toEqual([])
     expect(fieldPointers(f, false)).toContain('/detector/limit/level')
+  })
+
+  it.each([
+    ['mean', true],
+    ['difference', true],
+    ['ratio', false]
+  ] as const)('lists the angular flag of a %s only where it can wrap angles', (kind, listed) => {
+    const f = form((f) => {
+      f.signal = setCombinator(setMode(f.signal, 'combine'), kind)
+    })
+    expect(fieldPointers(f, false).includes('/signal/angular')).toBe(listed)
   })
 
   it('names the slug only for a new rule', () => {
