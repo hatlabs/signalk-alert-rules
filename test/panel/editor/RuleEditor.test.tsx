@@ -1069,6 +1069,32 @@ describe('RuleEditor, an invalid stored rule', () => {
     expect(screen.queryByText(/^\/detector\//)).toBeNull()
   })
 
+  it.each([
+    ['a fixed value', { kind: 'fixed', value: 12 }],
+    ['an unknown kind', { kind: 'nonsense', level: 'warn' }]
+  ])('opens a detector limit of %s with its errors on the zones', async (_kind, limit) => {
+    const body = { ...battery, detector: { ...battery.detector, limit } }
+    await openStored(body)
+    const result = validateRule(body)
+    const zones = checkbox(/Use the value's zones/)
+    expect(zones.getAttribute('aria-invalid')).toBe('true')
+    for (const error of result.ok ? [] : result.errors) {
+      expect(description(zones)).toContain(error.message)
+    }
+    expect(screen.queryByText(/^\/detector\//)).toBeNull()
+    expect(screen.getByText(/fix Use the value's zones to save\.$/i)).toBeTruthy()
+  })
+
+  const rpm = example('engine-rpm-mismatch')
+  it("names the zones' own path by its field", async () => {
+    const { steps: _steps, ...detector } = rpm.detector as Extract<
+      Rule['detector'],
+      { type: 'sustained' }
+    >
+    await openStored({ ...rpm, detector: { ...detector, limit: { kind: 'zone', level: 'warn' } } })
+    expect(screen.getByText('Fix the path of the zones to save.')).toBeTruthy()
+  })
+
   const withoutDirection = (rule: Rule): Rule => {
     const { direction: _direction, ...detector } = rule.detector as Extract<
       Rule['detector'],

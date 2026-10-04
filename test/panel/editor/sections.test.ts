@@ -128,8 +128,7 @@ describe('fieldPointers', () => {
       '/condition',
       '/detector/hysteresis',
       '/detector/clearDuration',
-      '/detector/limit/kind',
-      '/detector/limit/value',
+      '/detector/limit',
       '/slug'
     ])
   })

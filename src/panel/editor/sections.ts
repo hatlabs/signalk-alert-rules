@@ -39,6 +39,19 @@ function limitPointers(limit: LimitForm, at: string): string[] {
     : [`${at}/kind`, `${at}/value`]
 }
 
+/**
+ * The pointer whose errors the zones checkbox shows. A fixed detector limit
+ * has no fields, typed steps standing in for it, so the checkbox, which
+ * switches to and from the zones, holds every error under it.
+ */
+export function zonesPointer(limit: LimitForm): string {
+  return limit.kind === 'zone' ? '/detector/limit/kind' : '/detector/limit'
+}
+
+function zoneLimitPointers(limit: LimitForm): string[] {
+  return limit.kind === 'zone' ? limitPointers(limit, '/detector/limit') : [zonesPointer(limit)]
+}
+
 function eventPointers(event: EventForm, at: string): string[] {
   return event.op === 'changesTo' ? [`${at}/op`, `${at}/value`] : [`${at}/op`]
 }
@@ -101,9 +114,7 @@ function moreOptionsPointers(form: RuleForm, isNew: boolean): string[] {
       ]
     }),
     ...(form.signal.mode === 'combine' ? signalPointers(form.signal, '/signal') : []),
-    ...(d.type === 'sustained' || d.type === 'projection'
-      ? limitPointers(d.limit, '/detector/limit')
-      : []),
+    ...(d.type === 'sustained' || d.type === 'projection' ? zoneLimitPointers(d.limit) : []),
     ...(isNew ? ['/slug'] : [])
   ]
 }
@@ -184,8 +195,9 @@ const LABELS: Readonly<Record<string, string>> = {
   '/detector/duration': 'how long it must hold',
   '/detector/hysteresis': 'the clear margin',
   '/detector/clearDuration': 'the clear delay',
-  '/detector/limit': 'the zones',
+  '/detector/limit': "Use the value's zones",
   '/detector/limit/level': 'the zone to start at',
+  '/detector/limit/path': 'the path of the zones',
   '/gates': 'the Only while conditions',
   '/latching': 'Keep the alert until acknowledged'
 }
