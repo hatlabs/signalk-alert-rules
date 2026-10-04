@@ -974,6 +974,49 @@ describe("RuleEditor, a total's reset", () => {
     })
   })
 
+  it.each([
+    [
+      'a boolean',
+      'electrical.switches.bilgePump.state',
+      () => select('Start again when the value: value'),
+      'true',
+      true
+    ],
+    [
+      'a text',
+      'propulsion.port.state',
+      () => textbox('Start again when the value: value'),
+      'stopped',
+      'stopped'
+    ]
+  ])(
+    'saves the reset value of %s input as that type',
+    async (_kind, path, value, typed, stored) => {
+      const { api, onSaved } = renderEditor({ start: { path, kind: 'total' } })
+      await formShown()
+      turnOnReset()
+      expect(value().tagName).toBe(typeof stored === 'boolean' ? 'SELECT' : 'INPUT')
+      type(value(), typed)
+      choose('Priority for step 1', 'caution')
+      type(textbox('Limit for step 1'), '250')
+      create()
+      await saved(onSaved)
+      expect(api.createRule.mock.calls[0]?.[0].detector).toMatchObject({
+        resetOn: { op: 'changesTo', value: stored }
+      })
+    }
+  )
+
+  it('saves without a reset turned on and off again, its empty value no obstacle', async () => {
+    const { api, onSaved } = await openHours()
+    turnOnReset()
+    turnOnReset()
+    type(textbox(/^Message/), 'Engine service is due now')
+    click(button('Save'))
+    await saved(onSaved)
+    expect(api.updateRule.mock.calls[0]?.[1].detector).not.toHaveProperty('resetOn')
+  })
+
   it('keeps a stored reset on any change', async () => {
     const stored: Rule = {
       ...hours,
