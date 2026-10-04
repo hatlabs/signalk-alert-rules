@@ -27,10 +27,12 @@ const ready: PathList = { status: 'ready', paths }
 
 function Harness({
   list = ready,
-  onChange
+  onChange,
+  onCommit
 }: {
   list?: PathList
   onChange?: (path: string) => void
+  onCommit?: (path: string) => void
 }) {
   const [value, setValue] = useState('')
   return (
@@ -42,6 +44,7 @@ function Harness({
         setValue(path)
         onChange?.(path)
       }}
+      {...(onCommit === undefined ? {} : { onCommit })}
     />
   )
 }
@@ -171,6 +174,34 @@ describe('PathPicker', () => {
     fireEvent.keyDown(input(), { key: 'ArrowDown' })
     fireEvent.blur(input())
     expect(input().getAttribute('aria-expanded')).toBe('false')
+  })
+
+  describe('commits the path', () => {
+    it('when an option is picked by pointer or with Enter, not as it is typed', () => {
+      const onCommit = vi.fn()
+      render(<Harness onCommit={onCommit} />)
+      fireEvent.change(input(), { target: { value: 'navigation' } })
+      expect(onCommit).not.toHaveBeenCalled()
+      fireEvent.keyDown(input(), { key: 'ArrowDown' })
+      fireEvent.click(screen.getByRole('option', { name: /navigation\.state/ }))
+      expect(onCommit).toHaveBeenLastCalledWith('navigation.state')
+      fireEvent.change(input(), { target: { value: 'propulsion' } })
+      fireEvent.keyDown(input(), { key: 'ArrowDown' })
+      fireEvent.keyDown(input(), { key: 'Enter' })
+      expect(onCommit).toHaveBeenLastCalledWith('propulsion.port.coolantTemperature')
+      expect(onCommit).toHaveBeenCalledTimes(2)
+    })
+
+    it('as typed, on Enter with no option active and when focus leaves', () => {
+      const onCommit = vi.fn()
+      render(<Harness onCommit={onCommit} />)
+      fireEvent.change(input(), { target: { value: 'not.reported' } })
+      fireEvent.keyDown(input(), { key: 'Enter' })
+      expect(onCommit).toHaveBeenLastCalledWith('not.reported')
+      fireEvent.change(input(), { target: { value: 'not.reported.either' } })
+      fireEvent.blur(input())
+      expect(onCommit).toHaveBeenLastCalledWith('not.reported.either')
+    })
   })
 
   it('says the paths are loading, and still accepts a typed path', () => {
