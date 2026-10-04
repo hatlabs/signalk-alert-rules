@@ -387,11 +387,12 @@ describe('Add rule from a template', () => {
 
   describe('a tab’s path changed to one shown in another unit', () => {
     /** Opens the house bank's rule and settles its path on one the server does not report, in SI. */
-    async function houseOnUnreportedPath() {
+    async function houseOnUnreportedPath(before?: () => void) {
       const api = renderShell(fresh())
       await openLifepo4()
       pick(/^House bank/)
       await continueWith('Continue with 1 rule')
+      before?.()
       fireEvent.click(screen.getByRole('button', { name: 'Change the value to watch' }))
       const search = screen.getByRole('combobox', { name: 'Search by name or path' })
       change(search, 'electrical.batteries.house.current')
@@ -416,6 +417,17 @@ describe('Add rule from a template', () => {
         .split(' ')
         .map((id) => document.getElementById(id)?.textContent ?? '')
         .join(' ')
+
+    it('empties a limit typed for the old path, asking for it, and creates nothing', async () => {
+      const api = await houseOnUnreportedPath(() => {
+        change(limit(), '12.9')
+      })
+      expect(limit().value).toBe('')
+      expect(describedBy(limit())).toMatch(/fill in the limit/i)
+      fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+      expect(api.createRule).not.toHaveBeenCalled()
+      expect(limit().value).toBe('')
+    })
 
     it('keeps the emptied clear margin’s note through Create, until the rule is created without it', async () => {
       const api = await houseOnUnreportedPath()
