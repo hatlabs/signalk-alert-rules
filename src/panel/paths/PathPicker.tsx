@@ -127,6 +127,7 @@ export function PathPicker({
           event.preventDefault()
           pick(entry)
         } else {
+          close()
           onCommit?.(value)
         }
         break

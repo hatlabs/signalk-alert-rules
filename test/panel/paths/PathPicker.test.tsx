@@ -203,6 +203,17 @@ describe('PathPicker', () => {
       expect(onCommit).toHaveBeenLastCalledWith('not.reported.either')
     })
 
+    it('closing the list on Enter with no option active', () => {
+      const onCommit = vi.fn()
+      render(<Harness onCommit={onCommit} />)
+      fireEvent.change(input(), { target: { value: 'navigation' } })
+      expect(input().getAttribute('aria-expanded')).toBe('true')
+      fireEvent.keyDown(input(), { key: 'Enter' })
+      expect(onCommit).toHaveBeenLastCalledWith('navigation')
+      expect(input().getAttribute('aria-expanded')).toBe('false')
+      expect(screen.queryByRole('listbox')).toBeNull()
+    })
+
     it('not when the window loses focus, but when focus leaves once it is back', () => {
       const onCommit = vi.fn()
       const hasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(false)
