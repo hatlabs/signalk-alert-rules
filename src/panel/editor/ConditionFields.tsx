@@ -8,6 +8,7 @@ import {
   SelectControl,
   SelectField,
   useFieldErrors,
+  validity,
   ValueControl,
   type ControlProps,
   type Option,
@@ -118,9 +119,8 @@ function OpValueField<T extends string>({
 
 /** A field's control, marked invalid only when its own errors are among the field's. */
 function marked(control: ControlProps, invalid: boolean): ControlProps {
-  if (invalid) return control
   const { 'aria-invalid': _invalid, ...rest } = control
-  return { ...rest, className: 'skar-input' }
+  return { ...rest, ...validity(invalid) }
 }
 
 interface EventProps {

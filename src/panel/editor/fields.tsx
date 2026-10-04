@@ -17,6 +17,13 @@ export interface ControlProps {
   'aria-required'?: true
 }
 
+/** How a control shows whether it is in error, alike for every control. */
+export function validity(invalid: boolean): Pick<ControlProps, 'className' | 'aria-invalid'> {
+  return invalid
+    ? { className: 'skar-input skar-input-invalid', 'aria-invalid': true }
+    : { className: 'skar-input' }
+}
+
 /** The mark after a required field's label; its meaning is said once, by the form. */
 export function Required() {
   return (
@@ -66,9 +73,8 @@ export function Field({
   const describedBy = described(hint !== undefined && hintId, errors.length > 0 && errorId)
   const control: ControlProps = {
     id,
-    className: errors.length === 0 ? 'skar-input' : 'skar-input skar-input-invalid',
+    ...validity(errors.length > 0),
     ...(describedBy === undefined ? {} : { 'aria-describedby': describedBy }),
-    ...(errors.length === 0 ? {} : { 'aria-invalid': true }),
     ...(required ? { 'aria-required': true } : {})
   }
   return (
