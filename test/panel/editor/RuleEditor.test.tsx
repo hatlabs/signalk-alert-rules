@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RANGE_HYSTERESIS, RANGE_INVERTED, RANGE_NOT_WIDER } from '../../../src/model/rangeMessages'
-import { LEVEL_PRIORITY, type Rule } from '../../../src/model/rule'
+import { LEVEL_PRIORITY, type CombinatorKind, type Rule } from '../../../src/model/rule'
 import { validateRule } from '../../../src/model/validate'
 import { RuleRejectedError, type EditPreview } from '../../../src/panel/api'
 import { ZONE_PRIORITY } from '../../../src/panel/editor/MoreOptions'
@@ -1919,6 +1919,51 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     expect(textbox('Condition 1 limit')).toHaveProperty('value', '480')
     click(button('Save'))
     expect(api.previewRule).not.toHaveBeenCalled()
+  })
+
+  describe('over paths the server does not report', () => {
+    const unreported = (combinator: CombinatorKind): Rule => ({
+      name: 'Tanks apart',
+      slug: 'tanks-apart',
+      message: 'Tanks apart',
+      signal: {
+        combinator,
+        inputs: [{ path: 'tanks.fuel.port.level' }, { path: 'tanks.fuel.starboard.level' }]
+      },
+      detector: {
+        type: 'sustained',
+        direction: 'above',
+        steps: [{ limit: 0.2, priority: 'warning' }],
+        duration: 60
+      }
+    })
+    const editingCombination = (combinator: CombinatorKind) => {
+      const rule = unreported(combinator)
+      return renderEditor({ editing: { entry: ruleEntry({ slug: rule.slug }), rule } })
+    }
+
+    it.each<[CombinatorKind, CombinatorKind]>([
+      ['difference', 'ratio'],
+      ['ratio', 'difference']
+    ])('empties the limit of a %s changed to a %s', async (from, to) => {
+      const { api } = editingCombination(from)
+      await formShown()
+      openMoreOptions()
+      expect(textbox('Limit for step 1')).toHaveProperty('value', '0.2')
+      choose('Combined combination', to)
+      expect(textbox('Limit for step 1')).toHaveProperty('value', '')
+      expect(description(textbox('Limit for step 1'))).toContain('Fill in the limit')
+      click(button('Save'))
+      expect(api.previewRule).not.toHaveBeenCalled()
+    })
+
+    it('keeps the limit of a difference changed to a sum', async () => {
+      editingCombination('difference')
+      await formShown()
+      openMoreOptions()
+      choose('Combined combination', 'sum')
+      expect(textbox('Limit for step 1')).toHaveProperty('value', '0.2')
+    })
   })
 
   it('keeps a combination’s limit when another kind of combination keeps its unit', async () => {

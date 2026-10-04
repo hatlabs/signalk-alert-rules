@@ -1250,8 +1250,13 @@ function scopeSignal(form: RuleForm, scope: UnitScope): SignalForm | undefined {
   return scope === 'signal' ? form.signal : form.gates[scope]?.signal
 }
 
+/**
+ * What a signal's numbers are typed in. A ratio is a unit of its own: it shares SI with a
+ * signal of no known unit, yet a number typed for one means nothing for the other.
+ */
 function unitKey(signal: SignalForm, units: UnitLookup): string {
-  const { unit } = signalMeasure(signalShape(signal), units)
+  const { kind, unit } = signalMeasure(signalShape(signal), units)
+  if (kind === 'ratio') return 'ratio'
   return [unit.symbol, String(unit.scale), String(unit.offset)].join('|')
 }
 
