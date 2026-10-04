@@ -4,6 +4,7 @@ import { kindOf, kindsFor, withKind, type ConditionKind } from './conditionKinds
 import {
   CheckField,
   DurationInput,
+  errorIdOf,
   Field,
   SelectControl,
   SelectField,
@@ -117,10 +118,20 @@ function OpValueField<T extends string>({
   )
 }
 
-/** A field's control, marked invalid only when its own errors are among the field's. */
+/**
+ * A field's control, marked invalid and described by the field's error only
+ * when its own errors are among the field's.
+ */
 function marked(control: ControlProps, invalid: boolean): ControlProps {
-  const { 'aria-invalid': _invalid, ...rest } = control
-  return { ...rest, ...validity(invalid) }
+  const { 'aria-invalid': _invalid, 'aria-describedby': describedBy, ...rest } = control
+  const ids = (describedBy ?? '')
+    .split(' ')
+    .filter((id) => id !== '' && (invalid || id !== errorIdOf(control.id)))
+  return {
+    ...rest,
+    ...validity(invalid),
+    ...(ids.length === 0 ? {} : { 'aria-describedby': ids.join(' ') })
+  }
 }
 
 interface EventProps {

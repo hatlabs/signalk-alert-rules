@@ -1068,6 +1068,7 @@ describe('RuleEditor, an invalid stored rule', () => {
     expect(description(value())).toContain(message)
     expect(value().getAttribute('aria-invalid')).toBe('true')
     expect(op().getAttribute('aria-invalid')).toBeNull()
+    expect(description(op())).not.toContain(message)
     expect(document.querySelectorAll('[aria-invalid="true"]')).toHaveLength(1)
     expect(screen.queryByText(/^\/detector\//)).toBeNull()
   })
@@ -1085,6 +1086,7 @@ describe('RuleEditor, an invalid stored rule', () => {
     expect(op.getAttribute('aria-invalid')).toBe('true')
     expect(description(op)).toContain(message)
     expect(textbox('Count while: value').getAttribute('aria-invalid')).toBeNull()
+    expect(description(textbox('Count while: value'))).not.toContain(message)
     expect(document.querySelectorAll('[aria-invalid="true"]')).toHaveLength(1)
   })
 

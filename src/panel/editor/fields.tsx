@@ -17,6 +17,11 @@ export interface ControlProps {
   'aria-required'?: true
 }
 
+/** The id of the element that holds a field's error, from the field's control id. */
+export function errorIdOf(id: string): string {
+  return `${id}-error`
+}
+
 /** How a control shows whether it is in error, alike for every control. */
 export function validity(invalid: boolean): Pick<ControlProps, 'className' | 'aria-invalid'> {
   return invalid
@@ -69,7 +74,7 @@ export function Field({
     ...extraErrors.filter((e): e is string => e !== undefined)
   ]
   const hintId = `${id}-hint`
-  const errorId = `${id}-error`
+  const errorId = errorIdOf(id)
   const describedBy = described(hint !== undefined && hintId, errors.length > 0 && errorId)
   const control: ControlProps = {
     id,
@@ -247,7 +252,7 @@ export function CheckField({
   const id = useId()
   const errors = useFieldErrors(pointer)
   const hintId = `${id}-hint`
-  const errorId = `${id}-error`
+  const errorId = errorIdOf(id)
   return (
     <div className="skar-check">
       <input
