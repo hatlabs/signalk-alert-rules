@@ -1,4 +1,13 @@
-import { useEffect, useId, useRef, useState, type ReactNode, type Ref, type RefObject } from 'react'
+import {
+  Fragment,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+  type Ref,
+  type RefObject
+} from 'react'
 import { UNAUTHENTICATED_ACTOR, type RuleEntry, type RuleInfo } from '../api'
 import { failureMessage } from '../failure'
 import { chipOf } from '../list/attention'
@@ -101,9 +110,21 @@ function Fact({ term, children }: { term: string; children: ReactNode }) {
   )
 }
 
-/** A signal's paths, after the editor's name for a combined signal's combinator. */
+/**
+ * A signal's paths, after the editor's name for a combined signal's combinator.
+ * Inputs of a combined signal can differ only by source, so each names its own.
+ */
 function SignalWords({ signal }: { signal: RuleInfo['signal'] }) {
-  const paths = <span className="skar-mono">{signal.paths.join(', ')}</span>
+  const paths = signal.paths.map((path, i) => {
+    const source = signal.sources?.[i]
+    return (
+      <Fragment key={i}>
+        {i > 0 && ', '}
+        <span className="skar-mono">{path}</span>
+        {source !== undefined && ` from\u00a0${source}`}
+      </Fragment>
+    )
+  })
   const label = combinatorLabel(signal)
   return label === undefined ? (
     paths
@@ -149,7 +170,10 @@ function Facts({
           {rule.gates.map((g, n) => (
             <div key={n} className="skar-gate-fact">
               <div>
-                <SignalWords signal={g} /> {gateCondition(g, units)}
+                <SignalWords signal={g} />
+                {/* A source id often ends in digits, which the condition's number would seem to continue. */}
+                {g.combinator === undefined && g.sources?.[0] !== undefined && ','}{' '}
+                {gateCondition(g, units)}
               </div>
               {g.angular === true && <div className="skar-hint">{ANGULAR_LABEL}</div>}
             </div>
