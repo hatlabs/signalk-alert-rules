@@ -1430,3 +1430,30 @@ export function forgetNamed(
   const again = new Set(emptied.map((e) => e.path))
   return new Set([...named].filter((p) => !again.has(p)))
 }
+
+/** A condition's own pointer prefix, its index read whole: `/gates/10` is not `/gates/1`. */
+const GATE_POINTER = /^\/gates\/(\d+)(?=\/|$)/
+
+/**
+ * The editor's errors and named clear margins once condition `removed` is
+ * gone: its own dropped, and those of the conditions after it moved down by
+ * one to the index each now holds.
+ */
+export function withoutGate(
+  errors: readonly FieldError[],
+  named: ReadonlySet<string>,
+  removed: number
+): { errors: FieldError[]; named: Set<string> } {
+  const moved = (pointer: string): string[] => {
+    const match = GATE_POINTER.exec(pointer)
+    if (match === null) return [pointer]
+    const index = Number(match[1])
+    if (index === removed) return []
+    if (index < removed) return [pointer]
+    return [`/gates/${String(index - 1)}${pointer.slice(match[0].length)}`]
+  }
+  return {
+    errors: errors.flatMap((e) => moved(e.path).map((path) => ({ ...e, path }))),
+    named: new Set([...named].flatMap(moved))
+  }
+}
