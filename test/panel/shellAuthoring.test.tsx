@@ -136,7 +136,9 @@ describe('Shell rule authoring', () => {
     await openNewRule()
     fireEvent.click(screen.getByRole('link', { name: 'What should alert?' }))
     expect(await screen.findByRole('heading', { name: 'What should alert?' })).toBeTruthy()
-    expect(screen.getByText(/Bow thruster battery voltage, now/)).toBeTruthy()
+    // The picker reads the units again when it remounts, so the lead follows
+    // the heading by a render.
+    expect(await screen.findByText(/Bow thruster battery voltage, now/)).toBeTruthy()
     fireEvent.click(screen.getByRole('link', { name: 'Which value?' }))
     expect(await screen.findByRole('heading', { name: 'Which value?' })).toBeTruthy()
   })
