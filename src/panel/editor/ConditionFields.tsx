@@ -4,11 +4,15 @@ import { kindOf, kindsFor, withKind, type ConditionKind } from './conditionKinds
 import {
   CheckField,
   DurationInput,
+  errorIdOf,
   Field,
   SelectControl,
   SelectField,
   useFieldErrors,
+  validity,
   ValueControl,
+  type ControlProps,
+  type Option,
   type ValueKind
 } from './fields'
 import {
@@ -16,7 +20,8 @@ import {
   withDetector,
   type DetectorForm,
   type EventForm,
-  type RuleForm
+  type RuleForm,
+  type ValueField
 } from './formModel'
 import { unitLabels } from './words'
 
@@ -50,6 +55,85 @@ const WHILE_OPS = [
   { value: 'notEquals', label: 'is not' }
 ] as const
 
+interface OpValueProps<T extends string> {
+  label: string
+  /** The pointer of the condition, which holds its `op` and `value`. */
+  at: string
+  op: T | ''
+  options: readonly Option<T>[]
+  onOp: (op: T) => void
+  valueLabel: string
+  /** The value compared with; undefined while the op takes none. */
+  value: ValueField | undefined
+  onValue: (value: ValueField) => void
+  unit: string
+  valueKind: ValueKind | undefined
+}
+
+/**
+ * An op and the value it compares with, under one label. An error on either
+ * shows under the field, but marks only the control it belongs to.
+ */
+function OpValueField<T extends string>({
+  label,
+  at,
+  op,
+  options,
+  onOp,
+  valueLabel,
+  value,
+  onValue,
+  unit,
+  valueKind
+}: OpValueProps<T>) {
+  const opInvalid = useFieldErrors(`${at}/op`).length > 0
+  const valueErrors = useFieldErrors(`${at}/value`)
+  const shownErrors = value === undefined ? [] : valueErrors
+  return (
+    <Field label={label} pointer={`${at}/op`} extraErrors={shownErrors} required>
+      {(control) => {
+        const { id: _id, ...forValue } = marked(control, shownErrors.length > 0)
+        return (
+          <div className="skar-input-row skar-wrap">
+            <SelectControl
+              {...marked(control, opInvalid)}
+              value={op}
+              options={options}
+              onChange={onOp}
+            />
+            {value !== undefined && (
+              <ValueControl
+                label={valueLabel}
+                value={value}
+                unit={unit}
+                kind={valueKind}
+                control={{ ...forValue, 'aria-label': valueLabel }}
+                onChange={onValue}
+              />
+            )}
+          </div>
+        )
+      }}
+    </Field>
+  )
+}
+
+/**
+ * A field's control, marked invalid and described by the field's error only
+ * when its own errors are among the field's.
+ */
+function marked(control: ControlProps, invalid: boolean): ControlProps {
+  const { 'aria-invalid': _invalid, 'aria-describedby': describedBy, ...rest } = control
+  const ids = (describedBy ?? '')
+    .split(' ')
+    .filter((id) => id !== '' && (invalid || id !== errorIdOf(control.id)))
+  return {
+    ...rest,
+    ...validity(invalid),
+    ...(ids.length === 0 ? {} : { 'aria-describedby': ids.join(' ') })
+  }
+}
+
 interface EventProps {
   label: string
   at: string
@@ -61,32 +145,22 @@ interface EventProps {
 
 function EventFields({ label, at, event, onChange, unit, valueKind }: EventProps) {
   return (
-    <Field label={label} pointer={`${at}/op`} required>
-      {(control) => (
-        <div className="skar-input-row skar-wrap">
-          <SelectControl
-            {...control}
-            value={event.op}
-            options={EVENT_OPS}
-            onChange={(op) => {
-              onChange({ ...event, op })
-            }}
-          />
-          {event.op === 'changesTo' && (
-            <ValueControl
-              label={`${label}: value`}
-              value={event.value}
-              unit={unit}
-              kind={valueKind}
-              control={{ 'aria-label': `${label}: value` }}
-              onChange={(value) => {
-                onChange({ ...event, value })
-              }}
-            />
-          )}
-        </div>
-      )}
-    </Field>
+    <OpValueField
+      label={label}
+      at={at}
+      op={event.op}
+      options={EVENT_OPS}
+      onOp={(op) => {
+        onChange({ ...event, op })
+      }}
+      valueLabel={`${label}: value`}
+      value={event.op === 'changesTo' ? event.value : undefined}
+      onValue={(value) => {
+        onChange({ ...event, value })
+      }}
+      unit={unit}
+      valueKind={valueKind}
+    />
   )
 }
 
@@ -266,30 +340,22 @@ export function ConditionFields({ form, onChange, measure, valueKind }: Conditio
             }}
           />
           {d.useWhile && (
-            <Field label="Count while the value is" pointer="/detector/while/op" required>
-              {(control) => (
-                <div className="skar-input-row skar-wrap">
-                  <SelectControl
-                    {...control}
-                    value={d.whileOp}
-                    options={WHILE_OPS}
-                    onChange={(whileOp) => {
-                      update({ whileOp })
-                    }}
-                  />
-                  <ValueControl
-                    label="Count while: value"
-                    value={d.whileValue}
-                    unit={unit}
-                    kind={d.whileOp === 'above' || d.whileOp === 'below' ? 'number' : valueKind}
-                    control={{ 'aria-label': 'Count while: value' }}
-                    onChange={(whileValue) => {
-                      update({ whileValue })
-                    }}
-                  />
-                </div>
-              )}
-            </Field>
+            <OpValueField
+              label="Count while the value is"
+              at="/detector/while"
+              op={d.whileOp}
+              options={WHILE_OPS}
+              onOp={(whileOp) => {
+                update({ whileOp })
+              }}
+              valueLabel="Count while: value"
+              value={d.whileValue}
+              onValue={(whileValue) => {
+                update({ whileValue })
+              }}
+              unit={unit}
+              valueKind={d.whileOp === 'above' || d.whileOp === 'below' ? 'number' : valueKind}
+            />
           )}
           <CheckField
             label="Start the total again when…"

@@ -255,6 +255,40 @@ export function invalidRuleEntry(): InvalidRuleEntry {
   }
 }
 
+/** A worked example stored as `slug` with a change the server refuses to run. */
+function brokenExample(
+  from: string,
+  slug: string,
+  change: (rule: Rule) => object
+): InvalidRuleEntry {
+  const base = examples.find((r) => r.slug === from)
+  if (base === undefined) throw new Error(`no worked example ${from}`)
+  const body = { ...change(base), slug }
+  const result = validateRule(body)
+  if (result.ok) throw new Error(`${slug} is meant not to validate`)
+  return {
+    slug,
+    invalid: { errors: result.errors, body },
+    state: stateReport(false, { condition: 'problem', reason: 'invalidRule' }, minutesAgo(240))
+  }
+}
+
+/** Stored rules the editor cannot make, each beside the examples under its `rules` value. */
+export const brokenRules: Record<'fixedLimit' | 'angularRatio', () => InvalidRuleEntry> = {
+  fixedLimit: () =>
+    brokenExample('house-battery-low', 'house-battery-fixed-limit', (rule) => ({
+      ...rule,
+      name: 'House battery fixed limit',
+      detector: { ...rule.detector, limit: { kind: 'fixed', value: 12 } }
+    })),
+  angularRatio: () =>
+    brokenExample('engine-rpm-mismatch', 'engine-rpm-ratio-angular', (rule) => ({
+      ...rule,
+      name: 'Engine RPM ratio',
+      signal: { ...rule.signal, combinator: 'ratio', angular: true }
+    }))
+}
+
 /** What the plugin found while loading, beside the stored rule that does not run. */
 export const LOAD_ISSUE = 'rules/anchor-drag.json: Unexpected end of JSON input'
 

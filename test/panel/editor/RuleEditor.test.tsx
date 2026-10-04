@@ -29,6 +29,9 @@ import {
   type FakeApi
 } from './editorFixtures'
 
+const ZONES_INVALID =
+  'The stored zone setting is not valid: choose a zone, or turn this off and type the steps.'
+
 const HOUSE = 'electrical.batteries.house.voltage'
 
 const create = () => {
@@ -1035,6 +1038,115 @@ describe('RuleEditor, an invalid stored rule', () => {
     })
     await formShown()
   }
+
+  const engine = example('engine-service-due')
+  const bilge = example('bilge-pump-cycling')
+  it.each([
+    [
+      'a count changing to no value',
+      { ...bilge, detector: { ...bilge.detector, event: { op: 'changesTo' } } },
+      () => select('Count each time the value: value'),
+      () => select('Count each time the value')
+    ],
+    [
+      'a total while above no value',
+      { ...engine, detector: { ...engine.detector, while: { op: 'above' } } },
+      () => textbox('Count while: value'),
+      () => select('Count while the value is')
+    ],
+    [
+      'a total reset on changing to no value',
+      { ...engine, detector: { ...engine.detector, resetOn: { op: 'changesTo' } } },
+      () => textbox('Start again when the value: value'),
+      () => select('Start again when the value')
+    ]
+  ])('opens %s with its error on the value', async (_kind, body, value, op) => {
+    await openStored(body)
+    const result = validateRule(body)
+    const message = result.ok ? '' : (result.errors[0]?.message ?? '')
+    expect(message).not.toBe('')
+    expect(description(value())).toContain(message)
+    expect(value().getAttribute('aria-invalid')).toBe('true')
+    expect(op().getAttribute('aria-invalid')).toBeNull()
+    expect(description(op())).not.toContain(message)
+    expect(document.querySelectorAll('[aria-invalid="true"]')).toHaveLength(1)
+    expect(screen.queryByText(/^\/detector\//)).toBeNull()
+  })
+
+  it('opens an unknown op with its error on the op alone', async () => {
+    const body = {
+      ...engine,
+      detector: { ...engine.detector, while: { op: 'nonsense', value: 5 } }
+    }
+    await openStored(body)
+    const result = validateRule(body)
+    const message = result.ok ? '' : (result.errors[0]?.message ?? '')
+    expect(message).not.toBe('')
+    const op = select('Count while the value is')
+    expect(op.getAttribute('aria-invalid')).toBe('true')
+    expect(description(op)).toContain(message)
+    expect(textbox('Count while: value').getAttribute('aria-invalid')).toBeNull()
+    expect(description(textbox('Count while: value'))).not.toContain(message)
+    expect(document.querySelectorAll('[aria-invalid="true"]')).toHaveLength(1)
+  })
+
+  it.each([
+    ['a fixed value', { kind: 'fixed', value: 12 }],
+    ['an unknown kind', { kind: 'nonsense', level: 'warn' }]
+  ])('opens a detector limit of %s with its errors on the zones', async (_kind, limit) => {
+    const body = { ...battery, detector: { ...battery.detector, limit } }
+    await openStored(body)
+    expect(validateRule(body).ok).toBe(false)
+    const zones = checkbox(/Use the value's zones/)
+    expect(zones.getAttribute('aria-invalid')).toBe('true')
+    expect(description(zones)).toContain(ZONES_INVALID)
+    expect(description(zones)).not.toMatch(/is required|is not a known property|constant/)
+    expect(screen.queryByText(/^\/detector\//)).toBeNull()
+    expect(screen.getByText("Fix Use the value's zones to save.")).toBeTruthy()
+  })
+
+  it("opens a zone limit's stray setting with its error on the zones", async () => {
+    const limit = { kind: 'zone', level: 'warn', value: 5 }
+    await openStored({ ...battery, detector: { ...battery.detector, limit } })
+    const zones = checkbox(/Use the value's zones/)
+    expect(zones.getAttribute('aria-invalid')).toBe('true')
+    expect(description(zones)).toContain(ZONES_INVALID)
+    expect(select('Starting at the zone').getAttribute('aria-invalid')).toBeNull()
+    expect(screen.queryByText(/^\/detector\//)).toBeNull()
+    expect(screen.getByText("Fix Use the value's zones to save.")).toBeTruthy()
+  })
+
+  it('keeps the errors of a fixed detector limit on the zones once they are chosen', async () => {
+    const limit = { kind: 'fixed', value: 12 }
+    await openStored({ ...battery, detector: { ...battery.detector, limit } })
+    click(checkbox(/Use the value's zones/))
+    const zones = checkbox(/Use the value's zones/)
+    expect(zones.getAttribute('aria-invalid')).toBe('true')
+    expect(description(zones)).toContain(ZONES_INVALID)
+    expect(description(zones)).not.toMatch(/is required|is not a known property|constant/)
+    expect(description(select('Starting at the zone'))).toContain('is required')
+    expect(screen.queryByText(/^\/detector\//)).toBeNull()
+    expect(
+      screen.getByText("Fill in the zone to start at and fix Use the value's zones to save.")
+    ).toBeTruthy()
+  })
+
+  const rpm = example('engine-rpm-mismatch')
+  it("names the zones' own path by its field", async () => {
+    const { steps: _steps, ...detector } = rpm.detector as Extract<
+      Rule['detector'],
+      { type: 'sustained' }
+    >
+    await openStored({ ...rpm, detector: { ...detector, limit: { kind: 'zone', level: 'warn' } } })
+    expect(screen.getByText('Fix the path of the zones to save.')).toBeTruthy()
+  })
+
+  it('lists an angular flag on a combination that cannot wrap angles, which has no field', async () => {
+    await openStored({ ...rpm, signal: { ...rpm.signal, combinator: 'ratio', angular: true } })
+    expect(screen.queryByRole('checkbox', { name: /angle/i })).toBeNull()
+    expect(screen.getByText('/signal/angular: ratio cannot wrap angles')).toBeTruthy()
+    expect(screen.getByText('Fix whether the values are angles to save.')).toBeTruthy()
+  })
 
   const withoutDirection = (rule: Rule): Rule => {
     const { direction: _direction, ...detector } = rule.detector as Extract<

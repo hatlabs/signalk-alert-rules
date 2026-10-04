@@ -7,6 +7,7 @@ import {
   emptyGate,
   emptyStep,
   fromRule,
+  setCombinator,
   setMode,
   type RuleForm
 } from '../../../src/panel/editor/formModel'
@@ -83,7 +84,8 @@ describe('attachErrors', () => {
     })
     expect(attached('/gates/0/limit', fixedGate)).toEqual(['/gates/0/limit/value'])
     expect(attached('/gates/0/limit', zoneGate)).toEqual(['/gates/0/limit/level'])
-    expect(attached('/detector/limit', zones)).toEqual(['/detector/limit/level'])
+    // The zones checkbox stands for the detector's limit as a whole.
+    expect(attached('/detector/limit', zones)).toEqual(['/detector/limit'])
   })
 
   it('keeps an error on the gates as a whole off the first gate', () => {
@@ -107,7 +109,8 @@ describe('fieldPointers', () => {
   // A stored value with no field would take a server error the form cannot show on its field.
   it.each(examples())('has a field for every value of %s', (_, rule) => {
     const fields = fieldPointers(fromRule(rule, NO_UNITS), true)
-    expect(leafPointers(rule).filter((p) => !fields.includes(p))).toEqual([])
+    const errors = leafPointers(rule).map((path) => ({ path, message: 'x' }))
+    expect(attachErrors(errors, fields).unattached).toEqual([])
   })
 
   it('lists a below-a-limit rule in the order the form shows it', () => {
@@ -128,8 +131,7 @@ describe('fieldPointers', () => {
       '/condition',
       '/detector/hysteresis',
       '/detector/clearDuration',
-      '/detector/limit/kind',
-      '/detector/limit/value',
+      '/detector/limit',
       '/slug'
     ])
   })
@@ -175,6 +177,22 @@ describe('fieldPointers', () => {
     })
     expect(fieldPointers(f, false).filter((p) => p.includes('/steps/'))).toEqual([])
     expect(fieldPointers(f, false)).toContain('/detector/limit/level')
+  })
+
+  it.each([
+    ['difference', true],
+    ['absDifference', true],
+    ['spread', true],
+    ['mean', true],
+    ['ratio', false],
+    ['median', false],
+    ['distance', false],
+    ['positionSpread', false]
+  ] as const)('lists the angular flag of a %s only where it can wrap angles', (kind, listed) => {
+    const f = form((f) => {
+      f.signal = setCombinator(setMode(f.signal, 'combine'), kind)
+    })
+    expect(fieldPointers(f, false).includes('/signal/angular')).toBe(listed)
   })
 
   it('names the slug only for a new rule', () => {
@@ -338,6 +356,43 @@ describe('saveHint', () => {
     expect(fieldLabel('/signal/inputs/0/path', sustained)).toBe('path 1 to combine')
   })
 
+  // The field reads "Count while the value is" whatever the total measures.
+  it.each(['time', 'integral'] as const)(
+    'names what a total of %s counts while as its field does',
+    (measure) => {
+      const f = form((f) => {
+        f.detector.type = 'accumulator'
+        f.detector.measure = measure
+        f.detector.useWhile = true
+      })
+      for (const p of ['/detector/while', '/detector/while/op', '/detector/while/value']) {
+        expect(fieldLabel(p, f)).toBe('what to count while')
+      }
+    }
+  )
+
+  it("names a detector limit's error by the field that shows it", () => {
+    const zone = { kind: 'zone' as const, value: '', level: 'warn' as const, path: '' }
+    const sustained = (limit: RuleForm['detector']['limit']) =>
+      form((f) => {
+        f.detector.type = 'sustained'
+        f.detector.limit = limit
+      })
+    const zones = sustained(zone)
+    const fixed = sustained({ ...zone, kind: 'fixed' })
+    const count = form((f) => {
+      f.detector.type = 'count'
+    })
+    expect(fieldLabel('/detector/limit/level', zones)).toBe('the zone to start at')
+    expect(fieldLabel('/detector/limit/path', zones)).toBe('the path of the zones')
+    expect(fieldLabel('/detector/limit/value', zones)).toBe("Use the value's zones")
+    expect(fieldLabel('/detector/limit/level', fixed)).toBe("Use the value's zones")
+    expect(fieldLabel('/detector/limit', count)).toBe('the zone limit')
+    expect(saveHint([{ path: '/detector/limit/level', message: 'is required' }], fixed)).toBe(
+      "Fix Use the value's zones to save."
+    )
+  })
+
   it("names a gate's limit and path within the gate", () => {
     const gates = form((f) => {
       f.gates = [emptyGate(), { ...emptyGate(), signal: setMode(emptyGate().signal, 'combine') }]
@@ -346,7 +401,7 @@ describe('saveHint', () => {
     expect(fieldLabel('/gates/0/limit/level', gates)).toBe('the limit of Only while condition 1')
     expect(fieldLabel('/gates/0/signal/path', gates)).toBe('the path of Only while condition 1')
     expect(fieldLabel('/gates/0/signal/source', gates)).toBe('Only while condition 1')
-    expect(fieldLabel('/detector/limit/level', gates)).toBe('the zone to start at')
+    expect(fieldLabel('/detector/limit/level', gates)).toBe('the zone limit')
     expect(fieldLabel('/detector/while/op', gates)).toBe('what to count while')
     expect(fieldLabel('/gates/1/signal', gates)).toBe('the paths of Only while condition 2')
     expect(fieldLabel('/gates/1/signal/inputs/1/path', gates)).toBe(

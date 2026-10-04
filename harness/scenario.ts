@@ -12,8 +12,13 @@ export const OPTIONS = {
    * logged out, or stopped. The views show it at their next poll.
    */
   after: ['ready', 'unreachable', 'session', 'notRunning'],
-  /** `/rules`: the worked examples, none, or the examples with a stored rule that does not run and a file that could not be read. */
-  rules: ['examples', 'empty', 'partial'],
+  /**
+   * `/rules`: the worked examples, none, or the examples with a stored rule
+   * that does not run and a file that could not be read; or the examples with
+   * a stored rule the editor cannot make: a sustained rule with a fixed
+   * detector limit, or a ratio flagged as angles.
+   */
+  rules: ['examples', 'empty', 'partial', 'fixedLimit', 'angularRatio'],
   /** The rules' states: a mix of conditions, or the ones docs/examples.md shows where they differ. */
   states: ['mixed', 'docs'],
   access: ['admin', 'readwrite', 'readonly'],

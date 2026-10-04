@@ -17,6 +17,18 @@ export interface ControlProps {
   'aria-required'?: true
 }
 
+/** The id of the element that holds a field's error, from the field's control id. */
+export function errorIdOf(id: string): string {
+  return `${id}-error`
+}
+
+/** How a control shows whether it is in error, alike for every control. */
+export function validity(invalid: boolean): Pick<ControlProps, 'className' | 'aria-invalid'> {
+  return invalid
+    ? { className: 'skar-input skar-input-invalid', 'aria-invalid': true }
+    : { className: 'skar-input' }
+}
+
 /** The mark after a required field's label; its meaning is said once, by the form. */
 export function Required() {
   return (
@@ -62,13 +74,12 @@ export function Field({
     ...extraErrors.filter((e): e is string => e !== undefined)
   ]
   const hintId = `${id}-hint`
-  const errorId = `${id}-error`
+  const errorId = errorIdOf(id)
   const describedBy = described(hint !== undefined && hintId, errors.length > 0 && errorId)
   const control: ControlProps = {
     id,
-    className: errors.length === 0 ? 'skar-input' : 'skar-input skar-input-invalid',
+    ...validity(errors.length > 0),
     ...(describedBy === undefined ? {} : { 'aria-describedby': describedBy }),
-    ...(errors.length === 0 ? {} : { 'aria-invalid': true }),
     ...(required ? { 'aria-required': true } : {})
   }
   return (
@@ -225,13 +236,23 @@ interface CheckProps {
   onChange: (checked: boolean) => void
   disabled?: boolean
   hint?: ReactNode
+  /** Shown in place of the validator's messages, which name no field a checkbox could fix. */
+  errorMessage?: string
 }
 
-export function CheckField({ label, pointer, checked, onChange, disabled, hint }: CheckProps) {
+export function CheckField({
+  label,
+  pointer,
+  checked,
+  onChange,
+  disabled,
+  hint,
+  errorMessage
+}: CheckProps) {
   const id = useId()
   const errors = useFieldErrors(pointer)
   const hintId = `${id}-hint`
-  const errorId = `${id}-error`
+  const errorId = errorIdOf(id)
   return (
     <div className="skar-check">
       <input
@@ -254,7 +275,7 @@ export function CheckField({ label, pointer, checked, onChange, disabled, hint }
         )}
         {errors.length > 0 && (
           <div id={errorId} className="skar-error">
-            {errors.join('; ')}
+            {errorMessage ?? errors.join('; ')}
           </div>
         )}
       </div>
