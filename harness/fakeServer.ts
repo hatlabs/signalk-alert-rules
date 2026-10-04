@@ -18,6 +18,7 @@ import type { PathSource } from '../src/panel/paths/selfPaths'
 import { noChange } from '../test/panel/fixtures'
 import { distance } from '../test/panel/reportedPaths'
 import {
+  brokenRules,
   exampleEntries,
   freshState,
   historySeries,
@@ -87,7 +88,9 @@ export function fakeApi(scenario: Scenario): PanelApi {
       ? []
       : scenario.rules === 'partial'
         ? [...exampleEntries(scenario.states), invalidRuleEntry()]
-        : exampleEntries(scenario.states)
+        : scenario.rules === 'examples'
+          ? exampleEntries(scenario.states)
+          : [...exampleEntries(scenario.states), brokenRules[scenario.rules]()]
   const store = new Map(initial.map((e) => [e.slug, e]))
   const loadedAt = Date.now()
   let listing: TemplateListing = {
