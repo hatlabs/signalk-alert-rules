@@ -50,18 +50,23 @@ export const COMBINATOR_KINDS = [
   'distance',
   'positionSpread'
 ] as const satisfies readonly CombinatorKind[]
-export const PRIORITY_LEVELS = [
-  'emergency',
-  'alarm',
-  'warning',
-  'caution'
-] as const satisfies readonly Priority[]
-export const ZONE_LEVEL_NAMES = [
-  'alert',
-  'warn',
-  'alarm',
-  'emergency'
-] as const satisfies readonly ZoneLevel[]
+/** Every value of a choice, listed by a record so the compiler finds one left out. */
+function every<T extends string>(all: Readonly<Record<T, true>>): readonly T[] {
+  return Object.keys(all) as T[]
+}
+
+export const PRIORITY_LEVELS = every<Priority>({
+  emergency: true,
+  alarm: true,
+  warning: true,
+  caution: true
+})
+export const ZONE_LEVEL_NAMES = every<ZoneLevel>({
+  alert: true,
+  warn: true,
+  alarm: true,
+  emergency: true
+})
 export const MAX_INPUTS = 16
 export const MAX_GATES = 8
 
@@ -126,7 +131,7 @@ export interface SignalForm {
 export interface LimitForm {
   kind: 'fixed' | 'zone'
   value: string
-  level: ZoneLevel
+  level: ZoneLevel | ''
   /** A zone limit's path; empty for the signal's own. */
   path: string
   exact?: Exacts<'value'>
@@ -146,7 +151,7 @@ export interface DetectorForm {
   limit: LimitForm
   measure: 'time' | 'integral' | ''
   useWhile: boolean
-  whileOp: StateOp
+  whileOp: StateOp | ''
   whileValue: ValueField
   useResetOn: boolean
   resetOn: EventForm
@@ -161,7 +166,7 @@ export interface DetectorForm {
 
 export interface GateForm {
   signal: SignalForm
-  direction: 'above' | 'below'
+  direction: 'above' | 'below' | ''
   limit: LimitForm
   duration: DurationField
   hysteresis: string
@@ -589,18 +594,45 @@ function valueFrom(
   return { type: value === undefined ? 'number' : 'text', text: value ?? '' }
 }
 
-const EVENT_OP_SET: Readonly<Record<EventOp, true>> = {
-  changes: true,
+type Accumulator = Extract<Detector, { type: 'accumulator' }>
+
+const SIDES = every<Extract<Detector, { type: 'sustained' }>['direction']>({
+  above: true,
+  below: true
+})
+const TRENDS = every<Extract<Detector, { type: 'slope' }>['direction']>({
+  rising: true,
+  falling: true
+})
+const MATCH_OPS = every<MatchOp>({
+  equals: true,
+  notEquals: true,
   changesTo: true,
-  decreases: true
+  decreases: true,
+  timedOut: true
+})
+const MEASURES = every<Accumulator['measure']>({ time: true, integral: true })
+const WHILE_OPS = every<NonNullable<Accumulator['while']>['op']>({
+  above: true,
+  below: true,
+  equals: true,
+  notEquals: true
+})
+const EVENT_OPS = every<EventOp>({ changes: true, changesTo: true, decreases: true })
+
+/**
+ * A stored choice as its field shows it: unchosen unless it is one the field
+ * offers, so the form asks for it rather than pick for the user or send on
+ * what the server refused.
+ */
+function choiceFrom<T extends string>(value: unknown, offered: readonly T[]): T | '' {
+  return offered.find((choice) => choice === value) ?? ''
 }
-const isEventOp = (op: unknown): op is EventOp =>
-  typeof op === 'string' && Object.hasOwn(EVENT_OP_SET, op)
 
 function eventFrom(event: Event, stored: StoredNumbers, at: string): EventForm {
   if (!isRecord(event)) return { op: '', value: noValue() }
   return {
-    op: isEventOp(event.op) ? event.op : '',
+    op: choiceFrom(event.op, EVENT_OPS),
     value: valueFrom(event.value, stored, `${at}/value`)
   }
 }
@@ -608,7 +640,12 @@ function eventFrom(event: Event, stored: StoredNumbers, at: string): EventForm {
 function limitFrom(limit: Limit, stored: StoredNumbers, at: string): LimitForm {
   if (!isRecord(limit)) return noLimit()
   if (limit.kind === 'zone') {
-    return { kind: 'zone', value: '', level: limit.level, path: limit.path ?? '' }
+    return {
+      kind: 'zone',
+      value: '',
+      level: choiceFrom(limit.level, ZONE_LEVEL_NAMES),
+      path: limit.path ?? ''
+    }
   }
   const { text, exact } = storedNumber(limit.value, 'value', stored, `${at}/value`)
   return { ...noLimit(), value: text, ...exacts([['value', exact]]) }
@@ -642,7 +679,7 @@ function gateList(gates: Rule['gates']): Gate[] {
 }
 
 function gateFrom(gate: Gate, at: string, units: UnitLookup, emptied: FieldError[]): GateForm {
-  if (!isRecord(gate)) return emptyGate()
+  if (!isRecord(gate)) return { ...emptyGate(), direction: '' }
   const signal = signalFrom(gate.signal)
   const stored = { measure: storedMeasure(signal, units), emptied }
   const hysteresis =
@@ -651,7 +688,7 @@ function gateFrom(gate: Gate, at: string, units: UnitLookup, emptied: FieldError
       : storedNumber(gate.hysteresis, 'interval', stored, `${at}/hysteresis`, true)
   return {
     signal,
-    direction: gate.direction,
+    direction: choiceFrom(gate.direction, SIDES),
     limit: limitFrom(gate.limit, stored, `${at}/limit`),
     duration: durationFrom(gate.duration),
     hysteresis: hysteresis?.text ?? '',
@@ -712,7 +749,8 @@ export function fromBody(body: unknown, units: UnitLookup): OpenedBody {
  * paths. It also reads the body of a rule that does not validate
  * (`fromBody`): a missing or malformed signal, input, limit, event, step list
  * or gate reads as that part's empty form, left to fill in, and so does a
- * number in the unit of a signal without a path (`storedMeasure`). Other
+ * number in the unit of a signal without a path (`storedMeasure`) and a
+ * missing or unknown choice, such as a direction (`choiceFrom`). Other
  * fields are taken as stored, and `fromBody` catches what this cannot read.
  */
 export function fromRule(rule: Rule, units: UnitLookup): RuleForm {
@@ -735,11 +773,11 @@ function readRule(rule: Rule, units: UnitLookup, emptied: FieldError[]): RuleFor
   }
   switch (detector.type) {
     case 'match':
-      d.matchOp = detector.op
+      d.matchOp = choiceFrom(detector.op, MATCH_OPS)
       d.duration = durationFrom(detector.duration)
       break
     case 'sustained':
-      d.direction = detector.direction
+      d.direction = choiceFrom(detector.direction, SIDES)
       if (detector.limit !== undefined)
         d.limit = limitFrom(detector.limit, stored, '/detector/limit')
       d.duration = durationFrom(detector.duration)
@@ -752,21 +790,21 @@ function readRule(rule: Rule, units: UnitLookup, emptied: FieldError[]): RuleFor
       d.clearDuration = durationFrom(detector.clearDuration)
       break
     case 'slope':
-      d.trend = detector.direction
+      d.trend = choiceFrom(detector.direction, TRENDS)
       d.window = durationFrom(detector.window)
       break
     case 'projection':
-      d.trend = detector.direction
+      d.trend = choiceFrom(detector.direction, TRENDS)
       if (detector.limit !== undefined)
         d.limit = limitFrom(detector.limit, stored, '/detector/limit')
       d.window = durationFrom(detector.window)
       d.horizon = durationFrom(detector.horizon)
       break
     case 'accumulator':
-      d.measure = detector.measure
+      d.measure = choiceFrom(detector.measure, MEASURES)
       if (detector.while !== undefined) {
         d.useWhile = true
-        d.whileOp = detector.while.op
+        d.whileOp = choiceFrom(detector.while.op, WHILE_OPS)
         d.whileValue = valueFrom(detector.while.value, stored, '/detector/while/value')
       }
       if (detector.resetOn !== undefined) {
@@ -788,7 +826,7 @@ function readRule(rule: Rule, units: UnitLookup, emptied: FieldError[]): RuleFor
     const at = stepPointer(index)
     const numberFrom = (value: number, measured: 'value' | 'slope' | 'interval', field: string) =>
       storedNumber(value, measured, stored, `${at}/${field}`)
-    const form = emptyStep(step.priority)
+    const form = emptyStep(choiceFrom(step.priority, PRIORITY_LEVELS))
     if ('value' in step) form.value = valueFrom(step.value, stored, `${at}/value`)
     if ('within' in step) form.duration = durationFrom(step.within)
     if ('low' in step) {
@@ -946,11 +984,11 @@ function readSignal(
 
 function readLimit(form: LimitForm, at: string, measure: Measure, read: Reader): Limit | undefined {
   if (form.kind === 'zone') {
-    return defined<Limit>({
+    return defined({
       kind: 'zone',
-      level: form.level,
+      level: read.choice(form.level, `${at}/level`),
       path: form.path === '' ? undefined : form.path
-    })
+    }) as Limit
   }
   const value = read.number(form.value, `${at}/value`, measure.kind, measure.unit, {
     exact: form.exact?.value
@@ -1089,7 +1127,10 @@ function readDetector(form: RuleForm, measure: Measure, read: Reader): Detector 
         type: 'accumulator',
         measure: read.choice(d.measure, `${at}/measure`),
         while: d.useWhile
-          ? { op: d.whileOp, value: read.value(d.whileValue, `${at}/while/value`, measure) }
+          ? {
+              op: read.choice(d.whileOp, `${at}/while/op`),
+              value: read.value(d.whileValue, `${at}/while/value`, measure)
+            }
           : undefined,
         resetOn: d.useResetOn ? readEvent(d.resetOn, `${at}/resetOn`, measure, read) : undefined,
         steps: steps()
@@ -1114,7 +1155,7 @@ function readGate(form: GateForm, at: string, units: UnitLookup, read: Reader): 
   const measure = signalMeasure(signalShape(form.signal), units)
   return defined({
     signal: readSignal(form.signal, `${at}/signal`, units, read),
-    direction: form.direction,
+    direction: read.choice(form.direction, `${at}/direction`),
     limit: readLimit(form.limit, `${at}/limit`, measure, read),
     duration: read.duration(form.duration, `${at}/duration`, true),
     hysteresis: read.number(
