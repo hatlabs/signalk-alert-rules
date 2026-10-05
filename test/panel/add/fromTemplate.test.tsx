@@ -1262,4 +1262,24 @@ describe('rules from a template with one slot named other than instance', () => 
       ]
     ])
   })
+
+  it('keeps a typed battery checked on the way back from the rules', async () => {
+    renderShell({ rules: [], listing })
+    const href = hashWithRoute('', {
+      kind: 'add',
+      from: 'template',
+      set: 'batteries',
+      template: batteryLow.id
+    })
+    window.history.replaceState(null, '', `/${href}`)
+    await screen.findByRole('list', { name: 'Picks' })
+    pick(/^House bank/)
+    change(screen.getByRole('textbox', { name: 'Not listed?' }), 'windlass')
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    await continueWith('Continue with 2 rules')
+    fireEvent.click(screen.getByRole('link', { name: 'Choose what it watches' }))
+    await screen.findByRole('list', { name: 'Picks' })
+    expect(screen.getByRole('checkbox', { name: /^windlass/ })).toHaveProperty('checked', true)
+    expect(screen.getByRole('checkbox', { name: /^House bank/ })).toHaveProperty('checked', true)
+  })
 })
