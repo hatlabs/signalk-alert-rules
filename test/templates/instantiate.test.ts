@@ -161,7 +161,8 @@ describe('instantiate', () => {
   it.each([
     ['a deeper path', 'house.port'],
     ['a wildcard', '*'],
-    ['whitespace', 'house bank']
+    ['whitespace', 'house bank'],
+    ['a field pointer', 'house#/voltage']
   ])('refuses an instance pick that is not one path segment: %s', (_, instance) => {
     expect(instantiate(SET, voltageLow, { instance })).toEqual({
       ok: false,
@@ -274,7 +275,8 @@ describe('instantiate with slots', () => {
 
   it.each([
     ['a deeper path', 'main.port'],
-    ['a wildcard', '*']
+    ['a wildcard', '*'],
+    ['a "#"', 'a#b']
   ])('refuses a slot pick that is not one path segment: %s', (_, engine) => {
     expect(instantiate(SET, alternator, { battery: 'start', engine })).toEqual({
       ok: false,

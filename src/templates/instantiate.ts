@@ -14,10 +14,10 @@ import { isRecord, pointer } from '../util.js'
 export const MAX_SLUG = 64
 
 // A test keeps these equal to the model's: the one path segment a slot's
-// placeholder stands for, so a pick can neither deepen the path nor make it
-// a wildcard.
-export const SLOT_PICK_PATTERN = '^[^.\\s*]+$'
-export const SLOT_PICK_MESSAGE = 'must be one path segment, without dots, whitespace or *'
+// placeholder stands for, so a pick can neither deepen the path, make it a
+// wildcard nor turn it into a field's pointer.
+export const SLOT_PICK_PATTERN = '^[^.\\s*#]+$'
+export const SLOT_PICK_MESSAGE = 'must be one path segment, without dots, whitespace, * or #'
 const SLOT_PICK = new RegExp(SLOT_PICK_PATTERN)
 
 /** A slot's name, which keys its pick; a test keeps it equal to the model's. */

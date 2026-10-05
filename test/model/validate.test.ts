@@ -908,6 +908,11 @@ describe('the template record', () => {
       '/template/pick/instance'
     ],
     ['with a wildcard instance', { ...record, pick: { instance: '*' } }, '/template/pick/instance'],
+    [
+      'with a field pointer in a slot pick',
+      { ...record, pick: { battery: 'start', engine: 'main#/x' } },
+      '/template/pick/engine'
+    ],
     ['with a field of its own', { ...record, extra: 1 }, '/template/extra']
   ])('is refused %s', (_, template, path) => {
     expect(paths(errorsOf(rule({ detector, template })))).toEqual([path])
