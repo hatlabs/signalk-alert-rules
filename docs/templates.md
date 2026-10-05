@@ -97,7 +97,8 @@ With `instance` in `open`, the template's rule writes the instance as `${instanc
 
 - An open instance needs `${instance}` in at least one path, and `${instance}` anywhere needs `instance` in `open`.
 - `${instance}` is the only placeholder substituted; any other `${...}` in a path, the name or the message is an error.
-- A picked instance is one path segment: no dots, no whitespace, no `*`, at most 255 characters.
+- `${instance}` is a whole path segment and cannot appear after `#`, in a field pointer such as `navigation.attitude#/roll`: the template names the field.
+- A picked instance is one path segment: no dots, no whitespace, no `*`, no `#`, at most 255 characters.
 
 ### Open source
 
