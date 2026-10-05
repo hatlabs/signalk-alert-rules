@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   POINTER_MESSAGE,
   POINTER_TOKEN_MESSAGE,
-  fieldPath,
   isPointerPath,
   pathSegments,
   splitPointerPath
@@ -98,21 +97,5 @@ describe('pathSegments', () => {
 
   it('is undefined for an invalid pointer', () => {
     expect(pathSegments('navigation.attitude#roll')).toBeUndefined()
-  })
-})
-
-describe('fieldPath', () => {
-  it('writes a base path and field tokens as a pointer path, escaping "~" and "/"', () => {
-    expect(fieldPath('navigation.attitude', ['roll'])).toBe('navigation.attitude#/roll')
-    expect(fieldPath('a', ['b~/c', 'd'])).toBe('a#/b~0~1c/d')
-  })
-
-  it('round-trips through splitPointerPath', () => {
-    const tokens = ['x~1', 'y/z']
-    expect(splitPointerPath(fieldPath('a.b', tokens))).toEqual({
-      valid: true,
-      basePath: 'a.b',
-      tokens
-    })
   })
 })

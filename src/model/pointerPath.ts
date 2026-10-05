@@ -67,16 +67,7 @@ export function pathSegments(path: string): string[] | undefined {
   return split.valid ? [...split.basePath.split('.'), ...split.tokens] : undefined
 }
 
-/** The path addressing the field the tokens name in the base path's value. */
-export function fieldPath(basePath: string, tokens: readonly string[]): string {
-  return basePath + POINTER_START + tokens.map((t) => TOKEN_SEPARATOR + escapeToken(t)).join('')
-}
-
 // RFC 6901 decodes ~1 before ~0, so that ~01 is "~1" and not "/".
 function unescapeToken(token: string): string {
   return token.replaceAll('~1', '/').replaceAll('~0', '~')
-}
-
-function escapeToken(token: string): string {
-  return token.replaceAll('~', '~0').replaceAll('/', '~1')
 }
