@@ -262,7 +262,7 @@ export class Application {
     // saved applies in this run.
     this.starting = true
     try {
-      if (this.dropTotalsOfOtherMeasure()) this.saveDroppedTotals()
+      if (this.dropStaleTotals()) this.saveDroppedTotals()
     } finally {
       this.starting = false
     }
@@ -421,11 +421,20 @@ export class Application {
     })
   }
 
-  /** Drops the stored totals of rules built under another measure than their rule file's. */
-  private dropTotalsOfOtherMeasure(): boolean {
+  /**
+   * Drops the stored totals of rules whose file is gone, removed outside the
+   * API, and of rules built under another measure than their rule file's.
+   * A file that could not be read is still there, so its total is kept.
+   */
+  private dropStaleTotals(): boolean {
     let drops = false
     for (const [slug, retained] of this.retained) {
-      if (!this.stored.has(slug) || this.unreadable.has(slug)) continue
+      if (!this.stored.has(slug)) {
+        this.retained.delete(slug)
+        drops = true
+        continue
+      }
+      if (this.unreadable.has(slug)) continue
       const rule = this.rulesBySlug.get(slug)
       const measure = rule === undefined ? this.unloadedMeasures.get(slug) : measureOf(rule)
       if (retained.measure === measure) continue

@@ -985,6 +985,76 @@ describe('application accumulator totals across edits', () => {
     expect(total()).toBeUndefined()
   })
 
+  it('a stored total whose rule file was removed is dropped at start and not written back', () => {
+    stored(oil)
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
+    const store = new Store(dir)
+    const save = vi.spyOn(store, 'saveCheckpoints')
+
+    const { application } = setup(store)
+
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(total()).toBeUndefined()
+    application.checkpoint()
+    application.stop()
+    expect(total()).toBeUndefined()
+  })
+
+  it('a rule created with the slug of a removed rule file starts from zero', () => {
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
+    const { application, at } = setup()
+
+    expect(application.createRule(hours).ok).toBe(true)
+    expect(application.rule(ID)?.state.instances).toMatchObject([{ progress: { total: 0 } }])
+    at(0, RPM, 30)
+    at(5)
+    application.checkpoint()
+    expect(total()).toBe(5)
+  })
+
+  it('a rule file put back with the slug of a removed one starts from zero after a restart', () => {
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
+    const first = setup()
+    first.application.stop()
+    stored(hours)
+
+    const { application } = setup()
+
+    expect(application.rule(ID)?.state.instances).toMatchObject([{ progress: { total: 0 } }])
+  })
+
+  it('the stored totals of a disabled rule and of an invalid rule are kept at start', () => {
+    const generator = { ...brokenHours, slug: 'generator-hours' }
+    stored(hours)
+    stored(generator)
+    const disabled = { since: WALL, actor: 'admin' }
+    new Store(dir).saveControls({ rules: { [ID]: { disabled } } })
+    new Store(dir).saveCheckpoints({
+      [ID]: { measure: 'time', totals: { '': 100 } },
+      [generator.slug]: { measure: 'time', totals: { '': 50 } }
+    })
+
+    const { application } = setup()
+    expect(application.rule(ID)).toHaveProperty('disabled')
+    expect(application.rule(generator.slug)).toHaveProperty('invalid')
+    application.checkpoint()
+
+    const totals: Partial<Checkpoints> = new Store(dir).load().accumulators
+    expect(totals[ID]?.totals['']).toBe(100)
+    expect(totals[generator.slug]?.totals['']).toBe(50)
+  })
+
+  it('nothing is written at start when no stored total is dropped', () => {
+    stored(hours)
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
+    const store = new Store(dir)
+    const save = vi.spyOn(store, 'saveCheckpoints')
+
+    setup(store)
+
+    expect(save).not.toHaveBeenCalled()
+  })
+
   it('a measure change survives a crash right after it: the new rule does not inherit the total', () => {
     stored(hours)
     const first = setup()
