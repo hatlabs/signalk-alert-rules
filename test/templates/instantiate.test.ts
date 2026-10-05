@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  INSTANCE_PICK_MESSAGE as MODEL_INSTANCE_PICK_MESSAGE,
-  INSTANCE_PICK_PATTERN as MODEL_INSTANCE_PICK_PATTERN,
+  SLOT_PICK_MESSAGE as MODEL_SLOT_PICK_MESSAGE,
+  SLOT_PICK_PATTERN as MODEL_SLOT_PICK_PATTERN,
   MAX_PICK_LENGTH,
   MAX_SLUG_LENGTH,
   SOURCE_PICK as MODEL_SOURCE_PICK
@@ -10,8 +10,8 @@ import { alertPathOf } from '../../src/alerts/paths.js'
 import type { Template } from '../../src/model/template.js'
 import { validateRule } from '../../src/model/validate.js'
 import {
-  INSTANCE_PICK_MESSAGE,
-  INSTANCE_PICK_PATTERN,
+  SLOT_PICK_MESSAGE,
+  SLOT_PICK_PATTERN,
   MAX_SLUG,
   SOURCE_PICK,
   instantiate,
@@ -163,7 +163,7 @@ describe('instantiate', () => {
   ])('refuses an instance pick that is not one path segment: %s', (_, instance) => {
     expect(instantiate(SET, voltageLow, { instance })).toEqual({
       ok: false,
-      errors: [{ path: '/instance', message: INSTANCE_PICK_MESSAGE }]
+      errors: [{ path: '/instance', message: SLOT_PICK_MESSAGE }]
     })
   })
 
@@ -276,7 +276,7 @@ describe('instantiate with slots', () => {
   ])('refuses a slot pick that is not one path segment: %s', (_, engine) => {
     expect(instantiate(SET, alternator, { battery: 'start', engine })).toEqual({
       ok: false,
-      errors: [{ path: '/engine', message: INSTANCE_PICK_MESSAGE }]
+      errors: [{ path: '/engine', message: SLOT_PICK_MESSAGE }]
     })
   })
 
@@ -370,8 +370,8 @@ describe('proposeSlug', () => {
 
 describe("the model's constants copied here", () => {
   it("equal the model's", () => {
-    expect(INSTANCE_PICK_PATTERN).toBe(MODEL_INSTANCE_PICK_PATTERN)
-    expect(INSTANCE_PICK_MESSAGE).toBe(MODEL_INSTANCE_PICK_MESSAGE)
+    expect(SLOT_PICK_PATTERN).toBe(MODEL_SLOT_PICK_PATTERN)
+    expect(SLOT_PICK_MESSAGE).toBe(MODEL_SLOT_PICK_MESSAGE)
     expect(SOURCE_PICK).toBe(MODEL_SOURCE_PICK)
   })
 })

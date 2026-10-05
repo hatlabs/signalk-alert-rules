@@ -13,11 +13,12 @@ import { isRecord, pointer } from '../util.js'
 // equal to the model's MAX_SLUG_LENGTH.
 export const MAX_SLUG = 64
 
-// A test keeps these equal to the model's: the one path segment `${instance}`
-// stands for, so a pick can neither deepen the path nor make it a wildcard.
-export const INSTANCE_PICK_PATTERN = '^[^.\\s*]+$'
-export const INSTANCE_PICK_MESSAGE = 'must be one path segment, without dots, whitespace or *'
-const INSTANCE_PICK = new RegExp(INSTANCE_PICK_PATTERN)
+// A test keeps these equal to the model's: the one path segment a slot's
+// placeholder stands for, so a pick can neither deepen the path nor make it
+// a wildcard.
+export const SLOT_PICK_PATTERN = '^[^.\\s*]+$'
+export const SLOT_PICK_MESSAGE = 'must be one path segment, without dots, whitespace or *'
+const SLOT_PICK = new RegExp(SLOT_PICK_PATTERN)
 
 /**
  * The parts of a template's rule its user picks: the instance in its paths,
@@ -148,7 +149,7 @@ function pickErrors(template: Template, pick: TemplatePick): ValidationError[] {
     const value = picked(pick, slot.name)
     const at = pointer('', slot.name)
     if (value === undefined) return [{ path: at, message: REQUIRED }]
-    if (!INSTANCE_PICK.test(value)) return [{ path: at, message: INSTANCE_PICK_MESSAGE }]
+    if (!SLOT_PICK.test(value)) return [{ path: at, message: SLOT_PICK_MESSAGE }]
     return []
   })
   const sourceOpen = template.open?.includes('source') === true

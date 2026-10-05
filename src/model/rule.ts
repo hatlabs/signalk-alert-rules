@@ -39,8 +39,8 @@ const PATH_SEGMENT = '[^.\\s*]+'
 const PATH_PATTERN = `^(${PATH_SEGMENT}|\\*)(\\.(${PATH_SEGMENT}|\\*))*$`
 
 /** A slot's pick: the one path segment its placeholder, such as `${instance}`, stands for. */
-export const INSTANCE_PICK_PATTERN = `^${PATH_SEGMENT}$`
-export const INSTANCE_PICK_MESSAGE = 'must be one path segment, without dots, whitespace or *'
+export const SLOT_PICK_PATTERN = `^${PATH_SEGMENT}$`
+export const SLOT_PICK_MESSAGE = 'must be one path segment, without dots, whitespace or *'
 
 /** Most slots a template declares. */
 export const MAX_SLOTS = 4
@@ -275,11 +275,11 @@ const GateSchema = Type.Object(
   closed
 )
 
-// The pattern alone requires a character, so an empty instance gets one error.
-const InstancePickSchema = Type.String({
+// The pattern alone requires a character, so an empty pick gets one error.
+const SlotPickSchema = Type.String({
   maxLength: MAX_PICK_LENGTH,
-  pattern: INSTANCE_PICK_PATTERN,
-  [PATTERN_MESSAGE_KEY]: INSTANCE_PICK_MESSAGE
+  pattern: SLOT_PICK_PATTERN,
+  [PATTERN_MESSAGE_KEY]: SLOT_PICK_MESSAGE
 })
 const SourcePickSchema = Type.String({ minLength: 1, maxLength: MAX_PICK_LENGTH })
 
@@ -298,7 +298,7 @@ const TemplatePickSchema = Type.Unsafe<TemplatePick>(
     { [SOURCE_PICK]: Type.Optional(SourcePickSchema) },
     {
       ...closed,
-      patternProperties: { [SLOT_PICK_KEY]: InstancePickSchema },
+      patternProperties: { [SLOT_PICK_KEY]: SlotPickSchema },
       maxProperties: MAX_SLOTS + 1
     }
   )
