@@ -4,7 +4,7 @@
  * are not bundled into the webapp.
  */
 import type { TemplatePick } from '../model/rule.js'
-import type { Template } from '../model/template.js'
+import type { Slot, Template } from '../model/template.js'
 import type { Result, ValidationError } from '../model/validate.js'
 import { isRecord, pointer } from '../util.js'
 
@@ -18,18 +18,36 @@ export const INSTANCE_PICK_PATTERN = '^[^.\\s*]+$'
 export const INSTANCE_PICK_MESSAGE = 'must be one path segment, without dots, whitespace or *'
 const INSTANCE_PICK = new RegExp(INSTANCE_PICK_PATTERN)
 
-/** The parts of a template's rule its user picks: the instance in its paths, the source of its input. */
+/**
+ * The parts of a template's rule its user picks: the instance in its paths,
+ * the source of its input. A template with slots lists only `source` here.
+ */
 export const OPEN_PARTS = ['instance', 'source'] as const
 export type OpenPart = (typeof OPEN_PARTS)[number]
+const SOURCE: OpenPart = 'source'
 
 /** A picked source is set on a single path's input, so a combined signal cannot leave it open. */
 export const OPEN_SOURCE_MESSAGE = 'an open source needs a signal with a single path'
 
-/** The one placeholder a template substitutes: `${instance}`. */
+/** The placeholder of the one slot `open: [instance]` declares: `${instance}`. */
 export const INSTANCE_PLACEHOLDER = 'instance'
 
-/** The keys under which a template's strings carry `${instance}`. */
-export const PLACEHOLDER_KEYS: ReadonlySet<string> = new Set(['path', 'name', 'message'])
+/** The slot `open: [instance]` stands for. */
+export const INSTANCE_SLOT: Slot = { name: INSTANCE_PLACEHOLDER, label: 'Instance' }
+
+/** A template's slots in declaration order: its `slots`, or the one `open: [instance]` gives. */
+export function slotsOf(template: Template): readonly Slot[] {
+  if (template.slots !== undefined) return template.slots
+  return template.open?.includes('instance') ? [INSTANCE_SLOT] : []
+}
+
+/** The keys under which a template's strings carry slot placeholders such as `${instance}`. */
+export const PLACEHOLDER_KEYS: ReadonlySet<string> = new Set([
+  'path',
+  'name',
+  'message',
+  'condition'
+])
 
 const PLACEHOLDER = /\$\{([^}]*)\}/g
 
@@ -38,6 +56,12 @@ export interface PlaceholderUse {
   name: string
   key: string
   at: string
+  /** The placeholder is a whole dot-separated segment of its string. */
+  segment: boolean
+}
+
+function isSegment(text: string, start: number, end: number): boolean {
+  return (start === 0 || text[start - 1] === '.') && (end === text.length || text[end] === '.')
 }
 
 /**
@@ -58,8 +82,13 @@ export function substitutePlaceholders(
     Object.entries(value).map(([key, child]) => {
       const childAt = pointer(at, key)
       if (PLACEHOLDER_KEYS.has(key) && typeof child === 'string') {
-        const replaced = child.replace(PLACEHOLDER, (_, name: string) =>
-          visit({ name, key, at: childAt })
+        const replaced = child.replace(PLACEHOLDER, (match: string, name: string, offset: number) =>
+          visit({
+            name,
+            key,
+            at: childAt,
+            segment: isSegment(child, offset, offset + match.length)
+          })
         )
         return [key, replaced]
       }
@@ -84,18 +113,23 @@ function fitted(base: string, suffix: string): string {
   return base.slice(0, MAX_SLUG - suffix.length).replace(/-+$/, '') + suffix
 }
 
+/** A slot's pick, read from the pick's own keys only, whatever the slot is named. */
+function picked(pick: TemplatePick, name: string): string | undefined {
+  return Object.hasOwn(pick, name) ? pick[name] : undefined
+}
+
 /**
- * A slug for a rule made from a template: its id and the instance picked,
- * numbered when another rule has it, so the same template can be used twice
- * for one instance.
+ * A slug for a rule made from a template: its id and each slot's pick in
+ * the order the template declares its slots, numbered when another rule has
+ * it, so the same template can be used twice for the same picks.
  */
 export function proposeSlug(
-  templateId: string,
-  instance: string | undefined,
+  template: Template,
+  pick: TemplatePick,
   taken: ReadonlySet<string>
 ): string {
-  const picked = instance === undefined ? '' : slugify(instance)
-  const base = fitted(picked === '' ? templateId : `${templateId}-${picked}`, '')
+  const parts = slotsOf(template).map((slot) => slugify(picked(pick, slot.name) ?? ''))
+  const base = fitted([template.id, ...parts.filter((part) => part !== '')].join('-'), '')
   if (!taken.has(base)) return base
   for (let n = 2; ; n++) {
     const slug = fitted(base, `-${String(n)}`)
@@ -103,18 +137,35 @@ export function proposeSlug(
   }
 }
 
+const REQUIRED = 'is required: the template leaves it open'
+const NOT_OPEN = 'the template does not leave it open'
+
 function pickErrors(template: Template, pick: TemplatePick): ValidationError[] {
-  const open = new Set<OpenPart>(template.open ?? [])
-  return OPEN_PARTS.flatMap((part): ValidationError[] => {
-    const at = pointer('', part)
-    if (open.has(part) && pick[part] === undefined)
-      return [{ path: at, message: 'is required: the template leaves it open' }]
-    if (!open.has(part) && pick[part] !== undefined)
-      return [{ path: at, message: 'the template does not leave it open' }]
-    if (part === 'instance' && pick.instance !== undefined && !INSTANCE_PICK.test(pick.instance))
-      return [{ path: at, message: INSTANCE_PICK_MESSAGE }]
+  const slots = slotsOf(template)
+  const errors = slots.flatMap((slot): ValidationError[] => {
+    const value = picked(pick, slot.name)
+    const at = pointer('', slot.name)
+    if (value === undefined) return [{ path: at, message: REQUIRED }]
+    if (!INSTANCE_PICK.test(value)) return [{ path: at, message: INSTANCE_PICK_MESSAGE }]
     return []
   })
+  const sourceOpen = template.open?.includes('source') === true
+  if (sourceOpen && picked(pick, SOURCE) === undefined)
+    errors.push({ path: pointer('', SOURCE), message: REQUIRED })
+  for (const key of Object.keys(pick)) {
+    const known = key === SOURCE ? sourceOpen : slots.some((slot) => slot.name === key)
+    if (!known) errors.push({ path: pointer('', key), message: NOT_OPEN })
+  }
+  return errors
+}
+
+/** A copy of a template's rule and condition with each slot's pick filled in. */
+function substituted(template: Template, pick: TemplatePick) {
+  const names = new Set(slotsOf(template).map((slot) => slot.name))
+  return substitutePlaceholders(
+    { condition: template.condition, rule: template.rule },
+    (use) => (names.has(use.name) ? picked(pick, use.name) : undefined) ?? `\${${use.name}}`
+  ) as { condition?: string; rule: Record<string, unknown> }
 }
 
 /**
@@ -132,11 +183,9 @@ export function instantiate(
 ): Result<Record<string, unknown>> {
   const errors = pickErrors(template, pick)
   if (errors.length > 0) return { ok: false, errors }
-  const { instance, source } = pick
-  const substituted = substitutePlaceholders(template.rule, (use) =>
-    use.name === INSTANCE_PLACEHOLDER && instance !== undefined ? instance : `\${${use.name}}`
-  ) as Record<string, unknown>
-  const { name, slug: _slug, template: _template, ...rest } = substituted
+  const source = picked(pick, SOURCE)
+  const { condition, rule } = substituted(template, pick)
+  const { name, slug: _slug, template: _template, ...rest } = rule
   if (source !== undefined) {
     if (!isRecord(rest.signal) || typeof rest.signal.path !== 'string') {
       return { ok: false, errors: [{ path: '/source', message: OPEN_SOURCE_MESSAGE }] }
@@ -147,8 +196,8 @@ export function instantiate(
     ok: true,
     value: {
       name,
-      slug: proposeSlug(template.id, instance, taken),
-      ...(template.condition === undefined ? {} : { condition: template.condition }),
+      slug: proposeSlug(template, pick, taken),
+      ...(condition === undefined ? {} : { condition }),
       ...rest,
       template: { set: set.id, id: template.id, version: set.version, pick: { ...pick } }
     }

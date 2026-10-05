@@ -173,18 +173,153 @@ describe('instantiate', () => {
   })
 })
 
+/** A template over two things: a battery it watches and an engine it gates on. */
+const alternator: Template = {
+  id: 'alternator-not-charging',
+  slots: [
+    { name: 'battery', label: 'Battery' },
+    { name: 'engine', label: 'Engine' }
+  ],
+  condition: '${engine}AlternatorNotCharging',
+  rule: {
+    name: 'Engine ${engine} alternator not charging',
+    message: 'Engine ${engine} is not charging battery ${battery}',
+    signal: { path: 'electrical.batteries.${battery}.voltage' },
+    detector: {
+      type: 'sustained',
+      direction: 'below',
+      steps: [{ limit: 13, priority: 'warning' }],
+      duration: 120
+    },
+    gates: [
+      {
+        signal: { path: 'propulsion.${engine}.revolutions' },
+        direction: 'above',
+        limit: { kind: 'fixed', value: 8 },
+        duration: 30
+      }
+    ]
+  }
+}
+
+describe('instantiate with slots', () => {
+  it('substitutes each slot into paths, name, message and condition, and records the pick', () => {
+    const rule = created(alternator, { battery: 'start', engine: 'main' })
+    expect(rule).toEqual({
+      name: 'Engine main alternator not charging',
+      slug: 'alternator-not-charging-start-main',
+      condition: 'mainAlternatorNotCharging',
+      message: 'Engine main is not charging battery start',
+      signal: { path: 'electrical.batteries.start.voltage' },
+      detector: {
+        type: 'sustained',
+        direction: 'below',
+        steps: [{ limit: 13, priority: 'warning' }],
+        duration: 120
+      },
+      gates: [
+        {
+          signal: { path: 'propulsion.main.revolutions' },
+          direction: 'above',
+          limit: { kind: 'fixed', value: 8 },
+          duration: 30
+        }
+      ],
+      template: {
+        set: 'batteries',
+        id: 'alternator-not-charging',
+        version: '1.2.0',
+        pick: { battery: 'start', engine: 'main' }
+      }
+    })
+    expect(alertPathOf(rule)).toBe('electrical.batteries.start.mainAlternatorNotCharging')
+    expect(validateRule(rule).ok).toBe(true)
+  })
+
+  it('gives two engines charging one battery their own alerts', () => {
+    const port = created(alternator, { battery: 'start', engine: 'port' })
+    const starboard = created(alternator, { battery: 'start', engine: 'starboard' })
+    expect(alertPathOf(port)).not.toBe(alertPathOf(starboard))
+  })
+
+  it('stores a picked source beside the slots', () => {
+    const template: Template = { ...alternator, open: ['source'] }
+    const rule = created(template, { battery: 'start', engine: 'main', source: 'can0.12' })
+    expect(rule.signal).toEqual({ path: 'electrical.batteries.start.voltage', source: 'can0.12' })
+    expect(rule.template).toMatchObject({
+      pick: { battery: 'start', engine: 'main', source: 'can0.12' }
+    })
+  })
+
+  it('requires a pick for every slot and refuses a key that is not one', () => {
+    expect(instantiate(SET, alternator, { battery: 'start' })).toEqual({
+      ok: false,
+      errors: [{ path: '/engine', message: 'is required: the template leaves it open' }]
+    })
+    expect(instantiate(SET, alternator, { battery: 'start', engine: 'main', pump: 'x' })).toEqual({
+      ok: false,
+      errors: [{ path: '/pump', message: 'the template does not leave it open' }]
+    })
+    expect(
+      instantiate(SET, alternator, { battery: 'start', engine: 'main', instance: 'house' })
+    ).toEqual({
+      ok: false,
+      errors: [{ path: '/instance', message: 'the template does not leave it open' }]
+    })
+  })
+
+  it.each([
+    ['a deeper path', 'main.port'],
+    ['a wildcard', '*']
+  ])('refuses a slot pick that is not one path segment: %s', (_, engine) => {
+    expect(instantiate(SET, alternator, { battery: 'start', engine })).toEqual({
+      ok: false,
+      errors: [{ path: '/engine', message: INSTANCE_PICK_MESSAGE }]
+    })
+  })
+
+  it('reads a pick by its own keys only, whatever a slot is named', () => {
+    const template: Template = {
+      ...voltageLow,
+      open: undefined,
+      slots: [{ name: 'constructor', label: 'Bank' }],
+      rule: { ...voltageLow.rule, signal: { path: 'electrical.batteries.${constructor}.voltage' } }
+    }
+    expect(instantiate(SET, template, {})).toEqual({
+      ok: false,
+      errors: [{ path: '/constructor', message: 'is required: the template leaves it open' }]
+    })
+  })
+})
+
 describe('proposeSlug', () => {
   it('slugs the pick after the template id', () => {
-    expect(proposeSlug('voltage-low', 'Start 1', new Set())).toBe('voltage-low-start-1')
-    expect(proposeSlug('voltage-low', '***', new Set())).toBe('voltage-low')
+    expect(proposeSlug(voltageLow, { instance: 'Start 1' }, new Set())).toBe('voltage-low-start-1')
+    expect(proposeSlug(voltageLow, { instance: '***' }, new Set())).toBe('voltage-low')
+  })
+
+  it("joins the slots' picks in the order the template declares them", () => {
+    const pick = { engine: 'main', battery: 'start' }
+    expect(proposeSlug(alternator, pick, new Set())).toBe('alternator-not-charging-start-main')
   })
 
   it('numbers a slug that is taken, within the slug length', () => {
-    const long = 'a'.repeat(MAX_SLUG)
-    expect(proposeSlug(long, undefined, new Set())).toBe(long)
-    const numbered = proposeSlug(long, undefined, new Set([long]))
+    const long: Template = { ...voltageLow, id: 'a'.repeat(MAX_SLUG), open: undefined }
+    expect(proposeSlug(long, {}, new Set())).toBe(long.id)
+    const numbered = proposeSlug(long, {}, new Set([long.id]))
     expect(numbered).toBe(`${'a'.repeat(MAX_SLUG - 2)}-2`)
-    expect(proposeSlug('x', undefined, new Set(['x', 'x-2', 'x-3']))).toBe('x-4')
+    const x: Template = { ...long, id: 'x' }
+    expect(proposeSlug(x, {}, new Set(['x', 'x-2', 'x-3']))).toBe('x-4')
+  })
+
+  it('fits long picks to the slug length, and their numbered retries too', () => {
+    const pick = { battery: 'b'.repeat(40), engine: 'e'.repeat(40) }
+    const slug = proposeSlug(alternator, pick, new Set())
+    expect(slug).toHaveLength(MAX_SLUG)
+    expect(slug).toBe(`alternator-not-charging-${'b'.repeat(40)}`)
+    const numbered = proposeSlug(alternator, pick, new Set([slug]))
+    expect(numbered).toHaveLength(MAX_SLUG)
+    expect(numbered.endsWith('-2')).toBe(true)
   })
 
   it('keeps the slug length the model allows', () => {
@@ -211,7 +346,8 @@ describe('substitutePlaceholders', () => {
         name: 'Bank ${instance}',
         signal: { path: 'electrical.batteries.${instance}.voltage' },
         detector: { type: 'match', op: 'equals', steps: [{ value: '${instance}' }] },
-        gates: [{ signal: { path: '${instance}.${other}' } }]
+        gates: [{ signal: { path: '${instance}.x${other}' } }],
+        condition: '${instance}Low'
       },
       (use) => {
         uses.push(use)
@@ -222,13 +358,15 @@ describe('substitutePlaceholders', () => {
       name: 'Bank INSTANCE',
       signal: { path: 'electrical.batteries.INSTANCE.voltage' },
       detector: { type: 'match', op: 'equals', steps: [{ value: '${instance}' }] },
-      gates: [{ signal: { path: 'INSTANCE.OTHER' } }]
+      gates: [{ signal: { path: 'INSTANCE.xOTHER' } }],
+      condition: 'INSTANCELow'
     })
     expect(uses).toEqual([
-      { name: 'instance', key: 'name', at: '/name' },
-      { name: 'instance', key: 'path', at: '/signal/path' },
-      { name: 'instance', key: 'path', at: '/gates/0/signal/path' },
-      { name: 'other', key: 'path', at: '/gates/0/signal/path' }
+      { name: 'instance', key: 'name', at: '/name', segment: false },
+      { name: 'instance', key: 'path', at: '/signal/path', segment: true },
+      { name: 'instance', key: 'path', at: '/gates/0/signal/path', segment: true },
+      { name: 'other', key: 'path', at: '/gates/0/signal/path', segment: false },
+      { name: 'instance', key: 'condition', at: '/condition', segment: false }
     ])
   })
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { CONDITION_MESSAGE } from '../../src/model/rule.js'
 import { validateTemplateSet } from '../../src/model/template.js'
 import type { ValidationError } from '../../src/model/validate.js'
 
@@ -162,6 +163,183 @@ describe('validateTemplateSet', () => {
     expect(errorsOf(withRule({ slug: 'mine', template: record }))).toEqual([
       { path: '/templates/0/rule/slug', message: 'is chosen when the template is used' },
       { path: '/templates/0/rule/template', message: 'is recorded when the template is used' }
+    ])
+  })
+})
+
+/** A template over two things: a battery it watches and an engine it gates on. */
+const alternator = {
+  id: 'alternator-not-charging',
+  slots: [
+    { name: 'battery', label: 'Battery' },
+    { name: 'engine', label: 'Engine' }
+  ],
+  condition: '${engine}AlternatorNotCharging',
+  rule: {
+    name: 'Engine ${engine} alternator not charging',
+    message: 'Engine ${engine} is not charging battery ${battery}',
+    signal: { path: 'electrical.batteries.${battery}.voltage' },
+    detector: {
+      type: 'sustained',
+      direction: 'below',
+      steps: [{ limit: 13, priority: 'warning' }],
+      duration: 120
+    },
+    gates: [
+      {
+        signal: { path: 'propulsion.${engine}.revolutions' },
+        direction: 'above',
+        limit: { kind: 'fixed', value: 8 },
+        duration: 30
+      }
+    ]
+  }
+}
+
+function withSlots(template: Record<string, unknown>) {
+  return withTemplate({ ...alternator, ...template })
+}
+
+function withSlotRule(rule: Record<string, unknown>) {
+  return withSlots({ rule: { ...alternator.rule, ...rule } })
+}
+
+const slot = (name: string, label = name.toUpperCase()) => ({ name, label })
+
+describe('validateTemplateSet with slots', () => {
+  it('accepts a template whose slots each appear in a path, and in its condition', () => {
+    expect(errorsOf(withTemplate(alternator))).toEqual([])
+  })
+
+  it('accepts an open source beside slots', () => {
+    expect(errorsOf(withSlots({ open: ['source'] }))).toEqual([])
+  })
+
+  it('accepts as many slots as the cap allows', () => {
+    const slots = ['a', 'b', 'c', 'd'].map((name) => slot(name))
+    const path = slots.map((s) => `\${${s.name}}`).join('.')
+    const rule = { ...voltageLow.rule, name: 'Four', signal: { path } }
+    expect(errorsOf(withSlots({ slots, condition: 'four', rule }))).toEqual([])
+  })
+
+  it('reports more slots than the cap', () => {
+    const slots = ['a', 'b', 'c', 'd', 'e'].map((name) => slot(name))
+    expect(errorsOf(withSlots({ slots }))).toEqual([
+      { path: '/templates/0/slots', message: 'must have at most 4 items' }
+    ])
+  })
+
+  it('reports a slot that appears in no path', () => {
+    const rule = {
+      message: 'Battery ${battery}',
+      signal: { path: 'electrical.batteries.house.voltage' }
+    }
+    expect(errorsOf(withSlotRule(rule))).toEqual([
+      { path: '/templates/0/slots/0', message: 'a slot needs ${battery} in a path' }
+    ])
+  })
+
+  it('reports a slot placeholder inside a path segment', () => {
+    const gate = alternator.rule.gates[0]
+    const gates = [{ ...gate, signal: { path: 'propulsion.main${engine}.revolutions' } }]
+    expect(errorsOf(withSlotRule({ gates }))).toEqual([
+      {
+        path: '/templates/0/rule/gates/0/signal/path',
+        message: '${engine} must be a whole path segment'
+      }
+    ])
+  })
+
+  it('reports a slot name that is not a letter followed by letters and digits', () => {
+    for (const name of ['2nd', 'main-engine', 'main_engine', '']) {
+      const slots = [slot(name, 'Battery'), slot('engine')]
+      expect(errorsOf(withSlots({ slots })), name).toEqual([
+        {
+          path: '/templates/0/slots/0/name',
+          message: 'must be a letter followed by letters and digits'
+        }
+      ])
+    }
+  })
+
+  it('reports a slot named source, which names the open source in a pick', () => {
+    const slots = [slot('battery'), slot('source')]
+    expect(errorsOf(withSlots({ slots }))).toContainEqual({
+      path: '/templates/0/slots/1/name',
+      message: 'source is reserved for the open source'
+    })
+  })
+
+  it('reports a slot declared twice', () => {
+    const slots = [slot('engine', 'Port'), slot('engine', 'Starboard')]
+    expect(errorsOf(withSlots({ slots }))).toContainEqual({
+      path: '/templates/0/slots/1/name',
+      message: 'engine is declared twice'
+    })
+  })
+
+  it('reports a label used twice, empty, or longer than 40 characters', () => {
+    const twice = [slot('battery', 'Bank'), slot('engine', 'Bank')]
+    expect(errorsOf(withSlots({ slots: twice }))).toEqual([
+      { path: '/templates/0/slots/1/label', message: 'Bank labels another slot' }
+    ])
+    for (const label of ['', 'x'.repeat(41)]) {
+      const slots = [slot('battery', label), slot('engine')]
+      expect(errorsOf(withSlots({ slots })).map((e) => e.path)).toEqual([
+        '/templates/0/slots/0/label'
+      ])
+    }
+  })
+
+  it('reports a slot without a label', () => {
+    const slots = [{ name: 'battery' }, slot('engine')]
+    expect(errorsOf(withSlots({ slots }))).toEqual([
+      { path: '/templates/0/slots/0/label', message: 'is required' }
+    ])
+  })
+
+  it('reports an open instance beside slots', () => {
+    expect(errorsOf(withSlots({ open: ['source', 'instance'] }))).toEqual([
+      {
+        path: '/templates/0/open/1',
+        message: 'an open instance cannot be combined with slots; declare it as a slot'
+      }
+    ])
+  })
+
+  it('reports a placeholder that is not a slot, naming the slots', () => {
+    expect(errorsOf(withSlotRule({ message: 'Low on ${instance}' }))).toEqual([
+      {
+        path: '/templates/0/rule/message',
+        message:
+          '${instance} is not a template parameter; the slots are ${battery}, ${engine} (message placeholders such as {value} are written without $)'
+      }
+    ])
+  })
+
+  it('reports a placeholder in a template that declares no slots', () => {
+    const { open: _open, ...bound } = voltageLow
+    expect(errorsOf(withTemplate({ ...bound, slots: [] }))).toContainEqual({
+      path: '/templates/0/rule/signal/path',
+      message:
+        '${instance} is not a template parameter; the template declares no slots (message placeholders such as {value} are written without $)'
+    })
+  })
+
+  it('leaves a placeholder inside a segment to templates without slots', () => {
+    const signal = { path: 'electrical.batteries.bank${instance}.voltage' }
+    expect(errorsOf(withRule({ signal }))).toEqual([])
+  })
+
+  it('reports a placeholder in the condition that is not a slot', () => {
+    expect(errorsOf(withSlots({ condition: '${pump}Off' })).map((e) => e.path)).toEqual([
+      '/templates/0/condition'
+    ])
+  })
+
+  it('reports a condition that is invalid once its slots are filled in', () => {
+    expect(errorsOf(withSlots({ condition: '${engine} not charging' }))).toEqual([
+      { path: '/templates/0/condition', message: CONDITION_MESSAGE }
     ])
   })
 })
