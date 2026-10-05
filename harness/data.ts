@@ -196,6 +196,45 @@ const disabled: Partial<Record<string, Disabled>> = {
 
 /** The states docs/examples.md shows, where they differ from the mixed ones. */
 const docsStates: Partial<Record<string, Shown>> = {
+  'bilge-pump-cycling': {
+    condition: {
+      condition: 'alerting',
+      reason: 'alertActive',
+      priority: 'warning',
+      step: 0,
+      awaitingInput: false,
+      message: 'Bilge pump is running often',
+      progress: { kind: 'events', count: 1, limit: 4 }
+    },
+    instances: [
+      instanceState(
+        {
+          condition: 'alerting',
+          reason: 'alertActive',
+          priority: 'warning',
+          step: 0,
+          awaitingInput: false
+        },
+        { value: false, progress: { kind: 'events', count: 1, limit: 4 } }
+      )
+    ],
+    changedAt: minutesAgo(2)
+  },
+  'coolant-temperature-rising': {
+    condition: NORMAL,
+    instances: [
+      instanceState(NORMAL, { ...wildcard('port'), value: 353.02 }),
+      instanceState(NORMAL, { ...wildcard('starboard'), value: 352.03 })
+    ]
+  },
+  'house-battery-low': {
+    condition: { ...NORMAL, value: 12.6 },
+    instances: [instanceState(NORMAL, { value: 12.6 })]
+  },
+  'depth-sensor-silent': {
+    condition: { ...NORMAL, value: 8.371 },
+    instances: [instanceState(NORMAL, { value: 8.371 })]
+  },
   'shore-power-frequency': {
     condition: { ...NORMAL, value: 50 },
     instances: [instanceState(NORMAL, { value: 50 })]
@@ -238,7 +277,8 @@ export function ruleEntry(rule: Rule, state: RuleStateReport, off?: Disabled): R
 
 export function exampleEntries(set: Scenario['states']): ListedRule[] {
   return examples.map((rule) => {
-    const off = disabled[rule.slug]
+    // The docs show every example enabled, as entered in the editor.
+    const off = set === 'docs' ? undefined : disabled[rule.slug]
     return ruleEntry(rule, shownState(rule, off !== undefined, set), off)
   })
 }

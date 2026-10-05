@@ -127,6 +127,14 @@ describe('render harness', () => {
     expect(entry?.status).toMatchObject({ condition, value, instances: [{ condition, value }] })
   })
 
+  it('lists the examples as docs/examples.md shows them with states=docs', async () => {
+    const { api } = fakes('?states=docs')
+    const rules = await api.rules()
+    const alerting = rules.filter((r) => r.status.condition !== 'normal').map((r) => r.slug)
+    expect(alerting).toEqual(['bilge-pump-cycling'])
+    expect(rules.filter((r) => 'disabled' in r && r.disabled !== undefined)).toEqual([])
+  })
+
   it('gives every path with a value a source', async () => {
     const { paths } = fakes()
     for (const entry of await paths.selfPaths()) {
