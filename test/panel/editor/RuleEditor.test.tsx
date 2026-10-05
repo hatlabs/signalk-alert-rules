@@ -975,6 +975,164 @@ describe('RuleEditor, editing', () => {
   })
 })
 
+describe("RuleEditor, a total's reset", () => {
+  afterEach(cleanup)
+
+  const hours = example('engine-service-due')
+  const openHours = async (rule: Rule = hours) => {
+    const rendered = renderEditor({ editing: { entry: ruleEntry({ slug: rule.slug }), rule } })
+    await formShown()
+    return rendered
+  }
+  const turnOnReset = () => {
+    click(checkbox('Start the total again when…'))
+  }
+  const resetValue = () => textbox('Start again when the value: value')
+
+  it('asks for the value the input changes to once turned on', async () => {
+    await openHours()
+    turnOnReset()
+    expect(select('Start again when the value')).toHaveProperty('value', 'changesTo')
+    expect(resetValue()).toHaveProperty('value', '')
+    expect(resetValue().getAttribute('aria-required')).toBe('true')
+  })
+
+  it('asks for it on a new total as well', async () => {
+    renderEditor({ start: { path: 'propulsion.main.revolutions', kind: 'total' } })
+    await formShown()
+    turnOnReset()
+    expect(select('Start again when the value')).toHaveProperty('value', 'changesTo')
+    expect(resetValue()).toHaveProperty('value', '')
+  })
+
+  it('refuses to save until the value is filled in, naming the reset', async () => {
+    const { api } = await openHours()
+    turnOnReset()
+    click(button('Save'))
+    expect(resetValue().getAttribute('aria-invalid')).toBe('true')
+    expect(description(resetValue())).toContain('is required')
+    expect(screen.getByText('Fill in the reset to save.')).toBeTruthy()
+    expect(api.previewRule).not.toHaveBeenCalled()
+    expect(api.updateRule).not.toHaveBeenCalled()
+  })
+
+  it('saves the reset as a change to the value typed', async () => {
+    const { api, onSaved } = await openHours()
+    turnOnReset()
+    type(resetValue(), '0')
+    click(button('Save'))
+    await saved(onSaved)
+    expect(api.updateRule.mock.calls[0]?.[1].detector).toMatchObject({
+      resetOn: { op: 'changesTo', value: 0 }
+    })
+  })
+
+  it.each([
+    [
+      'a boolean',
+      'electrical.switches.bilgePump.state',
+      () => select('Start again when the value: value'),
+      'true',
+      true
+    ],
+    [
+      'a text',
+      'propulsion.port.state',
+      () => textbox('Start again when the value: value'),
+      'stopped',
+      'stopped'
+    ]
+  ])(
+    'saves the reset value of %s input as that type',
+    async (_kind, path, value, typed, stored) => {
+      const { api, onSaved } = renderEditor({ start: { path, kind: 'total' } })
+      await formShown()
+      turnOnReset()
+      expect(value().tagName).toBe(typeof stored === 'boolean' ? 'SELECT' : 'INPUT')
+      type(value(), typed)
+      choose('Priority for step 1', 'caution')
+      type(textbox('Limit for step 1'), '250')
+      create()
+      await saved(onSaved)
+      expect(api.createRule.mock.calls[0]?.[0].detector).toMatchObject({
+        resetOn: { op: 'changesTo', value: stored }
+      })
+    }
+  )
+
+  it('saves without a reset turned on and off again, its empty value no obstacle', async () => {
+    const { api, onSaved } = await openHours()
+    turnOnReset()
+    turnOnReset()
+    type(textbox(/^Message/), 'Engine service is due now')
+    click(button('Save'))
+    await saved(onSaved)
+    expect(api.updateRule.mock.calls[0]?.[1].detector).not.toHaveProperty('resetOn')
+  })
+
+  it('keeps a stored reset on any change', async () => {
+    const stored: Rule = {
+      ...hours,
+      detector: { ...hours.detector, resetOn: { op: 'changes' } } as Rule['detector']
+    }
+    const { api, onSaved } = await openHours(stored)
+    expect(select('Start again when the value')).toHaveProperty('value', 'changes')
+    type(textbox(/^Message/), 'Engine service is due now')
+    click(button('Save'))
+    await saved(onSaved)
+    expect(api.updateRule.mock.calls[0]?.[1].detector).toMatchObject({
+      resetOn: { op: 'changes' }
+    })
+  })
+})
+
+describe("RuleEditor, a count's event", () => {
+  afterEach(cleanup)
+
+  const PUMP = 'electrical.switches.bilgePump.state'
+  const eventOp = () => select('Count each time the value')
+  const eventValue = () => select('Count each time the value: value')
+
+  it('asks for the value the input changes to on a new count', async () => {
+    const { api } = renderEditor({ start: { path: PUMP, kind: 'often' } })
+    await formShown()
+    expect(eventOp()).toHaveProperty('value', 'changesTo')
+    expect(eventValue()).toHaveProperty('value', '')
+    expect(eventValue().getAttribute('aria-required')).toBe('true')
+    choose('Priority for step 1', 'warning')
+    type(textbox('Limit for step 1'), '4')
+    type(textbox('Within'), '1')
+    choose('Within unit', 'h')
+    create()
+    expect(eventValue().getAttribute('aria-invalid')).toBe('true')
+    expect(screen.getByText('Fill in the event to save.')).toBeTruthy()
+    expect(api.createRule).not.toHaveBeenCalled()
+  })
+
+  it('keeps any change as the event a new absence expects', async () => {
+    renderEditor({ start: { path: 'navigation.watch.acknowledged', kind: 'missing' } })
+    await formShown()
+    expect(select('Expect the value to')).toHaveProperty('value', 'changes')
+  })
+
+  it('keeps a stored count of any change', async () => {
+    const bilge = example('bilge-pump-cycling')
+    const stored: Rule = {
+      ...bilge,
+      detector: { ...bilge.detector, event: { op: 'changes' } } as Rule['detector']
+    }
+    const { api, onSaved } = renderEditor({
+      editing: { entry: ruleEntry({ slug: stored.slug }), rule: stored }
+    })
+    await formShown()
+    expect(eventOp()).toHaveProperty('value', 'changes')
+    type(textbox(/^Message/), 'Bilge pump runs often')
+    click(button('Save'))
+    await saved(onSaved)
+    expect(api.updateRule.mock.calls[0]?.[1].detector).toMatchObject({ event: { op: 'changes' } })
+  })
+})
+
 describe('RuleEditor, an invalid stored rule', () => {
   afterEach(cleanup)
 

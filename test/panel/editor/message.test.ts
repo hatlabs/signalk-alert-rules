@@ -12,7 +12,8 @@ import {
   setCombinator,
   setMode,
   type RuleForm,
-  type StepForm
+  type StepForm,
+  type ValueField
 } from '../../../src/panel/editor/formModel'
 import type { PathEntry } from '../../../src/panel/paths/selfPaths'
 import { unitLookup } from '../../../src/panel/signalUnits'
@@ -120,6 +121,7 @@ describe('the generated message', () => {
     [
       'often',
       (f) => {
+        f.detector.event = { ...f.detector.event, op: 'changes' }
         f.steps = [step({ limit: '4' })]
         f.detector.window = { amount: '1', unit: 'h' }
       },
@@ -160,6 +162,26 @@ describe('the generated message', () => {
     expect(generatedMessage(form('environment.depth.belowTransducer', kind, edit), units)).toBe(
       expected
     )
+  })
+
+  it.each<[string, ValueField, string]>([
+    [
+      'with no value yet',
+      { type: 'number', text: '' },
+      'Bilge pump state changed to … more than 4 times in 1 h'
+    ],
+    [
+      'with its value',
+      { type: 'true', text: '' },
+      'Bilge pump state changed to true more than 4 times in 1 h'
+    ]
+  ])('words a new count %s', (_kind, value, expected) => {
+    const f = form('electrical.switches.bilgePump.state', 'often', (f) => {
+      f.detector.event.value = value
+      f.steps = [step({ limit: '4' })]
+      f.detector.window = { amount: '1', unit: 'h' }
+    })
+    expect(generatedMessage(f, units)).toBe(expected)
   })
 
   it('names a combination by its inputs', () => {

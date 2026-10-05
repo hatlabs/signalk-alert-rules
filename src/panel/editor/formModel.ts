@@ -284,7 +284,8 @@ export function emptyForm(): RuleForm {
       whileOp: 'above',
       whileValue: noValue(),
       useResetOn: false,
-      resetOn: { op: 'changes', value: noValue() },
+      // Any change would reset a numeric total on nearly every sample.
+      resetOn: { op: 'changesTo', value: noValue() },
       event: { op: 'changes', value: noValue() },
       duration: noDuration(),
       window: noDuration(),
