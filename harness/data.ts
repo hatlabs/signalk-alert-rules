@@ -194,12 +194,57 @@ const disabled: Partial<Record<string, Disabled>> = {
   'watch-not-acknowledged': { since: minutesAgo(90), actor: 'admin', note: 'Moored in harbour' }
 }
 
-/** The states docs/examples.md shows, where they differ from the mixed ones. */
+/** A normal rule reading its path's current value. */
+function normalReading(path: string): Shown {
+  const value = currentValue(path)
+  return { condition: { ...NORMAL, value }, instances: [instanceState(NORMAL, { value })] }
+}
+
+/** More starts than the rule's limit of 4, as an alerting count has. */
+const BILGE_STARTS = { kind: 'events', count: 5, limit: 4 } as const
+
+/**
+ * The states docs/examples.md shows, where they differ from the mixed ones.
+ * Values are the paths' own, so the images agree with the editor and kind
+ * picker beside them.
+ */
 const docsStates: Partial<Record<string, Shown>> = {
-  'shore-power-frequency': {
-    condition: { ...NORMAL, value: 50 },
-    instances: [instanceState(NORMAL, { value: 50 })]
-  }
+  'bilge-pump-cycling': {
+    condition: {
+      condition: 'alerting',
+      reason: 'alertActive',
+      priority: 'warning',
+      step: 0,
+      awaitingInput: false,
+      message: 'Bilge pump is running often',
+      progress: BILGE_STARTS
+    },
+    instances: [
+      instanceState(
+        {
+          condition: 'alerting',
+          reason: 'alertActive',
+          priority: 'warning',
+          step: 0,
+          awaitingInput: false
+        },
+        { value: false, progress: BILGE_STARTS }
+      )
+    ],
+    changedAt: minutesAgo(2)
+  },
+  'coolant-temperature-rising': {
+    condition: NORMAL,
+    instances: ['port', 'starboard'].map((engine) =>
+      instanceState(NORMAL, {
+        ...wildcard(engine),
+        value: currentValue(`propulsion.${engine}.coolantTemperature`)
+      })
+    )
+  },
+  'house-battery-low': normalReading('electrical.batteries.house.voltage'),
+  'depth-sensor-silent': normalReading('environment.depth.belowTransducer'),
+  'shore-power-frequency': normalReading('electrical.ac.shore.phase.single.frequency')
 }
 
 /** The state of a rule as shown, or a normal one with one instance reading its path's current value. */
@@ -238,7 +283,8 @@ export function ruleEntry(rule: Rule, state: RuleStateReport, off?: Disabled): R
 
 export function exampleEntries(set: Scenario['states']): ListedRule[] {
   return examples.map((rule) => {
-    const off = disabled[rule.slug]
+    // The docs show every example enabled, as entered in the editor.
+    const off = set === 'docs' ? undefined : disabled[rule.slug]
     return ruleEntry(rule, shownState(rule, off !== undefined, set), off)
   })
 }
