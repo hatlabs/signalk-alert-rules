@@ -106,8 +106,32 @@ describe('parseRoute', () => {
     })
   })
 
+  it('reads picks keyed by slot, and back from the rules they make to the picker', () => {
+    const picks = [{ battery: 'start', engine: 'main' }]
+    const hash = `${ADMIN}#add=template&set=s&template=t&picks=${encodeURIComponent(JSON.stringify(picks))}&step=edit`
+    const route = parseRoute(hash)
+    expect(route).toEqual({
+      kind: 'add',
+      from: 'template',
+      set: 's',
+      template: 't',
+      picks,
+      step: 'edit'
+    })
+    if (route.kind !== 'add') throw new Error('not add')
+    const { step: _step, ...picker } = route
+    expect(parseRoute(hashWithRoute(ADMIN, picker))).toEqual({
+      kind: 'add',
+      from: 'template',
+      set: 's',
+      template: 't',
+      picks
+    })
+  })
+
   it('reads picks it cannot read as none, and a template without its set as the sets', () => {
-    for (const picks of ['[', '{}', '[1]', '[{"instance":2}]', '[{"other":"x"}]']) {
+    const unreadable = ['[', '{}', '[1]', '[{"instance":2}]', '[{"1x":"x"}]', '[{"a.b":"x"}]']
+    for (const picks of unreadable) {
       expect(
         parseRoute(`${ADMIN}#add=template&set=s&template=t&picks=${encodeURIComponent(picks)}`)
       ).toEqual({ kind: 'add', from: 'template', set: 's', template: 't' })
@@ -178,6 +202,17 @@ describe('hashWithRoute', () => {
       set: 'builtin',
       template: 'low',
       picks: [{ instance: 'a&b' }, { instance: 'c', source: 'd.e' }]
+    },
+    {
+      kind: 'add',
+      from: 'template',
+      set: 'builtin',
+      template: 'alternator',
+      picks: [
+        { battery: 'start', engine: 'main' },
+        { battery: 'start', engine: 'port', source: 'n2k.1' }
+      ],
+      step: 'edit'
     },
     { kind: 'add', from: 'template', set: 's', template: 't', picks: [{}], step: 'edit' }
   ])('reads back what it writes: %o', (route) => {

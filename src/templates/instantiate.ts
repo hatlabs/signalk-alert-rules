@@ -20,6 +20,9 @@ export const SLOT_PICK_PATTERN = '^[^.\\s*]+$'
 export const SLOT_PICK_MESSAGE = 'must be one path segment, without dots, whitespace or *'
 const SLOT_PICK = new RegExp(SLOT_PICK_PATTERN)
 
+/** A slot's name, which keys its pick; a test keeps it equal to the model's. */
+export const SLOT_NAME_PATTERN = '^[A-Za-z][A-Za-z0-9]*$'
+
 /**
  * The parts of a template's rule its user picks: the instance in its paths,
  * the source of its input. A template with slots lists only `source` here.

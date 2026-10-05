@@ -1,6 +1,7 @@
 import { CONDITIONS, type Condition } from '../alerts/state'
 import type { Rule, TemplatePick } from '../model/rule'
 import type { Template } from '../model/template'
+import { SLOT_NAME_PATTERN } from '../templates/instantiate'
 
 export { CONDITIONS, type Condition }
 
@@ -475,13 +476,20 @@ function eventOf(v: unknown): RuleEvent | undefined {
   return { op: v.op, ...optional('value', stepValue(v.value)) }
 }
 
+const PICK_KEY = new RegExp(SLOT_NAME_PATTERN)
+
+/** Whether a key can key a template pick: a slot's name, or `source`, which has a slot name's form. */
+export const isPickKey = (key: string): boolean => PICK_KEY.test(key)
+
 function templateOf(v: unknown): RuleInfo['template'] {
   if (!isRecord(v) || typeof v.set !== 'string' || typeof v.id !== 'string') return undefined
   const pick = isRecord(v.pick) ? v.pick : {}
   return {
     set: v.set,
     id: v.id,
-    pick: { ...optional('instance', text(pick.instance)), ...optional('source', text(pick.source)) }
+    pick: Object.fromEntries(
+      Object.entries(pick).filter(([key, p]) => isPickKey(key) && typeof p === 'string')
+    ) as TemplatePick
   }
 }
 

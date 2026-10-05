@@ -538,6 +538,29 @@ describe('httpApi', () => {
       expect(absent.rule.steps).toEqual([{ within: 600, priority: 'warning' }])
     })
 
+    it("keeps every slot of a template record's pick and drops what is not one", async () => {
+      const twoSlot = {
+        ...ruleEntry,
+        rule: {
+          ...ruleEntry.rule,
+          template: {
+            set: 'builtin',
+            id: 'alternator-not-charging',
+            version: '1',
+            pick: { battery: 'start', engine: 'main', source: 'n2k.1', 'a.b': 'x', other: 2 }
+          }
+        }
+      }
+      const api = httpApi(fakeFetch({ [`${BASE}/rules`]: { body: [twoSlot] } }))
+      const [read] = await api.rules()
+      if (isInvalid(read)) throw new Error('invalid')
+      expect(read.rule.template).toEqual({
+        set: 'builtin',
+        id: 'alternator-not-charging',
+        pick: { battery: 'start', engine: 'main', source: 'n2k.1' }
+      })
+    })
+
     it('reads the zone level and priority of an active instance', async () => {
       const alerting = {
         ...ruleEntry.state.instances[0],
