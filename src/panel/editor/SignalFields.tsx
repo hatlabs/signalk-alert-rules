@@ -46,9 +46,7 @@ export function sourceOptions(slot: SlotForm, units: UnitLookup): Option<string>
   const all =
     slot.source === '' || reported.includes(slot.source) ? reported : [slot.source, ...reported]
   const preferred =
-    entry?.preferredSource === undefined
-      ? 'Preferred source'
-      : `Preferred source (server's choice): ${entry.preferredSource}`
+    entry?.preferredSource === undefined ? 'Preferred' : `Preferred: ${entry.preferredSource}`
   return [{ value: '', label: preferred }, ...all.map((s) => ({ value: s, label: s }))]
 }
 

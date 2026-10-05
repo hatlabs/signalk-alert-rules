@@ -331,12 +331,17 @@ describe('RuleEditor, from a path', () => {
     const options = within(select('Source'))
       .getAllByRole('option')
       .map((o) => o.textContent)
-    expect(options).toEqual([
-      "Preferred source (server's choice): gnss.stern",
-      'gnss.bow',
-      'gnss.stern'
-    ])
+    expect(options).toEqual(['Preferred: gnss.stern', 'gnss.bow', 'gnss.stern'])
     expect(description(select('Source'))).toContain('2 devices report this value.')
+  })
+
+  it('offers the preferred source unnamed when the server reports none', async () => {
+    renderEditor({ start: { path: 'navigation.headingMagnetic', kind: 'above' } })
+    await formShown()
+    const options = within(select('Source'))
+      .getAllByRole('option')
+      .map((o) => o.textContent)
+    expect(options).toEqual(['Preferred', 'compass.a', 'compass.b'])
   })
 
   it('asks for the field a step misses', async () => {
