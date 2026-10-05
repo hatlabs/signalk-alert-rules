@@ -13,7 +13,6 @@ import { proposeSlug } from '../../templates/instantiate'
 import {
   isSlugTaken,
   RuleRejectedError,
-  type FieldError,
   type ListedRule,
   type PanelApi,
   type RuleEntry,
@@ -23,10 +22,12 @@ import { BackIcon } from '../detail/icons'
 import {
   forgetNamed,
   marginUnnamed,
+  revealed,
   standingRetypes,
   toRule,
   withoutGate,
   withUnitErrors,
+  type FormError,
   type RuleForm
 } from '../editor/formModel'
 import { UnattachedErrors, useFocusInvalid, WithPaths } from '../editor/editorFrame'
@@ -91,7 +92,7 @@ interface Tab {
   form: RuleForm
   /** The slug the template proposed; a slug the user typed is not changed on a conflict. */
   proposed: string
-  errors: FieldError[]
+  errors: FormError[]
   /** The emptied clear margins a footer has named, at a refused Save. */
   named: ReadonlySet<string>
   /**
@@ -269,7 +270,7 @@ function TabsForm(props: FormProps) {
       tab: t,
       result: toRule(t.form, units),
       // Kept until each number emptied for a unit is typed again; see standingRetypes.
-      retypes: standingRetypes(t.form, t.errors)
+      retypes: revealed(standingRetypes(t.form, t.errors))
     }))
     const refused = read.filter(
       ({ tab, result, retypes }) => !result.ok || marginUnnamed(retypes, tab.named)
@@ -413,7 +414,10 @@ function TabsForm(props: FormProps) {
                 <span>{t.label}</span>
                 {t.waiting && <span className="skar-tab-note"> · not reporting yet</span>}
                 {!included(t) && <span className="skar-tab-note"> · already has a rule</span>}
-                {t.errors.length > 0 && <span className="skar-tab-error"> · needs fixing</span>}
+                {/* Withheld errors wait for Save, so a commit does not widen the tab. */}
+                {t.errors.some((e) => e.withheld !== true) && (
+                  <span className="skar-tab-error"> · needs fixing</span>
+                )}
               </button>
             ))}
           </div>

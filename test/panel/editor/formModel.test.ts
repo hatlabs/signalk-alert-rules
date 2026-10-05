@@ -42,8 +42,10 @@ import {
   toRule,
   TWO_INPUT_KINDS,
   withDetector,
+  revealed,
   withNumbersInUnit,
   withoutGate,
+  withUnitErrors,
   ZONE_LEVEL_NAMES,
   type RuleForm
 } from '../../../src/panel/editor/formModel'
@@ -1668,9 +1670,29 @@ describe('withNumbersInUnit', () => {
       const { emptied } = withNumbersInUnit(form, changed, displayed)
       // Beyond the gate's limit and clear margin, the detector's own.
       expect(emptied.length).toBeGreaterThan(2)
-      expect(byPath(emptied)).toEqual(byPath(opened))
+      // A change of unit withholds the text that opening shows.
+      expect(emptied.every((e) => e.withheld === true)).toBe(true)
+      expect(byPath(revealed(emptied))).toEqual(byPath(opened))
     }
   )
+})
+
+describe('withUnitErrors', () => {
+  const limit = '/detector/steps/0/limit'
+  const emptied = [{ path: limit, message: 'is required', withheld: true as const }]
+
+  it('withholds the text of an error new on its field', () => {
+    expect(withUnitErrors([], emptied)).toEqual(emptied)
+  })
+
+  it('shows the text on a field already showing an error, replacing that error', () => {
+    const shown = [{ path: limit, message: 'must be a number' }]
+    expect(withUnitErrors(shown, emptied)).toEqual([{ path: limit, message: 'is required' }])
+  })
+
+  it('withholds the text on a field whose error was itself withheld', () => {
+    expect(withUnitErrors(emptied, emptied)).toEqual(emptied)
+  })
 })
 
 describe('withoutGate', () => {
@@ -1711,6 +1733,17 @@ describe('withoutGate', () => {
     expect(withoutGate([], named, 1).named).toEqual(
       new Set(['/gates/0/hysteresis', '/gates/1/hysteresis'])
     )
+  })
+
+  it('keeps each error’s text withheld or shown as it was', () => {
+    const errors = [
+      { path: '/gates/1/limit/value', message: 'is required', withheld: true as const },
+      { path: '/gates/2/limit/value', message: 'is required' }
+    ]
+    expect(withoutGate(errors, new Set(), 0).errors).toEqual([
+      { path: '/gates/0/limit/value', message: 'is required', withheld: true },
+      { path: '/gates/1/limit/value', message: 'is required' }
+    ])
   })
 
   it('keeps each error’s message', () => {

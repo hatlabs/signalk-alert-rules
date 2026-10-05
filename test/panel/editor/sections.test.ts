@@ -51,8 +51,10 @@ describe('attachErrors', () => {
       ],
       fields
     )
-    expect(byField.get('/detector/steps/0/limit')).toEqual(['must be a number'])
-    expect(byField.get('/name')).toEqual(['odd'])
+    expect(byField.get('/detector/steps/0/limit')).toEqual([
+      { text: 'must be a number', withheld: false }
+    ])
+    expect(byField.get('/name')).toEqual([{ text: 'odd', withheld: false }])
     expect(unattached).toEqual([])
   })
 
@@ -61,7 +63,17 @@ describe('attachErrors', () => {
       [{ path: '/signal/inputs', message: 'difference needs exactly two inputs' }],
       fields
     )
-    expect(byField.get('/signal/inputs/0/path')).toEqual(['difference needs exactly two inputs'])
+    expect(byField.get('/signal/inputs/0/path')).toEqual([
+      { text: 'difference needs exactly two inputs', withheld: false }
+    ])
+  })
+
+  it('marks the text of an error withheld until Save as withheld on its field', () => {
+    const { byField } = attachErrors(
+      [{ path: '/name', message: 'is required', withheld: true }],
+      fields
+    )
+    expect(byField.get('/name')).toEqual([{ text: 'is required', withheld: true }])
   })
 
   it('attaches an error on a whole limit to what is left to fill in, not to its kind', () => {

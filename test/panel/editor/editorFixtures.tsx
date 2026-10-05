@@ -90,6 +90,21 @@ export function description(element: HTMLElement): string {
     .join(' ')
 }
 
+/** The part of an input's description shown on the page: what is visually hidden is left out. */
+export function shownDescription(element: HTMLElement): string {
+  return (element.getAttribute('aria-describedby') ?? '')
+    .split(' ')
+    .map((id) => {
+      const target = document.getElementById(id)
+      if (target === null) return ''
+      if (target.closest('.skar-visually-hidden') !== null) return ''
+      const copy = target.cloneNode(true) as HTMLElement
+      for (const hidden of copy.querySelectorAll('.skar-visually-hidden')) hidden.remove()
+      return copy.textContent
+    })
+    .join(' ')
+}
+
 export async function saved(onSaved: ReturnType<typeof vi.fn>) {
   await waitFor(() => {
     expect(onSaved).toHaveBeenCalled()

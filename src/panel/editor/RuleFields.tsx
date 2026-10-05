@@ -1,6 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { renderMessage } from '../../alerts/message'
-import type { FieldError } from '../api'
 import { PathPicker } from '../paths/PathPicker'
 import type { PathList } from '../paths/selfPaths'
 import { matchedInstances, signalMeasure, type UnitLookup } from '../signalUnits'
@@ -15,6 +14,7 @@ import {
   signalShape,
   toRule,
   withNumbersInUnit,
+  type FormError,
   type RuleForm
 } from './formModel'
 import { strayBraces, withGenerated } from './message'
@@ -30,9 +30,9 @@ const OVERLAP = /^makes an alert path overlapping that of rule (\S+); each rule 
 /** A form's errors, an alert path clash in the user's words, each on the field it names. */
 export interface CheckedErrors {
   /** The errors as set, which change identity only when they are set again. */
-  set: readonly FieldError[]
+  set: readonly FormError[]
   /** The errors, the clash named. */
-  errors: FieldError[]
+  errors: FormError[]
   /** The slug of the rule holding the alert path a save clashed with. */
   holder?: string
   attached: AttachedErrors
@@ -41,7 +41,7 @@ export interface CheckedErrors {
 /** A form's errors on their fields, an overlap refusal naming the rule that holds the alert path. */
 export function checkedErrors(
   form: RuleForm,
-  errors: readonly FieldError[],
+  errors: readonly FormError[],
   isNew: boolean,
   ruleName: (slug: string) => string | undefined
 ): CheckedErrors {
@@ -93,7 +93,7 @@ export interface RuleFieldsProps {
   /** Condition `index` was removed, which shifts the index the later conditions' errors are held by. */
   onGateRemoved: (index: number) => void
   /** A change of display unit emptied these shown numbers, each an error at its field. */
-  onUnitChange: (emptied: FieldError[]) => void
+  onUnitChange: (emptied: FormError[]) => void
   paths: PathList
   /** The units the form opened with, which every conversion keeps. */
   units: UnitLookup
@@ -132,10 +132,12 @@ export function RuleFields(props: RuleFieldsProps) {
     pathFocus.current = undefined
   }, [changingPath])
 
+  // Only for errors shown: one withheld until Save opens it at that Save, not under a click.
   useEffect(() => {
-    if ([...attached.byField.keys()].some((p) => underMoreOptions(form, isNew, p))) {
-      setMoreOpen(true)
-    }
+    const shownUnder = [...attached.byField].some(
+      ([p, messages]) => messages.some((m) => !m.withheld) && underMoreOptions(form, isNew, p)
+    )
+    if (shownUnder) setMoreOpen(true)
   }, [checked.set])
 
   // The form as last settled, whose units a change is compared with; the form as last changed,
@@ -184,7 +186,7 @@ export function RuleFields(props: RuleFieldsProps) {
   // A wildcard's first instance is not the rule's value, nor one input a combination's.
   const liveValue = single && !wildcard ? entry?.value : undefined
   const valueKind = single ? valueKindOf(entry?.value) : 'number'
-  const pathErrors = attached.byField.get('/signal/path') ?? []
+  const pathErrors = (attached.byField.get('/signal/path') ?? []).map((m) => m.text)
   const defaultCondition = defaultFormCondition(form)
   const stray = strayBraces(form.message)
   // The first instance in the order the toggle and the template picker list them, among
@@ -359,8 +361,14 @@ export function RuleFields(props: RuleFieldsProps) {
                 {` ${stray.join(', ')} ${stray.length === 1 ? 'is' : 'are'} sent as written.`}
               </span>
             )}
-            {preview !== undefined && (
-              <span className="skar-preview">{`Sends now: “${preview}”`}</span>
+            {/* One line, held while there is nothing to preview: a path committed by a click
+                rewrites or empties the preview, which would move the click's target. */}
+            {preview === undefined ? (
+              <span className="skar-preview-line" aria-hidden="true" />
+            ) : (
+              <span className="skar-preview-line" title={`Sends now: “${preview}”`}>
+                {`Sends now: “${preview}”`}
+              </span>
             )}
           </>
         }

@@ -8,6 +8,7 @@ import type { Measure, UnitLookup } from '../signalUnits'
 import {
   DurationControl,
   FieldErrors,
+  FieldErrorText,
   Required,
   SelectControl,
   ValueControl,
@@ -78,6 +79,8 @@ interface StepError {
   index: number
   pointer: string
   message: string
+  /** Kept off the page until Save, read out only; see `FormError`. */
+  withheld: boolean
 }
 
 /** A range step's error in words, naming the side and the previous step's limit it must pass. */
@@ -175,7 +178,12 @@ export function StepFields({ form, onChange, measure, units, valueKind, value }:
     `${stepPointer(i)}/${field ?? ''}`
   const stepErrors = steps.flatMap((_, i) =>
     [`${stepPointer(i)}/priority`, ...limitFields.map((f) => limitPointer(i, f))].flatMap((p) =>
-      (errors.get(p) ?? []).map((message) => ({ index: i, pointer: p, message }))
+      (errors.get(p) ?? []).map(({ text, withheld }) => ({
+        index: i,
+        pointer: p,
+        message: text,
+        withheld
+      }))
     )
   )
   const errorId = `${id}-errors`
@@ -318,11 +326,15 @@ export function StepFields({ form, onChange, measure, units, valueKind, value }:
         })}
       </ol>
       {stepErrors.length > 0 && (
-        <div id={errorId} className="skar-error" role="alert">
-          {stepErrors.map((e) => (
-            <div key={`${e.pointer} ${e.message}`}>{stepError(form, e, limitLabel, measure)}</div>
-          ))}
-        </div>
+        <FieldErrorText
+          id={errorId}
+          alert
+          stacked
+          messages={stepErrors.map((e) => ({
+            text: stepError(form, e, limitLabel, measure),
+            withheld: e.withheld
+          }))}
+        />
       )}
       {canEscalate && (
         <div>

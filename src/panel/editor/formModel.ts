@@ -554,6 +554,22 @@ function storedMeasure(signal: SignalForm, units: UnitLookup): Measure | undefin
   return measureSettled(shape, units) ? signalMeasure(shape, units) : undefined
 }
 
+/**
+ * An error on the form's field. One `withheld` marks its field invalid but keeps
+ * its text off the page until Save: a commit that empties a number must not move
+ * the controls below the field between a click's press and its release.
+ */
+export interface FormError extends FieldError {
+  withheld?: true
+}
+
+const shown = ({ path, message }: FormError): FieldError => ({ path, message })
+
+/** `errors` with each one's text shown, as every Save shows it. */
+export function revealed(errors: readonly FormError[]): FieldError[] {
+  return errors.map(shown)
+}
+
 /** The error on a clear margin left empty for want of a unit: not "is required", as it may stay empty. */
 export const RETYPE_IN_UNIT = 'must be typed again in the unit of the chosen path'
 
@@ -1366,21 +1382,25 @@ function signalNumbers(form: RuleForm): UnitNumber[] {
  * `form` with every number typed in a display unit emptied where its signal
  * is in another unit than in `settled`, the form as last settled: shown as
  * typed, the number would be read in the new unit, 2.57 m/s saved as 2.57 kn.
- * Each emptied number is returned as an error at its field; with none, `form`
- * itself is returned.
+ * Each emptied number is returned as an error at its field, its text withheld;
+ * with none, `form` itself is returned.
  */
 export function withNumbersInUnit(
   settled: RuleForm,
   form: RuleForm,
   units: UnitLookup
-): { form: RuleForm; emptied: FieldError[] } {
+): { form: RuleForm; emptied: FormError[] } {
   let next = form
-  const emptied: FieldError[] = []
+  const emptied: FormError[] = []
   const empty = (numbers: (f: RuleForm) => UnitNumber[]) => {
     for (const n of numbers(next)) {
       if (n.text === '') continue
       next = n.clear(next)
-      emptied.push({ path: n.at, message: n.optional ? RETYPE_IN_UNIT : 'is required' })
+      emptied.push({
+        path: n.at,
+        message: n.optional ? RETYPE_IN_UNIT : 'is required',
+        withheld: true
+      })
     }
   }
   const moved = (before: SignalForm, after: SignalForm) =>
@@ -1395,20 +1415,27 @@ export function withNumbersInUnit(
   return { form: next, emptied }
 }
 
-/** `errors` with those on the numbers a change of unit emptied replaced by theirs. */
+/**
+ * `errors` with those on the numbers a change of unit emptied replaced by
+ * theirs; a field already showing an error's text keeps showing one.
+ */
 export function withUnitErrors(
-  errors: readonly FieldError[],
-  emptied: readonly FieldError[]
-): FieldError[] {
+  errors: readonly FormError[],
+  emptied: readonly FormError[]
+): FormError[] {
   const touched = new Set(emptied.map((e) => e.path))
-  return [...errors.filter((e) => !touched.has(e.path)), ...emptied]
+  const showing = new Set(errors.filter((e) => e.withheld !== true).map((e) => e.path))
+  return [
+    ...errors.filter((e) => !touched.has(e.path)),
+    ...emptied.map((e) => (showing.has(e.path) ? shown(e) : e))
+  ]
 }
 
 /**
  * The notes on clear margins emptied for want of their unit whose fields are
  * still empty: the only sign a margin was emptied, which a Save keeps.
  */
-export function standingRetypes(form: RuleForm, errors: readonly FieldError[]): FieldError[] {
+export function standingRetypes(form: RuleForm, errors: readonly FormError[]): FormError[] {
   const numbers = [...signalNumbers(form), ...form.gates.flatMap((_, i) => gateNumbers(form, i))]
   const empty = new Set(numbers.filter((n) => n.text === '').map((n) => n.at))
   return errors.filter((e) => e.message === RETYPE_IN_UNIT && empty.has(e.path))
@@ -1440,11 +1467,11 @@ const GATE_POINTER = /^\/gates\/(\d+)(?=\/|$)/
  * gone: its own dropped, and those of the conditions after it moved down by
  * one to the index each now holds.
  */
-export function withoutGate(
-  errors: readonly FieldError[],
+export function withoutGate<E extends FieldError>(
+  errors: readonly E[],
   named: ReadonlySet<string>,
   removed: number
-): { errors: FieldError[]; named: Set<string> } {
+): { errors: E[]; named: Set<string> } {
   const moved = (pointer: string): string[] => {
     const match = GATE_POINTER.exec(pointer)
     if (match === null) return [pointer]

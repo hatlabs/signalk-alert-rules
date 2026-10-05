@@ -9,6 +9,7 @@ import {
   SelectControl,
   SelectField,
   useFieldErrors,
+  useFieldMessages,
   validity,
   ValueControl,
   type ControlProps,
@@ -87,7 +88,7 @@ function OpValueField<T extends string>({
   valueKind
 }: OpValueProps<T>) {
   const opInvalid = useFieldErrors(`${at}/op`).length > 0
-  const valueErrors = useFieldErrors(`${at}/value`)
+  const valueErrors = useFieldMessages(`${at}/value`)
   const shownErrors = value === undefined ? [] : valueErrors
   return (
     <Field label={label} pointer={`${at}/op`} extraErrors={shownErrors} required>

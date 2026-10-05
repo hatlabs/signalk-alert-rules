@@ -1,12 +1,56 @@
 import { createContext, useContext, useId, type ReactNode } from 'react'
 import type { DurationField, DurationUnit, ValueField } from './formModel'
+import type { FieldMessage } from './sections'
 
 /** Error messages by the JSON pointer of the field that shows them. */
-export const FieldErrors = createContext<ReadonlyMap<string, string[]>>(new Map())
+export const FieldErrors = createContext<ReadonlyMap<string, FieldMessage[]>>(new Map())
 
-export function useFieldErrors(pointer: string | undefined): string[] {
+/** A field's error messages, those withheld until Save among them. */
+export function useFieldMessages(pointer: string | undefined): FieldMessage[] {
   const errors = useContext(FieldErrors)
   return pointer === undefined ? [] : (errors.get(pointer) ?? [])
+}
+
+/**
+ * The text of a field's errors, each of which marks it invalid. Withheld ones are
+ * included, so a field a change of unit can empty shows its text with `useFieldMessages`.
+ */
+export function useFieldErrors(pointer: string | undefined): string[] {
+  return useFieldMessages(pointer).map((m) => m.text)
+}
+
+interface ErrorTextProps {
+  /** The id a control's `aria-describedby` names, which holds the shown and the withheld text. */
+  id: string
+  messages: readonly FieldMessage[]
+  /** Announces the shown text as it changes; withheld text is never announced. */
+  alert?: boolean
+  /** Each message on its own line rather than joined into one. */
+  stacked?: boolean
+}
+
+/**
+ * A field's error text. Withheld text is visually hidden yet still described,
+ * so a field marked invalid tells a screen reader why, and it lies outside the
+ * live region, so a commit that withholds it announces nothing. With every
+ * message withheld it takes no room on the page.
+ */
+export function FieldErrorText({ id, messages, alert = false, stacked = false }: ErrorTextProps) {
+  const shown = messages.filter((m) => !m.withheld)
+  const withheld = messages.filter((m) => m.withheld)
+  const text = (ms: readonly FieldMessage[]) =>
+    stacked ? ms.map((m, i) => <div key={i}>{m.text}</div>) : ms.map((m) => m.text).join('; ')
+  // Hidden whole while nothing shows: even empty, it would take a gap in its field.
+  return (
+    <div id={id} {...(shown.length === 0 ? { className: 'skar-visually-hidden' } : {})}>
+      {shown.length > 0 && (
+        <div className="skar-error" {...(alert ? { role: 'alert' } : {})}>
+          {text(shown)}
+        </div>
+      )}
+      {withheld.length > 0 && <div className="skar-visually-hidden">{text(withheld)}</div>}
+    </div>
+  )
 }
 
 export interface ControlProps {
@@ -44,7 +88,7 @@ interface FieldProps {
   pointer?: string
   hint?: ReactNode
   /** Extra messages, such as a check made while typing. */
-  extraErrors?: (string | undefined)[]
+  extraErrors?: (string | FieldMessage | undefined)[]
   /** Read-only text before the control, such as the fixed part of a path. */
   prefix?: string
   unit?: string
@@ -70,8 +114,10 @@ export function Field({
 }: FieldProps) {
   const id = useId()
   const errors = [
-    ...useFieldErrors(pointer),
-    ...extraErrors.filter((e): e is string => e !== undefined)
+    ...useFieldMessages(pointer),
+    ...extraErrors.flatMap((e) =>
+      e === undefined ? [] : [typeof e === 'string' ? { text: e, withheld: false } : e]
+    )
   ]
   const hintId = `${id}-hint`
   const errorId = errorIdOf(id)
@@ -97,11 +143,7 @@ export function Field({
           {unit !== undefined && unit !== '' && <span className="skar-unit">{unit}</span>}
         </div>
       )}
-      {errors.length > 0 && (
-        <div id={errorId} className="skar-error">
-          {errors.join('; ')}
-        </div>
-      )}
+      {errors.length > 0 && <FieldErrorText id={errorId} messages={errors} />}
       {hint !== undefined && (
         <div id={hintId} className="skar-hint">
           {hint}
@@ -118,7 +160,7 @@ interface TextProps {
   onChange: (value: string) => void
   hint?: ReactNode
   unit?: string
-  extraErrors?: (string | undefined)[]
+  extraErrors?: (string | FieldMessage | undefined)[]
   prefix?: string
   placeholder?: string
   /**
@@ -209,7 +251,7 @@ interface SelectProps<T extends string> {
   options: readonly Option<T>[]
   onChange: (value: T) => void
   hint?: ReactNode
-  extraErrors?: (string | undefined)[]
+  extraErrors?: (string | FieldMessage | undefined)[]
   required?: boolean
 }
 

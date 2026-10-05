@@ -21,6 +21,7 @@ import { hashWithRoute } from '../../../src/panel/route'
 import { Shell } from '../../../src/panel/Shell'
 import { displayUnit } from '../../../src/panel/units'
 import { BUILTIN_TEMPLATES, discoverTemplateSets } from '../../../src/templates/discovery'
+import { shownDescription } from '../editor/editorFixtures'
 import { noControls, onceShown, ruleEntry } from '../fixtures'
 
 const LIFEPO4 = 'battery-voltage-low-lifepo4'
@@ -425,10 +426,13 @@ describe('Add rule from a template', () => {
         change(limit(), '12.9')
       })
       expect(limit().value).toBe('')
+      expect(limit().getAttribute('aria-invalid')).toBe('true')
       expect(describedBy(limit())).toMatch(/fill in the limit/i)
+      expect(shownDescription(limit())).not.toMatch(/fill in the limit/i)
       fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
       expect(api.createRule).not.toHaveBeenCalled()
       expect(limit().value).toBe('')
+      expect(shownDescription(limit())).toMatch(/fill in the limit/i)
     })
 
     it('keeps the emptied clear margin’s note through Create, until the rule is created without it', async () => {
@@ -436,7 +440,9 @@ describe('Add rule from a template', () => {
       expect(margin().value).toBe('')
       fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
       expect(api.createRule).not.toHaveBeenCalled()
-      expect(describedBy(margin())).toContain('must be typed again in the unit of the chosen path')
+      expect(shownDescription(margin())).toContain(
+        'must be typed again in the unit of the chosen path'
+      )
       expect(footer()).toBe(
         'Fill in step 1 and step 2 on House bank to save. The clear margin on House bank was emptied: type it again or leave it empty.'
       )
@@ -449,6 +455,53 @@ describe('Add rule from a template', () => {
       const [rule] = createdRules(api)
       expect(rule.signal).toEqual({ path: 'electrical.batteries.house.current' })
       expect(rule.detector.type === 'sustained' && rule.detector.hysteresis).toBeUndefined()
+    })
+
+    it('withholds the emptied clear margin’s note until Create', async () => {
+      await houseOnUnreportedPath()
+      expect(margin().getAttribute('aria-invalid')).toBe('true')
+      expect(describedBy(margin())).toContain('must be typed again in the unit of the chosen path')
+      expect(shownDescription(margin())).not.toContain(
+        'must be typed again in the unit of the chosen path'
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+      expect(shownDescription(margin())).toContain(
+        'must be typed again in the unit of the chosen path'
+      )
+    })
+
+    it('marks a tab as needing fixing at Create, not at the commit that empties its numbers', async () => {
+      renderShell(fresh())
+      await openLifepo4()
+      pick(/^House bank/)
+      pick(/^starter/)
+      await continueWith('Continue with 2 rules')
+      changeShownPath('electrical.batteries.house.current')
+      expect(tab(/House bank/).textContent).not.toContain('needs fixing')
+      fireEvent.click(screen.getByRole('button', { name: 'Create 2 rules' }))
+      expect(tab(/House bank/).textContent).toContain('needs fixing')
+    })
+
+    it('shows a later tab’s emptied clear margin note when the server refuses that tab', async () => {
+      const server = fresh()
+      server.refuse = (rule) =>
+        rule.slug.endsWith('starter')
+          ? new RuleRejectedError('invalid', [{ path: '/name', message: 'is taken' }])
+          : undefined
+      renderShell(server)
+      await openLifepo4()
+      pick(/^House bank/)
+      pick(/^starter/)
+      await continueWith('Continue with 2 rules')
+      fireEvent.click(tab(/starter/))
+      changeShownPath('electrical.batteries.starter.current')
+      fireEvent.click(screen.getByRole('button', { name: 'Create 2 rules' }))
+      fillLimits()
+      fireEvent.click(screen.getByRole('button', { name: 'Create 2 rules' }))
+      expect(await screen.findByText(/Created 1 rule/)).toBeTruthy()
+      expect(shownDescription(margin())).toContain(
+        'must be typed again in the unit of the chosen path'
+      )
     })
 
     it('names every tab’s emptied clear margin at the Create that stops for the limits, then creates both', async () => {
@@ -503,10 +556,21 @@ describe('Add rule from a template', () => {
         return api
       }
 
+      it('withholds the emptied condition limit’s text until Create', async () => {
+        await secondConditionEmptied()
+        const conditionLimit = () => textbox('Condition 2 limit')
+        expect(conditionLimit().getAttribute('aria-invalid')).toBe('true')
+        expect(describedBy(conditionLimit())).toContain('is required')
+        expect(shownDescription(conditionLimit())).not.toContain('is required')
+        fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+        expect(shownDescription(conditionLimit())).toContain('is required')
+      })
+
       it('moves a later condition’s emptied numbers with it', async () => {
         await secondConditionEmptied()
         fireEvent.click(screen.getByRole('button', { name: 'Remove condition 1' }))
         expect(describedBy(textbox('Condition 1 limit'))).toContain('is required')
+        expect(shownDescription(textbox('Condition 1 limit'))).not.toContain('is required')
         expect(describedBy(textbox('Condition 1 clear margin'))).toContain(
           'must be typed again in the unit of the chosen path'
         )
