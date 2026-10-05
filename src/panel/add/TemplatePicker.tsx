@@ -59,9 +59,12 @@ export function TemplatePicker(props: TemplatePickerProps) {
     () => new Set((props.picked ?? []).map(pickKey))
   )
   const foundKeys = new Set(found.map((c) => pickKey(c.pick)))
-  const typedRows = typed
-    .filter((p) => !foundKeys.has(pickKey(p)))
-    .map((p) => typedCandidate(props.setId, template, typedIn(p) ?? '', reported, props.rules))
+  const typedRows = typed.flatMap((p) => {
+    const instance = typedIn(p)
+    return typedSlot === undefined || instance === undefined || foundKeys.has(pickKey(p))
+      ? []
+      : [typedCandidate(props.setId, template, typedSlot, instance, reported, props.rules)]
+  })
   const rows = [...found, ...typedRows]
   // A template with nothing open makes its one rule.
   const only = nothingOpen ? rows[0] : undefined

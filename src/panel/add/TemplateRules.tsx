@@ -39,7 +39,14 @@ import { FormHistory } from '../history/FormHistory'
 import type { HistorySource } from '../history/historySource'
 import type { PathList, PathSource } from '../paths/selfPaths'
 import type { UnitLookup } from '../signalUnits'
-import { candidates, pickKey, pickReports, ruleWatching, templateTitle } from './templatePicks'
+import {
+  candidates,
+  onlySlot,
+  pickKey,
+  pickReports,
+  ruleWatching,
+  templateTitle
+} from './templatePicks'
 import { copySettings, drafts, tabsHint } from './templateDrafts'
 
 /**
@@ -126,6 +133,7 @@ function initialTabs(props: FormProps): Tab[] {
   )
   const taken = new Set(rules.map((r) => r.slug))
   const slots = slotsOf(template)
+  const only = onlySlot(template)
   return drafts(set, template, picks, taken, units).map(({ pick, form }) => {
     const key = pickKey(pick)
     const existing = ruleWatching(set.id, template, pick, rules)
@@ -143,7 +151,7 @@ function initialTabs(props: FormProps): Tab[] {
         : {
             label:
               candidate?.label ??
-              slots.map((slot) => picked(pick, slot.name)).at(0) ??
+              (only === undefined ? undefined : picked(pick, only.name)) ??
               pick.source ??
               templateTitle(template),
             waiting: candidate?.entry === undefined

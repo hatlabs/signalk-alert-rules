@@ -16,6 +16,7 @@ import {
 import type { PathEntry } from '../../../src/panel/paths/selfPaths'
 import { displayUnit } from '../../../src/panel/units'
 import { BUILTIN_TEMPLATES, discoverTemplateSets } from '../../../src/templates/discovery'
+import { INSTANCE_SLOT } from '../../../src/templates/instantiate'
 import { ruleEntry } from '../fixtures'
 import { reported } from '../reportedPaths'
 
@@ -271,7 +272,7 @@ describe('the built-in templates', () => {
 
 describe('typed instances', () => {
   it('makes a pick for an instance nothing reports yet', () => {
-    expect(typedCandidate('builtin', lifepo4, 'windlass', boat, [])).toEqual({
+    expect(typedCandidate('builtin', lifepo4, INSTANCE_SLOT, 'windlass', boat, [])).toEqual({
       pick: { instance: 'windlass' },
       label: 'windlass',
       path: 'electrical.batteries.windlass.voltage',
@@ -288,9 +289,9 @@ describe('typed instances', () => {
         template: { set: 'builtin', id: lifepo4.id, pick: { instance: 'windlass' } }
       }
     })
-    expect(typedCandidate('builtin', lifepo4, 'windlass', boat, [made]).ruleName).toBe(
-      'Windlass bank voltage low'
-    )
+    expect(
+      typedCandidate('builtin', lifepo4, INSTANCE_SLOT, 'windlass', boat, [made]).ruleName
+    ).toBe('Windlass bank voltage low')
   })
 
   it('refuses what is not one path segment', () => {
@@ -335,7 +336,16 @@ describe('a template with one slot named other than instance', () => {
   })
 
   it('makes a pick by the slot’s name for a typed instance', () => {
-    expect(typedCandidate('builtin', batteryLow, 'windlass', boat, [])).toEqual({
+    expect(
+      typedCandidate(
+        'builtin',
+        batteryLow,
+        { name: 'battery', label: 'Battery' },
+        'windlass',
+        boat,
+        []
+      )
+    ).toEqual({
       pick: { battery: 'windlass' },
       label: 'windlass',
       path: 'electrical.batteries.windlass.voltage',
@@ -367,6 +377,67 @@ describe('a template with one slot named other than instance', () => {
       { battery: 'ruuvi-saloon' },
       { battery: 'starter' }
     ])
+  })
+
+  describe('used only in a gate', () => {
+    const whileRunning: Template = {
+      ...batteryLow,
+      slots: [{ name: 'engine', label: 'Engine' }],
+      rule: {
+        ...batteryLow.rule,
+        name: 'Starter low while ${engine} runs',
+        message: 'Starter low while ${engine} runs',
+        signal: { path: 'electrical.batteries.starter.voltage' },
+        gates: [
+          {
+            signal: { path: 'propulsion.${engine}.revolutions' },
+            direction: 'above',
+            limit: { kind: 'fixed', value: 8 }
+          }
+        ]
+      }
+    }
+    const revolutions: PathEntry = {
+      path: 'propulsion.main.revolutions',
+      unit: displayUnit({ units: 'Hz' }),
+      value: 30
+    }
+    const running = [...boat, revolutions]
+    const madeFor = (engine: string) =>
+      ruleEntry({
+        slug: `made-${engine}`,
+        rule: {
+          name: `Made for ${engine}`,
+          signal: { paths: ['electrical.batteries.starter.voltage'] },
+          template: { set: 'builtin', id: whileRunning.id, pick: { engine } }
+        }
+      })
+
+    it('lists the instances reporting the gate’s path, showing its value', () => {
+      const found = candidates('builtin', whileRunning, running, [])
+      expect(found.map((c) => [c.pick, c.path, c.entry?.path])).toEqual([
+        [{ engine: 'main' }, 'electrical.batteries.starter.voltage', 'propulsion.main.revolutions']
+      ])
+    })
+
+    it('leaves a typed instance nothing reports without a value', () => {
+      expect(
+        typedCandidate(
+          'builtin',
+          whileRunning,
+          { name: 'engine', label: 'Engine' },
+          'port',
+          running,
+          []
+        ).entry
+      ).toBeUndefined()
+    })
+
+    it('matches a rule on its stored pick, as every choice watches the same path', () => {
+      const rules = [madeFor('main')]
+      expect(ruleWatching('builtin', whileRunning, { engine: 'main' }, rules)).toBe('Made for main')
+      expect(ruleWatching('builtin', whileRunning, { engine: 'port' }, rules)).toBeUndefined()
+    })
   })
 })
 
@@ -649,6 +720,28 @@ describe('a template with two slots', () => {
       }
       expect(pickReports(combined, { battery: 'start', engine: 'main' }, reported)).toBe(true)
       expect(pickReports(combined, { battery: 'house', engine: 'main' }, reported)).toBe(false)
+    })
+
+    it('waits for a pair two slots of one path make, though each reports in another pair', () => {
+      const tanks: Template = {
+        ...alternator,
+        slots: [
+          { name: 'kind', label: 'Kind' },
+          { name: 'id', label: 'Tank' }
+        ],
+        rule: {
+          ...alternator.rule,
+          signal: { path: 'tanks.${kind}.${id}.currentLevel' },
+          gates: []
+        }
+      }
+      const level = (path: string): PathEntry => ({ path, unit: displayUnit({}), value: 0.5 })
+      const tanksReported = [
+        level('tanks.fuel.0.currentLevel'),
+        level('tanks.freshWater.1.currentLevel')
+      ]
+      expect(pickReports(tanks, { kind: 'fuel', id: '0' }, tanksReported)).toBe(true)
+      expect(pickReports(tanks, { kind: 'fuel', id: '1' }, tanksReported)).toBe(false)
     })
   })
 })
