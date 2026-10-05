@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import { alertPathOf } from '../../src/alerts/paths.js'
-import { validateRule, type PathInfo, type ValidationError } from '../../src/model/validate.js'
+import { POINTER_MESSAGE, POINTER_TOKEN_MESSAGE } from '../../src/model/pointerPath.js'
+import {
+  FIELD_ZONES_MESSAGE,
+  angularUnitsMessage,
+  validateRule,
+  type PathInfo,
+  type ValidationError
+} from '../../src/model/validate.js'
 import { workedExamples } from '../fixtures/worked-examples.js'
 
 const base = {
@@ -275,6 +282,167 @@ describe('validateRule', () => {
         })
       )
       expect(paths(errors)).toEqual(['/detector/limit/path'])
+    })
+  })
+
+  describe('field paths', () => {
+    const ROLL = 'navigation.attitude#/roll'
+    const heel = { type: 'outside', steps: [step({ low: -0.35, high: 0.35 })] }
+    const zoned = { type: 'sustained', direction: 'above', limit: { kind: 'zone', level: 'warn' } }
+    const fixedGate = (path: string) => ({
+      signal: { path },
+      direction: 'above',
+      limit: { kind: 'fixed', value: 0.1 }
+    })
+
+    it('accepts a field of a path as a signal, a combined input and a gate', () => {
+      expect(errorsOf(rule({ signal: { path: ROLL }, detector: heel }))).toEqual([])
+      expect(errorsOf(rule({ signal: { path: 'a.b#/c/d' }, detector: heel }))).toEqual([])
+      const pair = [{ path: ROLL }, { path: 'navigation.attitude#/pitch' }]
+      expect(
+        errorsOf(rule({ signal: { combinator: 'difference', inputs: pair }, detector: heel }))
+      ).toEqual([])
+      expect(
+        errorsOf(rule({ detector: heel, gates: [fixedGate('navigation.attitude#/pitch')] }))
+      ).toEqual([])
+    })
+
+    it("keeps a wildcard in the base path, as one of the rule's", () => {
+      expect(errorsOf(rule({ signal: { path: 'propulsion.*.x#/y' }, detector: heel }))).toEqual([])
+      const gated = rule({
+        signal: { path: 'propulsion.*.x#/y' },
+        detector: heel,
+        gates: [fixedGate('propulsion.*.z#/w')]
+      })
+      expect(errorsOf(gated)).toEqual([])
+      expect(
+        paths(errorsOf(rule({ signal: { path: 'propulsion.*.*.x#/y' }, detector: heel })))
+      ).toEqual(['/signal/path'])
+    })
+
+    it.each([
+      'navigation.attitude#',
+      'navigation.attitude#roll',
+      'navigation.attitude#/',
+      'navigation.attitude#/a~2',
+      'navigation.attitude#/roll#/pitch',
+      'navigation.attitude#roll.x',
+      'navigation.att#tude.x#/roll'
+    ])('refuses %s at the path with the pointer message alone', (path) => {
+      expect(errorsOf(rule({ signal: { path }, detector: heel }))).toEqual([
+        { path: '/signal/path', message: POINTER_MESSAGE }
+      ])
+    })
+
+    it.each(['navigation.attitude#/a.b', 'navigation.attitude#/a b', 'navigation.attitude#/*'])(
+      'refuses %s, whose field name is not one segment, at the path alone',
+      (path) => {
+        expect(errorsOf(rule({ signal: { path }, detector: heel }))).toEqual([
+          { path: '/signal/path', message: POINTER_TOKEN_MESSAGE }
+        ])
+      }
+    )
+
+    it('refuses an invalid pointer in a combined input and a gate where it is', () => {
+      const inputs = [{ path: ROLL }, { path: 'navigation.attitude#pitch' }]
+      expect(
+        errorsOf(rule({ signal: { combinator: 'difference', inputs }, detector: heel }))
+      ).toEqual([{ path: '/signal/inputs/1/path', message: POINTER_MESSAGE }])
+      expect(errorsOf(rule({ detector: heel, gates: [fixedGate('a#b')] }))).toEqual([
+        { path: '/gates/0/signal/path', message: POINTER_MESSAGE }
+      ])
+    })
+
+    it('refuses a path without a base path by the schema', () => {
+      for (const path of ['#/roll', 'a.#/roll', 'a.*b#/roll']) {
+        const errors = errorsOf(rule({ signal: { path }, detector: heel }))
+        expect(paths(errors)).toEqual(['/signal/path'])
+        expect(errors[0]?.message).toMatch(/dot-separated path/)
+      }
+    })
+
+    it('does not take a field of a position for a position', () => {
+      const distance = {
+        combinator: 'distance',
+        inputs: [{ path: 'navigation.position' }, { path: 'navigation.position#/altitude' }]
+      }
+      expect(errorsOf(rule({ signal: distance, detector: heel }))).toEqual([
+        { path: '/signal/inputs/1/path', message: 'distance needs a position path' }
+      ])
+      const mean = {
+        combinator: 'mean',
+        inputs: [{ path: 'navigation.position#/altitude' }, { path: 'a.position#/altitude' }]
+      }
+      expect(errorsOf(rule({ signal: mean, detector: heel }))).toEqual([])
+    })
+
+    it("checks an angular combination against the field's unit", () => {
+      const asked: string[] = []
+      const pathInfo = (path: string): PathInfo => {
+        asked.push(path)
+        return { units: path === ROLL ? 'rad' : 'deg' }
+      }
+      const signal = {
+        combinator: 'difference',
+        angular: true,
+        inputs: [{ path: ROLL }, { path: 'navigation.attitude#/yaw' }]
+      }
+      expect(errorsOf(rule({ signal, detector: heel }), pathInfo)).toEqual([
+        { path: '/signal/inputs/1/path', message: angularUnitsMessage('deg') }
+      ])
+      expect(asked).toEqual([ROLL, 'navigation.attitude#/yaw'])
+    })
+
+    it.each([
+      ['sustained', zoned],
+      [
+        'projection',
+        { ...zoned, type: 'projection', direction: 'rising', window: 600, horizon: 1800 }
+      ]
+    ])('refuses a %s zone limit on a field, which has no zones', (_type, detector) => {
+      expect(errorsOf(rule({ signal: { path: ROLL }, detector }))).toEqual([
+        { path: '/detector/limit', message: FIELD_ZONES_MESSAGE }
+      ])
+    })
+
+    it('refuses a zone limit whose zones path is a field', () => {
+      const detector = { ...zoned, limit: { ...zoned.limit, path: 'x#/y' } }
+      expect(errorsOf(rule({ detector }))).toEqual([
+        { path: '/detector/limit/path', message: FIELD_ZONES_MESSAGE }
+      ])
+      const malformed = { ...zoned, limit: { ...zoned.limit, path: 'x#y' } }
+      expect(errorsOf(rule({ detector: malformed }))).toEqual([
+        { path: '/detector/limit/path', message: POINTER_MESSAGE }
+      ])
+    })
+
+    it("takes a field's zones from the zones path it names", () => {
+      const detector = { ...zoned, limit: { ...zoned.limit, path: 'navigation.attitude' } }
+      expect(errorsOf(rule({ signal: { path: ROLL }, detector }))).toEqual([])
+    })
+
+    it("refuses a gate's zone limit on a field, or naming a field's zones", () => {
+      const zoneGate = (path: string, zonesPath?: string) => ({
+        signal: { path },
+        direction: 'above',
+        limit: { kind: 'zone', level: 'warn', ...(zonesPath ? { path: zonesPath } : {}) }
+      })
+      expect(errorsOf(rule({ detector: heel, gates: [zoneGate(ROLL)] }))).toEqual([
+        { path: '/gates/0/limit', message: FIELD_ZONES_MESSAGE }
+      ])
+      expect(errorsOf(rule({ detector: heel, gates: [zoneGate('a.b', ROLL)] }))).toEqual([
+        { path: '/gates/0/limit/path', message: FIELD_ZONES_MESSAGE }
+      ])
+      const combined = {
+        signal: { combinator: 'mean', inputs: [{ path: ROLL }, { path: 'a.b#/c' }] },
+        direction: 'above',
+        limit: { kind: 'zone', level: 'warn', path: 'a.b' }
+      }
+      expect(errorsOf(rule({ detector: heel, gates: [combined] }))).toEqual([])
+    })
+
+    it('words the zones message for the editor checkbox it is shown on', () => {
+      expect(FIELD_ZONES_MESSAGE).toBe('A field has no zones: turn this off and type the limits.')
     })
   })
 
@@ -855,6 +1023,29 @@ describe('the alert path', () => {
     expect(errorsOf(protoCombined)).toEqual([
       { path: '/signal/inputs/0/path', message: '"__proto__" is not allowed in an alert path' }
     ])
+  })
+
+  describe('of a field', () => {
+    const heel = { type: 'outside', steps: [step({ low: -0.35, high: 0.35 })] }
+
+    it('puts the field under its base path, named after the field', () => {
+      expect(pathOf(rule({ signal: { path: 'navigation.attitude#/roll' }, detector: heel }))).toBe(
+        'navigation.attitude.rollOutOfRange'
+      )
+      expect(pathOf(rule({ signal: { path: 'a.b#/c/d' }, detector: sustained }))).toBe('a.b.c.dLow')
+    })
+
+    it('needs no condition name when its base path ends in a wildcard', () => {
+      const wild = rule({ signal: { path: 'electrical.batteries.*#/x' }, detector: sustained })
+      expect(pathOf(wild)).toBe('electrical.batteries.*.xLow')
+    })
+
+    it('refuses a field name core forbids in the parent at the input', () => {
+      const proto = rule({ signal: { path: 'a#/__proto__/b' }, detector: sustained })
+      expect(errorsOf(proto)).toEqual([
+        { path: '/signal/path', message: '"__proto__" is not allowed in an alert path' }
+      ])
+    })
   })
 })
 

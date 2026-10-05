@@ -179,6 +179,24 @@ describe('application', () => {
     expect(application.createRule({ ...same, condition: 'oilPressureLost' }).ok).toBe(true)
   })
 
+  it("refuses a rule on a field whose alert path a path's rule has", () => {
+    const heel = {
+      name: 'Heel',
+      slug: 'heel',
+      message: 'Heeling',
+      signal: { path: 'navigation.attitude.roll' },
+      detector: { type: 'outside', steps: [{ low: -0.35, high: 0.35, priority: 'warning' }] }
+    }
+    stored(heel)
+    const { application } = setup()
+    const field = { ...heel, slug: 'heel-field', signal: { path: 'navigation.attitude#/roll' } }
+    expect(application.createRule(field)).toEqual({
+      ok: false,
+      reason: 'alertPathTaken',
+      holder: 'heel'
+    })
+  })
+
   it('takes the condition name an edit gives, and the default when it gives none', () => {
     stored({ ...oil, condition: 'lubricationFailed' })
     const { application } = setup()
