@@ -1040,6 +1040,29 @@ describe('the alert path', () => {
       expect(pathOf(wild)).toBe('electrical.batteries.*.xLow')
     })
 
+    it('counts a wildcard just before the pointer, so a wildcard gate is allowed', () => {
+      const wild = rule({
+        signal: { path: 'electrical.batteries.*#/x' },
+        detector: sustained,
+        gates: [
+          {
+            signal: { path: 'electrical.batteries.*.current' },
+            direction: 'above',
+            limit: { kind: 'fixed', value: 1 }
+          }
+        ]
+      })
+      expect(errorsOf(wild)).toEqual([])
+    })
+
+    it('refuses a stored path whose segment holds "#" not starting a pointer', () => {
+      const stored = rule({
+        signal: { path: 'electrical.batteries.#1.voltage' },
+        detector: sustained
+      })
+      expect(errorsOf(stored).map((e) => e.path)).toEqual(['/signal/path'])
+    })
+
     it('refuses a field name core forbids in the parent at the input', () => {
       const proto = rule({ signal: { path: 'a#/__proto__/b' }, detector: sustained })
       expect(errorsOf(proto)).toEqual([
