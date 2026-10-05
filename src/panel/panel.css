@@ -1058,6 +1058,14 @@ select.skar-input {
   overflow-wrap: anywhere;
 }
 
+.skar-preview-line {
+  display: block;
+  min-height: 1lh;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .skar-check {
   display: flex;
   align-items: flex-start;

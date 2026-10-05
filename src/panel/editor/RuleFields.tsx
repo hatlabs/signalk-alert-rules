@@ -359,8 +359,14 @@ export function RuleFields(props: RuleFieldsProps) {
                 {` ${stray.join(', ')} ${stray.length === 1 ? 'is' : 'are'} sent as written.`}
               </span>
             )}
-            {preview !== undefined && (
-              <span className="skar-preview">{`Sends now: “${preview}”`}</span>
+            {/* One line, held while there is nothing to preview: a path committed by a click
+                rewrites or empties the preview, which would move the click's target. */}
+            {preview === undefined ? (
+              <span className="skar-preview-line" aria-hidden="true" />
+            ) : (
+              <span className="skar-preview-line" title={`Sends now: “${preview}”`}>
+                {`Sends now: “${preview}”`}
+              </span>
             )}
           </>
         }

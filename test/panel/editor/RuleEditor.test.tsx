@@ -110,6 +110,28 @@ describe('RuleEditor, from a path', () => {
     expect(description(textbox(/^Message/))).toContain('{volts} is sent as written.')
   })
 
+  it('keeps the preview to one line, its full text in its title and read out whole', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    fillBelow()
+    const full = 'Sends now: “House battery voltage below 11.8 V: 13.31 V”'
+    const preview = screen.getByText(full)
+    expect(preview.classList).toContain('skar-preview-line')
+    expect(preview.getAttribute('title')).toBe(full)
+    expect(
+      screen.getByRole('textbox', { name: /^Message/, description: new RegExp(`${full}$`) })
+    ).toBe(textbox(/^Message/))
+  })
+
+  it('holds the preview line while the rule cannot be previewed', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    const hint = document.getElementById(textbox(/^Message/).getAttribute('aria-describedby') ?? '')
+    const line = hint?.querySelector('.skar-preview-line')
+    expect(line?.textContent).toBe('')
+    expect(line?.getAttribute('aria-hidden')).toBe('true')
+  })
+
   it('previews a wildcard rule with the first instance reporting, by name', async () => {
     const rule = example('coolant-temperature-rising')
     renderEditor({ editing: { entry: ruleEntry({ slug: rule.slug }), rule } })
