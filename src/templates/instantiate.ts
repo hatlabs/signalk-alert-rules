@@ -3,6 +3,7 @@
  * as well, so the module imports only types from the schema modules, which
  * are not bundled into the webapp.
  */
+import { sanitiseSegment } from '../alerts/paths.js'
 import type { TemplatePick } from '../model/rule.js'
 import type { Slot, Template } from '../model/template.js'
 import type { Result, ValidationError } from '../model/validate.js'
@@ -159,18 +160,25 @@ function pickErrors(template: Template, pick: TemplatePick): ValidationError[] {
   return errors
 }
 
-/** A copy of a template's rule and condition with each slot's pick filled in. */
+/**
+ * A copy of a template's rule and condition with each slot's pick filled in.
+ * A pick goes into the condition sanitised as the alert parent sanitises the
+ * same pick in a path, so a pick any path takes makes a condition name of
+ * characters core accepts.
+ */
 function substituted(template: Template, pick: TemplatePick) {
   const names = new Set(slotsOf(template).map((slot) => slot.name))
-  return substitutePlaceholders(
-    { condition: template.condition, rule: template.rule },
-    (use) => (names.has(use.name) ? picked(pick, use.name) : undefined) ?? `\${${use.name}}`
-  ) as { condition?: string; rule: Record<string, unknown> }
+  return substitutePlaceholders({ condition: template.condition, rule: template.rule }, (use) => {
+    const value = names.has(use.name) ? picked(pick, use.name) : undefined
+    if (value === undefined) return `\${${use.name}}`
+    return use.key === 'condition' ? sanitiseSegment(value) : value
+  }) as { condition?: string; rule: Record<string, unknown> }
 }
 
 /**
  * The rule a template makes with the picks for its open parts, unvalidated:
- * a pick can make a path that rule validation then refuses. The rule records
+ * a pick can make a path or condition name that rule validation then
+ * refuses, such as a forbidden name or an alert path too long. The rule records
  * the set and template it came from, and takes a slug no rule in `taken`
  * has. It stores the template's condition name, if the template has one.
  * Another rule holding its alert path refuses the rule when it is created.

@@ -337,6 +337,13 @@ describe('validateTemplateSet with slots', () => {
     ])
   })
 
+  it("reports a condition that makes the alert path too long at the template's condition", () => {
+    const condition = `\${engine}${'x'.repeat(230)}`
+    expect(errorsOf(withSlots({ condition }))).toEqual([
+      { path: '/templates/0/condition', message: 'makes the alert path longer than 255 characters' }
+    ])
+  })
+
   it('reports a condition that is invalid once its slots are filled in', () => {
     expect(errorsOf(withSlots({ condition: '${engine} not charging' }))).toEqual([
       { path: '/templates/0/condition', message: CONDITION_MESSAGE }

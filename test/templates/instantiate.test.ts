@@ -278,6 +278,45 @@ describe('instantiate with slots', () => {
     })
   })
 
+  it.each([
+    ['a colon', 'port:1', 'port_1AlternatorNotCharging'],
+    ['a non-ASCII letter', 'Mäin', 'M_inAlternatorNotCharging']
+  ])(
+    'makes a pick with %s into a condition name core accepts, as the alert parent does',
+    (_, engine, condition) => {
+      const rule = created(alternator, { battery: 'start', engine })
+      expect(rule.condition).toBe(condition)
+      expect(rule.name).toBe(`Engine ${engine} alternator not charging`)
+      expect(rule.gates).toMatchObject([{ signal: { path: `propulsion.${engine}.revolutions` } }])
+      expect(validateRule(rule).ok).toBe(true)
+    }
+  )
+
+  it('leaves a pick that makes the condition a name core forbids for rule validation to refuse', () => {
+    const template: Template = { ...voltageLow, condition: '${instance}' }
+    const rule = created(template, { instance: 'constructor' })
+    expect(rule.condition).toBe('constructor')
+    const result = validateRule(rule)
+    expect(!result.ok && result.errors).toContainEqual({
+      path: '/condition',
+      message: '"constructor" is not allowed in an alert path'
+    })
+  })
+
+  it('leaves a pick in the condition that makes the alert path too long for rule validation to refuse', () => {
+    // A name without the pick, so the pick is too long only for the alert path.
+    const template: Template = {
+      ...alternator,
+      rule: { ...alternator.rule, name: 'Alternator not charging' }
+    }
+    const rule = created(template, { battery: 'start', engine: 'e'.repeat(230) })
+    const result = validateRule(rule)
+    expect(!result.ok && result.errors).toContainEqual({
+      path: '/condition',
+      message: 'makes the alert path longer than 255 characters'
+    })
+  })
+
   it('reads a pick by its own keys only, whatever a slot is named', () => {
     const template: Template = {
       ...voltageLow,
