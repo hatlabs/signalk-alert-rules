@@ -1,11 +1,17 @@
 import Type, { type Static } from 'typebox'
 import {
   MAX_RULES,
+  MAX_SLOT_NAME_LENGTH,
+  MAX_SLOTS,
   MAX_VERSION_LENGTH,
-  conditionSchema,
+  PATTERN_MESSAGE_KEY,
+  SLOT_NAME_MESSAGE,
+  SLOT_NAME_PATTERN,
+  SOURCE_PICK,
   slugSchema,
   type TemplatePick
 } from './rule.js'
+import { MAX_ALERT_PATH_LENGTH } from '../alerts/paths.js'
 import { CONDITION_POINTER } from './alertPath.js'
 import {
   checkSchema,
@@ -19,17 +25,35 @@ import {
   OPEN_PARTS,
   OPEN_SOURCE_MESSAGE,
   instantiate,
+  slotsOf,
   substitutePlaceholders,
   type PlaceholderUse
 } from '../templates/instantiate.js'
 import { isRecord, pointer } from '../util.js'
 
+const MAX_SLOT_LABEL_LENGTH = 40
+
+/** An open path segment of a template, written `${<name>}`, which its user picks. */
+const SlotSchema = Type.Object(
+  {
+    name: Type.String({
+      maxLength: MAX_SLOT_NAME_LENGTH,
+      pattern: SLOT_NAME_PATTERN,
+      [PATTERN_MESSAGE_KEY]: SLOT_NAME_MESSAGE
+    }),
+    /** What the user picks for the slot, such as `Battery`. */
+    label: Type.String({ minLength: 1, maxLength: MAX_SLOT_LABEL_LENGTH })
+  },
+  { additionalProperties: false }
+)
+export type Slot = Static<typeof SlotSchema>
+
 /**
- * A rule whose instance segment, written `${instance}` in its paths, its
- * user picks, or whose input's source they pick, or both. With nothing open
- * it is fully bound. `${instance}` may also appear in the name and message.
- * The slug, the template record and the condition name are set when the
- * template is used.
+ * A rule whose path segments named by its slots, written `${<slot>}` in its
+ * paths, its user picks, or whose input's source they pick, or both. With
+ * nothing open it is fully bound. `open: [instance]` declares the one slot
+ * `instance`. A slot may also appear in the name, message and condition.
+ * The slug and the template record are set when the template is used.
  */
 export const TemplateSchema = Type.Object(
   {
@@ -40,9 +64,11 @@ export const TemplateSchema = Type.Object(
      * the last segment of its alert path, under the parent its input gives.
      * `voltageLow` names `electrical.batteries.<pick>.voltageLow`. Absent,
      * the rule stores none and its name is the default of its input and
-     * detector; a combined signal has none, so its template needs one.
+     * detector; a combined signal has none, so its template needs one. It is
+     * checked as a condition name once its slots are filled in.
      */
-    condition: Type.Optional(conditionSchema()),
+    condition: Type.Optional(Type.String({ maxLength: MAX_ALERT_PATH_LENGTH })),
+    slots: Type.Optional(Type.Array(SlotSchema, { maxItems: MAX_SLOTS })),
     open: Type.Optional(Type.Array(Type.Enum(OPEN_PARTS), { maxItems: OPEN_PARTS.length })),
     rule: Type.Record(Type.String(), Type.Unknown())
   },
@@ -67,16 +93,16 @@ export type TemplateSet = Static<typeof TemplateSetSchema>
 const SAMPLE = 'sample'
 
 function samplePick(template: Template): TemplatePick {
-  const open = template.open ?? []
   return {
-    ...(open.includes('instance') ? { instance: SAMPLE } : {}),
-    ...(open.includes('source') ? { source: SAMPLE } : {})
+    ...Object.fromEntries(slotsOf(template).map((slot) => [slot.name, SAMPLE])),
+    ...(template.open?.includes('source') ? { [SOURCE_PICK]: SAMPLE } : {})
   }
 }
 
-function placeholderUses(rule: Template['rule']): PlaceholderUse[] {
+/** Every placeholder in the template's condition and rule, at pointers into the template. */
+function placeholderUses(template: Template): PlaceholderUse[] {
   const uses: PlaceholderUse[] = []
-  substitutePlaceholders(rule, (use) => {
+  substitutePlaceholders({ condition: template.condition, rule: template.rule }, (use) => {
     uses.push(use)
     return ''
   })
@@ -102,18 +128,67 @@ function presetFieldErrors(template: Template, ruleAt: string): ValidationError[
   return errors
 }
 
-function unknownPlaceholderErrors(uses: PlaceholderUse[], ruleAt: string): ValidationError[] {
+const placeholder = (name: string) => `\${${name}}`
+
+function unknownPlaceholderErrors(
+  template: Template,
+  uses: PlaceholderUse[],
+  at: string
+): ValidationError[] {
+  // Without slots, `${instance}` is checked against the open list instead.
+  const known = new Set(
+    template.slots === undefined ? [INSTANCE_PLACEHOLDER] : template.slots.map((s) => s.name)
+  )
+  const parameters =
+    template.slots === undefined
+      ? '${instance} is the only one'
+      : template.slots.length === 0
+        ? 'the template declares no slots'
+        : `the slots are ${template.slots.map((s) => placeholder(s.name)).join(', ')}`
   return uses
-    .filter((use) => use.name !== INSTANCE_PLACEHOLDER)
+    .filter((use) => !known.has(use.name))
     .map((use) => ({
-      path: ruleAt + use.at,
+      path: at + use.at,
       message:
-        `\${${use.name}} is not a template parameter; \${instance} is the only one` +
+        `${placeholder(use.name)} is not a template parameter; ${parameters}` +
         ' (message placeholders such as {value} are written without $)'
     }))
 }
 
-/** The open list against the rule's `${instance}` placeholders and its signal. */
+/** Declared slots: names, labels, and a whole path segment in at least one path each. */
+function slotErrors(template: Template, uses: PlaceholderUse[], at: string): ValidationError[] {
+  // A template without slots has at most the one `open: [instance]` gives,
+  // which openErrors checks.
+  if (template.slots === undefined) return []
+  const errors: ValidationError[] = []
+  const slots = template.slots
+  const slotsAt = pointer(at, 'slots')
+  slots.forEach((slot, i) => {
+    const slotAt = pointer(slotsAt, i)
+    if (slot.name === SOURCE_PICK) {
+      errors.push({
+        path: pointer(slotAt, 'name'),
+        message: 'source is reserved for the open source'
+      })
+    } else if (slots.findIndex((s) => s.name === slot.name) !== i) {
+      errors.push({ path: pointer(slotAt, 'name'), message: `${slot.name} is declared twice` })
+    }
+    if (slots.findIndex((s) => s.label === slot.label) !== i)
+      errors.push({ path: pointer(slotAt, 'label'), message: `${slot.label} labels another slot` })
+    if (!uses.some((use) => use.name === slot.name && use.key === 'path'))
+      errors.push({ path: slotAt, message: `a slot needs ${placeholder(slot.name)} in a path` })
+  })
+  const names = new Set(slots.map((s) => s.name))
+  for (const use of uses) {
+    if (use.key === 'path' && names.has(use.name) && !use.segment) {
+      const message = `${placeholder(use.name)} must be a whole path segment`
+      errors.push({ path: at + use.at, message })
+    }
+  }
+  return errors
+}
+
+/** The open list against the rule's `${instance}` placeholders, the slots and the signal. */
 function openErrors(template: Template, uses: PlaceholderUse[], at: string): ValidationError[] {
   const errors: ValidationError[] = []
   const open = template.open ?? []
@@ -123,10 +198,15 @@ function openErrors(template: Template, uses: PlaceholderUse[], at: string): Val
       errors.push({ path: pointer(openAt, i), message: `${part} is listed twice` })
   })
   const instanceUses = uses.filter((use) => use.name === INSTANCE_PLACEHOLDER)
-  if (!open.includes('instance')) {
-    const ruleAt = pointer(at, 'rule')
+  if (template.slots !== undefined) {
+    const i = open.indexOf('instance')
+    if (i >= 0) {
+      const message = 'an open instance cannot be combined with slots; declare it as a slot'
+      errors.push({ path: pointer(openAt, i), message })
+    }
+  } else if (!open.includes('instance')) {
     for (const use of instanceUses)
-      errors.push({ path: ruleAt + use.at, message: '${instance} needs instance in open' })
+      errors.push({ path: at + use.at, message: '${instance} needs instance in open' })
   } else if (!instanceUses.some((use) => use.key === 'path')) {
     errors.push({ path: openAt, message: 'an open instance needs ${instance} in a path' })
   }
@@ -139,11 +219,12 @@ function openErrors(template: Template, uses: PlaceholderUse[], at: string): Val
 /** A template's own problems, then the rule it makes with a sample pick, validated. */
 function templateErrors(set: TemplateSet, template: Template, at: string): ValidationError[] {
   const ruleAt = pointer(at, 'rule')
-  const uses = placeholderUses(template.rule)
+  const uses = placeholderUses(template)
   const errors = [
     ...openErrors(template, uses, at),
+    ...slotErrors(template, uses, at),
     ...presetFieldErrors(template, ruleAt),
-    ...unknownPlaceholderErrors(uses, ruleAt)
+    ...unknownPlaceholderErrors(template, uses, at)
   ]
   if (errors.length > 0) return errors
   const made = instantiate(set, template, samplePick(template))

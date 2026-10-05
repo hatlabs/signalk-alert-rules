@@ -258,7 +258,7 @@ function TabsForm(props: FormProps) {
           n < SLUG_ATTEMPTS
         if (!retry) throw err
         tried.add(attempt.slug)
-        attempt = { ...attempt, slug: proposeSlug(template.id, tab.pick.instance, tried) }
+        attempt = { ...attempt, slug: proposeSlug(template, tab.pick, tried) }
       }
     }
   }

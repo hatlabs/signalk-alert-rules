@@ -10,6 +10,7 @@ import { instantiate } from '../src/templates/instantiate.js'
 import { exampleScenarios } from './fixtures/example-scenarios.js'
 import { workedExamples } from './fixtures/worked-examples.js'
 import { runScenario } from './helpers/runScenario.js'
+import { singleSlotRule } from './helpers/singleSlotRule.js'
 import { at, type Scenario } from './helpers/scenario.js'
 
 const EXAMPLE_PACKAGE = 'signalk-alert-templates-example'
@@ -86,6 +87,17 @@ describe('example template set package', () => {
       expect(validateRule(made.value), template.id).toMatchObject({
         ok: true,
         value: { template: { set: set.id, id: template.id, version: set.version, pick } }
+      })
+    }
+  })
+
+  it('makes from each template the rule it made before templates had slots', () => {
+    const { set } = found.sets[0]
+    for (const template of set.templates) {
+      const pick = pickFor(template)
+      expect(instantiate(set, template, pick), template.id).toEqual({
+        ok: true,
+        value: singleSlotRule(set, template, pick)
       })
     }
   })

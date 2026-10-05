@@ -6,6 +6,7 @@ import { instantiate } from '../../src/templates/instantiate.js'
 import { isRecord } from '../../src/util.js'
 import { templateScenarios } from '../fixtures/template-scenarios.js'
 import { runScenario } from '../helpers/runScenario.js'
+import { singleSlotRule } from '../helpers/singleSlotRule.js'
 
 const discovered = discoverTemplateSets({ builtin: BUILTIN_TEMPLATES })
 const builtin = discovered.sets.find((s) => s.set.id === 'builtin')?.set
@@ -56,6 +57,11 @@ describe('built-in template set', () => {
     describe(template.id, () => {
       it('makes a valid rule from a pick', () => {
         expect(validateRule(made(template.id))).toMatchObject({ ok: true })
+      })
+
+      it('makes the rule it made before templates had slots', () => {
+        const { pick } = templateScenarios[template.id]
+        expect(made(template.id)).toEqual(singleSlotRule(builtin, template, pick))
       })
 
       it('reads only Signal K specification paths', () => {

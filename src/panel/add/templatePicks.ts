@@ -5,8 +5,8 @@
 import type { TemplatePick } from '../../model/rule'
 import type { Template } from '../../model/template'
 import {
-  INSTANCE_PICK_MESSAGE,
-  INSTANCE_PICK_PATTERN,
+  SLOT_PICK_MESSAGE,
+  SLOT_PICK_PATTERN,
   INSTANCE_PLACEHOLDER
 } from '../../templates/instantiate'
 import { isInvalid, isRecord, type ListedRule } from '../api'
@@ -14,7 +14,7 @@ import type { PathEntry } from '../paths/selfPaths'
 import { matchedInstances } from '../signalUnits'
 
 const PLACEHOLDER = `\${${INSTANCE_PLACEHOLDER}}`
-const INSTANCE_PICK = new RegExp(INSTANCE_PICK_PATTERN)
+const SLOT_PICK = new RegExp(SLOT_PICK_PATTERN)
 
 /** One way to fill a template's open parts, as the picker lists it. */
 export interface Candidate {
@@ -160,7 +160,7 @@ export function candidates(
 /** Why a typed instance cannot be picked, if it cannot. */
 export function instanceError(text: string): string | undefined {
   if (text === '') return 'Type the name used in the path.'
-  return INSTANCE_PICK.test(text) ? undefined : `The name ${INSTANCE_PICK_MESSAGE}.`
+  return SLOT_PICK.test(text) ? undefined : `The name ${SLOT_PICK_MESSAGE}.`
 }
 
 /** An instance typed in, for one that does not report yet, naming the rule it already has from the template. */
