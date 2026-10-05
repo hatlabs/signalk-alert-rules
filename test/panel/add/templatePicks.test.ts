@@ -4,8 +4,10 @@ import {
   candidates,
   instanceError,
   pickKey,
+  ruleWatching,
   templateTitle,
-  typedCandidate
+  typedCandidate,
+  watchedPath
 } from '../../../src/panel/add/templatePicks'
 import type { PathEntry } from '../../../src/panel/paths/selfPaths'
 import { displayUnit } from '../../../src/panel/units'
@@ -243,5 +245,100 @@ describe('typed instances', () => {
   it('tells picks apart by instance and source', () => {
     expect(pickKey({ instance: 'a' })).not.toBe(pickKey({ source: 'a' }))
     expect(pickKey({ instance: 'a', source: 'b' })).toBe(pickKey({ source: 'b', instance: 'a' }))
+  })
+})
+
+describe('a template with two slots', () => {
+  const alternator: Template = {
+    id: 'alternator-not-charging',
+    slots: [
+      { name: 'battery', label: 'Battery' },
+      { name: 'engine', label: 'Engine' }
+    ],
+    condition: '${engine}AlternatorNotCharging',
+    rule: {
+      name: 'Engine ${engine} alternator not charging',
+      message: 'Engine ${engine} is not charging battery ${battery}',
+      signal: { path: 'electrical.batteries.${battery}.voltage' },
+      detector: {
+        type: 'sustained',
+        direction: 'below',
+        steps: [{ limit: 13, priority: 'warning' }]
+      },
+      gates: [
+        {
+          signal: { path: 'propulsion.${engine}.revolutions' },
+          direction: 'above',
+          limit: { kind: 'fixed', value: 8 }
+        }
+      ]
+    }
+  }
+  const madeFor = (pick: Record<string, string>, path = 'electrical.batteries.start.voltage') =>
+    ruleEntry({
+      slug: `made-${Object.values(pick).join('-')}`,
+      rule: {
+        name: `Made for ${Object.values(pick).join(' ')}`,
+        signal: { paths: [path] },
+        template: { set: 'builtin', id: alternator.id, pick }
+      }
+    })
+
+  it('is titled by its rule name without any slot', () => {
+    expect(templateTitle(alternator)).toBe('Engine alternator not charging')
+  })
+
+  it('watches its signal path with every slot filled in', () => {
+    expect(watchedPath(alternator, { battery: 'start', engine: 'main' })).toBe(
+      'electrical.batteries.start.voltage'
+    )
+  })
+
+  it('tells picks apart by every slot, whatever the order of their keys', () => {
+    expect(pickKey({ battery: 'start', engine: 'main' })).not.toBe(
+      pickKey({ battery: 'start', engine: 'port' })
+    )
+    expect(pickKey({ battery: 'start', engine: 'main' })).toBe(
+      pickKey({ engine: 'main', battery: 'start' })
+    )
+  })
+
+  it('names the rule whose stored picks equal the row, all slots included', () => {
+    const rules = [madeFor({ battery: 'start', engine: 'main' })]
+    expect(ruleWatching('builtin', alternator, { battery: 'start', engine: 'main' }, rules)).toBe(
+      'Made for start main'
+    )
+    expect(
+      ruleWatching('builtin', alternator, { battery: 'start', engine: 'port' }, rules)
+    ).toBeUndefined()
+    expect(
+      ruleWatching('extra', alternator, { battery: 'start', engine: 'main' }, rules)
+    ).toBeUndefined()
+  })
+
+  it('matches on the stored picks even when the rule now watches another path', () => {
+    const moved = madeFor(
+      { battery: 'start', engine: 'main' },
+      'electrical.batteries.house.voltage'
+    )
+    expect(ruleWatching('builtin', alternator, { battery: 'start', engine: 'main' }, [moved])).toBe(
+      'Made for start main'
+    )
+  })
+
+  it('never takes a rule made with a single instance as covering a row', () => {
+    const old = madeFor({ instance: 'start' })
+    expect(
+      ruleWatching('builtin', alternator, { battery: 'start', engine: 'main' }, [old])
+    ).toBeUndefined()
+  })
+
+  // Both sanitise to the same condition and alert path, which the server
+  // refuses for the second rule; their stored picks still differ.
+  it('counts picks that sanitise alike as different picks', () => {
+    const rules = [madeFor({ battery: 'start', engine: 'port:1' })]
+    expect(
+      ruleWatching('builtin', alternator, { battery: 'start', engine: 'port_1' }, rules)
+    ).toBeUndefined()
   })
 })

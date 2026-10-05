@@ -9,7 +9,7 @@ import {
 } from 'react'
 import type { Rule, TemplatePick } from '../../model/rule'
 import type { Template } from '../../model/template'
-import { proposeSlug } from '../../templates/instantiate'
+import { picked, proposeSlug, slotsOf, SOURCE_PICK } from '../../templates/instantiate'
 import {
   isSlugTaken,
   RuleRejectedError,
@@ -125,15 +125,30 @@ function initialTabs(props: FormProps): Tab[] {
     candidates(set.id, template, reported, rules).map((c) => [pickKey(c.pick), c])
   )
   const taken = new Set(rules.map((r) => r.slug))
+  const slots = slotsOf(template)
   return drafts(set, template, picks, taken, units).map(({ pick, form }) => {
     const key = pickKey(pick)
+    const existing = ruleWatching(set.id, template, pick, rules)
     const candidate = found.get(key)
-    const existing = ruleWatching(set.id, template, watchedPath(template, pick), pick.source, rules)
+    const watched = watchedPath(template, pick)
+    // The candidates know one slot only; a pick of more is named by its choices.
+    const { label, waiting } =
+      slots.length > 1
+        ? {
+            label: [...slots.map((slot) => picked(pick, slot.name)), picked(pick, SOURCE_PICK)]
+              .filter((choice) => choice !== undefined)
+              .join(' · '),
+            waiting: !reported.some((p) => p.path === watched)
+          }
+        : {
+            label: candidate?.label ?? pick.instance ?? pick.source ?? templateTitle(template),
+            waiting: candidate?.entry === undefined
+          }
     return {
       key,
       pick,
-      label: candidate?.label ?? pick.instance ?? pick.source ?? templateTitle(template),
-      waiting: candidate?.entry === undefined,
+      label,
+      waiting,
       form,
       proposed: form.slug,
       errors: [],

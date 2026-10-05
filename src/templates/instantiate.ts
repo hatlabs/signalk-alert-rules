@@ -120,7 +120,7 @@ function fitted(base: string, suffix: string): string {
 }
 
 /** A slot's pick, read from the pick's own keys only, whatever the slot is named. */
-function picked(pick: TemplatePick, name: string): string | undefined {
+export function picked(pick: TemplatePick, name: string): string | undefined {
   return Object.hasOwn(pick, name) ? pick[name] : undefined
 }
 
