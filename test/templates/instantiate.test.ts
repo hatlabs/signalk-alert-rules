@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   SLOT_PICK_MESSAGE as MODEL_SLOT_PICK_MESSAGE,
+  SLOT_NAME_PATTERN as MODEL_SLOT_NAME_PATTERN,
   SLOT_PICK_PATTERN as MODEL_SLOT_PICK_PATTERN,
   MAX_PICK_LENGTH,
   MAX_SLUG_LENGTH,
@@ -11,6 +12,7 @@ import type { Template } from '../../src/model/template.js'
 import { validateRule } from '../../src/model/validate.js'
 import {
   SLOT_PICK_MESSAGE,
+  SLOT_NAME_PATTERN,
   SLOT_PICK_PATTERN,
   MAX_SLUG,
   SOURCE_PICK,
@@ -373,6 +375,7 @@ describe("the model's constants copied here", () => {
     expect(SLOT_PICK_PATTERN).toBe(MODEL_SLOT_PICK_PATTERN)
     expect(SLOT_PICK_MESSAGE).toBe(MODEL_SLOT_PICK_MESSAGE)
     expect(SOURCE_PICK).toBe(MODEL_SOURCE_PICK)
+    expect(SLOT_NAME_PATTERN).toBe(MODEL_SLOT_NAME_PATTERN)
   })
 })
 

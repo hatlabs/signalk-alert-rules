@@ -16,7 +16,7 @@
  *   the rules they make, `&step=edit`
  */
 import type { TemplatePick } from '../model/rule'
-import { isRecord } from './api'
+import { isPickKey, isRecord } from './api'
 import { CONDITION_KINDS, type ConditionKind } from './editor/conditionKinds'
 
 export type Route =
@@ -41,7 +41,7 @@ export interface AddRoute {
   set?: string
   /** From a template: the template chosen from the set. */
   template?: string
-  /** From a template: the instances or sources picked for the template. */
+  /** From a template: each rule's picks, keyed by slot name and `source`. */
   picks?: TemplatePick[]
   /** From a template: the picks made, the rules they make are edited. */
   step?: 'edit'
@@ -60,13 +60,9 @@ function picksOf(json: string | undefined): TemplatePick[] | undefined {
   const picks: TemplatePick[] = []
   for (const item of value) {
     if (!isRecord(item)) return undefined
-    const { instance, source, ...rest } = item
-    const text = (v: unknown) => v === undefined || typeof v === 'string'
-    if (Object.keys(rest).length > 0 || !text(instance) || !text(source)) return undefined
-    picks.push({
-      ...(typeof instance === 'string' ? { instance } : {}),
-      ...(typeof source === 'string' ? { source } : {})
-    })
+    const entries = Object.entries(item)
+    if (!entries.every(([key, v]) => isPickKey(key) && typeof v === 'string')) return undefined
+    picks.push(Object.fromEntries(entries) as TemplatePick)
   }
   return picks
 }

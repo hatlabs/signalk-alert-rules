@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { Rule } from '../../../src/model/rule'
+import type { Template } from '../../../src/model/template'
 import { validateRule } from '../../../src/model/validate'
 import {
   RuleRejectedError,
@@ -1053,5 +1054,136 @@ describe('the new templates notice', () => {
     await screen.findByRole('heading', { name: 'Alert rules' })
     expect(screen.queryByText(/new templates/)).toBeNull()
     expect(api.templates).not.toHaveBeenCalled()
+  })
+})
+
+describe('rules from a template with two slots', () => {
+  afterEach(() => {
+    cleanup()
+    window.history.replaceState(null, '', '/')
+  })
+
+  const alternator: Template = {
+    id: 'alternator-not-charging',
+    slots: [
+      { name: 'battery', label: 'Battery' },
+      { name: 'engine', label: 'Engine' }
+    ],
+    condition: '${engine}AlternatorNotCharging',
+    rule: {
+      name: 'Engine ${engine} alternator not charging',
+      message: 'Engine ${engine} is not charging battery ${battery}',
+      signal: { path: 'electrical.batteries.${battery}.voltage' },
+      detector: {
+        type: 'sustained',
+        direction: 'below',
+        steps: [{ limit: 13, priority: 'warning' }],
+        duration: 120
+      },
+      gates: [
+        {
+          signal: { path: 'propulsion.${engine}.revolutions' },
+          direction: 'above',
+          limit: { kind: 'fixed', value: 8 },
+          duration: 30
+        }
+      ]
+    }
+  }
+  const bySource: Template = { ...alternator, id: 'alternator-by-source', open: ['source'] }
+  const listing: TemplateListing = {
+    sets: [
+      {
+        id: 'engines',
+        name: 'Engines',
+        version: '1.0.0',
+        source: 'file engines.yaml',
+        templates: [alternator, bySource],
+        new: []
+      }
+    ],
+    problems: []
+  }
+  const reported = [...boat, voltage('start', 12.6)]
+  const mainRule = ruleEntry({
+    slug: 'alternator-not-charging-start-main',
+    rule: {
+      name: 'Engine main alternator not charging',
+      signal: { paths: ['electrical.batteries.start.voltage'] },
+      template: { set: 'engines', id: alternator.id, pick: { battery: 'start', engine: 'main' } }
+    }
+  })
+
+  async function openTabs(
+    picks: Record<string, string>[],
+    template = alternator.id,
+    shown = /start · port/
+  ) {
+    const href = hashWithRoute('', {
+      kind: 'add',
+      from: 'template',
+      set: 'engines',
+      template,
+      picks,
+      step: 'edit'
+    })
+    window.history.replaceState(null, '', `/${href}`)
+    await screen.findByRole('tab', { name: shown })
+  }
+
+  it('labels a tab with its source after the slots, and marks a battery not reporting', async () => {
+    renderShell({ rules: [], listing }, { reported })
+    await openTabs(
+      [
+        { battery: 'start', engine: 'main', source: 'n2k.1' },
+        { battery: 'windlass', engine: 'port', source: 'n2k.1' }
+      ],
+      bySource.id,
+      /windlass · port · n2k\.1/
+    )
+    expect(tab(/start · main · n2k\.1/).textContent).not.toContain('not reporting yet')
+    expect(tab(/windlass · port · n2k\.1/).textContent).toContain('not reporting yet')
+  })
+
+  it('labels each tab with its slots and marks the row whose picks have a rule', async () => {
+    const api = renderShell({ rules: [mainRule], listing }, { reported })
+    await openTabs([
+      { battery: 'start', engine: 'main' },
+      { battery: 'start', engine: 'port' }
+    ])
+    expect(tab(/start · main/).textContent).toContain('already has a rule')
+    expect(tab(/start · port/).textContent).not.toContain('already has a rule')
+    expect(tab(/start · port/).textContent).not.toContain('not reporting yet')
+    fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+    await screen.findByRole('heading', { name: 'Engine port alternator not charging' })
+    expect(createdRules(api).map((r) => [r.slug, r.template?.pick])).toEqual([
+      ['alternator-not-charging-start-port', { battery: 'start', engine: 'port' }]
+    ])
+  })
+
+  it('tries the next slug from every pick when an unlisted stored rule holds the one proposed', async () => {
+    const server: Server = { rules: [], listing }
+    server.refuse = (rule) =>
+      rule.slug === 'alternator-not-charging-start-port'
+        ? new RuleRejectedError('a rule with this slug exists', [
+            {
+              path: '/slug',
+              message:
+                'is taken by another rule. If an earlier attempt to create this rule timed out, it may have saved this rule: check the rule list before renaming.'
+            }
+          ])
+        : undefined
+    const api = renderShell(server, { reported })
+    await openTabs([
+      { battery: 'start', engine: 'main' },
+      { battery: 'start', engine: 'port' }
+    ])
+    fireEvent.click(screen.getByRole('button', { name: 'Create 2 rules' }))
+    await screen.findByRole('heading', { name: 'Alert rules' })
+    expect(createdRules(api).map((r) => r.slug)).toEqual([
+      'alternator-not-charging-start-main',
+      'alternator-not-charging-start-port',
+      'alternator-not-charging-start-port-2'
+    ])
   })
 })

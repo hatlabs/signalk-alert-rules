@@ -61,6 +61,41 @@ describe('drafts', () => {
       []
     )
   })
+
+  it('makes a rule per pick of a two-slot template, slugged and named by every slot', () => {
+    const alternator: Template = {
+      id: 'alternator-not-charging',
+      slots: [
+        { name: 'battery', label: 'Battery' },
+        { name: 'engine', label: 'Engine' }
+      ],
+      condition: '${engine}AlternatorNotCharging',
+      rule: {
+        name: 'Engine ${engine} alternator not charging',
+        message: 'Engine ${engine} is not charging battery ${battery}',
+        signal: { path: 'electrical.batteries.${battery}.voltage' },
+        detector: {
+          type: 'sustained',
+          direction: 'below',
+          steps: [{ limit: 13, priority: 'warning' }]
+        }
+      }
+    }
+    const made = drafts(
+      set,
+      alternator,
+      [
+        { battery: 'start', engine: 'main' },
+        { battery: 'start', engine: 'port' }
+      ],
+      new Set(),
+      units
+    )
+    expect(made.map((d) => [d.form.slug, d.form.name])).toEqual([
+      ['alternator-not-charging-start-main', 'Engine main alternator not charging'],
+      ['alternator-not-charging-start-port', 'Engine port alternator not charging']
+    ])
+  })
 })
 
 describe('copySettings', () => {
