@@ -132,13 +132,28 @@ export function RuleFields(props: RuleFieldsProps) {
     pathFocus.current = undefined
   }, [changingPath])
 
+  // Whether the errors on their way come from this form: a commit, or steps or a condition
+  // removed, which only move, withhold or keep shown errors already in place. More options
+  // opens for errors set from outside it, on opening or at a Save, which the user is to fix;
+  // reopened for errors of its own, it would move the page under a click after the user had
+  // collapsed it over an error already seen.
+  const ownErrors = useRef(false)
+  const changeOwnErrors = () => {
+    ownErrors.current = true
+  }
+
   // Only for errors shown: one withheld until Save opens it at that Save, not under a click.
   useEffect(() => {
+    if (ownErrors.current) return
     const shownUnder = [...attached.byField].some(
       ([p, messages]) => messages.some((m) => !m.withheld) && underMoreOptions(form, isNew, p)
     )
     if (shownUnder) setMoreOpen(true)
   }, [checked.set])
+  // The errors of the form's own change arrive in the render right after it, if at all.
+  useEffect(() => {
+    ownErrors.current = false
+  })
 
   // The form as last settled, whose units a change is compared with; the form as last changed,
   // which a commit in the same event as a change has not rendered; and whether the change on its
@@ -157,6 +172,7 @@ export function RuleFields(props: RuleFieldsProps) {
     settled.current = kept
     if (emptied.length > 0) {
       const shown = new Set(fieldPointers(kept, isNew))
+      changeOwnErrors()
       props.onUnitChange(emptied.filter((e) => shown.has(e.path)))
     }
     return kept
@@ -333,7 +349,10 @@ export function RuleFields(props: RuleFieldsProps) {
             form={form}
             onChange={(steps) => {
               // A step's errors are held by its index, which a removed or added step shifts.
-              if (steps.length !== form.steps.length) props.onStepsShifted()
+              if (steps.length !== form.steps.length) {
+                changeOwnErrors()
+                props.onStepsShifted()
+              }
               update({ ...form, steps })
             }}
             measure={measure}
@@ -411,7 +430,10 @@ export function RuleFields(props: RuleFieldsProps) {
         <MoreOptions
           form={form}
           onChange={update}
-          onGateRemoved={props.onGateRemoved}
+          onGateRemoved={(index) => {
+            changeOwnErrors()
+            props.onGateRemoved(index)
+          }}
           measure={measure}
           paths={paths}
           units={units}
