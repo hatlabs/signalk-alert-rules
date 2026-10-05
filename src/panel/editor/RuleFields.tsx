@@ -90,6 +90,8 @@ export interface RuleFieldsProps {
   onChange: (form: RuleForm) => void
   /** Steps were added or removed, which shifts the index a step's errors are held by. */
   onStepsShifted: () => void
+  /** Condition `index` was removed, which shifts the index the later conditions' errors are held by. */
+  onGateRemoved: (index: number) => void
   /** A change of display unit emptied these shown numbers, each an error at its field. */
   onUnitChange: (emptied: FieldError[]) => void
   paths: PathList
@@ -401,6 +403,7 @@ export function RuleFields(props: RuleFieldsProps) {
         <MoreOptions
           form={form}
           onChange={update}
+          onGateRemoved={props.onGateRemoved}
           measure={measure}
           paths={paths}
           units={units}

@@ -140,7 +140,9 @@ const change = (element: HTMLElement, value: string) => {
 /** Add rule, the built-in set, the LiFePO4 low voltage template: the picker. */
 async function openLifepo4() {
   window.history.replaceState(null, '', '/#add')
-  fireEvent.click(await screen.findByRole('link', { name: /^Built in/ }))
+  // A cold role query's first poll can outlast the wait under load; the set's name is cheap text.
+  await screen.findByText('Built in')
+  fireEvent.click(screen.getByRole('link', { name: /^Built in/ }))
   fireEvent.click(await screen.findByRole('link', { name: /^Battery voltage low \(LiFePO4\)/ }))
   await screen.findByRole('heading', { name: 'Battery voltage low (LiFePO4)' })
   await screen.findByRole('list', { name: 'Picks' })
@@ -474,6 +476,59 @@ describe('Add rule from a template', () => {
       for (const rule of createdRules(api)) {
         expect(rule.detector.type === 'sustained' && rule.detector.hysteresis).toBeUndefined()
       }
+    })
+
+    describe('an earlier condition removed', () => {
+      const textbox = (name: string) => screen.getByRole<HTMLInputElement>('textbox', { name })
+      const settleConditionPath = (path: string) => {
+        const search = screen.getByRole('combobox', { name: 'Condition 2 input path' })
+        change(search, path)
+        fireEvent.blur(search)
+      }
+      /** Opens the house bank's rule with two conditions, the second's limit and margin emptied for its unit. */
+      async function secondConditionEmptied() {
+        const api = renderShell(fresh())
+        await openLifepo4()
+        pick(/^House bank/)
+        await continueWith('Continue with 1 rule')
+        const summary = screen.getByText('More options')
+        if (summary.closest('details')?.open !== true) fireEvent.click(summary)
+        fireEvent.click(screen.getByRole('button', { name: 'Add a condition' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Add a condition' }))
+        settleConditionPath('electrical.batteries.house.voltage')
+        change(textbox('Condition 2 limit'), '12')
+        change(textbox('Condition 2 clear margin'), '0.5')
+        settleConditionPath('electrical.batteries.house.current')
+        expect(textbox('Condition 2 clear margin').value).toBe('')
+        return api
+      }
+
+      it('moves a later condition’s emptied numbers with it', async () => {
+        await secondConditionEmptied()
+        fireEvent.click(screen.getByRole('button', { name: 'Remove condition 1' }))
+        expect(describedBy(textbox('Condition 1 limit'))).toContain('is required')
+        expect(describedBy(textbox('Condition 1 clear margin'))).toContain(
+          'must be typed again in the unit of the chosen path'
+        )
+        expect(footer()).toBe(
+          'Fill in the limit of Only while condition 1 on House bank to save. The clear margin of Only while condition 1 on House bank was emptied: type it again or leave it empty.'
+        )
+      })
+
+      it('keeps a clear margin a refused Create named as named once its condition moves', async () => {
+        const api = await secondConditionEmptied()
+        fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+        expect(api.createRule).not.toHaveBeenCalled()
+        fireEvent.click(screen.getByRole('button', { name: 'Remove condition 1' }))
+        change(textbox('Condition 1 limit'), '5')
+        fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+        await waitFor(() => {
+          expect(api.createRule).toHaveBeenCalledOnce()
+        })
+        const [gate] = createdRules(api)[0]?.gates ?? []
+        expect(gate.signal).toEqual({ path: 'electrical.batteries.house.current' })
+        expect(gate.hysteresis).toBeUndefined()
+      })
     })
   })
 

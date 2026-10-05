@@ -136,6 +136,8 @@ function Zones({ form, onChange, measure, paths, units }: ZonesProps) {
 interface MoreOptionsProps {
   form: RuleForm
   onChange: (form: RuleForm) => void
+  /** Condition `index` was removed, which moves the conditions after it down by one. */
+  onGateRemoved: (index: number) => void
   measure: Measure
   paths: PathList
   units: UnitLookup
@@ -149,6 +151,7 @@ interface MoreOptionsProps {
 export function MoreOptions({
   form,
   onChange,
+  onGateRemoved,
   measure,
   paths,
   units,
@@ -237,6 +240,7 @@ export function MoreOptions({
                 onChange({ ...form, gates: form.gates.map((g, n) => (n === i ? next : g)) })
               }}
               onRemove={() => {
+                onGateRemoved(i)
                 onChange({ ...form, gates: form.gates.filter((_, n) => n !== i) })
                 setGateKeys((keys) => keys.filter((_, n) => n !== i))
               }}

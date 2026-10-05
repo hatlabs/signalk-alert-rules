@@ -43,6 +43,7 @@ import {
   TWO_INPUT_KINDS,
   withDetector,
   withNumbersInUnit,
+  withoutGate,
   ZONE_LEVEL_NAMES,
   type RuleForm
 } from '../../../src/panel/editor/formModel'
@@ -1670,4 +1671,52 @@ describe('withNumbersInUnit', () => {
       expect(byPath(emptied)).toEqual(byPath(opened))
     }
   )
+})
+
+describe('withoutGate', () => {
+  const error = (path: string) => ({ path, message: 'is required' })
+  const paths = (errors: readonly { path: string }[]) => errors.map((e) => e.path)
+
+  it('drops the removed condition’s errors and moves those after it down by one', () => {
+    const errors = [
+      error('/gates/0/limit/value'),
+      error('/gates/1/limit/value'),
+      error('/gates/1/hysteresis'),
+      error('/gates/2/hysteresis'),
+      error('/gates/3')
+    ]
+    expect(paths(withoutGate(errors, new Set(), 1).errors)).toEqual([
+      '/gates/0/limit/value',
+      '/gates/1/hysteresis',
+      '/gates/2'
+    ])
+  })
+
+  it('leaves the pointers of the rule’s own fields, and of all conditions together, alone', () => {
+    const errors = [error('/detector/hysteresis'), error('/gates'), error('/name')]
+    expect(withoutGate(errors, new Set(['/detector/hysteresis']), 0)).toEqual({
+      errors,
+      named: new Set(['/detector/hysteresis'])
+    })
+  })
+
+  it('reads a condition’s index whole, condition 10 apart from condition 1', () => {
+    const errors = [error('/gates/1/hysteresis'), error('/gates/10/hysteresis')]
+    expect(paths(withoutGate(errors, new Set(), 1).errors)).toEqual(['/gates/9/hysteresis'])
+    expect(paths(withoutGate(errors, new Set(), 10).errors)).toEqual(['/gates/1/hysteresis'])
+  })
+
+  it('moves the named clear margins as the errors', () => {
+    const named = new Set(['/gates/0/hysteresis', '/gates/1/hysteresis', '/gates/2/hysteresis'])
+    expect(withoutGate([], named, 1).named).toEqual(
+      new Set(['/gates/0/hysteresis', '/gates/1/hysteresis'])
+    )
+  })
+
+  it('keeps each error’s message', () => {
+    const errors = [{ path: '/gates/2/hysteresis', message: 'must be at least 0' }]
+    expect(withoutGate(errors, new Set(), 0).errors).toEqual([
+      { path: '/gates/1/hysteresis', message: 'must be at least 0' }
+    ])
+  })
 })
