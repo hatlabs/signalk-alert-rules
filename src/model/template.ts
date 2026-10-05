@@ -157,7 +157,8 @@ function unknownPlaceholderErrors(
 
 /** Declared slots: names, labels, and a whole path segment in at least one path each. */
 function slotErrors(template: Template, uses: PlaceholderUse[], at: string): ValidationError[] {
-  // Sets written with `open: [instance]` keep loading as they always did.
+  // A template without slots has at most the one `open: [instance]` gives,
+  // which openErrors checks.
   if (template.slots === undefined) return []
   const errors: ValidationError[] = []
   const slots = template.slots

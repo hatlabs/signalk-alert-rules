@@ -3,9 +3,9 @@ import type { Template } from '../../src/model/template.js'
 import { slugify } from '../../src/templates/instantiate.js'
 
 /**
- * The rule an `open: [instance]` or fully bound template made before
- * templates had slots, written out by replacing `${instance}` as text, so
- * the instantiation that slots brought can be held to it.
+ * The rule an `open: [instance]` or fully bound template makes, written out
+ * independently by replacing `${instance}` as text, so that `instantiate`
+ * can be held to it.
  */
 export function singleSlotRule(
   set: { id: string; version: string },
