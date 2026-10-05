@@ -193,7 +193,9 @@ describe('render harness', () => {
   // States the editor cannot produce: only a stored rule reaches them.
   it.each([
     ['fixedLimit', 'house-battery-fixed-limit', '/detector/limit'],
-    ['angularRatio', 'engine-rpm-ratio-angular', '/signal/angular']
+    ['angularRatio', 'engine-rpm-ratio-angular', '/signal/angular'],
+    ['eventValue', 'bilge-pump-changes-value', '/detector/event/value'],
+    ['zoneSteps', 'house-battery-zone-steps', '/detector/steps']
   ])('stores beside the examples an invalid rule for rules=%s', async (value, slug, under) => {
     const rules = await fakes(`?rules=${value}`).api.rules()
     expect(rules.map((r) => r.slug)).toContain(HOUSE)
