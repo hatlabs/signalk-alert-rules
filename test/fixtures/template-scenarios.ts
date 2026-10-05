@@ -113,14 +113,36 @@ export const templateScenarios: Record<string, TemplateScenario> = {
     scenario: {
       ...series(HOUSE_SOC, 300, [
         [0, 0.8],
-        [10, 0.25],
-        [100, 0.1],
-        [200, 0.5]
+        [10, 0.45],
+        [100, 0.35],
+        [200, 0.6]
       ]),
       expected: [
         [70, 'raise', 'electrical.batteries.house.capacity.stateOfChargeLow', 'warning'],
         [160, 'priority', 'electrical.batteries.house.capacity.stateOfChargeLow', 'alarm'],
         [200, 'clear', 'electrical.batteries.house.capacity.stateOfChargeLow']
+      ]
+    }
+  },
+
+  // 30 % from 10 s, normal for LiFePO4 though below the lead-acid limit. Below
+  // 20 % from 100 s, below 10 % from 190 s. 21 % at 290 s is within the 2 %
+  // the charge must recover by, so only 30 % clears.
+  'battery-charge-low-lifepo4': {
+    pick: { instance: 'house' },
+    scenario: {
+      ...series(HOUSE_SOC, 500, [
+        [0, 0.8],
+        [10, 0.3],
+        [100, 0.15],
+        [190, 0.05],
+        [290, 0.21],
+        [390, 0.3]
+      ]),
+      expected: [
+        [160, 'raise', 'electrical.batteries.house.capacity.stateOfChargeLow', 'warning'],
+        [250, 'priority', 'electrical.batteries.house.capacity.stateOfChargeLow', 'alarm'],
+        [390, 'clear', 'electrical.batteries.house.capacity.stateOfChargeLow']
       ]
     }
   },

@@ -185,7 +185,7 @@ describe('Add rule from a template', () => {
     // renders with the link, and a text query is cheap.
     await screen.findByText(`${count} new`)
     const set = screen.getByRole('link', { name: /^Built in/ })
-    expect(set.textContent).toContain(`${count} templates: Battery voltage low (lead-acid)`)
+    expect(set.textContent).toContain(`${count} templates: Battery charge low (lead-acid)`)
     expect(within(set).getByText(`${count} new`)).toBeTruthy()
   })
 
