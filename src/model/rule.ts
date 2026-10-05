@@ -38,9 +38,18 @@ const PATH_SEGMENT = '[^.\\s*]+'
 // A dot-separated path relative to vessels.self; `*` stands alone as a segment.
 const PATH_PATTERN = `^(${PATH_SEGMENT}|\\*)(\\.(${PATH_SEGMENT}|\\*))*$`
 
-/** An instance pick: the one path segment `${instance}` stands for. */
+/** A slot's pick: the one path segment its placeholder, such as `${instance}`, stands for. */
 export const INSTANCE_PICK_PATTERN = `^${PATH_SEGMENT}$`
 export const INSTANCE_PICK_MESSAGE = 'must be one path segment, without dots, whitespace or *'
+
+/** Most slots a template declares. */
+export const MAX_SLOTS = 4
+export const MAX_SLOT_NAME_LENGTH = 32
+/** A slot's name, which keys its pick: a letter, then letters and digits. */
+export const SLOT_NAME_PATTERN = '^[A-Za-z][A-Za-z0-9]*$'
+export const SLOT_NAME_MESSAGE = 'must be a letter followed by letters and digits'
+/** The pick key of an open source, which no slot may take. */
+export const SOURCE_PICK = 'source'
 
 export const COMBINATORS = [
   'difference',
@@ -274,18 +283,33 @@ const InstancePickSchema = Type.String({
 })
 const SourcePickSchema = Type.String({ minLength: 1, maxLength: MAX_PICK_LENGTH })
 
+/**
+ * What a use of a template picked: each slot's instance under the slot's
+ * name, and the source when the template leaves it open. A single-slot
+ * template written with `open: [instance]` has the one slot `instance`.
+ */
+export type TemplatePick = Partial<Record<string, string>>
+
+// Any slot name but the source's, so the source keeps its own schema.
+const SLOT_PICK_KEY = `^(?!${SOURCE_PICK}$)${SLOT_NAME_PATTERN.slice(1)}`
+
+const TemplatePickSchema = Type.Unsafe<TemplatePick>(
+  Type.Object(
+    { [SOURCE_PICK]: Type.Optional(SourcePickSchema) },
+    {
+      ...closed,
+      patternProperties: { [SLOT_PICK_KEY]: InstancePickSchema },
+      maxProperties: MAX_SLOTS + 1
+    }
+  )
+)
+
 const TemplateRecordSchema = Type.Object(
   {
     set: slugSchema(),
     id: slugSchema(),
     version: Type.String({ minLength: 1, maxLength: MAX_VERSION_LENGTH }),
-    pick: Type.Object(
-      {
-        instance: Type.Optional(InstancePickSchema),
-        source: Type.Optional(SourcePickSchema)
-      },
-      closed
-    )
+    pick: TemplatePickSchema
   },
   closed
 )
@@ -338,7 +362,6 @@ export type Detector = Static<typeof DetectorSchema>
 export type Gate = Static<typeof GateSchema>
 export type Event = Static<typeof EventSchema>
 export type TemplateRecord = Static<typeof TemplateRecordSchema>
-export type TemplatePick = TemplateRecord['pick']
 
 export type ZoneLimit = Static<typeof ZoneLimitSchema>
 

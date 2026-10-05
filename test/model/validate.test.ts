@@ -877,11 +877,30 @@ describe('the template record', () => {
     expect(errorsOf(rule({ detector, template }))).toEqual([])
   })
 
+  it("is accepted with each slot's pick by slot name, and a source", () => {
+    const pick = { battery: 'start', engine: 'main', source: 'can0.12' }
+    expect(errorsOf(rule({ detector, template: { ...record, pick } }))).toEqual([])
+  })
+
   it.each([
     ['without its set', { ...record, set: undefined }, '/template/set'],
     ['with a set id that is not a slug', { ...record, set: 'Batteries' }, '/template/set'],
     ['without its version', { ...record, version: '' }, '/template/version'],
-    ['with a pick of another part', { ...record, pick: { bank: 'house' } }, '/template/pick/bank'],
+    [
+      'with a pick key that is not a slot name',
+      { ...record, pick: { 'main-engine': 'house' } },
+      '/template/pick/main-engine'
+    ],
+    [
+      'with a slot pick of two segments',
+      { ...record, pick: { battery: 'start', engine: 'main.port' } },
+      '/template/pick/engine'
+    ],
+    [
+      'with more picks than slots and a source',
+      { ...record, pick: { a: '1', b: '2', c: '3', d: '4', e: '5', source: 'x' } },
+      '/template/pick'
+    ],
     ['with an empty instance', { ...record, pick: { instance: '' } }, '/template/pick/instance'],
     [
       'with an instance of two segments',

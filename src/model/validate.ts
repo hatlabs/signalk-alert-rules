@@ -83,8 +83,10 @@ interface SchemaNode {
   enum?: unknown[]
   anyOf?: SchemaNode[]
   properties?: Record<string, SchemaNode>
+  patternProperties?: Record<string, SchemaNode>
   required?: string[]
   additionalProperties?: boolean
+  maxProperties?: number
   items?: SchemaNode
   minItems?: number
   maxItems?: number
@@ -126,17 +128,24 @@ function schemaErrors(schema: SchemaNode, value: unknown, at: string): Validatio
 
   if (schema.type === 'object' && schema.properties) {
     if (!isRecord(value)) return [{ path: at, message: 'must be an object' }]
+    const { properties, maxProperties } = schema
+    if (maxProperties !== undefined && Object.keys(value).length > maxProperties)
+      return [{ path: at, message: `must have at most ${String(maxProperties)} properties` }]
     const errors: ValidationError[] = []
-    for (const [key, property] of Object.entries(schema.properties)) {
+    for (const [key, property] of Object.entries(properties)) {
       if (key in value) errors.push(...schemaErrors(property, value[key], pointer(at, key)))
       else if (schema.required?.includes(key))
         errors.push({ path: pointer(at, key), message: 'is required' })
     }
-    if (schema.additionalProperties === false) {
-      for (const key of Object.keys(value)) {
-        if (!(key in schema.properties))
-          errors.push({ path: pointer(at, key), message: 'is not a known property' })
-      }
+    const patterns = Object.entries(schema.patternProperties ?? {}).map(
+      ([pattern, property]) => [new RegExp(pattern), property] as const
+    )
+    for (const key of Object.keys(value)) {
+      if (Object.hasOwn(properties, key)) continue
+      const matched = patterns.find(([pattern]) => pattern.test(key))
+      if (matched) errors.push(...schemaErrors(matched[1], value[key], pointer(at, key)))
+      else if (schema.additionalProperties === false)
+        errors.push({ path: pointer(at, key), message: 'is not a known property' })
     }
     return errors
   }
