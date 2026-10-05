@@ -31,7 +31,7 @@ npm ci
 ./run harness 5173
 ```
 
-Open `http://localhost:5173/`. The page matches the admin UI's body text and background and, from 992 px wide, leaves the 200 px column of its sidebar, so widths are those of the admin UI with its sidebar open. Query parameters pick the fake server's answers, and the hash picks the view as in the admin UI (`src/panel/route.ts`), so `http://localhost:5173/?history=error#rule=house-battery-low` is the rule detail with the history failing. `OPTIONS` in `harness/scenario.ts` lists each parameter's values and what they answer, the first value being the default; an unknown value logs a console warning and falls back to it. `test/panel/harness.test.ts` passes every value's answers through the panel's parsers.
+Open `http://localhost:5173/`. The page matches the admin UI's body text and page grey, mounts the panel in a box like the one the admin UI embeds a webapp in (one viewport less 105 px tall, painted aliceblue; the panel covers it with the page grey) and, from 992 px wide, leaves the 200 px column of its sidebar, so widths are those of the admin UI with its sidebar open. Query parameters pick the fake server's answers, and the hash picks the view as in the admin UI (`src/panel/route.ts`), so `http://localhost:5173/?history=error#rule=house-battery-low` is the rule detail with the history failing. `OPTIONS` in `harness/scenario.ts` lists each parameter's values and what they answer, the first value being the default; an unknown value logs a console warning and falls back to it. `test/panel/harness.test.ts` passes every value's answers through the panel's parsers.
 
 States per view:
 

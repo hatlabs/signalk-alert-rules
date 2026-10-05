@@ -9,7 +9,9 @@
   --skar-primary-hover: #002266;
   --skar-text: #151b1e;
   --skar-muted: #536c79;
-  /* Muted text on the page ground, darker so it keeps its contrast off white. */
+  /* The admin UI's page grey (its scss $body-bg). */
+  --skar-ground: #e4e5e6;
+  /* Muted text on the ground, darker because --skar-muted falls below 4.5:1 on it. */
   --skar-muted-on-ground: #3e515b;
   --skar-border: #c2cfd6;
   --skar-divider: #e4e9ec;
@@ -17,7 +19,7 @@
   --skar-surface: #fff;
   --skar-hover: #f6f8f9;
   --skar-danger: #a3201f;
-  /* Solid, so it reads on white, the page ground and the banner alike. */
+  /* Solid, so it reads on white, the ground and the banner alike. */
   --skar-focus: 2px solid #003399;
 
   color: var(--skar-text);
@@ -28,6 +30,15 @@
     'Helvetica Neue',
     sans-serif;
   line-height: 1.4;
+
+  /*
+   * The admin UI embeds a webapp in a box one viewport tall painted aliceblue
+   * (signalk-server packages/server-admin-ui/src/views/Webapps/Embedded.tsx);
+   * a taller view overflows it onto the page grey. Painting that grey and
+   * filling the box gives one ground from top to bottom.
+   */
+  background: var(--skar-ground);
+  min-height: 100%;
 
   /*
    * The admin UI drops its page padding on embedded webapp routes, so the
@@ -443,6 +454,11 @@
 .skar-placeholder p,
 .skar-placeholder ul {
   margin: 0;
+}
+
+/* The host's link blue falls below 4.5:1 on the ground. */
+.skar-placeholder > a:not(.skar-btn) {
+  color: var(--skar-primary);
 }
 
 /* A rule's detail: cards stacked in one column, the controls at the bottom. */

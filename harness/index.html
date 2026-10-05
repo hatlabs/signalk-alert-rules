@@ -11,18 +11,23 @@
       href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css"
     />
     <!--
-      The admin UI's body text size (signalk-server
-      packages/server-admin-ui/scss/_bootstrap-variables.scss), the background
-      its content area renders with (aliceblue, measured on a running server:
-      the scss $body-bg is not what shows), and the column its sidebar takes
-      from lg up (scss/core: $sidebar-width), so the panel lays out and looks
-      as it does there with the sidebar open.
+      The admin UI's body text size and page grey (signalk-server
+      packages/server-admin-ui/scss/_bootstrap-variables.scss), the box it
+      embeds a webapp in, one viewport less its header and footer tall and
+      painted aliceblue (src/views/Webapps/Embedded.tsx), and the column its
+      sidebar takes from lg up (scss/core: $sidebar-width), so the panel lays
+      out and looks as it does there with the sidebar open, including where a
+      tall view overflows the box.
     -->
     <style>
       body {
         margin: 0;
         font-size: 0.875rem;
-        background: #f0f8ff;
+        background: #e4e5e6;
+      }
+      #root {
+        height: calc(100vh - 105px);
+        background-color: aliceblue;
       }
       @media (min-width: 992px) {
         #root {
