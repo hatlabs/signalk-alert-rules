@@ -46,6 +46,8 @@ export interface DetectorOptions {
   active?: boolean
   /** An accumulator's total restored from the store. */
   accumulated?: number
+  /** Called when an accumulator's `resetOn` event zeroes its total. */
+  onReset?: () => void
 }
 
 /**

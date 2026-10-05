@@ -1058,6 +1058,310 @@ describe('application accumulator totals across edits', () => {
   })
 })
 
+describe('application automatic accumulator resets', () => {
+  const ID = 'engine-hours'
+  const running = {
+    ...hours,
+    detector: {
+      type: 'accumulator',
+      measure: 'time',
+      while: { op: 'above', value: 0 },
+      resetOn: { op: 'changesTo', value: 0 },
+      steps: [{ limit: 1000, priority: 'caution' }]
+    }
+  }
+  const total = () => {
+    const totals: Partial<Checkpoints> = new Store(dir).load().accumulators
+    return totals[ID]?.totals['']
+  }
+
+  it('writes a resetOn reset at once, before the next periodic checkpoint', () => {
+    stored(running)
+    const { application, at } = setup()
+    at(0, RPM, 30)
+    at(20)
+    application.checkpoint()
+    expect(total()).toBe(20)
+
+    at(30, RPM, 0)
+    application.checkpointResets()
+    expect(total()).toBe(0)
+  })
+
+  it('writes a reset of a total restored from the store before any checkpoint of this run', () => {
+    stored(running)
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 900 } } })
+    const { application, at } = setup()
+    at(0, RPM, 30)
+    at(5, RPM, 0)
+    application.checkpointResets()
+    expect(total()).toBe(0)
+  })
+
+  it('writes nothing without a reset, and nothing for a reset of a total already zero on disk', () => {
+    stored(running)
+    const store = new Store(dir)
+    const save = vi.spyOn(store, 'saveCheckpoints')
+    const { application, at } = setup(store)
+    at(0, RPM, 30)
+    for (let t = 1; t <= 30; t++) {
+      at(t)
+      application.checkpointResets()
+    }
+    expect(save).not.toHaveBeenCalled()
+
+    // Reset again at zero: the total written is already zero.
+    application.checkpoint()
+    at(31, RPM, 0)
+    application.checkpointResets()
+    expect(total()).toBe(0)
+    at(32, RPM, 0)
+    // Past the interval, so the reset's checkpoint runs and skips the unchanged text.
+    at(42, RPM, 30)
+    at(42, RPM, 0)
+    expect(application.checkpointResets()).toBe(true)
+    expect(save).toHaveBeenCalledTimes(2)
+  })
+
+  it('writes several resets between two calls once', () => {
+    stored(running)
+    const store = new Store(dir)
+    const { application, at } = setup(store)
+    at(0, RPM, 30)
+    at(20)
+    application.checkpoint()
+    const save = vi.spyOn(store, 'saveCheckpoints')
+    at(21, RPM, 0)
+    at(21, RPM, 30)
+    at(21.5, RPM, 0)
+    at(21.5, RPM, 30)
+    application.checkpointResets()
+    expect(save).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries a failed write of a reset at the next call', () => {
+    stored(running)
+    const store = new Store(dir)
+    const { application, at } = setup(store)
+    at(0, RPM, 30)
+    at(20)
+    application.checkpoint()
+    at(25, RPM, 0)
+    vi.spyOn(store, 'saveCheckpoints').mockImplementationOnce(() => {
+      throw new Error('ENOSPC: no space left on device')
+    })
+    expect(() => {
+      application.checkpointResets()
+    }).toThrow(/ENOSPC/)
+    application.checkpointResets()
+    expect(total()).toBe(0)
+  })
+
+  const signed = {
+    ...running,
+    detector: {
+      type: 'accumulator',
+      measure: 'integral',
+      resetOn: { op: 'changesTo', value: 0 },
+      steps: [{ limit: 1000, priority: 'caution' }]
+    }
+  }
+
+  it('writes nothing while an integral of a negative value falls', () => {
+    stored(signed)
+    const store = new Store(dir)
+    const save = vi.spyOn(store, 'saveCheckpoints')
+    const { application, at } = setup(store)
+    at(0, RPM, -5)
+    for (let t = 1; t <= 30; t++) {
+      at(t)
+      application.checkpointResets()
+    }
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it('writes a reset of a negative integral total to zero within a tick', () => {
+    stored(signed)
+    const { application, at } = setup()
+    at(0, RPM, -5)
+    at(20)
+    application.checkpoint()
+    expect(total()).toBe(-100)
+
+    at(30, RPM, 0)
+    application.checkpointResets()
+    expect(total()).toBe(0)
+  })
+
+  const twoSteps = [
+    { limit: 1000, priority: 'caution' },
+    { limit: 2000, priority: 'warning' }
+  ]
+
+  it('writes nothing for units edits rebuild while the total grows', () => {
+    stored(running)
+    const store = new Store(dir)
+    const { application, at } = setup(store)
+    at(0, RPM, 30)
+    at(20)
+    application.checkpoint()
+    const save = vi.spyOn(store, 'saveCheckpoints')
+    const edited = { ...running, detector: { ...running.detector, steps: twoSteps } }
+    expect(application.replaceRule(ID, edited).ok).toBe(true)
+    const moved = { ...edited, detector: { ...edited.detector, while: { op: 'above', value: 5 } } }
+    expect(application.replaceRule(ID, moved).ok).toBe(true)
+    for (let t = 21; t <= 40; t++) {
+      at(t)
+      application.checkpointResets()
+    }
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it('writes nothing for units edits rebuild while the last value is the reset value', () => {
+    stored(running)
+    const store = new Store(dir)
+    const { application, at } = setup(store)
+    at(0, RPM, 30)
+    at(20, RPM, 0)
+    application.checkpoint()
+    const save = vi.spyOn(store, 'saveCheckpoints')
+    // Accumulating at the reset value, so a write after the edits would change the total.
+    const edited = {
+      ...running,
+      detector: { ...running.detector, while: { op: 'below', value: 5 }, steps: twoSteps }
+    }
+    expect(application.replaceRule(ID, edited).ok).toBe(true)
+    for (let t = 21; t <= 40; t++) {
+      at(t, RPM, 0)
+      at(t + 0.5)
+      application.checkpointResets()
+    }
+    expect(save).not.toHaveBeenCalled()
+    application.checkpoint()
+    expect(total()).toBeGreaterThan(0)
+  })
+
+  it('writes a reset made just before an edit rebuilt its unit', () => {
+    stored(running)
+    const { application, at } = setup()
+    at(0, RPM, 30)
+    at(20)
+    application.checkpoint()
+    at(25, RPM, 0)
+    const steps = [
+      { limit: 1000, priority: 'caution' },
+      { limit: 2000, priority: 'warning' }
+    ]
+    expect(
+      application.replaceRule(ID, { ...running, detector: { ...running.detector, steps } }).ok
+    ).toBe(true)
+    application.checkpointResets()
+    expect(total()).toBe(0)
+  })
+
+  it('writes one reset seen by the detector of every step once', () => {
+    const steps = [
+      { limit: 1000, priority: 'caution' },
+      { limit: 2000, priority: 'warning' },
+      { limit: 3000, priority: 'alarm' }
+    ]
+    stored({ ...running, detector: { ...running.detector, steps } })
+    const store = new Store(dir)
+    const { application, at } = setup(store)
+    at(0, RPM, 30)
+    at(20)
+    application.checkpoint()
+    const save = vi.spyOn(store, 'saveCheckpoints')
+    at(25, RPM, 0)
+    application.checkpointResets()
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(total()).toBe(0)
+  })
+
+  it('writes a reset firing on every sample at most once per interval, and the last once it passes', () => {
+    stored({
+      ...running,
+      detector: {
+        type: 'accumulator',
+        measure: 'integral',
+        resetOn: { op: 'changes' },
+        steps: [{ limit: 100000, priority: 'caution' }]
+      }
+    })
+    const store = new Store(dir)
+    const save = vi.spyOn(store, 'saveCheckpoints')
+    const { application, at } = setup(store)
+    at(0, RPM, 30)
+    for (let t = 1; t <= 25; t++) {
+      at(t, RPM, 30 + t)
+      at(t + 0.5)
+      application.checkpointResets()
+    }
+    expect(save).toHaveBeenCalledTimes(3)
+
+    // No more resets; the one pending since the last write still lands.
+    at(31)
+    application.checkpointResets()
+    expect(save).toHaveBeenCalledTimes(3)
+    at(31.5)
+    application.checkpointResets()
+    expect(save).toHaveBeenCalledTimes(4)
+    expect(total()).toBe(55 * 6.5)
+  })
+
+  it('a checkpoint after a reset writes it, so no reset write follows', () => {
+    const accumulating = {
+      ...hours,
+      detector: { ...hours.detector, resetOn: { op: 'changesTo', value: 0 } }
+    }
+    stored(accumulating)
+    const store = new Store(dir)
+    const { application, at } = setup(store)
+    at(0, RPM, 30)
+    at(20)
+    application.checkpoint()
+    at(25, RPM, 0)
+    application.checkpoint()
+    expect(total()).toBe(0)
+    const save = vi.spyOn(store, 'saveCheckpoints')
+    at(26)
+    application.checkpointResets()
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it('a checkpoint inside the interval writes the reset waiting in it, so none follows', () => {
+    const accumulating = {
+      ...hours,
+      detector: { ...hours.detector, resetOn: { op: 'changesTo', value: 0 } }
+    }
+    stored(accumulating)
+    const store = new Store(dir)
+    const { application, at } = setup(store)
+    at(0, RPM, 30)
+    at(20, RPM, 0)
+    expect(application.checkpointResets()).toBe(true)
+    at(22, RPM, 30)
+    at(25, RPM, 0)
+    expect(application.checkpointResets()).toBe(false)
+    application.checkpoint()
+    const save = vi.spyOn(store, 'saveCheckpoints')
+    at(31)
+    expect(application.checkpointResets()).toBe(false)
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it('stopping right after a reset writes it', () => {
+    stored(running)
+    const { application, at } = setup()
+    at(0, RPM, 30)
+    at(20)
+    application.checkpoint()
+    at(25, RPM, 0)
+    application.stop()
+    expect(total()).toBe(0)
+  })
+})
+
 describe('disable and enable', () => {
   const OIL_ALERT = 'propulsion.main.oilPressureLow'
   const ID = 'oil-pressure-low'

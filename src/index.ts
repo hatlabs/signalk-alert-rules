@@ -116,12 +116,16 @@ export default function createPlugin(app: ServerAPI): Plugin {
         if (failure === undefined) app.setPluginStatus(text)
         else app.setPluginError(text)
       }
-      const reportingOnce = (describe: (err: unknown) => string, run: () => void) => {
-        const key = Symbol()
+      // Reporters given one key report one failure: either's success clears
+      // it. A run that returns false did nothing, so it clears nothing.
+      const reportingOnce = (
+        describe: (err: unknown) => string,
+        run: () => unknown,
+        key = Symbol()
+      ) => {
         return () => {
           try {
-            run()
-            failures.delete(key)
+            if (run() !== false) failures.delete(key)
           } catch (err) {
             if (!failures.has(key)) {
               const text = describe(err)
@@ -132,22 +136,27 @@ export default function createPlugin(app: ServerAPI): Plugin {
           report()
         }
       }
+      const notSaved = (err: unknown) => `Could not save accumulator totals: ${errorMessage(err)}`
+      const saving = Symbol()
+      const tick = reportingOnce(
+        (err) => `Evaluation failed: ${errorMessage(err)}`,
+        () => {
+          running.tick()
+        }
+      )
+      const checkpointResets = reportingOnce(notSaved, () => running.checkpointResets(), saving)
       timers = [
+        setInterval(() => {
+          tick()
+          checkpointResets()
+        }, TICK_MS),
         setInterval(
           reportingOnce(
-            (err) => `Evaluation failed: ${errorMessage(err)}`,
-            () => {
-              running.tick()
-            }
-          ),
-          TICK_MS
-        ),
-        setInterval(
-          reportingOnce(
-            (err) => `Could not save accumulator totals: ${errorMessage(err)}`,
+            notSaved,
             () => {
               running.checkpoint()
-            }
+            },
+            saving
           ),
           CHECKPOINT_MS
         )
