@@ -120,7 +120,7 @@ describe('render harness', () => {
 
   it.each([
     ['mixed', 'alerting', 51.3],
-    ['docs', 'normal', 50]
+    ['docs', 'normal', 50.4]
   ] as const)('shows shore power frequency with states=%s %s', async (set, condition, value) => {
     const { api } = fakes(`?states=${set}`)
     const entry = (await api.rules()).find((r) => r.slug === 'shore-power-frequency')
@@ -133,6 +133,39 @@ describe('render harness', () => {
     const alerting = rules.filter((r) => r.status.condition !== 'normal').map((r) => r.slug)
     expect(alerting).toEqual(['bilge-pump-cycling'])
     expect(rules.filter((r) => 'disabled' in r && r.disabled !== undefined)).toEqual([])
+  })
+
+  it('gives states=docs states that agree with each rule and its path', async () => {
+    const { api, paths } = fakes('?states=docs')
+    const reported = new Map((await paths.selfPaths()).map((p) => [p.path, p.value]))
+    let compared = 0
+    for (const entry of await api.rules()) {
+      if (isInvalid(entry)) continue
+      const { rule, status } = entry
+      const path = rule.signal.combinator === undefined ? rule.signal.paths.at(0) : undefined
+      if (path !== undefined && !path.includes('*') && status.value !== undefined) {
+        expect(status.value, entry.slug).toEqual(reported.get(path))
+        compared++
+      }
+      for (const instance of status.instances) {
+        const progress = instance.progress
+        if (progress?.kind === 'events') {
+          expect(progress.limit, entry.slug).toBe(rule.steps[0]?.limit)
+          // A count rule alerts on more events than its limit, and only then.
+          expect(progress.count > progress.limit, entry.slug).toBe(
+            instance.condition === 'alerting'
+          )
+        }
+        if (path === undefined || instance.value === undefined) continue
+        const segment = instance.instance?.segment
+        const own = segment === undefined ? path : path.replace('*', segment)
+        if (reported.get(own) !== undefined) {
+          expect(instance.value, `${entry.slug} ${own}`).toEqual(reported.get(own))
+          compared++
+        }
+      }
+    }
+    expect(compared).toBeGreaterThan(0)
   })
 
   it('gives every path with a value a source', async () => {

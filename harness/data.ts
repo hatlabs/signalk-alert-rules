@@ -194,7 +194,20 @@ const disabled: Partial<Record<string, Disabled>> = {
   'watch-not-acknowledged': { since: minutesAgo(90), actor: 'admin', note: 'Moored in harbour' }
 }
 
-/** The states docs/examples.md shows, where they differ from the mixed ones. */
+/** A normal rule reading its path's current value. */
+function normalReading(path: string): Shown {
+  const value = currentValue(path)
+  return { condition: { ...NORMAL, value }, instances: [instanceState(NORMAL, { value })] }
+}
+
+/** More starts than the rule's limit of 4, as an alerting count has. */
+const BILGE_STARTS = { kind: 'events', count: 5, limit: 4 } as const
+
+/**
+ * The states docs/examples.md shows, where they differ from the mixed ones.
+ * Values are the paths' own, so the images agree with the editor and kind
+ * picker beside them.
+ */
 const docsStates: Partial<Record<string, Shown>> = {
   'bilge-pump-cycling': {
     condition: {
@@ -204,7 +217,7 @@ const docsStates: Partial<Record<string, Shown>> = {
       step: 0,
       awaitingInput: false,
       message: 'Bilge pump is running often',
-      progress: { kind: 'events', count: 1, limit: 4 }
+      progress: BILGE_STARTS
     },
     instances: [
       instanceState(
@@ -215,30 +228,23 @@ const docsStates: Partial<Record<string, Shown>> = {
           step: 0,
           awaitingInput: false
         },
-        { value: false, progress: { kind: 'events', count: 1, limit: 4 } }
+        { value: false, progress: BILGE_STARTS }
       )
     ],
     changedAt: minutesAgo(2)
   },
   'coolant-temperature-rising': {
     condition: NORMAL,
-    instances: [
-      instanceState(NORMAL, { ...wildcard('port'), value: 353.02 }),
-      instanceState(NORMAL, { ...wildcard('starboard'), value: 352.03 })
-    ]
+    instances: ['port', 'starboard'].map((engine) =>
+      instanceState(NORMAL, {
+        ...wildcard(engine),
+        value: currentValue(`propulsion.${engine}.coolantTemperature`)
+      })
+    )
   },
-  'house-battery-low': {
-    condition: { ...NORMAL, value: 12.6 },
-    instances: [instanceState(NORMAL, { value: 12.6 })]
-  },
-  'depth-sensor-silent': {
-    condition: { ...NORMAL, value: 8.371 },
-    instances: [instanceState(NORMAL, { value: 8.371 })]
-  },
-  'shore-power-frequency': {
-    condition: { ...NORMAL, value: 50 },
-    instances: [instanceState(NORMAL, { value: 50 })]
-  }
+  'house-battery-low': normalReading('electrical.batteries.house.voltage'),
+  'depth-sensor-silent': normalReading('environment.depth.belowTransducer'),
+  'shore-power-frequency': normalReading('electrical.ac.shore.phase.single.frequency')
 }
 
 /** The state of a rule as shown, or a normal one with one instance reading its path's current value. */
