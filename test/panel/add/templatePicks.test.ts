@@ -5,6 +5,7 @@ import {
   instanceError,
   openPattern,
   pickKey,
+  pickReports,
   ruleWatching,
   slotCandidates,
   templateTitle,
@@ -609,6 +610,45 @@ describe('a template with two slots', () => {
         ['start', 'start', 'electrical.batteries.start.voltage', 12.6, undefined],
         ['windlass', 'windlass', undefined, undefined, true]
       ])
+    })
+  })
+
+  describe('whether a pick reports', () => {
+    const revolutions = (engine: string): PathEntry => ({
+      path: `propulsion.${engine}.revolutions`,
+      unit: displayUnit({ units: 'Hz' }),
+      value: 30
+    })
+    const reported = [voltage('start', 12.6), revolutions('main')]
+
+    it('reports once every slot’s choice reports a path the slot is in', () => {
+      expect(pickReports(alternator, { battery: 'start', engine: 'main' }, reported)).toBe(true)
+    })
+
+    it('waits for a slot only a gate uses, though the watched path reports', () => {
+      expect(pickReports(alternator, { battery: 'start', engine: 'port' }, reported)).toBe(false)
+    })
+
+    it('waits for a choice of a slot that reports only under another slot', () => {
+      expect(pickReports(alternator, { battery: 'main', engine: 'main' }, reported)).toBe(false)
+    })
+
+    it('finds a slot in any input of a combined signal, not only the first', () => {
+      const combined: Template = {
+        ...alternator,
+        rule: {
+          ...alternator.rule,
+          signal: {
+            combinator: 'difference',
+            inputs: [
+              { path: 'environment.outside.temperature' },
+              { path: 'electrical.batteries.${battery}.voltage' }
+            ]
+          }
+        }
+      }
+      expect(pickReports(combined, { battery: 'start', engine: 'main' }, reported)).toBe(true)
+      expect(pickReports(combined, { battery: 'house', engine: 'main' }, reported)).toBe(false)
     })
   })
 })

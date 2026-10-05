@@ -263,6 +263,22 @@ export function slotCandidates(
   return [...reporting, ...notReporting]
 }
 
+/**
+ * Whether every slot's choice reports a path the slot is in. The engine of a
+ * battery-and-engine pick shows only in a gate, so the watched path alone
+ * cannot tell a row with a silent engine from one that reports.
+ */
+export function pickReports(
+  template: Template,
+  pick: TemplatePick,
+  paths: readonly PathEntry[]
+): boolean {
+  return slotsOf(template).every((slot) => {
+    const choice = picked(pick, slot.name)
+    return slotCandidates(template, slot.name, paths).some((c) => c.instance === choice)
+  })
+}
+
 /** Why a typed instance cannot be picked, if it cannot. */
 export function instanceError(text: string): string | undefined {
   if (text === '') return 'Type the name used in the path.'

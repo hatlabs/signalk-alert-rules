@@ -1104,7 +1104,16 @@ describe('rules from a template with two slots', () => {
     ],
     problems: []
   }
-  const reported = [...boat, voltage('start', 12.6)]
+  const reported: PathEntry[] = [
+    ...boat,
+    voltage('start', 12.6),
+    {
+      path: 'propulsion.main.revolutions',
+      units: 'Hz',
+      unit: displayUnit({ units: 'Hz' }),
+      value: 30
+    }
+  ]
   const mainRule = ruleEntry({
     slug: 'alternator-not-charging-start-main',
     rule: {
@@ -1145,7 +1154,7 @@ describe('rules from a template with two slots', () => {
     expect(tab(/windlass · port · n2k\.1/).textContent).toContain('not reporting yet')
   })
 
-  it('labels each tab with its slots and marks the row whose picks have a rule', async () => {
+  it('labels each tab with its slots, marking the row with a rule and the one whose engine is silent', async () => {
     const api = renderShell({ rules: [mainRule], listing }, { reported })
     await openTabs([
       { battery: 'start', engine: 'main' },
@@ -1153,7 +1162,8 @@ describe('rules from a template with two slots', () => {
     ])
     expect(tab(/start · main/).textContent).toContain('already has a rule')
     expect(tab(/start · port/).textContent).not.toContain('already has a rule')
-    expect(tab(/start · port/).textContent).not.toContain('not reporting yet')
+    expect(tab(/start · main/).textContent).not.toContain('not reporting yet')
+    expect(tab(/start · port/).textContent).toContain('not reporting yet')
     fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
     await screen.findByRole('heading', { name: 'Engine port alternator not charging' })
     expect(createdRules(api).map((r) => [r.slug, r.template?.pick])).toEqual([
