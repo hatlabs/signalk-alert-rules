@@ -172,6 +172,49 @@ describe('alertPathOf', () => {
   })
 })
 
+describe('the alert path of a field', () => {
+  const below = { type: 'sustained', direction: 'below', steps }
+  const outside = { type: 'outside', steps: [{ low: -0.35, high: 0.35, priority: 'warning' }] }
+  const pathOf = (path: string, detector: unknown = below) =>
+    alertPathOf({ signal: { path }, detector })
+
+  it("treats the field's name as the leaf: as if the field were a path of its own", () => {
+    expect(pathOf('navigation.attitude#/roll', outside)).toBe('navigation.attitude.rollOutOfRange')
+    expect(pathOf('navigation.attitude#/roll', outside)).toBe(
+      pathOf('navigation.attitude.roll', outside)
+    )
+  })
+
+  it("puts a nested field's names in the path as segments", () => {
+    expect(alertParent({ path: 'a.b#/c/d' })).toEqual(['a', 'b', 'c'])
+    expect(pathOf('a.b#/c/d', { ...below, direction: 'above' })).toBe('a.b.c.dHigh')
+  })
+
+  it('keeps the wildcard of the base path for each instance to fill', () => {
+    expect(pathOf('propulsion.*.x#/y')).toBe('propulsion.*.x.yLow')
+    // A base path ending in the wildcard still has the field to name the condition by.
+    expect(pathOf('electrical.batteries.*#/x')).toBe('electrical.batteries.*.xLow')
+  })
+
+  it('sanitises field names as it does segments', () => {
+    expect(alertParent({ path: 'a#/b~1c/d' })).toEqual(['a', 'b_c'])
+    expect(defaultCondition({ path: 'a#/b/level:raw' }, below)).toBe('levelRawLow')
+  })
+
+  it('is undefined while the pointer is invalid, rather than a guess', () => {
+    expect(alertParent({ path: 'navigation.attitude#roll' })).toBeUndefined()
+    expect(defaultCondition({ path: 'navigation.attitude#roll' }, below)).toBeUndefined()
+    expect(pathOf('navigation.attitude#roll')).toBeUndefined()
+    const inputs = [{ path: 'a.b#/x' }, { path: 'a.b#' }]
+    expect(alertParent({ combinator: 'difference', inputs })).toBeUndefined()
+  })
+
+  it("gives a combined signal of fields its inputs' common parent", () => {
+    const inputs = [{ path: 'navigation.attitude#/roll' }, { path: 'navigation.attitude#/pitch' }]
+    expect(alertParent({ combinator: 'difference', inputs })).toEqual(['navigation', 'attitude'])
+  })
+})
+
 describe('instanceAlertPath', () => {
   it('fills the wildcard with the instance segment', () => {
     expect(instanceAlertPath('propulsion.*.coolantTemperatureHigh', 'port')).toEqual({

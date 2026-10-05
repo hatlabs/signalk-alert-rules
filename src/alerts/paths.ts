@@ -4,6 +4,7 @@
  * `voltageLow`). The webapp derives the same paths with this module, so it
  * imports only types.
  */
+import { pathSegments, splitPointerPath } from '../model/pointerPath.js'
 import type { Detector } from '../model/rule.js'
 import { isRecord, own } from '../util.js'
 
@@ -120,9 +121,14 @@ export function singlePath(signal: unknown): string | undefined {
     : undefined
 }
 
-/** A data path's segments as alert path segments: sanitised, the wildcard kept. */
-function alertSegments(path: string): string[] {
-  return path.split('.').map((s) => (s === WILDCARD ? s : sanitiseSegment(s)))
+/**
+ * A data path's segments as alert path segments: sanitised, the wildcard
+ * kept. A field's names follow its base path's segments, so a field alerts
+ * where a path of its own would. Undefined while the field's pointer is
+ * invalid.
+ */
+function alertSegments(path: string): string[] | undefined {
+  return pathSegments(path)?.map((s) => (s === WILDCARD ? s : sanitiseSegment(s)))
 }
 
 /** The segments the paths all start with. */
@@ -144,12 +150,18 @@ export function alertParent(signal: unknown): string[] | undefined {
   const path = singlePath(signal)
   if (path !== undefined) {
     const segments = alertSegments(path)
-    return segments.at(-1) === WILDCARD ? segments : segments.slice(0, -1)
+    return segments?.at(-1) === WILDCARD ? segments : segments?.slice(0, -1)
   }
   if (!isRecord(signal) || !Array.isArray(signal.inputs)) return undefined
   const paths: unknown[] = signal.inputs.map((input) => (isRecord(input) ? input.path : undefined))
   if (!paths.every((p) => typeof p === 'string')) return undefined
-  return commonPrefix(paths.map((p) => alertSegments(p).slice(0, -1)))
+  const parents: string[][] = []
+  for (const p of paths) {
+    const segments = alertSegments(p)
+    if (segments === undefined) return undefined
+    parents.push(segments.slice(0, -1))
+  }
+  return commonPrefix(parents)
 }
 
 /**
@@ -160,7 +172,8 @@ export function alertParent(signal: unknown): string[] | undefined {
  * document too.
  */
 export function defaultCondition(signal: unknown, detector: unknown): string | undefined {
-  const leaf = singlePath(signal)?.split('.').at(-1)
+  const path = singlePath(signal)
+  const leaf = path === undefined ? undefined : pathSegments(path)?.at(-1)
   const suffix = conditionSuffix(detector)
   if (leaf === undefined || leaf === WILDCARD || suffix === undefined) return undefined
   return camelSegment(leaf) + suffix
@@ -189,9 +202,11 @@ export function alertPathOf(rule: AlertPathParts): string | undefined {
   return [...parent, condition].join('.')
 }
 
-/** The number of wildcard segments in a dot-separated path. */
+/** The number of wildcard segments in a path; a field's pointer has none. */
 export function wildcards(path: string): number {
-  return path.split('.').filter((s) => s === WILDCARD).length
+  return splitPointerPath(path)
+    .basePath.split('.')
+    .filter((s) => s === WILDCARD).length
 }
 
 /**
