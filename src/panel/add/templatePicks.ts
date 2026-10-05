@@ -13,7 +13,7 @@ import {
 } from '../../templates/instantiate'
 import { isInvalid, isRecord, type ListedRule } from '../api'
 import type { PathEntry } from '../paths/selfPaths'
-import { matchedInstances } from '../signalUnits'
+import { matchedInstances, matchesPattern } from '../signalUnits'
 
 const SLOT_PICK = new RegExp(SLOT_PICK_PATTERN)
 
@@ -187,6 +187,80 @@ export function candidates(
     }
   }
   return found
+}
+
+/** One instance a slot can be filled with, as a row of the picker lists it. */
+export interface SlotCandidate {
+  /** The slot's pick: the path segment. */
+  instance: string
+  /** The instance's name, as the user knows it. */
+  label: string
+  /** The first path using the slot that the instance reports; absent for a typed one. */
+  entry?: PathEntry
+  /** Typed by the user rather than found reporting. */
+  typed?: true
+}
+
+/** Every string under a `path` key, in the order the document has them. */
+function pathsIn(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap(pathsIn)
+  if (!isRecord(value)) return []
+  return Object.entries(value).flatMap(([key, child]) =>
+    key === 'path' && typeof child === 'string' ? [child] : pathsIn(child)
+  )
+}
+
+/**
+ * The paths a slot is a segment of: the signal's first, so an instance shows
+ * the value its rule watches when it reports that, then the gates' and the
+ * zone limit's.
+ */
+function slotPaths(template: Template, slot: string): string[] {
+  const { signal, ...rest } = template.rule
+  const using = [...pathsIn(signal), ...pathsIn(rest)].filter((path) =>
+    path.split('.').includes(placeholder(slot))
+  )
+  return [...new Set(using)]
+}
+
+/**
+ * What one slot of a template can be filled with: each instance reporting any
+ * path the slot is in, showing that path's value, sorted by name; then each
+ * typed name nothing reports, in the order typed. Other slots in the same
+ * path match any segment.
+ */
+export function slotCandidates(
+  template: Template,
+  slot: string,
+  paths: readonly PathEntry[],
+  typed: readonly string[] = []
+): SlotCandidate[] {
+  const byPath = new Map(paths.map((p) => [p.path, p]))
+  const slotted = new Set(slotsOf(template).map((s) => placeholder(s.name)))
+  const found = new Map<string, SlotCandidate>()
+  for (const pattern of slotPaths(template, slot)) {
+    const parts = pattern.split('.')
+    const at = parts.indexOf(placeholder(slot))
+    const wildcard = parts.map((part) => (slotted.has(part) ? '*' : part)).join('.')
+    for (const entry of paths) {
+      if (!matchesPattern(wildcard, entry.path)) continue
+      const segments = entry.path.split('.')
+      const instance = segments[at]
+      if (found.has(instance)) continue
+      const group = segments
+        .slice(0, at)
+        .map((s) => `${s}.`)
+        .join('')
+      found.set(instance, { instance, label: instanceLabel(group, instance, entry, byPath), entry })
+    }
+  }
+  const reporting = [...found.values()].sort((a, b) =>
+    a.instance < b.instance ? -1 : a.instance > b.instance ? 1 : 0
+  )
+  const notReporting = [...new Set(typed)]
+    .filter((instance) => !found.has(instance))
+    .map((instance): SlotCandidate => ({ instance, label: instance, typed: true }))
+  return [...reporting, ...notReporting]
 }
 
 /** Why a typed instance cannot be picked, if it cannot. */

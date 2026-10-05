@@ -6,9 +6,11 @@ import {
   openPattern,
   pickKey,
   ruleWatching,
+  slotCandidates,
   templateTitle,
   typedCandidate,
-  watchedPath
+  watchedPath,
+  type SlotCandidate
 } from '../../../src/panel/add/templatePicks'
 import type { PathEntry } from '../../../src/panel/paths/selfPaths'
 import { displayUnit } from '../../../src/panel/units'
@@ -475,5 +477,138 @@ describe('a template with two slots', () => {
     expect(
       ruleWatching('builtin', alternator, { battery: 'start', engine: 'port_1' }, rules)
     ).toBeUndefined()
+  })
+
+  it('lists for no slot the picks of a single-slot template', () => {
+    expect(candidates('builtin', alternator, boat, [])).toEqual([])
+  })
+
+  describe('candidates per slot', () => {
+    const rpm = displayUnit({ units: 'Hz' })
+    const revolutions = (engine: string, value: number): PathEntry => ({
+      path: `propulsion.${engine}.revolutions`,
+      units: 'Hz',
+      unit: rpm,
+      value
+    })
+    const listed = (found: SlotCandidate[]) =>
+      found.map((c) => [c.instance, c.label, c.entry?.path, c.entry?.value, c.typed])
+
+    it('lists each slot’s instances from the paths using it, each with its value', () => {
+      const reported = [revolutions('main', 30), voltage('start', 12.6)]
+      expect(listed(slotCandidates(alternator, 'engine', reported))).toEqual([
+        ['main', 'main', 'propulsion.main.revolutions', 30, undefined]
+      ])
+      expect(listed(slotCandidates(alternator, 'battery', reported))).toEqual([
+        ['start', 'start', 'electrical.batteries.start.voltage', 12.6, undefined]
+      ])
+    })
+
+    it('names an instance by the name its group reports, else the path’s display name', () => {
+      expect(listed(slotCandidates(alternator, 'battery', boat))).toEqual([
+        ['house', 'House bank', 'electrical.batteries.house.voltage', 13.28, undefined],
+        [
+          'ruuvi-cockpit',
+          'ruuvi-cockpit',
+          'electrical.batteries.ruuvi-cockpit.voltage',
+          2.98,
+          undefined
+        ],
+        [
+          'ruuvi-saloon',
+          'Saloon RuuviTag battery',
+          'electrical.batteries.ruuvi-saloon.voltage',
+          3.01,
+          undefined
+        ],
+        ['starter', 'starter', 'electrical.batteries.starter.voltage', 12.71, undefined]
+      ])
+    })
+
+    it('lists nothing for a slot whose paths no instance reports', () => {
+      expect(slotCandidates(alternator, 'engine', boat)).toEqual([])
+      expect(slotCandidates(alternator, 'battery', [])).toEqual([])
+    })
+
+    it('lists an instance two paths report once, showing the signal’s value first', () => {
+      // The gate is written before the signal: the signal's value still shows first.
+      const { signal, ...rest } = alternator.rule
+      const gatedOnCurrent: Template = {
+        ...alternator,
+        rule: {
+          ...rest,
+          gates: [
+            {
+              signal: { path: 'electrical.batteries.${battery}.current' },
+              direction: 'above',
+              limit: { kind: 'fixed', value: 0 }
+            }
+          ],
+          signal
+        }
+      }
+      expect(listed(slotCandidates(gatedOnCurrent, 'battery', boat)).slice(0, 1)).toEqual([
+        ['house', 'House bank', 'electrical.batteries.house.voltage', 13.28, undefined]
+      ])
+      const currentOnly = boat.filter((p) => p.path.endsWith('.current'))
+      expect(listed(slotCandidates(gatedOnCurrent, 'battery', currentOnly))).toEqual([
+        ['house', 'house', 'electrical.batteries.house.current', 4, undefined]
+      ])
+    })
+
+    it('lists the instances of every input of a combined signal and of a zone limit', () => {
+      const combined: Template = {
+        ...alternator,
+        rule: {
+          ...alternator.rule,
+          signal: {
+            combinator: 'difference',
+            inputs: [
+              { path: 'propulsion.${engine}.alternatorVoltage' },
+              { path: 'electrical.batteries.${battery}.voltage' }
+            ]
+          },
+          detector: {
+            type: 'sustained',
+            direction: 'above',
+            limit: { kind: 'zone', level: 'warn', path: 'propulsion.${engine}.temperature' }
+          },
+          gates: []
+        }
+      }
+      const reported: PathEntry[] = [
+        { path: 'propulsion.port.alternatorVoltage', unit: volts, value: 14.1 },
+        { path: 'propulsion.stbd.temperature', unit: displayUnit({}), value: 350 }
+      ]
+      expect(slotCandidates(combined, 'engine', reported).map((c) => c.instance)).toEqual([
+        'port',
+        'stbd'
+      ])
+    })
+
+    it('finds a slot’s instance in a path that has another slot before it', () => {
+      const nested: Template = {
+        ...alternator,
+        rule: {
+          ...alternator.rule,
+          signal: { path: 'propulsion.${engine}.alternators.${battery}.voltage' }
+        }
+      }
+      const reported: PathEntry[] = [
+        { path: 'propulsion.main.alternators.start.voltage', unit: volts, value: 14 }
+      ]
+      expect(slotCandidates(nested, 'battery', reported).map((c) => c.instance)).toEqual(['start'])
+      expect(slotCandidates(nested, 'engine', reported).map((c) => c.instance)).toEqual(['main'])
+    })
+
+    it('adds each typed name nothing reports after the reporting ones, once', () => {
+      const reported = [voltage('start', 12.6)]
+      expect(
+        listed(slotCandidates(alternator, 'battery', reported, ['windlass', 'start', 'windlass']))
+      ).toEqual([
+        ['start', 'start', 'electrical.batteries.start.voltage', 12.6, undefined],
+        ['windlass', 'windlass', undefined, undefined, true]
+      ])
+    })
   })
 })
