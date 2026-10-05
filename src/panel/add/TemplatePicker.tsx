@@ -1,6 +1,7 @@
 import { useId, useState, type Ref } from 'react'
 import type { TemplatePick } from '../../model/rule'
 import type { Template } from '../../model/template'
+import { SOURCE_PICK, picked, slotsOf } from '../../templates/instantiate'
 import type { ListedRule } from '../api'
 import { BackIcon } from '../detail/icons'
 import { LIVE_POLL_MS, type PathEntry, type PathSource } from '../paths/selfPaths'
@@ -10,6 +11,7 @@ import { useUnits } from '../signalUnits'
 import {
   candidates,
   instanceError,
+  onlySlot,
   openPattern,
   pickKey,
   templateTitle,
@@ -42,12 +44,16 @@ function shownValue(entry: PathEntry | undefined): string {
 export function TemplatePicker(props: TemplatePickerProps) {
   const { paths: source, template, back, headingRef } = props
   const { paths } = useUnits(source, LIVE_POLL_MS)
-  const open = template.open ?? []
-  const typable = open.includes('instance') && !open.includes('source')
+  const sourceOpen = template.open?.includes(SOURCE_PICK) === true
+  const nothingOpen = slotsOf(template).length === 0 && !sourceOpen
+  // A typed instance has no sources to offer, so it is only typed while the source is fixed.
+  const typedSlot = sourceOpen ? undefined : onlySlot(template)
+  const typedIn = (p: TemplatePick) =>
+    typedSlot === undefined ? undefined : picked(p, typedSlot.name)
   const reported = paths.status === 'ready' ? paths.paths : []
   const found = candidates(props.setId, template, reported, props.rules)
   const [typed, setTyped] = useState<TemplatePick[]>(() =>
-    typable ? (props.picked ?? []).filter((p) => p.instance !== undefined) : []
+    (props.picked ?? []).filter((p) => typedIn(p) !== undefined)
   )
   const [chosen, setChosen] = useState<ReadonlySet<string>>(
     () => new Set((props.picked ?? []).map(pickKey))
@@ -55,10 +61,10 @@ export function TemplatePicker(props: TemplatePickerProps) {
   const foundKeys = new Set(found.map((c) => pickKey(c.pick)))
   const typedRows = typed
     .filter((p) => !foundKeys.has(pickKey(p)))
-    .map((p) => typedCandidate(props.setId, template, p.instance ?? '', reported, props.rules))
+    .map((p) => typedCandidate(props.setId, template, typedIn(p) ?? '', reported, props.rules))
   const rows = [...found, ...typedRows]
   // A template with nothing open makes its one rule.
-  const only = open.length === 0 ? rows[0] : undefined
+  const only = nothingOpen ? rows[0] : undefined
   const isChosen = (c: Candidate) => c === only || chosen.has(pickKey(c.pick))
   const picks = rows.filter(isChosen).map((c) => c.pick)
 
@@ -81,7 +87,7 @@ export function TemplatePicker(props: TemplatePickerProps) {
         </h2>
         <p className="skar-lead">
           {template.description}
-          {open.length === 0
+          {nothingOpen
             ? ' It watches one value and makes one rule.'
             : ' Choose what it should watch. Each one becomes its own rule.'}
         </p>
@@ -95,7 +101,7 @@ export function TemplatePicker(props: TemplatePickerProps) {
               <span>{`Could not load paths: ${paths.error}.`}</span>
             </p>
           )}
-          {open.length > 0 && <h3 className="skar-label">Reporting now</h3>}
+          {!nothingOpen && <h3 className="skar-label">Reporting now</h3>}
           {rows.length > 0 && (
             <ul className="skar-rows" aria-label="Picks">
               {rows.map((c) => (
@@ -111,20 +117,21 @@ export function TemplatePicker(props: TemplatePickerProps) {
               ))}
             </ul>
           )}
-          {found.length === 0 && open.length > 0 && (
+          {found.length === 0 && !nothingOpen && (
             <p className="skar-hint">
               {`Nothing reports ${openPattern(template) ?? 'this value'} yet.`}
-              {typable && ' Type the name it will have in the path below.'}
+              {typedSlot !== undefined && ' Type the name it will have in the path below.'}
             </p>
           )}
-          {typable && (
+          {typedSlot !== undefined && (
             <TypedInstance
               template={template}
               onAdd={(instance) => {
+                const pick = { [typedSlot.name]: instance }
                 setTyped((last) =>
-                  last.some((p) => p.instance === instance) ? last : [...last, { instance }]
+                  last.some((p) => pickKey(p) === pickKey(pick)) ? last : [...last, pick]
                 )
-                setChosen(new Set(chosen).add(pickKey({ instance })))
+                setChosen(new Set(chosen).add(pickKey(pick)))
               }}
             />
           )}

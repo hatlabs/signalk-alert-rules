@@ -3,6 +3,7 @@ import type { Template } from '../../../src/model/template'
 import {
   candidates,
   instanceError,
+  openPattern,
   pickKey,
   ruleWatching,
   templateTitle,
@@ -300,6 +301,69 @@ describe('typed instances', () => {
   it('tells picks apart by instance and source', () => {
     expect(pickKey({ instance: 'a' })).not.toBe(pickKey({ source: 'a' }))
     expect(pickKey({ instance: 'a', source: 'b' })).toBe(pickKey({ source: 'b', instance: 'a' }))
+  })
+})
+
+describe('a template with one slot named other than instance', () => {
+  const batteryLow: Template = {
+    ...lifepo4,
+    open: undefined,
+    slots: [{ name: 'battery', label: 'Battery' }],
+    rule: {
+      ...lifepo4.rule,
+      name: 'Battery ${battery} voltage low',
+      message: 'Battery ${battery} voltage below {limit}: {value}',
+      signal: { path: 'electrical.batteries.${battery}.voltage' }
+    }
+  }
+
+  it('lists the instances reporting under its path, picked by the slot’s name', () => {
+    const found = candidates('builtin', batteryLow, boat, [])
+    expect(found.map((c) => [c.label, c.path, c.pick])).toEqual([
+      ['House bank', 'electrical.batteries.house.voltage', { battery: 'house' }],
+      ['ruuvi-cockpit', 'electrical.batteries.ruuvi-cockpit.voltage', { battery: 'ruuvi-cockpit' }],
+      [
+        'Saloon RuuviTag battery',
+        'electrical.batteries.ruuvi-saloon.voltage',
+        { battery: 'ruuvi-saloon' }
+      ],
+      ['starter', 'electrical.batteries.starter.voltage', { battery: 'starter' }]
+    ])
+  })
+
+  it('makes a pick by the slot’s name for a typed instance', () => {
+    expect(typedCandidate('builtin', batteryLow, 'windlass', boat, [])).toEqual({
+      pick: { battery: 'windlass' },
+      label: 'windlass',
+      path: 'electrical.batteries.windlass.voltage',
+      typed: true
+    })
+  })
+
+  it('shows its path with the slot as a name to fill in', () => {
+    expect(openPattern(batteryLow)).toBe('electrical.batteries.<name>.voltage')
+  })
+
+  it('enumerates a combined signal by its input that carries the slot', () => {
+    const combined: Template = {
+      ...batteryLow,
+      rule: {
+        ...batteryLow.rule,
+        signal: {
+          combinator: 'difference',
+          inputs: [
+            { path: 'environment.outside.temperature' },
+            { path: 'electrical.batteries.${battery}.voltage' }
+          ]
+        }
+      }
+    }
+    expect(candidates('builtin', combined, boat, []).map((c) => c.pick)).toEqual([
+      { battery: 'house' },
+      { battery: 'ruuvi-cockpit' },
+      { battery: 'ruuvi-saloon' },
+      { battery: 'starter' }
+    ])
   })
 })
 

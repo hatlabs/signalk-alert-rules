@@ -3,11 +3,11 @@
  * reporting now, read from the server's self paths, and instances typed in.
  */
 import type { TemplatePick } from '../../model/rule'
-import type { Template } from '../../model/template'
+import type { Slot, Template } from '../../model/template'
 import {
   SLOT_PICK_MESSAGE,
   SLOT_PICK_PATTERN,
-  INSTANCE_PLACEHOLDER,
+  INSTANCE_SLOT,
   picked,
   slotsOf
 } from '../../templates/instantiate'
@@ -15,7 +15,6 @@ import { isInvalid, isRecord, type ListedRule } from '../api'
 import type { PathEntry } from '../paths/selfPaths'
 import { matchedInstances } from '../signalUnits'
 
-const PLACEHOLDER = `\${${INSTANCE_PLACEHOLDER}}`
 const SLOT_PICK = new RegExp(SLOT_PICK_PATTERN)
 
 /** One way to fill a template's open parts, as the picker lists it. */
@@ -46,7 +45,16 @@ export function templateTitle(template: Template): string {
   return stripped.replace(/\s+/g, ' ').trim()
 }
 
-/** The path the template's picks are found under: its input's, or the input that carries the instance. */
+/**
+ * The slot of a template with exactly one, which the checkbox picker lists:
+ * `open: [instance]`'s or one declared under any name.
+ */
+export function onlySlot(template: Template): Slot | undefined {
+  const slots = slotsOf(template)
+  return slots.length === 1 ? slots[0] : undefined
+}
+
+/** The path the template's picks are found under: its input's, or the input that carries a slot. */
 function openPath(template: Template): string | undefined {
   const { signal } = template.rule
   if (!isRecord(signal)) return undefined
@@ -55,12 +63,16 @@ function openPath(template: Template): string | undefined {
   const paths = inputs.flatMap((i: unknown) =>
     isRecord(i) && typeof i.path === 'string' ? [i.path] : []
   )
-  return paths.find((p) => p.includes(PLACEHOLDER)) ?? paths[0]
+  const slots = slotsOf(template)
+  return paths.find((p) => slots.some((slot) => p.includes(placeholder(slot.name)))) ?? paths[0]
 }
 
 /** The path picks are found under, as the user reads it: `electrical.batteries.<name>.voltage`. */
 export function openPattern(template: Template): string | undefined {
-  return openPath(template)?.replaceAll(PLACEHOLDER, '<name>')
+  return slotsOf(template).reduce<string | undefined>(
+    (path, slot) => path?.replaceAll(placeholder(slot.name), '<name>'),
+    openPath(template)
+  )
 }
 
 /** The path a pick's rule watches. */
@@ -80,13 +92,12 @@ export function watchedPath(template: Template, pick: TemplatePick): string {
  * name of the path watched, else the path segment.
  */
 function instanceLabel(
-  pattern: string,
+  group: string,
   instance: string,
   entry: PathEntry | undefined,
   byPath: ReadonlyMap<string, PathEntry>
 ): string {
-  const at = pattern.indexOf(PLACEHOLDER)
-  const named = byPath.get(`${pattern.slice(0, at)}${instance}.name`)?.value
+  const named = byPath.get(`${group}${instance}.name`)?.value
   if (typeof named === 'string' && named !== '') return named
   return entry?.displayName ?? instance
 }
@@ -126,10 +137,11 @@ export function ruleWatching(
 }
 
 /**
- * The picks the template can be used with now: each instance reporting under
- * its open path, or each source reporting it, or both paired; a template
- * with nothing open has its one rule. Each names the rule it already has
- * from the template, if any.
+ * The picks a template with at most one slot can be used with now: each
+ * instance reporting under its open path, or each source reporting it, or
+ * both paired; a template with nothing open has its one rule. Each names the
+ * rule it already has from the template, if any. A template with more slots
+ * is picked slot by slot instead, and lists nothing here.
  */
 export function candidates(
   setId: string,
@@ -138,7 +150,8 @@ export function candidates(
   rules: readonly ListedRule[]
 ): Candidate[] {
   const path = openPath(template)
-  if (path === undefined) return []
+  if (path === undefined || slotsOf(template).length > 1) return []
+  const slot = onlySlot(template)
   const open = template.open ?? []
   const byPath = new Map(paths.map((p) => [p.path, p]))
   const found: Candidate[] = []
@@ -146,11 +159,16 @@ export function candidates(
     const ruleName = ruleWatching(setId, template, candidate.pick, rules)
     found.push(ruleName === undefined ? candidate : { ...candidate, ruleName })
   }
-  const instances = open.includes('instance')
-    ? matchedInstances(path.replaceAll(PLACEHOLDER, '*'), paths)
-    : [undefined]
-  for (const instance of instances) {
-    const named = instance === undefined ? {} : { instance }
+  // The path up to the slot, under which an instance reports its name.
+  const group = slot === undefined ? '' : path.slice(0, path.indexOf(placeholder(slot.name)))
+  const choices: { named: TemplatePick; instance?: string }[] =
+    slot === undefined
+      ? [{ named: {} }]
+      : matchedInstances(path.replaceAll(placeholder(slot.name), '*'), paths).map((instance) => ({
+          named: { [slot.name]: instance },
+          instance
+        }))
+  for (const { named, instance } of choices) {
     const watched = watchedPath(template, named)
     const entry = byPath.get(watched)
     const reported = entry === undefined ? {} : { entry }
@@ -158,7 +176,7 @@ export function candidates(
       instance === undefined
         ? (entry?.displayName ??
           (typeof template.rule.name === 'string' ? template.rule.name : watched))
-        : instanceLabel(path, instance, entry, byPath)
+        : instanceLabel(group, instance, entry, byPath)
     if (!open.includes('source')) {
       add({ pick: named, label, path: watched, ...reported })
       continue
@@ -185,11 +203,12 @@ export function typedCandidate(
   paths: readonly PathEntry[],
   rules: readonly ListedRule[]
 ): Candidate {
-  const watched = watchedPath(template, { instance })
+  const pick = { [(onlySlot(template) ?? INSTANCE_SLOT).name]: instance }
+  const watched = watchedPath(template, pick)
   const entry = paths.find((p) => p.path === watched)
-  const ruleName = ruleWatching(setId, template, { instance }, rules)
+  const ruleName = ruleWatching(setId, template, pick, rules)
   return {
-    pick: { instance },
+    pick,
     label: instance,
     path: watched,
     ...(entry === undefined ? {} : { entry }),

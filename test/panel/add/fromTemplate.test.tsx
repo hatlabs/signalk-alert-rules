@@ -1187,3 +1187,69 @@ describe('rules from a template with two slots', () => {
     ])
   })
 })
+
+describe('rules from a template with one slot named other than instance', () => {
+  afterEach(() => {
+    cleanup()
+    window.history.replaceState(null, '', '/')
+  })
+
+  const batteryLow: Template = {
+    id: 'battery-low',
+    slots: [{ name: 'battery', label: 'Battery' }],
+    condition: 'voltageLow',
+    rule: {
+      name: 'Battery ${battery} voltage low',
+      message: 'Battery ${battery} voltage below {limit}: {value}',
+      signal: { path: 'electrical.batteries.${battery}.voltage' },
+      detector: {
+        type: 'sustained',
+        direction: 'below',
+        steps: [{ limit: 12, priority: 'warning' }],
+        duration: 60
+      }
+    }
+  }
+  const listing: TemplateListing = {
+    sets: [
+      {
+        id: 'batteries',
+        name: 'Batteries',
+        version: '1.0.0',
+        source: 'file batteries.yaml',
+        templates: [batteryLow],
+        new: []
+      }
+    ],
+    problems: []
+  }
+
+  it('lists each battery, takes a typed one, and labels each tab with its pick', async () => {
+    const api = renderShell({ rules: [], listing })
+    const href = hashWithRoute('', {
+      kind: 'add',
+      from: 'template',
+      set: 'batteries',
+      template: batteryLow.id
+    })
+    window.history.replaceState(null, '', `/${href}`)
+    await screen.findByRole('list', { name: 'Picks' })
+    pick(/^House bank/)
+    change(screen.getByRole('textbox', { name: 'Not listed?' }), 'windlass')
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    expect(screen.getByRole('checkbox', { name: /^windlass/ })).toHaveProperty('checked', true)
+    await continueWith('Continue with 2 rules')
+    expect(tab(/House bank/).textContent).not.toContain('not reporting yet')
+    expect(tab(/windlass/).textContent).toContain('not reporting yet')
+    fireEvent.click(screen.getByRole('button', { name: 'Create 2 rules' }))
+    await screen.findByRole('heading', { name: 'Alert rules' })
+    expect(createdRules(api).map((r) => [r.slug, r.signal, r.template?.pick])).toEqual([
+      ['battery-low-house', { path: 'electrical.batteries.house.voltage' }, { battery: 'house' }],
+      [
+        'battery-low-windlass',
+        { path: 'electrical.batteries.windlass.voltage' },
+        { battery: 'windlass' }
+      ]
+    ])
+  })
+})

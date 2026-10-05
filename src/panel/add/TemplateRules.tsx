@@ -141,7 +141,11 @@ function initialTabs(props: FormProps): Tab[] {
             waiting: !reported.some((p) => p.path === watched)
           }
         : {
-            label: candidate?.label ?? pick.instance ?? pick.source ?? templateTitle(template),
+            label:
+              candidate?.label ??
+              slots.map((slot) => picked(pick, slot.name)).at(0) ??
+              pick.source ??
+              templateTitle(template),
             waiting: candidate?.entry === undefined
           }
     return {
