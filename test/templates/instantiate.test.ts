@@ -3,7 +3,8 @@ import {
   INSTANCE_PICK_MESSAGE as MODEL_INSTANCE_PICK_MESSAGE,
   INSTANCE_PICK_PATTERN as MODEL_INSTANCE_PICK_PATTERN,
   MAX_PICK_LENGTH,
-  MAX_SLUG_LENGTH
+  MAX_SLUG_LENGTH,
+  SOURCE_PICK as MODEL_SOURCE_PICK
 } from '../../src/model/rule.js'
 import { alertPathOf } from '../../src/alerts/paths.js'
 import type { Template } from '../../src/model/template.js'
@@ -12,6 +13,7 @@ import {
   INSTANCE_PICK_MESSAGE,
   INSTANCE_PICK_PATTERN,
   MAX_SLUG,
+  SOURCE_PICK,
   instantiate,
   proposeSlug,
   slugify,
@@ -363,8 +365,14 @@ describe('proposeSlug', () => {
 
   it('keeps the slug length the model allows', () => {
     expect(MAX_SLUG).toBe(MAX_SLUG_LENGTH)
+  })
+})
+
+describe("the model's constants copied here", () => {
+  it("equal the model's", () => {
     expect(INSTANCE_PICK_PATTERN).toBe(MODEL_INSTANCE_PICK_PATTERN)
     expect(INSTANCE_PICK_MESSAGE).toBe(MODEL_INSTANCE_PICK_MESSAGE)
+    expect(SOURCE_PICK).toBe(MODEL_SOURCE_PICK)
   })
 })
 

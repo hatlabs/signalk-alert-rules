@@ -25,7 +25,8 @@ const INSTANCE_PICK = new RegExp(INSTANCE_PICK_PATTERN)
  */
 export const OPEN_PARTS = ['instance', 'source'] as const
 export type OpenPart = (typeof OPEN_PARTS)[number]
-const SOURCE: OpenPart = 'source'
+/** The pick key of an open source; a test keeps it equal to the model's. */
+export const SOURCE_PICK: OpenPart = 'source'
 
 /** A picked source is set on a single path's input, so a combined signal cannot leave it open. */
 export const OPEN_SOURCE_MESSAGE = 'an open source needs a signal with a single path'
@@ -151,10 +152,10 @@ function pickErrors(template: Template, pick: TemplatePick): ValidationError[] {
     return []
   })
   const sourceOpen = template.open?.includes('source') === true
-  if (sourceOpen && picked(pick, SOURCE) === undefined)
-    errors.push({ path: pointer('', SOURCE), message: REQUIRED })
+  if (sourceOpen && picked(pick, SOURCE_PICK) === undefined)
+    errors.push({ path: pointer('', SOURCE_PICK), message: REQUIRED })
   for (const key of Object.keys(pick)) {
-    const known = key === SOURCE ? sourceOpen : slots.some((slot) => slot.name === key)
+    const known = key === SOURCE_PICK ? sourceOpen : slots.some((slot) => slot.name === key)
     if (!known) errors.push({ path: pointer('', key), message: NOT_OPEN })
   }
   return errors
@@ -191,7 +192,7 @@ export function instantiate(
 ): Result<Record<string, unknown>> {
   const errors = pickErrors(template, pick)
   if (errors.length > 0) return { ok: false, errors }
-  const source = picked(pick, SOURCE)
+  const source = picked(pick, SOURCE_PICK)
   const { condition, rule } = substituted(template, pick)
   const { name, slug: _slug, template: _template, ...rest } = rule
   if (source !== undefined) {
