@@ -1,0 +1,118 @@
+import { describe, expect, it } from 'vitest'
+import {
+  POINTER_MESSAGE,
+  POINTER_TOKEN_MESSAGE,
+  fieldPath,
+  isPointerPath,
+  pathSegments,
+  splitPointerPath
+} from '../../src/model/pointerPath.js'
+
+describe('splitPointerPath', () => {
+  it('reads a plain path as its own base, with no field', () => {
+    expect(splitPointerPath('navigation.attitude')).toEqual({
+      valid: true,
+      basePath: 'navigation.attitude',
+      tokens: []
+    })
+  })
+
+  it('splits a field path at "#" into the base path and the pointer tokens', () => {
+    expect(splitPointerPath('navigation.attitude#/roll')).toEqual({
+      valid: true,
+      basePath: 'navigation.attitude',
+      tokens: ['roll']
+    })
+    expect(splitPointerPath('a.b#/c/d')).toEqual({
+      valid: true,
+      basePath: 'a.b',
+      tokens: ['c', 'd']
+    })
+  })
+
+  it('decodes ~1 to "/" and ~0 to "~", in that order', () => {
+    expect(splitPointerPath('a#/x~1y')).toMatchObject({ tokens: ['x/y'] })
+    expect(splitPointerPath('a#/x~0y')).toMatchObject({ tokens: ['x~y'] })
+    // ~01 is an escaped "~" followed by "1", not an escaped "/".
+    expect(splitPointerPath('a#/x~01')).toMatchObject({ tokens: ['x~1'] })
+  })
+
+  it.each([
+    ['an empty pointer', 'navigation.attitude#'],
+    ['a pointer not starting with "/"', 'navigation.attitude#roll'],
+    ['an empty field name', 'navigation.attitude#/'],
+    ['an empty field name between others', 'a#/b//c'],
+    ['a stray "~"', 'a#/x~2'],
+    ['a trailing "~"', 'a#/x~'],
+    ['a second "#"', 'a#/b#/c']
+  ])('refuses %s with the pointer message, keeping the base path', (_case, path) => {
+    expect(splitPointerPath(path)).toEqual({
+      valid: false,
+      basePath: path.slice(0, path.indexOf('#')),
+      message: POINTER_MESSAGE
+    })
+  })
+
+  it.each([
+    ['a dot', 'a#/b.c'],
+    ['a space', 'a#/b c'],
+    ['a tab', 'a#/b\tc'],
+    ['a wildcard', 'a#/*'],
+    ['a dot escaped in another token', 'a#/b/c.d']
+  ])('refuses a field name with %s, which would not be one path segment', (_case, path) => {
+    expect(splitPointerPath(path)).toEqual({
+      valid: false,
+      basePath: 'a',
+      message: POINTER_TOKEN_MESSAGE
+    })
+  })
+
+  it('accepts a decoded "/", which the alert path sanitises as it does other characters', () => {
+    expect(splitPointerPath('a#/b~1c')).toMatchObject({ valid: true, tokens: ['b/c'] })
+  })
+
+  it('words its messages as Skip does', () => {
+    expect(POINTER_MESSAGE).toBe(
+      'After "#", write the field name starting with "/", for example "#/roll".'
+    )
+  })
+})
+
+describe('isPointerPath', () => {
+  it('tells a path that addresses a field', () => {
+    expect(isPointerPath('navigation.attitude#/roll')).toBe(true)
+    expect(isPointerPath('navigation.attitude#')).toBe(true)
+    expect(isPointerPath('navigation.attitude')).toBe(false)
+  })
+})
+
+describe('pathSegments', () => {
+  it("is a plain path's dot-separated segments", () => {
+    expect(pathSegments('propulsion.*.revolutions')).toEqual(['propulsion', '*', 'revolutions'])
+  })
+
+  it("is a field path's base segments followed by its pointer tokens", () => {
+    expect(pathSegments('navigation.attitude#/roll')).toEqual(['navigation', 'attitude', 'roll'])
+    expect(pathSegments('propulsion.*.x#/a~1b/c')).toEqual(['propulsion', '*', 'x', 'a/b', 'c'])
+  })
+
+  it('is undefined for an invalid pointer', () => {
+    expect(pathSegments('navigation.attitude#roll')).toBeUndefined()
+  })
+})
+
+describe('fieldPath', () => {
+  it('writes a base path and field tokens as a pointer path, escaping "~" and "/"', () => {
+    expect(fieldPath('navigation.attitude', ['roll'])).toBe('navigation.attitude#/roll')
+    expect(fieldPath('a', ['b~/c', 'd'])).toBe('a#/b~0~1c/d')
+  })
+
+  it('round-trips through splitPointerPath', () => {
+    const tokens = ['x~1', 'y/z']
+    expect(splitPointerPath(fieldPath('a.b', tokens))).toEqual({
+      valid: true,
+      basePath: 'a.b',
+      tokens
+    })
+  })
+})
