@@ -2132,6 +2132,46 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     expect(more()?.open).toBe(true)
   })
 
+  /** The editor with a refused Save's error shown on the clear margin, More options then collapsed. */
+  const marginErrorCollapsed = async () => {
+    renderEditor({ editing })
+    await formShown()
+    const more = () => screen.getByText('More options').closest('details')
+    type(textbox('Clear margin'), 'abc')
+    click(button('Save'))
+    expect(more()?.open).toBe(true)
+    expect(shownDescription(textbox('Clear margin'))).not.toBe('')
+    click(screen.getByText('More options'))
+    // A details element tells of its toggle in a task of its own.
+    await waitFor(() => {
+      expect(more()?.open).toBe(false)
+    })
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)))
+    return more
+  }
+
+  it('keeps More options collapsed over a shown error when a commit changes the errors', async () => {
+    const more = await marginErrorCollapsed()
+    changePath(SPEED)
+    expect(shownDescription(textbox('Clear margin'))).toContain(RETYPE)
+    expect(more()?.open).toBe(false)
+  })
+
+  it('opens More options again at a Save refused for the error it was collapsed over', async () => {
+    const more = await marginErrorCollapsed()
+    changePath(SPEED)
+    click(button('Save'))
+    expect(more()?.open).toBe(true)
+  })
+
+  it('keeps More options collapsed over a shown error when a step is added', async () => {
+    const more = await marginErrorCollapsed()
+    click(button('Escalate at…'))
+    expect(screen.getByRole('button', { name: 'Remove step 2' })).toBeTruthy()
+    expect(shownDescription(textbox('Clear margin'))).not.toBe('')
+    expect(more()?.open).toBe(false)
+  })
+
   it('names the emptied clear margin in the footer, beside the limit', async () => {
     renderEditor({ editing })
     await formShown()

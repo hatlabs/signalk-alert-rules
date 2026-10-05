@@ -457,6 +457,31 @@ describe('Add rule from a template', () => {
       expect(rule.detector.type === 'sustained' && rule.detector.hysteresis).toBeUndefined()
     })
 
+    it('keeps More options collapsed over a shown error when a commit changes the errors, until Create', async () => {
+      renderShell(fresh())
+      await openLifepo4()
+      pick(/^House bank/)
+      await continueWith('Continue with 1 rule')
+      const more = () => screen.getByText('More options').closest('details')
+      change(margin(), 'abc')
+      fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+      expect(more()?.open).toBe(true)
+      expect(shownDescription(margin())).not.toBe('')
+      fireEvent.click(screen.getByText('More options'))
+      // A details element tells of its toggle in a task of its own.
+      await waitFor(() => {
+        expect(more()?.open).toBe(false)
+      })
+      await act(() => new Promise((resolve) => setTimeout(resolve, 0)))
+      changeShownPath('electrical.batteries.house.current')
+      expect(shownDescription(margin())).toContain(
+        'must be typed again in the unit of the chosen path'
+      )
+      expect(more()?.open).toBe(false)
+      fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+      expect(more()?.open).toBe(true)
+    })
+
     it('withholds the emptied clear margin’s note until Create', async () => {
       await houseOnUnreportedPath()
       expect(margin().getAttribute('aria-invalid')).toBe('true')
