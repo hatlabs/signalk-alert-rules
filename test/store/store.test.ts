@@ -48,6 +48,7 @@ describe('store', () => {
       controls: { rules: {} },
       log: [],
       unreadableRules: [],
+      movedAsideRules: [],
       issues: []
     })
   })
@@ -314,12 +315,26 @@ describe('store', () => {
     expect(contents.issues).toHaveLength(2)
     expect(contents.issues.join('\n')).toMatch(/accumulators\.json.*accumulators\.json\.corrupt-/)
     expect(contents.issues.join('\n')).toMatch(/broken\.json/)
+    expect(contents.unreadableRules).toEqual([])
+    expect(contents.movedAsideRules).toEqual(['broken'])
 
     // The bad content is kept for inspection and not read again.
     const aside = readdirSync(dir).find((f) => f.startsWith('accumulators.json.corrupt-'))
     expect(aside).toBeDefined()
     expect(readFileSync(join(dir, aside ?? ''), 'utf8')).toBe('{"user.engine-hours": {"": 1')
-    expect(new Store(dir).load().issues).toEqual([])
+    const again = new Store(dir).load()
+    expect(again.issues).toEqual([])
+    // The rule moved aside stays reported while its copy is there.
+    expect(again.movedAsideRules).toEqual(['broken'])
+  })
+
+  it('reports a rule moved aside more than once by its slug, once', () => {
+    new Store(dir).load()
+    writeFileSync(join(dir, 'rules', 'broken.json.corrupt-2026-01-01T00-00-00.000Z'), '{')
+    writeFileSync(join(dir, 'rules', 'broken.json.corrupt-2026-02-01T00-00-00.000Z'), '{')
+    writeFileSync(join(dir, 'rules', 'broken.json'), 'not json')
+
+    expect(new Store(dir).load().movedAsideRules).toEqual(['broken'])
   })
 
   it('reports a file it cannot read and loads the rest', () => {
@@ -384,6 +399,8 @@ describe('store', () => {
       expect.stringMatching(/broken\.json.*EROFS/),
       expect.stringMatching(/accumulators\.json.*EROFS/)
     ])
+    expect(contents.unreadableRules).toEqual(['broken'])
+    expect(contents.movedAsideRules).toEqual([])
   })
 
   it('returns a parseable rule as stored and leaves validating it to the caller', () => {

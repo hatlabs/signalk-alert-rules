@@ -74,8 +74,14 @@ export interface StoreContents {
   controls: Controls
   /** Oldest first. */
   log: LogEntry[]
-  /** Slugs of rule files that could not be read and are still in place. */
+  /** Slugs of rule files that could not be read or parsed and are still in place. */
   unreadableRules: string[]
+  /**
+   * Slugs of rule files that did not parse and were moved aside, at this
+   * load or an earlier one, while the moved copy is still in the rules
+   * directory: a user may repair and restore it.
+   */
+  movedAsideRules: string[]
   /** Files that could not be read; each part started empty, and a corrupt file was moved aside where the filesystem allowed. */
   issues: string[]
 }
@@ -86,6 +92,7 @@ const LOG_FILE = 'log.json'
 const CONTROLS_FILE = 'controls.json'
 const JSON_SUFFIX = '.json'
 const TMP_SUFFIX = '.tmp'
+const CORRUPT_INFIX = '.corrupt-'
 const SLUG = new RegExp(SLUG_PATTERN)
 
 function isStoredTotals(value: unknown): value is StoredTotals {
@@ -152,6 +159,9 @@ function isLog(value: unknown): value is unknown[] {
   return Array.isArray(value) && value.every((v) => isLogEntry(v) || isRetiredEntry(v))
 }
 
+/** A JSON file as read: its accepted content, or why there is none. */
+type Read<T> = { value: T } | { missing: true } | { corrupt: 'inPlace' | 'movedAside' }
+
 const anything = (_value: unknown): _value is unknown => true
 
 function checkSlug(slug: string): void {
@@ -197,20 +207,27 @@ export class Store {
 
     const rules: StoredRule[] = []
     const unreadableRules: string[] = []
+    const movedAside = new Set<string>()
     for (const file of this.fs.readdirSync(join(this.dir, RULES_DIR)).sort()) {
+      const aside = file.indexOf(JSON_SUFFIX + CORRUPT_INFIX)
+      if (aside > 0) movedAside.add(file.slice(0, aside))
       if (file.startsWith('.') || !file.endsWith(JSON_SUFFIX)) continue
       const name = join(RULES_DIR, file)
       const slug = file.slice(0, -JSON_SUFFIX.length)
-      let value: unknown
+      let read: Read<unknown>
       try {
-        value = this.read(name, anything, issues)
+        read = this.readFile(name, anything, issues)
       } catch (err) {
         // One unreadable rule must not keep every other rule from running.
         issues.push(`${name} could not be read (${errorMessage(err)}); skipped`)
         unreadableRules.push(slug)
         continue
       }
-      if (value !== undefined) rules.push({ slug, value })
+      if ('value' in read) rules.push({ slug, value: read.value })
+      else if ('corrupt' in read) {
+        if (read.corrupt === 'inPlace') unreadableRules.push(slug)
+        else movedAside.add(slug)
+      }
     }
     return {
       rules,
@@ -218,6 +235,7 @@ export class Store {
       controls: this.read(CONTROLS_FILE, isControls, issues) ?? { rules: {} },
       log: (this.read(LOG_FILE, isLog, issues) ?? []).filter(isLogEntry),
       unreadableRules,
+      movedAsideRules: [...movedAside].filter((slug) => SLUG.test(slug)),
       issues
     }
   }
@@ -254,23 +272,36 @@ export class Store {
     accepts: (value: unknown) => value is T,
     issues: string[]
   ): T | undefined {
+    const read = this.readFile(name, accepts, issues)
+    return 'value' in read ? read.value : undefined
+  }
+
+  /**
+   * Reads a JSON file, moving a corrupt one aside where the filesystem
+   * allows. Throws when it cannot be read at all.
+   */
+  private readFile<T>(
+    name: string,
+    accepts: (value: unknown) => value is T,
+    issues: string[]
+  ): Read<T> {
     const path = join(this.dir, name)
     let text: string
     try {
       text = this.fs.readFileSync(path, 'utf8')
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { missing: true }
       throw err
     }
     let problem: string
     try {
       const value: unknown = JSON.parse(text)
-      if (accepts(value)) return value
+      if (accepts(value)) return { value }
       problem = 'unexpected content'
     } catch (err) {
       problem = errorMessage(err)
     }
-    const aside = `${name}.corrupt-${new Date().toISOString().replaceAll(':', '-')}`
+    const aside = `${name}${CORRUPT_INFIX}${new Date().toISOString().replaceAll(':', '-')}`
     try {
       this.fs.renameSync(path, join(this.dir, aside))
     } catch (err) {
@@ -278,10 +309,10 @@ export class Store {
       issues.push(
         `${name} could not be read (${problem}) nor moved aside (${errorMessage(err)}); started empty`
       )
-      return undefined
+      return { corrupt: 'inPlace' }
     }
     issues.push(`${name} could not be read (${problem}); moved to ${aside} and started empty`)
-    return undefined
+    return { corrupt: 'movedAside' }
   }
 
   private write(name: string, value: unknown): void {

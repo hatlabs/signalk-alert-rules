@@ -985,6 +985,200 @@ describe('application accumulator totals across edits', () => {
     expect(total()).toBeUndefined()
   })
 
+  it('a stored total whose rule file was removed is dropped at start and not written back', () => {
+    stored(oil)
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
+    const store = new Store(dir)
+    const save = vi.spyOn(store, 'saveCheckpoints')
+
+    const { application } = setup(store)
+
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(total()).toBeUndefined()
+    application.checkpoint()
+    application.stop()
+    expect(total()).toBeUndefined()
+  })
+
+  it('a rule created with the slug of a removed rule file starts from zero', () => {
+    stored(oil)
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
+    const { application, at } = setup()
+
+    expect(application.createRule(hours).ok).toBe(true)
+    expect(application.rule(ID)?.state.instances).toMatchObject([{ progress: { total: 0 } }])
+    at(0, RPM, 30)
+    at(5)
+    application.checkpoint()
+    expect(total()).toBe(5)
+  })
+
+  it('a rule file put back with the slug of a removed one starts from zero after a restart', () => {
+    stored(oil)
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
+    const first = setup()
+    first.application.stop()
+    stored(hours)
+
+    const { application } = setup()
+
+    expect(application.rule(ID)?.state.instances).toMatchObject([{ progress: { total: 0 } }])
+  })
+
+  it('the stored totals of a disabled rule and of an invalid rule are kept at start', () => {
+    const generator = { ...brokenHours, slug: 'generator-hours' }
+    stored(hours)
+    stored(generator)
+    const disabled = { since: WALL, actor: 'admin' }
+    new Store(dir).saveControls({ rules: { [ID]: { disabled } } })
+    new Store(dir).saveCheckpoints({
+      [ID]: { measure: 'time', totals: { '': 100 } },
+      [generator.slug]: { measure: 'time', totals: { '': 50 } }
+    })
+
+    const { application } = setup()
+    expect(application.rule(ID)).toHaveProperty('disabled')
+    expect(application.rule(generator.slug)).toHaveProperty('invalid')
+    application.checkpoint()
+
+    const totals: Partial<Checkpoints> = new Store(dir).load().accumulators
+    expect(totals[ID]?.totals['']).toBe(100)
+    expect(totals[generator.slug]?.totals['']).toBe(50)
+  })
+
+  it('with no rule file at all, no stored total is dropped and nothing is written', () => {
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
+    const store = new Store(dir)
+    const save = vi.spyOn(store, 'saveCheckpoints')
+
+    const { application } = setup(store)
+    expect(save).not.toHaveBeenCalled()
+
+    application.checkpoint()
+    expect(total()).toBe(100)
+  })
+
+  it('a rule file that does not parse keeps its total, through restarts, for the file restored', () => {
+    stored(oil)
+    writeFileSync(join(dir, 'rules', `${ID}.json`), '{')
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
+
+    setup().application.stop()
+    expect(total()).toBe(100)
+    setup().application.stop()
+    expect(total()).toBe(100)
+
+    stored(hours)
+    const { application } = setup()
+    expect(application.rule(ID)?.state.instances).toMatchObject([{ progress: { total: 100 } }])
+  })
+
+  it('a rule created with the slug of a moved-aside rule file starts from zero, through a restart', () => {
+    stored(oil)
+    writeFileSync(join(dir, 'rules', `${ID}.json`), '{')
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
+    const first = setup()
+
+    expect(first.application.createRule(hours).ok).toBe(true)
+    expect(total()).toBe(0)
+    first.application.stop()
+
+    const { application } = setup()
+    expect(application.rule(ID)?.state.instances).toMatchObject([{ progress: { total: 0 } }])
+    application.checkpoint()
+    expect(total()).toBe(0)
+  })
+
+  it('several moved-aside copies of a rule file keep its total', () => {
+    stored(oil)
+    writeFileSync(join(dir, 'rules', `${ID}.json.corrupt-2026-01-01T00-00-00.000Z`), '{')
+    writeFileSync(join(dir, 'rules', `${ID}.json.corrupt-2026-02-01T00-00-00.000Z`), '{')
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
+
+    setup().application.stop()
+
+    expect(total()).toBe(100)
+  })
+
+  it('a moved-aside copy does not keep a total of another measure than the rule file put back', () => {
+    stored(oil)
+    stored(hours)
+    writeFileSync(join(dir, 'rules', `${ID}.json.corrupt-2026-01-01T00-00-00.000Z`), '{')
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'integral', totals: { '': 100 } } })
+
+    setup()
+
+    expect(total()).toBeUndefined()
+  })
+
+  it('a rule file that does not parse and cannot be moved aside keeps its total', () => {
+    stored(oil)
+    writeFileSync(join(dir, 'rules', `${ID}.json`), '{')
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
+    const readOnly = new Store(dir, {
+      ...fs,
+      renameSync: ((from: string, to: string) => {
+        if (from.endsWith(`${ID}.json`)) throw new Error('EROFS: read-only file system')
+        fs.renameSync(from, to)
+      }) as typeof fs.renameSync
+    })
+
+    const { application } = setup(readOnly)
+
+    expect(application.issues).toEqual([expect.stringMatching(/engine-hours\.json.*EROFS/)])
+    expect(application.createRule(hours)).toEqual({ ok: false, reason: 'exists' })
+    application.checkpoint()
+    expect(total()).toBe(100)
+  })
+
+  it('a rule file that cannot be read keeps its total', () => {
+    stored(oil)
+    stored(hours)
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
+    const failing = new Store(dir, {
+      ...fs,
+      readFileSync: ((path: string, options: BufferEncoding) => {
+        if (path.endsWith(`${ID}.json`)) {
+          throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' })
+        }
+        return fs.readFileSync(path, options)
+      }) as typeof fs.readFileSync
+    })
+
+    const { application } = setup(failing)
+    application.checkpoint()
+
+    expect(total()).toBe(100)
+  })
+
+  it('a dropped orphan total that could not be saved at start is an issue until a checkpoint saves it', () => {
+    stored(oil)
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
+    const store = new Store(dir)
+    vi.spyOn(store, 'saveCheckpoints').mockImplementationOnce(() => {
+      throw new Error('ENOSPC: no space left on device')
+    })
+
+    const { application } = setup(store)
+    expect(application.issues).toEqual([expect.stringMatching(/accumulator totals.*ENOSPC/)])
+    expect(total()).toBe(100)
+
+    application.checkpoint()
+    expect(total()).toBeUndefined()
+    expect(application.issues).toEqual([])
+  })
+
+  it('nothing is written at start when no stored total is dropped', () => {
+    stored(hours)
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
+    const store = new Store(dir)
+    const save = vi.spyOn(store, 'saveCheckpoints')
+
+    setup(store)
+
+    expect(save).not.toHaveBeenCalled()
+  })
+
   it('a measure change survives a crash right after it: the new rule does not inherit the total', () => {
     stored(hours)
     const first = setup()

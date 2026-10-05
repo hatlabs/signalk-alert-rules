@@ -189,6 +189,12 @@ export class Application {
   /** Slugs of stored rule files that could not be read, which say nothing about their measure. */
   private readonly unreadable: Set<string>
   /**
+   * Slugs of rule files that did not parse and were moved aside: not stored,
+   * so a rule can be created with the slug, but their totals are kept for
+   * the file a user may restore.
+   */
+  private readonly movedAside: Set<string>
+  /**
    * Checkpointed totals of rules the runner does not hold: a stored rule that
    * did not load, kept until the rule is deleted or saved again.
    */
@@ -243,6 +249,7 @@ export class Application {
     }
     this.retained = toMaps(contents.accumulators)
     this.unreadable = new Set(contents.unreadableRules)
+    this.movedAside = new Set(contents.movedAsideRules)
   }
 
   /** A stored rule file as the rule it loads as, or the errors that keep it from running. */
@@ -262,7 +269,7 @@ export class Application {
     // saved applies in this run.
     this.starting = true
     try {
-      if (this.dropTotalsOfOtherMeasure()) this.saveDroppedTotals()
+      if (this.dropStaleTotals()) this.saveDroppedTotals()
     } finally {
       this.starting = false
     }
@@ -412,8 +419,9 @@ export class Application {
 
   /**
    * Checkpoints a drop at once; while starting, a failure is an issue. A
-   * dropped total left on disk would come back after a restart for a rule
-   * that took up its old measure again.
+   * dropped total left on disk would come back after a restart: an orphan's
+   * for a rule file later put back with its slug, and a total of another
+   * measure for a rule that took up its old measure again.
    */
   private saveDroppedTotals(): void {
     this.tolerating(TOTALS, 'the next checkpoint retries', () => {
@@ -421,11 +429,23 @@ export class Application {
     })
   }
 
-  /** Drops the stored totals of rules built under another measure than their rule file's. */
-  private dropTotalsOfOtherMeasure(): boolean {
+  /**
+   * Drops the stored totals of rules whose file is gone, removed outside the
+   * API, and of rules built under another measure than their rule file's.
+   * A file that could not be read or parsed may come back, so its total is
+   * kept. With no rule file at all, the rules directory may have been lost
+   * or not yet restored, so no total counts as an orphan.
+   */
+  private dropStaleTotals(): boolean {
     let drops = false
     for (const [slug, retained] of this.retained) {
-      if (!this.stored.has(slug) || this.unreadable.has(slug)) continue
+      if (!this.stored.has(slug)) {
+        if (this.stored.size === 0 || this.movedAside.has(slug)) continue
+        this.retained.delete(slug)
+        drops = true
+        continue
+      }
+      if (this.unreadable.has(slug)) continue
       const rule = this.rulesBySlug.get(slug)
       const measure = rule === undefined ? this.unloadedMeasures.get(slug) : measureOf(rule)
       if (retained.measure === measure) continue
