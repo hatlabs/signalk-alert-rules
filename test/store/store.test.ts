@@ -328,6 +328,15 @@ describe('store', () => {
     expect(again.movedAsideRules).toEqual(['broken'])
   })
 
+  it('reports a rule moved aside more than once by its slug, once', () => {
+    new Store(dir).load()
+    writeFileSync(join(dir, 'rules', 'broken.json.corrupt-2026-01-01T00-00-00.000Z'), '{')
+    writeFileSync(join(dir, 'rules', 'broken.json.corrupt-2026-02-01T00-00-00.000Z'), '{')
+    writeFileSync(join(dir, 'rules', 'broken.json'), 'not json')
+
+    expect(new Store(dir).load().movedAsideRules).toEqual(['broken'])
+  })
+
   it('reports a file it cannot read and loads the rest', () => {
     const store = new Store(dir)
     store.load()

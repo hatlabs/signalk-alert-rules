@@ -1001,6 +1001,7 @@ describe('application accumulator totals across edits', () => {
   })
 
   it('a rule created with the slug of a removed rule file starts from zero', () => {
+    stored(oil)
     new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
     const { application, at } = setup()
 
@@ -1070,6 +1071,44 @@ describe('application accumulator totals across edits', () => {
     stored(hours)
     const { application } = setup()
     expect(application.rule(ID)?.state.instances).toMatchObject([{ progress: { total: 100 } }])
+  })
+
+  it('a rule created with the slug of a moved-aside rule file starts from zero, through a restart', () => {
+    stored(oil)
+    writeFileSync(join(dir, 'rules', `${ID}.json`), '{')
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
+    const first = setup()
+
+    expect(first.application.createRule(hours).ok).toBe(true)
+    expect(total()).toBe(0)
+    first.application.stop()
+
+    const { application } = setup()
+    expect(application.rule(ID)?.state.instances).toMatchObject([{ progress: { total: 0 } }])
+    application.checkpoint()
+    expect(total()).toBe(0)
+  })
+
+  it('several moved-aside copies of a rule file keep its total', () => {
+    stored(oil)
+    writeFileSync(join(dir, 'rules', `${ID}.json.corrupt-2026-01-01T00-00-00.000Z`), '{')
+    writeFileSync(join(dir, 'rules', `${ID}.json.corrupt-2026-02-01T00-00-00.000Z`), '{')
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'time', totals: { '': 100 } } })
+
+    setup().application.stop()
+
+    expect(total()).toBe(100)
+  })
+
+  it('a moved-aside copy does not keep a total of another measure than the rule file put back', () => {
+    stored(oil)
+    stored(hours)
+    writeFileSync(join(dir, 'rules', `${ID}.json.corrupt-2026-01-01T00-00-00.000Z`), '{')
+    new Store(dir).saveCheckpoints({ [ID]: { measure: 'integral', totals: { '': 100 } } })
+
+    setup()
+
+    expect(total()).toBeUndefined()
   })
 
   it('a rule file that does not parse and cannot be moved aside keeps its total', () => {
