@@ -136,7 +136,9 @@ export function RuleFields(props: RuleFieldsProps) {
   // removed, which only move, withhold or keep shown errors already in place. More options
   // opens for errors set from outside it, on opening or at a Save, which the user is to fix;
   // reopened for errors of its own, it would move the page under a click after the user had
-  // collapsed it over an error already seen.
+  // collapsed it over an error already seen. Two rules hold this up: every callback here that
+  // changes the parent's errors calls changeOwnErrors() first, and the effect that opens More
+  // options stays declared before the one that clears the mark, as effects run in order.
   const ownErrors = useRef(false)
   const changeOwnErrors = () => {
     ownErrors.current = true

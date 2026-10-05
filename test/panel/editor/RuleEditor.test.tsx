@@ -2164,6 +2164,14 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     expect(more()?.open).toBe(true)
   })
 
+  it('keeps More options collapsed over a shown error when a step is added', async () => {
+    const more = await marginErrorCollapsed()
+    click(button('Escalate at…'))
+    expect(screen.getByRole('button', { name: 'Remove step 2' })).toBeTruthy()
+    expect(shownDescription(textbox('Clear margin'))).not.toBe('')
+    expect(more()?.open).toBe(false)
+  })
+
   it('names the emptied clear margin in the footer, beside the limit', async () => {
     renderEditor({ editing })
     await formShown()
