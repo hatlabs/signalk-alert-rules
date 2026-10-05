@@ -21,6 +21,7 @@ import { hashWithRoute } from '../../../src/panel/route'
 import { Shell } from '../../../src/panel/Shell'
 import { displayUnit } from '../../../src/panel/units'
 import { BUILTIN_TEMPLATES, discoverTemplateSets } from '../../../src/templates/discovery'
+import { shownDescription } from '../editor/editorFixtures'
 import { noControls, onceShown, ruleEntry } from '../fixtures'
 
 const LIFEPO4 = 'battery-voltage-low-lifepo4'
@@ -425,10 +426,13 @@ describe('Add rule from a template', () => {
         change(limit(), '12.9')
       })
       expect(limit().value).toBe('')
+      expect(limit().getAttribute('aria-invalid')).toBe('true')
       expect(describedBy(limit())).toMatch(/fill in the limit/i)
+      expect(shownDescription(limit())).not.toMatch(/fill in the limit/i)
       fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
       expect(api.createRule).not.toHaveBeenCalled()
       expect(limit().value).toBe('')
+      expect(shownDescription(limit())).toMatch(/fill in the limit/i)
     })
 
     it('keeps the emptied clear margin’s note through Create, until the rule is created without it', async () => {
@@ -436,7 +440,9 @@ describe('Add rule from a template', () => {
       expect(margin().value).toBe('')
       fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
       expect(api.createRule).not.toHaveBeenCalled()
-      expect(describedBy(margin())).toContain('must be typed again in the unit of the chosen path')
+      expect(shownDescription(margin())).toContain(
+        'must be typed again in the unit of the chosen path'
+      )
       expect(footer()).toBe(
         'Fill in step 1 and step 2 on House bank to save. The clear margin on House bank was emptied: type it again or leave it empty.'
       )
@@ -507,6 +513,7 @@ describe('Add rule from a template', () => {
         await secondConditionEmptied()
         fireEvent.click(screen.getByRole('button', { name: 'Remove condition 1' }))
         expect(describedBy(textbox('Condition 1 limit'))).toContain('is required')
+        expect(shownDescription(textbox('Condition 1 limit'))).not.toContain('is required')
         expect(describedBy(textbox('Condition 1 clear margin'))).toContain(
           'must be typed again in the unit of the chosen path'
         )

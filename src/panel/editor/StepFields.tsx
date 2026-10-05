@@ -78,6 +78,8 @@ interface StepError {
   index: number
   pointer: string
   message: string
+  /** Kept off the page until Save, read out only; see `FormError`. */
+  withheld: boolean
 }
 
 /** A range step's error in words, naming the side and the previous step's limit it must pass. */
@@ -175,7 +177,12 @@ export function StepFields({ form, onChange, measure, units, valueKind, value }:
     `${stepPointer(i)}/${field ?? ''}`
   const stepErrors = steps.flatMap((_, i) =>
     [`${stepPointer(i)}/priority`, ...limitFields.map((f) => limitPointer(i, f))].flatMap((p) =>
-      (errors.get(p) ?? []).map((message) => ({ index: i, pointer: p, message }))
+      (errors.get(p) ?? []).map(({ text, withheld }) => ({
+        index: i,
+        pointer: p,
+        message: text,
+        withheld
+      }))
     )
   )
   const errorId = `${id}-errors`
@@ -318,9 +325,20 @@ export function StepFields({ form, onChange, measure, units, valueKind, value }:
         })}
       </ol>
       {stepErrors.length > 0 && (
-        <div id={errorId} className="skar-error" role="alert">
+        // Text withheld until Save is read out with the field, never announced on its own.
+        <div
+          id={errorId}
+          {...(stepErrors.every((e) => e.withheld)
+            ? { className: 'skar-visually-hidden' }
+            : { className: 'skar-error', role: 'alert' })}
+        >
           {stepErrors.map((e) => (
-            <div key={`${e.pointer} ${e.message}`}>{stepError(form, e, limitLabel, measure)}</div>
+            <div
+              key={`${e.pointer} ${e.message}`}
+              {...(e.withheld ? { className: 'skar-visually-hidden' } : {})}
+            >
+              {stepError(form, e, limitLabel, measure)}
+            </div>
           ))}
         </div>
       )}

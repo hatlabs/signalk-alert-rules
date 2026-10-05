@@ -5,7 +5,14 @@ import { PriorityBadge } from '../list/PriorityBadge'
 import { PathPicker } from '../paths/PathPicker'
 import type { PathList } from '../paths/selfPaths'
 import type { Measure, UnitLookup } from '../signalUnits'
-import { CheckField, DurationInput, SelectField, TextField, useFieldErrors } from './fields'
+import {
+  CheckField,
+  DurationInput,
+  SelectField,
+  TextField,
+  useFieldErrors,
+  useFieldMessages
+} from './fields'
 import {
   canLatch,
   emptyGate,
@@ -170,9 +177,9 @@ export function MoreOptions({
   const [gateKeys, setGateKeys] = useState(() => form.gates.map((_, i) => i))
   // The validator's "half the first step's range" says neither the range nor the margin it allows.
   const first = form.steps.at(0)
-  const marginErrors = useFieldErrors('/detector/hysteresis').map((message) =>
-    d.type === 'outside' && message === RANGE_HYSTERESIS && first !== undefined
-      ? (clearMarginText(first, measure) ?? message)
+  const marginErrors = useFieldMessages('/detector/hysteresis').map((message) =>
+    d.type === 'outside' && message.text === RANGE_HYSTERESIS && first !== undefined
+      ? { ...message, text: clearMarginText(first, measure) ?? message.text }
       : message
   )
   return (

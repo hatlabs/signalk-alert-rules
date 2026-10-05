@@ -24,6 +24,7 @@ import {
   reported,
   saved,
   select,
+  shownDescription,
   textbox,
   type,
   type FakeApi
@@ -2091,11 +2092,11 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     expect(textbox('Limit for step 1')).toHaveProperty('value', '2.57')
     fireEvent.blur(select('Search by name or path'))
     expect(textbox('Limit for step 1')).toHaveProperty('value', '')
+    expect(textbox('Limit for step 1').getAttribute('aria-invalid')).toBe('true')
+    // Read out as the field's reason, shown only once Save is pressed: nothing below it moves.
     expect(description(textbox('Limit for step 1'))).toContain('Fill in the limit')
+    expect(shownDescription(textbox('Limit for step 1'))).not.toContain('Fill in the limit')
     expect(textbox('Clear margin')).toHaveProperty('value', '')
-    expect(description(textbox('Clear margin'))).toContain(
-      'must be typed again in the unit of the chosen path'
-    )
     expect(textbox('For at least')).toHaveProperty('value', '1')
     expect(
       screen.getByText(
@@ -2104,6 +2105,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     ).toBeTruthy()
     click(button('Save'))
     expect(api.previewRule).not.toHaveBeenCalled()
+    expect(shownDescription(textbox('Limit for step 1'))).toContain('Fill in the limit')
   })
 
   const RETYPE = 'must be typed again in the unit of the chosen path'
@@ -2119,7 +2121,28 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     await formShown()
     changePath(SPEED)
     expect(footer()).toBe(`Fill in the limit to save. ${MARGIN}`)
+  })
+
+  it('marks the emptied clear margin invalid, its note shown only once Save is pressed', async () => {
+    renderEditor({ editing })
+    await formShown()
+    changePath(SPEED)
+    expect(textbox('Clear margin').getAttribute('aria-invalid')).toBe('true')
     expect(description(textbox('Clear margin'))).toContain(RETYPE)
+    expect(shownDescription(textbox('Clear margin'))).not.toContain(RETYPE)
+    click(button('Save'))
+    expect(shownDescription(textbox('Clear margin'))).toContain(RETYPE)
+  })
+
+  it('keeps a shown error shown when another change of unit empties its field again', async () => {
+    renderEditor({ editing })
+    await formShown()
+    changePath(SPEED)
+    click(button('Save'))
+    type(textbox('Limit for step 1'), '5')
+    changePath(HOUSE)
+    expect(textbox('Limit for step 1')).toHaveProperty('value', '')
+    expect(shownDescription(textbox('Limit for step 1'))).toContain('Fill in the limit')
   })
 
   it('saves without the clear margin once a refused Save’s footer named it, limits retyped', async () => {
@@ -2168,7 +2191,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     })
     click(button('Save'))
     expect(textbox('Limit for step 1')).toHaveProperty('value', '')
-    expect(description(textbox('Limit for step 1'))).toContain('Fill in the limit')
+    expect(shownDescription(textbox('Limit for step 1'))).toContain('Fill in the limit')
     expect(footer()).toBe(`Fill in the limit to save. ${MARGIN}`)
     expect(api.previewRule).not.toHaveBeenCalled()
     expect(api.updateRule).not.toHaveBeenCalled()
@@ -2213,7 +2236,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     })
     click(button('Save'))
     expect(textbox('Clear margin')).toHaveProperty('value', '')
-    expect(description(textbox('Clear margin'))).toContain(RETYPE)
+    expect(shownDescription(textbox('Clear margin'))).toContain(RETYPE)
     expect(footer()).toBe(MARGIN_ALONE)
     expect(api.previewRule).not.toHaveBeenCalled()
     click(button('Save'))
@@ -2371,6 +2394,28 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
       expect(footer()).toBe(
         'Fill in the limit of Only while condition 1 to save. The clear margin of Only while condition 1 was emptied: type it again or leave it empty.'
       )
+    })
+
+    it('keeps the emptied numbers’ text withheld on the condition they moved to, until Save', async () => {
+      await openTwoGated()
+      changeGatePath(2, COOLANT)
+      click(button('Remove condition 1'))
+      for (const field of ['Condition 1 limit', 'Condition 1 clear margin']) {
+        expect(textbox(field).getAttribute('aria-invalid')).toBe('true')
+        expect(shownDescription(textbox(field))).not.toMatch(/is required|typed again/)
+      }
+      click(button('Save'))
+      expect(shownDescription(textbox('Condition 1 limit'))).toContain('is required')
+      expect(shownDescription(textbox('Condition 1 clear margin'))).toContain(RETYPE)
+    })
+
+    it('keeps the text a Save showed shown on the condition it moved to', async () => {
+      await openTwoGated()
+      changeGatePath(2, COOLANT)
+      click(button('Save'))
+      click(button('Remove condition 1'))
+      expect(shownDescription(textbox('Condition 1 limit'))).toContain('is required')
+      expect(shownDescription(textbox('Condition 1 clear margin'))).toContain(RETYPE)
     })
 
     it('drops the removed condition’s errors from the condition now at its place', async () => {

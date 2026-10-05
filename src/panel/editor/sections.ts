@@ -17,6 +17,7 @@ import {
   stepQuantity,
   type DetectorForm,
   type EventForm,
+  type FormError,
   type LimitForm,
   type RuleForm,
   type SignalForm
@@ -154,9 +155,15 @@ export function underMoreOptions(form: RuleForm, isNew: boolean, pointer: string
   return moreOptionsPointers(form, isNew).includes(pointer)
 }
 
+/** A message on a field: its text, and whether that text is withheld until Save (`FormError`). */
+export interface FieldMessage {
+  text: string
+  withheld: boolean
+}
+
 export interface AttachedErrors {
   /** Messages by the pointer of the field that shows them. */
-  byField: Map<string, string[]>
+  byField: Map<string, FieldMessage[]>
   /** Errors no shown field can hold; the form lists them above the save button. */
   unattached: FieldError[]
 }
@@ -168,10 +175,10 @@ export interface AttachedErrors {
  * gate's it would read as that gate's own.
  */
 export function attachErrors(
-  errors: readonly FieldError[],
+  errors: readonly FormError[],
   fields: readonly string[]
 ): AttachedErrors {
-  const byField = new Map<string, string[]>()
+  const byField = new Map<string, FieldMessage[]>()
   const unattached: FieldError[] = []
   for (const error of errors) {
     const under = fields
@@ -183,7 +190,10 @@ export function attachErrors(
     // A limit's kind is always chosen, so an error on the whole limit is about the rest of it.
     const field = under ?? group.find((f) => !f.endsWith('/limit/kind')) ?? group.at(0)
     if (field === undefined) unattached.push(error)
-    else byField.set(field, [...(byField.get(field) ?? []), error.message])
+    else {
+      const message = { text: error.message, withheld: error.withheld === true }
+      byField.set(field, [...(byField.get(field) ?? []), message])
+    }
   }
   return { byField, unattached }
 }

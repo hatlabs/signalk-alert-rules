@@ -19,10 +19,12 @@ import {
   fromRule,
   forgetNamed,
   marginUnnamed,
+  revealed,
   standingRetypes,
   toRule,
   withoutGate,
   withUnitErrors,
+  type FormError,
   type RuleForm
 } from './formModel'
 import { withGenerated } from './message'
@@ -105,7 +107,7 @@ function EditorForm(props: FormProps) {
   const [opened] = useState(() => initialForm(props, units))
   const initial = opened.form
   const [form, setForm] = useState<RuleForm>(initial)
-  const [errors, setErrors] = useState<FieldError[]>(opened.errors)
+  const [errors, setErrors] = useState<FormError[]>(opened.errors)
   // The emptied clear margins a footer has named: on opening, and at each refused Save.
   const [named, setNamed] = useState<ReadonlySet<string>>(
     () => new Set(standingRetypes(initial, opened.errors).map((e) => e.path))
@@ -134,14 +136,15 @@ function EditorForm(props: FormProps) {
     unsaved: 'The changes to this rule have not been saved.'
   })
 
-  const showErrors = (next: FieldError[]) => {
+  const showErrors = (next: FormError[]) => {
     setErrors(next)
     focusInvalid()
   }
 
   const checked = checkedErrors(form, errors, isNew, ruleName)
-  // A Save's errors keep the notes on numbers emptied for a unit until each is typed again.
-  const retypes = standingRetypes(form, errors)
+  // A Save's errors keep the notes on numbers emptied for a unit until each is typed again,
+  // their text shown as of that Save.
+  const retypes = revealed(standingRetypes(form, errors))
   const keepingNotes = (next: readonly FieldError[]) => withUnitErrors(next, retypes)
 
   const refused = (err: unknown) => {
