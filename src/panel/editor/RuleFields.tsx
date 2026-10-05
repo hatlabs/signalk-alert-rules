@@ -132,10 +132,12 @@ export function RuleFields(props: RuleFieldsProps) {
     pathFocus.current = undefined
   }, [changingPath])
 
+  // Only for errors shown: one withheld until Save opens it at that Save, not under a click.
   useEffect(() => {
-    if ([...attached.byField.keys()].some((p) => underMoreOptions(form, isNew, p))) {
-      setMoreOpen(true)
-    }
+    const shownUnder = [...attached.byField].some(
+      ([p, messages]) => messages.some((m) => !m.withheld) && underMoreOptions(form, isNew, p)
+    )
+    if (shownUnder) setMoreOpen(true)
   }, [checked.set])
 
   // The form as last settled, whose units a change is compared with; the form as last changed,

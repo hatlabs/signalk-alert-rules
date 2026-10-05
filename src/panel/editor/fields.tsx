@@ -11,27 +11,44 @@ export function useFieldMessages(pointer: string | undefined): FieldMessage[] {
   return pointer === undefined ? [] : (errors.get(pointer) ?? [])
 }
 
-/** The text of a field's errors, each of which marks it invalid. */
+/**
+ * The text of a field's errors, each of which marks it invalid. Withheld ones are
+ * included, so a field a change of unit can empty shows its text with `useFieldMessages`.
+ */
 export function useFieldErrors(pointer: string | undefined): string[] {
   return useFieldMessages(pointer).map((m) => m.text)
 }
 
+interface ErrorTextProps {
+  /** The id a control's `aria-describedby` names, which holds the shown and the withheld text. */
+  id: string
+  messages: readonly FieldMessage[]
+  /** Announces the shown text as it changes; withheld text is never announced. */
+  alert?: boolean
+  /** Each message on its own line rather than joined into one. */
+  stacked?: boolean
+}
+
 /**
- * A field's error element. Withheld text is visually hidden yet still in the
- * element, so a field marked invalid tells a screen reader why; an element
- * whose every message is withheld takes no room on the page.
+ * A field's error text. Withheld text is visually hidden yet still described,
+ * so a field marked invalid tells a screen reader why, and it lies outside the
+ * live region, so a commit that withholds it announces nothing. With every
+ * message withheld it takes no room on the page.
  */
-export function FieldErrorText({ id, messages }: { id: string; messages: FieldMessage[] }) {
-  const shown = messages.filter((m) => !m.withheld).map((m) => m.text)
-  const withheld = messages.filter((m) => m.withheld).map((m) => m.text)
+export function FieldErrorText({ id, messages, alert = false, stacked = false }: ErrorTextProps) {
+  const shown = messages.filter((m) => !m.withheld)
+  const withheld = messages.filter((m) => m.withheld)
+  const text = (ms: readonly FieldMessage[]) =>
+    stacked ? ms.map((m, i) => <div key={i}>{m.text}</div>) : ms.map((m) => m.text).join('; ')
+  // Hidden whole while nothing shows: even empty, it would take a gap in its field.
   return (
-    <div id={id} className={shown.length === 0 ? 'skar-visually-hidden' : 'skar-error'}>
-      {shown.join('; ')}
-      {withheld.length > 0 && (
-        <span className="skar-visually-hidden">
-          {`${shown.length === 0 ? '' : '; '}${withheld.join('; ')}`}
-        </span>
+    <div id={id} {...(shown.length === 0 ? { className: 'skar-visually-hidden' } : {})}>
+      {shown.length > 0 && (
+        <div className="skar-error" {...(alert ? { role: 'alert' } : {})}>
+          {text(shown)}
+        </div>
       )}
+      {withheld.length > 0 && <div className="skar-visually-hidden">{text(withheld)}</div>}
     </div>
   )
 }

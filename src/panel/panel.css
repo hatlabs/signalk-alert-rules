@@ -953,6 +953,12 @@
 .skar-editor-status {
   flex: 1 1 14rem;
   min-width: 0;
+  /*
+   * One line of the hint (.skar-hint's font size at the root line height), held
+   * while empty: where the status stacks above the buttons, a hint appearing on
+   * a commit would otherwise grow the bar up over the control being clicked.
+   */
+  min-height: calc(0.8125rem * 1.4);
 }
 
 .skar-editor-status ul {
@@ -1060,6 +1066,8 @@ select.skar-input {
 
 .skar-preview-line {
   display: block;
+  /* One line of the hint, for browsers without the lh unit. */
+  min-height: 1.4em;
   min-height: 1lh;
   overflow: hidden;
   white-space: nowrap;

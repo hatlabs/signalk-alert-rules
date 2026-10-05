@@ -457,6 +457,53 @@ describe('Add rule from a template', () => {
       expect(rule.detector.type === 'sustained' && rule.detector.hysteresis).toBeUndefined()
     })
 
+    it('withholds the emptied clear margin’s note until Create', async () => {
+      await houseOnUnreportedPath()
+      expect(margin().getAttribute('aria-invalid')).toBe('true')
+      expect(describedBy(margin())).toContain('must be typed again in the unit of the chosen path')
+      expect(shownDescription(margin())).not.toContain(
+        'must be typed again in the unit of the chosen path'
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+      expect(shownDescription(margin())).toContain(
+        'must be typed again in the unit of the chosen path'
+      )
+    })
+
+    it('marks a tab as needing fixing at Create, not at the commit that empties its numbers', async () => {
+      renderShell(fresh())
+      await openLifepo4()
+      pick(/^House bank/)
+      pick(/^starter/)
+      await continueWith('Continue with 2 rules')
+      changeShownPath('electrical.batteries.house.current')
+      expect(tab(/House bank/).textContent).not.toContain('needs fixing')
+      fireEvent.click(screen.getByRole('button', { name: 'Create 2 rules' }))
+      expect(tab(/House bank/).textContent).toContain('needs fixing')
+    })
+
+    it('shows a later tab’s emptied clear margin note when the server refuses that tab', async () => {
+      const server = fresh()
+      server.refuse = (rule) =>
+        rule.slug.endsWith('starter')
+          ? new RuleRejectedError('invalid', [{ path: '/name', message: 'is taken' }])
+          : undefined
+      renderShell(server)
+      await openLifepo4()
+      pick(/^House bank/)
+      pick(/^starter/)
+      await continueWith('Continue with 2 rules')
+      fireEvent.click(tab(/starter/))
+      changeShownPath('electrical.batteries.starter.current')
+      fireEvent.click(screen.getByRole('button', { name: 'Create 2 rules' }))
+      fillLimits()
+      fireEvent.click(screen.getByRole('button', { name: 'Create 2 rules' }))
+      expect(await screen.findByText(/Created 1 rule/)).toBeTruthy()
+      expect(shownDescription(margin())).toContain(
+        'must be typed again in the unit of the chosen path'
+      )
+    })
+
     it('names every tab’s emptied clear margin at the Create that stops for the limits, then creates both', async () => {
       const api = renderShell(fresh())
       await openLifepo4()
@@ -508,6 +555,16 @@ describe('Add rule from a template', () => {
         expect(textbox('Condition 2 clear margin').value).toBe('')
         return api
       }
+
+      it('withholds the emptied condition limit’s text until Create', async () => {
+        await secondConditionEmptied()
+        const conditionLimit = () => textbox('Condition 2 limit')
+        expect(conditionLimit().getAttribute('aria-invalid')).toBe('true')
+        expect(describedBy(conditionLimit())).toContain('is required')
+        expect(shownDescription(conditionLimit())).not.toContain('is required')
+        fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+        expect(shownDescription(conditionLimit())).toContain('is required')
+      })
 
       it('moves a later condition’s emptied numbers with it', async () => {
         await secondConditionEmptied()

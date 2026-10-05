@@ -8,6 +8,7 @@ import type { Measure, UnitLookup } from '../signalUnits'
 import {
   DurationControl,
   FieldErrors,
+  FieldErrorText,
   Required,
   SelectControl,
   ValueControl,
@@ -325,22 +326,15 @@ export function StepFields({ form, onChange, measure, units, valueKind, value }:
         })}
       </ol>
       {stepErrors.length > 0 && (
-        // Text withheld until Save is read out with the field, never announced on its own.
-        <div
+        <FieldErrorText
           id={errorId}
-          {...(stepErrors.every((e) => e.withheld)
-            ? { className: 'skar-visually-hidden' }
-            : { className: 'skar-error', role: 'alert' })}
-        >
-          {stepErrors.map((e) => (
-            <div
-              key={`${e.pointer} ${e.message}`}
-              {...(e.withheld ? { className: 'skar-visually-hidden' } : {})}
-            >
-              {stepError(form, e, limitLabel, measure)}
-            </div>
-          ))}
-        </div>
+          alert
+          stacked
+          messages={stepErrors.map((e) => ({
+            text: stepError(form, e, limitLabel, measure),
+            withheld: e.withheld
+          }))}
+        />
       )}
       {canEscalate && (
         <div>

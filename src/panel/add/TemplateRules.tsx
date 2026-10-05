@@ -414,7 +414,10 @@ function TabsForm(props: FormProps) {
                 <span>{t.label}</span>
                 {t.waiting && <span className="skar-tab-note"> · not reporting yet</span>}
                 {!included(t) && <span className="skar-tab-note"> · already has a rule</span>}
-                {t.errors.length > 0 && <span className="skar-tab-error"> · needs fixing</span>}
+                {/* Withheld errors wait for Save, so a commit does not widen the tab. */}
+                {t.errors.some((e) => e.withheld !== true) && (
+                  <span className="skar-tab-error"> · needs fixing</span>
+                )}
               </button>
             ))}
           </div>
