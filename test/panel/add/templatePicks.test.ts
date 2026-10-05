@@ -420,6 +420,20 @@ describe('a template with one slot named other than instance', () => {
       ])
     })
 
+    it('offers the sources of the watched path, not of the gate', () => {
+      const withSource: Template = { ...whileRunning, open: ['source'] }
+      const sourced = running.map((p) =>
+        p.path === 'electrical.batteries.starter.voltage'
+          ? { ...p, sources: ['bmv.1'] }
+          : p.path === revolutions.path
+            ? { ...p, sources: ['n2k.engine'] }
+            : p
+      )
+      expect(candidates('builtin', withSource, sourced, []).map((c) => c.pick)).toEqual([
+        { engine: 'main', source: 'bmv.1' }
+      ])
+    })
+
     it('leaves a typed instance nothing reports without a value', () => {
       expect(
         typedCandidate(

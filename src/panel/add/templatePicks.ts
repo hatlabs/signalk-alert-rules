@@ -188,7 +188,8 @@ export function candidates(
       add({ pick: named, label, path: watched, ...reported })
       continue
     }
-    for (const source of entry?.sources ?? []) {
+    // The source is pinned on the signal, so it is one the watched path reports.
+    for (const source of byPath.get(watched)?.sources ?? []) {
       const sourceLabel = instance === undefined ? source : `${label} · ${source}`
       add({ pick: { ...named, source }, label: sourceLabel, path: watched, ...reported })
     }
