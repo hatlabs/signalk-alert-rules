@@ -1,4 +1,12 @@
-import { useEffect, useId, useMemo, useState, type KeyboardEvent, type Ref } from 'react'
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+  type Ref
+} from 'react'
 import { unitLabel } from '../units'
 import type { PathEntry, PathList } from './selfPaths'
 import './PathPicker.css'
@@ -15,6 +23,8 @@ export interface PathPickerProps {
    * as a path typed passes through partial paths on its way.
    */
   onCommit?: (path: string) => void
+  /** What the path means, announced with the input. */
+  hint?: ReactNode
   /** Why the path is not accepted, announced with the input. */
   errors?: readonly string[]
   inputRef?: Ref<HTMLInputElement>
@@ -61,6 +71,7 @@ export function PathPicker({
   paths,
   onChange,
   onCommit,
+  hint,
   errors = [],
   inputRef
 }: PathPickerProps) {
@@ -68,6 +79,7 @@ export function PathPicker({
   const inputId = `${id}-input`
   const listboxId = `${id}-listbox`
   const statusId = `${id}-status`
+  const hintId = `${id}-hint`
   const errorId = `${id}-error`
   const optionId = (index: number) => `${id}-option-${String(index)}`
 
@@ -145,72 +157,99 @@ export function PathPicker({
 
   const expanded = open && options.length > 0
   const status = statusText(paths, open, options.length)
+  // Once the paths are ready the status speaks only while the list is open, so it floats with
+  // the list: closing on blur then moves nothing below, and the click that blurred the input
+  // lands where it was aimed. Loading or failed, its text is the same open or closed.
+  const popupClass = [
+    'skar-path-picker-popup',
+    paths.status === 'ready' ? 'skar-path-picker-floating' : '',
+    status === '' ? '' : 'skar-path-picker-popup-shown',
+    // A status line alone floats over the control below, whose click would be lost to it.
+    expanded ? '' : 'skar-path-picker-passive'
+  ]
+    .filter((c) => c !== '')
+    .join(' ')
 
   return (
     <div className="skar-path-picker">
       <label htmlFor={inputId} className="skar-label">
         {label}
       </label>
-      <input
-        ref={inputRef}
-        id={inputId}
-        type="text"
-        className={`skar-input${errors.length === 0 ? '' : ' skar-input-invalid'}`}
-        role="combobox"
-        autoComplete="off"
-        spellCheck={false}
-        aria-autocomplete="list"
-        aria-expanded={expanded}
-        aria-controls={expanded ? listboxId : undefined}
-        aria-activedescendant={expanded && active !== null ? optionId(active) : undefined}
-        aria-describedby={errors.length === 0 ? statusId : `${statusId} ${errorId}`}
-        aria-invalid={errors.length === 0 ? undefined : true}
-        value={value}
-        onChange={(event) => {
-          onChange(event.target.value)
-          setOpen(true)
-          setActive(null)
-        }}
-        onKeyDown={onKeyDown}
-        onBlur={(event) => {
-          close()
-          // A switch to another window or tab blurs the input but leaves it the active element,
-          // the path perhaps half typed; the blur once the user is back and moves on commits it.
-          const away = !document.hasFocus() && document.activeElement === event.currentTarget
-          if (!away) onCommit?.(value)
-        }}
-      />
-      {expanded && (
-        <ul id={listboxId} role="listbox" aria-label={label} className="skar-path-picker-list">
-          {options.map((entry, index) => (
-            <li
-              key={entry.path}
-              id={optionId(index)}
-              role="option"
-              aria-selected={index === active}
-              data-path={entry.path}
-              className={`skar-path-picker-option${index === active ? ' skar-path-picker-active' : ''}`}
-              // Keeps focus in the input, which would otherwise blur and close the list first.
-              onMouseDown={(event) => {
-                event.preventDefault()
-              }}
-              onClick={() => {
-                pick(entry)
-              }}
-            >
-              <span className="skar-path-picker-path">{entry.path}</span>
-              {entry.displayName !== undefined && (
-                <span className="skar-path-picker-name">{entry.displayName}</span>
-              )}
-              <span className="skar-path-picker-unit">{shownUnit(entry)}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-      {/* Rendered even when empty, so screen readers track it as a live region from the start. */}
-      <div id={statusId} role="status" className="skar-hint skar-path-picker-status">
-        {status}
+      <div className="skar-path-picker-field">
+        <input
+          ref={inputRef}
+          id={inputId}
+          type="text"
+          className={`skar-input${errors.length === 0 ? '' : ' skar-input-invalid'}`}
+          role="combobox"
+          autoComplete="off"
+          spellCheck={false}
+          aria-autocomplete="list"
+          aria-expanded={expanded}
+          aria-controls={expanded ? listboxId : undefined}
+          aria-activedescendant={expanded && active !== null ? optionId(active) : undefined}
+          aria-describedby={[
+            hint === undefined ? undefined : hintId,
+            statusId,
+            errors.length === 0 ? undefined : errorId
+          ]
+            .filter((d) => d !== undefined)
+            .join(' ')}
+          aria-invalid={errors.length === 0 ? undefined : true}
+          value={value}
+          onChange={(event) => {
+            onChange(event.target.value)
+            setOpen(true)
+            setActive(null)
+          }}
+          onKeyDown={onKeyDown}
+          onBlur={(event) => {
+            close()
+            // A switch to another window or tab blurs the input but leaves it the active element,
+            // the path perhaps half typed; the blur once the user is back and moves on commits it.
+            const away = !document.hasFocus() && document.activeElement === event.currentTarget
+            if (!away) onCommit?.(value)
+          }}
+        />
+        <div className={popupClass}>
+          {/* Rendered even when empty, so screen readers track it as a live region from the start. */}
+          <div id={statusId} role="status" className="skar-hint skar-path-picker-status">
+            {status}
+          </div>
+          {expanded && (
+            <ul id={listboxId} role="listbox" aria-label={label} className="skar-path-picker-list">
+              {options.map((entry, index) => (
+                <li
+                  key={entry.path}
+                  id={optionId(index)}
+                  role="option"
+                  aria-selected={index === active}
+                  data-path={entry.path}
+                  className={`skar-path-picker-option${index === active ? ' skar-path-picker-active' : ''}`}
+                  // Keeps focus in the input, which would otherwise blur and close the list first.
+                  onMouseDown={(event) => {
+                    event.preventDefault()
+                  }}
+                  onClick={() => {
+                    pick(entry)
+                  }}
+                >
+                  <span className="skar-path-picker-path">{entry.path}</span>
+                  {entry.displayName !== undefined && (
+                    <span className="skar-path-picker-name">{entry.displayName}</span>
+                  )}
+                  <span className="skar-path-picker-unit">{shownUnit(entry)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
+      {hint !== undefined && (
+        <div id={hintId} className="skar-hint">
+          {hint}
+        </div>
+      )}
       {errors.length > 0 && (
         <div id={errorId} className="skar-error">
           {errors.join('; ')}

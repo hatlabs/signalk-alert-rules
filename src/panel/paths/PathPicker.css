@@ -1,24 +1,48 @@
 .skar-path-picker {
-  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.skar-path-picker-list {
+.skar-path-picker-field {
+  position: relative;
+}
+
+.skar-path-picker-popup:not(.skar-path-picker-floating) {
+  margin-top: 6px;
+}
+
+.skar-path-picker-floating {
   position: absolute;
   top: 100%;
+  right: 0;
+  left: 0;
   z-index: 10;
-  width: 100%;
-  max-height: 20rem;
-  margin: 0;
-  padding: 4px 0;
-  overflow-y: auto;
-  list-style: none;
+}
+
+.skar-path-picker-floating.skar-path-picker-popup-shown {
+  margin-top: 4px;
+  overflow: hidden;
   background: var(--skar-surface);
   border: 1px solid var(--skar-border);
   border-radius: 6px;
   box-shadow: 0 6px 18px rgba(21, 27, 30, 0.15);
+}
+
+.skar-path-picker-floating.skar-path-picker-passive {
+  pointer-events: none;
+}
+
+.skar-path-picker-floating .skar-path-picker-status:not(:empty) {
+  padding: 8px 12px 4px;
+}
+
+.skar-path-picker-list {
+  max-height: 20rem;
+  margin: 0;
+  padding: 0 0 4px;
+  overflow-y: auto;
+  list-style: none;
 }
 
 .skar-path-picker-option {
@@ -53,11 +77,4 @@
 .skar-path-picker-unit {
   margin-left: auto;
   color: var(--skar-muted);
-}
-
-/* The status empties when the list closes on blur. Without a reserved line the
-   control below would move up between mousedown and mouseup, and its click would
-   be lost. */
-.skar-path-picker-status {
-  min-height: 1.5em;
 }
