@@ -11,9 +11,53 @@ id: builtin
 version: 1.0.0
 description: Templates that ship with Alert Rules.
 templates:
-  # Batteries. Lead-acid and LiFePO4 banks rest at different voltages, so
-  # each has its own voltage templates; both share the condition name, as a
-  # bank has one chemistry.
+  # Batteries. Lead-acid and LiFePO4 banks are usable down to different
+  # states of charge and rest at different voltages, so each chemistry has
+  # its own state-of-charge and voltage templates; both chemistries share
+  # each condition name, as a bank has one chemistry. State of charge is the
+  # everyday warning; voltage is the last-resort limit.
+  - id: battery-charge-low
+    description: >-
+      A lead-acid battery bank's state of charge stays below 50 % for a
+      minute, a warning, and climbs to an alarm below 40 %. Needs a battery
+      monitor that reports state of charge.
+    open: [instance]
+    condition: stateOfChargeLow
+    rule:
+      name: Battery ${instance} charge low (lead-acid)
+      message: 'Battery ${instance} charge below {limit}: {value}'
+      signal:
+        path: electrical.batteries.${instance}.capacity.stateOfCharge
+      detector:
+        type: sustained
+        direction: below
+        steps:
+          - { limit: 0.5, priority: warning }
+          - { limit: 0.4, priority: alarm }
+        duration: 60
+        hysteresis: 0.02
+
+  - id: battery-charge-low-lifepo4
+    description: >-
+      A LiFePO4 battery bank's state of charge stays below 20 % for a minute,
+      a warning, and climbs to an alarm below 10 %. Needs a battery monitor
+      that reports state of charge.
+    open: [instance]
+    condition: stateOfChargeLow
+    rule:
+      name: Battery ${instance} charge low (LiFePO4)
+      message: 'Battery ${instance} charge below {limit}: {value}'
+      signal:
+        path: electrical.batteries.${instance}.capacity.stateOfCharge
+      detector:
+        type: sustained
+        direction: below
+        steps:
+          - { limit: 0.2, priority: warning }
+          - { limit: 0.1, priority: alarm }
+        duration: 60
+        hysteresis: 0.02
+
   - id: battery-voltage-low
     description: >-
       A lead-acid battery bank's voltage stays below 12.2 V for a minute, a
@@ -95,27 +139,6 @@ templates:
           - { limit: 14.8, priority: alarm }
         duration: 10
         hysteresis: 0.1
-
-  - id: battery-charge-low
-    description: >-
-      A battery bank's state of charge stays below 30 % for a minute, a
-      warning, and climbs to an alarm below 15 %. Needs a battery monitor
-      that reports state of charge.
-    open: [instance]
-    condition: stateOfChargeLow
-    rule:
-      name: Battery ${instance} charge low
-      message: 'Battery ${instance} charge below {limit}: {value}'
-      signal:
-        path: electrical.batteries.${instance}.capacity.stateOfCharge
-      detector:
-        type: sustained
-        direction: below
-        steps:
-          - { limit: 0.3, priority: warning }
-          - { limit: 0.15, priority: alarm }
-        duration: 60
-        hysteresis: 0.02
 
   # Engines. NMEA 2000 engine gateways report the coolant temperature as the
   # engine's temperature, so that is the path watched.
