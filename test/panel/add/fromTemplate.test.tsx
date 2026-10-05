@@ -1090,6 +1090,7 @@ describe('rules from a template with two slots', () => {
       ]
     }
   }
+  const bySource: Template = { ...alternator, id: 'alternator-by-source', open: ['source'] }
   const listing: TemplateListing = {
     sets: [
       {
@@ -1097,7 +1098,7 @@ describe('rules from a template with two slots', () => {
         name: 'Engines',
         version: '1.0.0',
         source: 'file engines.yaml',
-        templates: [alternator],
+        templates: [alternator, bySource],
         new: []
       }
     ],
@@ -1113,18 +1114,36 @@ describe('rules from a template with two slots', () => {
     }
   })
 
-  async function openTabs(picks: Record<string, string>[]) {
+  async function openTabs(
+    picks: Record<string, string>[],
+    template = alternator.id,
+    shown = /start · port/
+  ) {
     const href = hashWithRoute('', {
       kind: 'add',
       from: 'template',
       set: 'engines',
-      template: alternator.id,
+      template,
       picks,
       step: 'edit'
     })
     window.history.replaceState(null, '', `/${href}`)
-    await screen.findByRole('tab', { name: /start · port/ })
+    await screen.findByRole('tab', { name: shown })
   }
+
+  it('labels a tab with its source after the slots, and marks a battery not reporting', async () => {
+    renderShell({ rules: [], listing }, { reported })
+    await openTabs(
+      [
+        { battery: 'start', engine: 'main', source: 'n2k.1' },
+        { battery: 'windlass', engine: 'port', source: 'n2k.1' }
+      ],
+      bySource.id,
+      /windlass · port · n2k\.1/
+    )
+    expect(tab(/start · main · n2k\.1/).textContent).not.toContain('not reporting yet')
+    expect(tab(/windlass · port · n2k\.1/).textContent).toContain('not reporting yet')
+  })
 
   it('labels each tab with its slots and marks the row whose picks have a rule', async () => {
     const api = renderShell({ rules: [mainRule], listing }, { reported })

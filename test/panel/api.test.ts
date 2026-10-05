@@ -551,13 +551,30 @@ describe('httpApi', () => {
           }
         }
       }
-      const api = httpApi(fakeFetch({ [`${BASE}/rules`]: { body: [twoSlot] } }))
-      const [read] = await api.rules()
-      if (isInvalid(read)) throw new Error('invalid')
+      const oneSlot = {
+        ...ruleEntry,
+        rule: {
+          ...ruleEntry.rule,
+          template: {
+            set: 'builtin',
+            id: 'lifepo4-voltage-low',
+            version: '1',
+            pick: { instance: 'house', source: 'shunt.1' }
+          }
+        }
+      }
+      const api = httpApi(fakeFetch({ [`${BASE}/rules`]: { body: [twoSlot, oneSlot] } }))
+      const [read, old] = await api.rules()
+      if (isInvalid(read) || isInvalid(old)) throw new Error('invalid')
       expect(read.rule.template).toEqual({
         set: 'builtin',
         id: 'alternator-not-charging',
         pick: { battery: 'start', engine: 'main', source: 'n2k.1' }
+      })
+      expect(old.rule.template).toEqual({
+        set: 'builtin',
+        id: 'lifepo4-voltage-low',
+        pick: { instance: 'house', source: 'shunt.1' }
       })
     })
 

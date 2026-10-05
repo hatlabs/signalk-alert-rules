@@ -333,6 +333,22 @@ describe('a template with two slots', () => {
     ).toBeUndefined()
   })
 
+  it('tells a row with a source from the same row without one', () => {
+    const withSource = [madeFor({ battery: 'start', engine: 'main', source: 'n2k.1' })]
+    const without = [madeFor({ battery: 'start', engine: 'main' })]
+    expect(
+      ruleWatching('builtin', alternator, { battery: 'start', engine: 'main' }, withSource)
+    ).toBeUndefined()
+    expect(
+      ruleWatching(
+        'builtin',
+        alternator,
+        { battery: 'start', engine: 'main', source: 'n2k.1' },
+        without
+      )
+    ).toBeUndefined()
+  })
+
   // Both sanitise to the same condition and alert path, which the server
   // refuses for the second rule; their stored picks still differ.
   it('counts picks that sanitise alike as different picks', () => {
