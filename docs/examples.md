@@ -12,7 +12,7 @@ From a data path takes two steps: pick the value, then pick what about it should
 
 The editor then opens with the kind chosen, a name, a message and a condition name written from the value and the kind. The examples replace the name and the message with their own. The condition name, the field just above More options, follows the value and the kind until one is typed. The slug, under More options, follows the name until it is edited.
 
-Numbers are typed in the display unit the server's unit preferences give the path, and stored in SI. The screenshots come from a server with the default nautical-metric preset, where:
+Numbers are typed in the display unit the server's unit preferences give the path, and stored in SI. The screenshots come from the webapp's render harness, which gives each path the display unit of Signal K's default nautical-metric preset, where:
 
 | Quantity | Display unit | Example value typed | Stored |
 |---|---|---|---|
@@ -22,7 +22,7 @@ Numbers are typed in the display unit the server's unit preferences give the pat
 | Distance between positions | nmi | 0.026997840172786176 nmi | 50 m |
 | Angle | ° | 5.729577951308232° | 0.1 rad |
 
-The shore power frequency in the screenshots shows in Hz because its path's display unit is set to the base unit; under the preset alone the server shows frequency in rpm. A limit that is a round number in SI but not in the display unit has to be typed in full to store exactly that number: 0.027 nmi stores 50.004 m. A stored rule opens with each converted number rounded as the rule detail shows values, 50 m as 0.027 nmi and 0.1 rad as 5.73°, and saves the stored number unchanged unless its field is edited.
+The shore power frequency in the screenshots shows in Hz because the harness sets its path's display unit to the base unit, as a server's `displayUnits` for the path can; under the preset alone the server shows frequency in rpm. A limit that is a round number in SI but not in the display unit has to be typed in full to store exactly that number: 0.027 nmi stores 50.004 m. A stored rule opens with each converted number rounded as the rule detail shows values, 50 m as 0.027 nmi and 0.1 rad as 5.73°, and saves the stored number unchanged unless its field is edited.
 
 Durations take a number and a unit (s, min or h) and are stored in seconds.
 
