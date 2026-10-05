@@ -872,6 +872,11 @@ describe('the template record', () => {
     expect(errorsOf(rule({ detector, template: { ...record, pick: {} } }))).toEqual([])
   })
 
+  it('is accepted with the instance pick a single-slot template stored', () => {
+    const template = { ...record, pick: { instance: 'house' } }
+    expect(errorsOf(rule({ detector, template }))).toEqual([])
+  })
+
   it.each([
     ['without its set', { ...record, set: undefined }, '/template/set'],
     ['with a set id that is not a slug', { ...record, set: 'Batteries' }, '/template/set'],
