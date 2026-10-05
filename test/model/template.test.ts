@@ -132,6 +132,26 @@ describe('validateTemplateSet', () => {
     ])
   })
 
+  it('accepts ${instance} in the condition of a template with an open instance', () => {
+    expect(errorsOf(withTemplate({ ...voltageLow, condition: '${instance}Low' }))).toEqual([])
+  })
+
+  it('reports ${instance} in the condition of a template that does not leave it open', () => {
+    const { open: _open, ...unopened } = voltageLow
+    const bound = withTemplate({
+      ...unopened,
+      condition: '${instance}Low',
+      rule: {
+        ...voltageLow.rule,
+        name: 'Low',
+        signal: { path: 'electrical.batteries.house.voltage' }
+      }
+    })
+    expect(errorsOf(bound)).toEqual([
+      { path: '/templates/0/condition', message: '${instance} needs instance in open' }
+    ])
+  })
+
   it('reports an open source on a combined signal', () => {
     const combined = withTemplate({
       ...voltageLow,
