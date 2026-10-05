@@ -180,12 +180,25 @@ function slotErrors(template: Template, uses: PlaceholderUse[], at: string): Val
   })
   const names = new Set(slots.map((s) => s.name))
   for (const use of uses) {
-    if (use.key === 'path' && names.has(use.name) && !use.segment) {
+    if (use.key === 'path' && names.has(use.name) && !use.segment && !use.inPointer) {
       const message = `${placeholder(use.name)} must be a whole path segment`
       errors.push({ path: at + use.at, message })
     }
   }
   return errors
+}
+
+/**
+ * A placeholder in a field pointer: a pick may hold `/` or `~`, which would
+ * name another field there, so the field is the template's to name.
+ */
+function pointerPlaceholderErrors(uses: PlaceholderUse[], at: string): ValidationError[] {
+  return uses
+    .filter((use) => use.key === 'path' && use.inPointer)
+    .map((use) => ({
+      path: at + use.at,
+      message: `${placeholder(use.name)} cannot be in the field pointer after "#"`
+    }))
 }
 
 /** The open list against the rule's `${instance}` placeholders, the slots and the signal. */
@@ -223,6 +236,7 @@ function templateErrors(set: TemplateSet, template: Template, at: string): Valid
   const errors = [
     ...openErrors(template, uses, at),
     ...slotErrors(template, uses, at),
+    ...pointerPlaceholderErrors(uses, at),
     ...presetFieldErrors(template, ruleAt),
     ...unknownPlaceholderErrors(template, uses, at)
   ]

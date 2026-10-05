@@ -62,12 +62,17 @@ export interface PlaceholderUse {
   name: string
   key: string
   at: string
-  /** The placeholder is a whole dot-separated segment of its string. */
+  /** The placeholder is a whole segment of its string, between dots or before a field pointer. */
   segment: boolean
+  /** The placeholder is in a field pointer, after `#`. */
+  inPointer: boolean
 }
 
 function isSegment(text: string, start: number, end: number): boolean {
-  return (start === 0 || text[start - 1] === '.') && (end === text.length || text[end] === '.')
+  return (
+    (start === 0 || text[start - 1] === '.') &&
+    (end === text.length || text[end] === '.' || text[end] === '#')
+  )
 }
 
 /**
@@ -93,7 +98,8 @@ export function substitutePlaceholders(
             name,
             key,
             at: childAt,
-            segment: isSegment(child, offset, offset + match.length)
+            segment: isSegment(child, offset, offset + match.length),
+            inPointer: child.slice(0, offset).includes('#')
           })
         )
         return [key, replaced]

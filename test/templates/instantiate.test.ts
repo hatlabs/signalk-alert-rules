@@ -414,11 +414,17 @@ describe('substitutePlaceholders', () => {
       condition: 'INSTANCELow'
     })
     expect(uses).toEqual([
-      { name: 'instance', key: 'name', at: '/name', segment: false },
-      { name: 'instance', key: 'path', at: '/signal/path', segment: true },
-      { name: 'instance', key: 'path', at: '/gates/0/signal/path', segment: true },
-      { name: 'other', key: 'path', at: '/gates/0/signal/path', segment: false },
-      { name: 'instance', key: 'condition', at: '/condition', segment: false }
+      { name: 'instance', key: 'name', at: '/name', segment: false, inPointer: false },
+      { name: 'instance', key: 'path', at: '/signal/path', segment: true, inPointer: false },
+      {
+        name: 'instance',
+        key: 'path',
+        at: '/gates/0/signal/path',
+        segment: true,
+        inPointer: false
+      },
+      { name: 'other', key: 'path', at: '/gates/0/signal/path', segment: false, inPointer: false },
+      { name: 'instance', key: 'condition', at: '/condition', segment: false, inPointer: false }
     ])
   })
 
