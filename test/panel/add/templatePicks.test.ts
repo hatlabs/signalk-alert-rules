@@ -11,7 +11,9 @@ import {
 } from '../../../src/panel/add/templatePicks'
 import type { PathEntry } from '../../../src/panel/paths/selfPaths'
 import { displayUnit } from '../../../src/panel/units'
+import { BUILTIN_TEMPLATES, discoverTemplateSets } from '../../../src/templates/discovery'
 import { ruleEntry } from '../fixtures'
+import { reported } from '../reportedPaths'
 
 const volts = displayUnit({ units: 'V' })
 const voltage = (instance: string, value: number, extra: Partial<PathEntry> = {}): PathEntry => ({
@@ -207,6 +209,59 @@ describe('candidates', () => {
       'ruuvi-saloon',
       'starter'
     ])
+  })
+})
+
+describe('the built-in templates', () => {
+  it('list the same picks, names, paths and values as before templates had slots', () => {
+    const { sets } = discoverTemplateSets({ builtin: BUILTIN_TEMPLATES })
+    const templates = sets.find((s) => s.set.id === 'builtin')?.set.templates ?? []
+    const listed = Object.fromEntries(
+      templates.map((t) => [
+        t.id,
+        candidates('builtin', t, reported, []).map((c) => [c.label, c.path, c.pick, c.entry?.value])
+      ])
+    )
+    const batteries = [
+      [
+        'Bow thruster battery voltage',
+        'electrical.batteries.bowThruster.voltage',
+        { instance: 'bowThruster' },
+        12.9
+      ],
+      ['House battery voltage', 'electrical.batteries.house.voltage', { instance: 'house' }, 13.31],
+      ['start', 'electrical.batteries.start.voltage', { instance: 'start' }, 12.6]
+    ]
+    const bilgePump = [
+      ['bilgePump', 'electrical.switches.bilgePump.state', { instance: 'bilgePump' }, false]
+    ]
+    expect(listed).toEqual({
+      'battery-charge-low': [],
+      'battery-charge-low-lifepo4': [],
+      'battery-voltage-low': batteries,
+      'battery-voltage-low-lifepo4': batteries,
+      'battery-voltage-high': batteries,
+      'battery-voltage-high-lifepo4': batteries,
+      'engine-temperature-high': [],
+      'engine-oil-pressure-low': [],
+      'alternator-not-charging': [],
+      'engine-service-due': [
+        ['main', 'propulsion.main.revolutions', { instance: 'main' }, 0],
+        ['port', 'propulsion.port.revolutions', { instance: 'port' }, 20],
+        ['starboard', 'propulsion.starboard.revolutions', { instance: 'starboard' }, 20]
+      ],
+      'fuel-low': [],
+      'holding-tank-full': [],
+      'fresh-water-low': [['0', 'tanks.freshWater.0.currentLevel', { instance: '0' }, 0.6]],
+      'bilge-pump-running-long': bilgePump,
+      'bilge-pump-cycling': bilgePump,
+      'depth-shallow': [['Shallow water', 'environment.depth.belowTransducer', {}, 4.2]],
+      'wind-strong': [['Strong wind', 'environment.wind.speedApparent', {}, undefined]],
+      'depth-not-reporting': [
+        ['Depth sounder not reporting', 'environment.depth.belowTransducer', {}, 4.2]
+      ],
+      'position-not-reporting': [['Position not reporting', 'navigation.position', {}, undefined]]
+    })
   })
 })
 
