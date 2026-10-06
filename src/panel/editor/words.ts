@@ -3,10 +3,16 @@
  * as typed, and the unit each kind of field is entered in.
  */
 import { formatNumber } from '../../format'
-import { pathSegments, splitPointerPath } from '../../model/pointerPath'
+import { isPointerPath, splitPointerPath } from '../../model/pointerPath'
 import type { CombinatorKind } from '../../model/rule'
 import { capitalised } from '../list/PriorityBadge'
-import { instanceSegment, isWildcardPath, type Measure, type UnitLookup } from '../signalUnits'
+import {
+  instanceOf,
+  instanceSegment,
+  isWildcardPath,
+  type Measure,
+  type UnitLookup
+} from '../signalUnits'
 import { unitLabel } from '../units'
 import {
   parsedNumber,
@@ -56,8 +62,12 @@ function segmentWords(segment: string): string {
  * (`tanks.freshWater.0.currentLevel` reads "fresh water current level").
  */
 function pathWords(path: string): string {
-  // A field's tokens follow its base path's segments, the field reading as the leaf.
-  const segments = pathSegments(path) ?? path.split('.')
+  // A field reads as the rule detail names it: its instance, then its leaf words.
+  if (isPointerPath(path)) {
+    const instance = instanceOf(path)
+    return [...(instance === undefined ? [] : [instance]), leafWords(path)].join(' ')
+  }
+  const segments = path.split('.')
   const leaf = segments.at(-1) ?? ''
   const before = segments
     .slice(1, -1)

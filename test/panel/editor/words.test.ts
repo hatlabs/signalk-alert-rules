@@ -6,7 +6,7 @@ import {
   type SignalForm,
   type StepForm
 } from '../../../src/panel/editor/formModel'
-import { clearMarginText, subjectOf } from '../../../src/panel/editor/words'
+import { clearMarginText, pathName, subjectOf } from '../../../src/panel/editor/words'
 import { unitLookup, type Measure } from '../../../src/panel/signalUnits'
 import { displayUnit } from '../../../src/panel/units'
 
@@ -17,6 +17,12 @@ describe('subjectOf', () => {
   it("names a field after its base path's words", () => {
     expect(subjectOf(single('navigation.attitude#/roll'), none)).toBe('Attitude roll')
     expect(subjectOf(single('navigation.attitude.roll'), none)).toBe('Attitude roll')
+  })
+
+  it('names a nested field and a field of an instance as the rule detail does', () => {
+    expect(subjectOf(single('navigation.attitude#/a/b'), none)).toBe('Attitude a b')
+    expect(pathName('navigation.attitude#/a/b')).toBe('Attitude a b')
+    expect(subjectOf(single('electrical.batteries.house#/voltage'), none)).toBe('House voltage')
   })
 
   it("prefers the field's display name from metadata", () => {

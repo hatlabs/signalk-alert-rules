@@ -278,6 +278,9 @@ describe('explain', () => {
       expect(text(silent('navigation.attitude#/roll'))).toBe(
         'Attitude roll has not reported for 2 h.'
       )
+      expect(text(silent('navigation.attitude#/a/b'))).toBe(
+        'Attitude a b has not reported for 2 h.'
+      )
     })
 
     it('names the instance of the base path once', () => {
