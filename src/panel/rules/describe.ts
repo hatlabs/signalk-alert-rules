@@ -9,7 +9,7 @@ import type {
   SignalValue
 } from '../api'
 import type { CombinatorKind } from '../../model/rule'
-import { signalMeasure, type Measure, type UnitLookup } from '../signalUnits'
+import { isWildcardPath, signalMeasure, type Measure, type UnitLookup } from '../signalUnits'
 import { fromSI } from '../units'
 import { formatDuration, formatNumber } from '../../format'
 
@@ -80,7 +80,7 @@ export function combinatorLabel(s: RuleInfo['signal']): string | undefined {
 }
 
 export function isWildcard(rule: RuleInfo): boolean {
-  return rule.signal.paths.some((path) => path.split('.').includes('*'))
+  return rule.signal.paths.some(isWildcardPath)
 }
 
 /** Whether a rule is told per instance: a wildcard, or one reporting several. */

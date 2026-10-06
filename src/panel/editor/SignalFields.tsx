@@ -2,7 +2,14 @@ import { createContext, useContext, useState } from 'react'
 import { PathPicker } from '../paths/PathPicker'
 import type { PathList } from '../paths/selfPaths'
 import { ANGULAR_LABEL, COMBINATOR_LABELS } from '../rules/describe'
-import { matchedInstances, withInstanceWildcard, type UnitLookup } from '../signalUnits'
+import {
+  instanceOf,
+  isWildcardPath,
+  matchedInstances,
+  withInstance,
+  withInstanceWildcard,
+  type UnitLookup
+} from '../signalUnits'
 import { CheckField, RadioGroup, SelectField, useFieldErrors, type Option } from './fields'
 import {
   ANGULAR_KINDS,
@@ -68,32 +75,26 @@ export function useAllInstances(
 ) {
   // The instance the wildcard replaced, restored when the toggle is turned off.
   const [instance, setInstance] = useState<string | undefined>(undefined)
-  const segments = slot.path.split('.')
-  const wildAt = segments.indexOf('*')
-  const pattern = wildAt >= 0 ? slot.path : withInstanceWildcard(slot.path)
-  const matched =
-    wildAt >= 0 && paths.status === 'ready' ? matchedInstances(slot.path, paths.paths) : []
+  const wild = isWildcardPath(slot.path)
+  const pattern = wild ? slot.path : withInstanceWildcard(slot.path)
+  const matched = wild && paths.status === 'ready' ? matchedInstances(slot.path, paths.paths) : []
   const toggle = (on: boolean) => {
     if (on && pattern !== undefined) {
-      const at = pattern.split('.').indexOf('*')
-      setInstance(segments[at])
+      setInstance(instanceOf(slot.path))
       onChange({ ...slot, path: pattern })
-    } else if (!on && wildAt >= 0) {
+    } else if (!on && wild) {
       const back = instance ?? matched.at(0)
-      if (back !== undefined) {
-        onChange({ ...slot, path: segments.map((s, i) => (i === wildAt ? back : s)).join('.') })
-      }
+      if (back !== undefined) onChange({ ...slot, path: withInstance(slot.path, back) })
     }
   }
-  const hint =
-    wildAt >= 0
-      ? matched.length === 0
-        ? 'No reported path matches yet.'
-        : `Matches now: ${matched.join(', ')}`
-      : pattern === undefined
-        ? 'This path has no instance segment; type * in place of one to match several.'
-        : `Matches ${pattern}, one alert per instance.`
-  return { checked: wildAt >= 0, available: wildAt >= 0 || pattern !== undefined, hint, toggle }
+  const hint = wild
+    ? matched.length === 0
+      ? 'No reported path matches yet.'
+      : `Matches now: ${matched.join(', ')}`
+    : pattern === undefined
+      ? 'This path has no instance segment; type * in place of one to match several.'
+      : `Matches ${pattern}, one alert per instance.`
+  return { checked: wild, available: wild || pattern !== undefined, hint, toggle }
 }
 
 interface SlotProps {

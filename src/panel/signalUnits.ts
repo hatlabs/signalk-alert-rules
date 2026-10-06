@@ -3,6 +3,7 @@
  * a wildcard path. Shared by the rule detail view and the authoring form.
  */
 import { useEffect, useMemo, useState } from 'react'
+import { splitPointerPath } from '../model/pointerPath'
 import type { CombinatorKind } from '../model/rule'
 import { useSelfPaths, type PathEntry, type PathList, type PathSource } from './paths/selfPaths'
 import { displayUnit, type DisplayUnit, type QuantityKind } from './units'
@@ -39,15 +40,35 @@ export const POSITION_KINDS: ReadonlySet<string> = new Set<CombinatorKind>([
   'positionSpread'
 ])
 
+/**
+ * A path as its base path's segments and its pointer, `#/roll`, or `''` for
+ * a plain path. Instances are segments of the base path; the pointer has no
+ * wildcards, so splitting the whole path on `.` would read the segment
+ * before it as `*#/roll`.
+ */
+function parts(path: string): { base: string[]; pointer: string } {
+  const { basePath } = splitPointerPath(path)
+  return { base: basePath.split('.'), pointer: path.slice(basePath.length) }
+}
+
 function segments(path: string): string[] {
-  return path.split('.')
+  return parts(path).base
+}
+
+/** Whether a path has a wildcard instance. */
+export function isWildcardPath(path: string): boolean {
+  return segments(path).includes('*')
 }
 
 /** Whether `path` is `pattern` with its wildcard segment, if any, filled in. */
 export function matchesPattern(pattern: string, path: string): boolean {
-  const want = segments(pattern)
-  const have = segments(path)
-  return want.length === have.length && want.every((s, i) => s === '*' || s === have[i])
+  const want = parts(pattern)
+  const have = parts(path)
+  return (
+    want.pointer === have.pointer &&
+    want.base.length === have.base.length &&
+    want.base.every((s, i) => s === '*' || s === have.base[i])
+  )
 }
 
 export function unitLookup(paths: readonly PathEntry[], distance: DisplayUnit): UnitLookup {
@@ -146,9 +167,14 @@ const INSTANCE_GROUPS: readonly (readonly (string | null)[])[] = [
  * reliably an instance; the operator can still type `*` in its place.
  */
 export function instanceSegment(path: string): number | undefined {
-  const parts = segments(path)
+  const { base, pointer } = parts(path)
+  // A field is the leaf that follows the instance, so it counts as a segment.
+  const length = base.length + (pointer === '' ? 0 : 1)
   const group = INSTANCE_GROUPS.find(
-    (g) => parts.length > g.length + 1 && g.every((s, i) => s === null || s === parts[i])
+    (g) =>
+      length > g.length + 1 &&
+      base.length > g.length &&
+      g.every((s, i) => s === null || s === base[i])
   )
   return group?.length
 }
@@ -157,9 +183,20 @@ export function instanceSegment(path: string): number | undefined {
 export function withInstanceWildcard(path: string): string | undefined {
   const at = instanceSegment(path)
   if (at === undefined) return undefined
-  return segments(path)
-    .map((s, i) => (i === at ? '*' : s))
-    .join('.')
+  const { base, pointer } = parts(path)
+  return base.map((s, i) => (i === at ? '*' : s)).join('.') + pointer
+}
+
+/** The name in a path's instance segment, if it has one. */
+export function instanceOf(path: string): string | undefined {
+  const at = instanceSegment(path)
+  return at === undefined ? undefined : segments(path)[at]
+}
+
+/** A wildcard path with its wildcard filled in by `instance`. */
+export function withInstance(pattern: string, instance: string): string {
+  const { base, pointer } = parts(pattern)
+  return base.map((s) => (s === '*' ? instance : s)).join('.') + pointer
 }
 
 /** The instance names a wildcard path matches among the reported paths, sorted. */
