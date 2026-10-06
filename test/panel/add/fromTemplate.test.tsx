@@ -1312,6 +1312,14 @@ describe('rules from a template with two slots', () => {
     expect(options(cell(2, 'Engine'))).toContainEqual(['port · not reporting yet', false])
   })
 
+  it('fills a typed name only into rows whose slot is empty', async () => {
+    renderShell({ rules: [], listing }, { reported: twin })
+    await openPicker([{ battery: 'start', engine: 'port' }, { battery: 'start' }])
+    change(screen.getByRole('textbox', { name: 'Engine not listed?' }), 'aft')
+    fireEvent.click(screen.getAllByRole('button', { name: 'Add' })[1])
+    expect([cell(1, 'Engine').value, cell(2, 'Engine').value]).toEqual(['port', 'aft'])
+  })
+
   it('offers only typed names while the paths fail', async () => {
     const failing: PathSource = {
       selfPaths: () => Promise.reject(new Error('timed out')),
@@ -1432,6 +1440,18 @@ describe('rules from a template with two slots', () => {
           { path: 'electrical.batteries.house.voltage', source: 'n2k.2' }
         ]
       ])
+    })
+
+    it('keeps the chosen source when a slot outside the signal path changes', async () => {
+      renderShell(
+        { rules: [], listing },
+        { reported: [...sourced, revolutions('port', 30), revolutions('starboard', 0)] }
+      )
+      await openPicker([{ battery: 'start', engine: 'port' }], bySource.id)
+      choose(1, 'Source', 'n2k.1')
+      choose(1, 'Engine', 'starboard')
+      expect(cell(1, 'Source').value).toBe('n2k.1')
+      expect(status().textContent).toBe('')
     })
 
     it('takes a typed name only for a slot outside the signal path, which has no sources to offer', async () => {
