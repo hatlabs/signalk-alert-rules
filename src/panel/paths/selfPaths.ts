@@ -348,13 +348,15 @@ async function loadFieldUnits(fetchFn: Fetch): Promise<DisplayUnitsFor | undefin
     getJson(fetchFn, '/signalk/v1/unitpreferences/categories').catch(() => undefined),
     getJson(fetchFn, '/signalk/v1/unitpreferences/primary-categories').catch(() => undefined)
   ])
+  // Without the preset or the categories nothing resolves; undefined has them read again.
   const toBase =
     isRecord(categories) && isRecord(categories.categoryToBaseUnit)
       ? categories.categoryToBaseUnit
-      : {}
+      : undefined
+  if (preset === undefined || toBase === undefined) return undefined
+  // Optional: without primaries an ambiguous unit takes its first category by name.
   const primaries =
     isRecord(primary) && isRecord(primary.effectivePrimary) ? primary.effectivePrimary : {}
-  if (preset === undefined) return undefined
   return (units) => {
     const candidates = Object.keys(toBase)
       .filter((c) => toBase[c] === units)
