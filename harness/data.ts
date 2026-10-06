@@ -398,7 +398,7 @@ export function historySeries(
   const base = currentValue(query.path) ?? 1
   const now = Date.now()
   const count = Math.floor(query.seconds / query.resolution)
-  const spread: Record<Aggregate, number> = { average: 0, min: -0.02, max: 0.02 }
+  const spread: Record<Aggregate, number> = { average: 0, last: 0, min: -0.02, max: 0.02 }
   const series: HistorySeries = {}
   for (const method of query.methods) {
     series[method] = Array.from({ length: count }, (_, i) => {

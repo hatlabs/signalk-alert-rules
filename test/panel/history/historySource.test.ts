@@ -55,6 +55,22 @@ const rangeBody = {
   ]
 }
 
+/**
+ * A provider's answer for an object path: the whole object per bucket, or
+ * null, or an object without the field, or a field that is not a number.
+ */
+const attitudeBody = {
+  ...valuesBody,
+  values: [{ path: 'navigation.attitude', method: 'last' }],
+  data: [
+    ['2026-09-29T12:00:00.000Z', { roll: 0.05, pitch: -0.02, yaw: 1.2 }],
+    ['2026-09-29T12:00:30.000Z', null],
+    ['2026-09-29T12:01:00.000Z', { pitch: -0.02, yaw: 1.2 }],
+    ['2026-09-29T12:01:30.000Z', { roll: 'level', pitch: 0, yaw: 1.2 }],
+    ['2026-09-29T12:02:00.000Z', { roll: -0.1, pitch: 0, yaw: 1.2 }]
+  ]
+}
+
 describe('hasProvider', () => {
   it('is true when the server lists a provider', async () => {
     const fetchFn = fakeFetch({ providers: { body: { 'some-provider': { isDefault: true } } } })
@@ -170,6 +186,60 @@ describe('values', () => {
     })
     expect(lows.map((p) => p.value)).toEqual([-3, null])
     expect(highs.map((p) => p.value)).toEqual([4, null])
+  })
+
+  it('asks for a field’s object path, whose name the server would strip of "#" and "/"', async () => {
+    const fetchFn = fakeFetch({ values: { body: attitudeBody } })
+    await httpHistorySource(fetchFn).values({
+      path: 'navigation.attitude#/roll',
+      methods: ['last'],
+      seconds: 86_400,
+      resolution: 600
+    })
+    const url = new URL(urlOf(fetchFn.mock.calls[0][0]), 'http://localhost')
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      paths: 'navigation.attitude:last',
+      duration: 'PT86400S',
+      resolution: '600'
+    })
+  })
+
+  it('keeps a field’s pinned source on its object path', async () => {
+    const fetchFn = fakeFetch({ values: { body: attitudeBody } })
+    await httpHistorySource(fetchFn).values({
+      path: 'navigation.attitude#/roll',
+      methods: ['last'],
+      source: 'imu.1',
+      seconds: 3600,
+      resolution: 30
+    })
+    const url = new URL(urlOf(fetchFn.mock.calls[0][0]), 'http://localhost')
+    expect(url.searchParams.get('paths')).toBe('navigation.attitude:last|imu.1')
+  })
+
+  it('answers the field of each bucket’s object, a bucket without it as a gap', async () => {
+    const fetchFn = fakeFetch({ values: { body: attitudeBody } })
+    const { last = [] } = await httpHistorySource(fetchFn).values({
+      path: 'navigation.attitude#/roll',
+      methods: ['last'],
+      seconds: 3600,
+      resolution: 30
+    })
+    expect(last.map((p) => p.value)).toEqual([0.05, null, null, null, -0.1])
+  })
+
+  it('rejects when the provider refuses the object path', async () => {
+    const fetchFn = fakeFetch({
+      values: { status: 400, body: { error: 'navigation.attitude is not numeric' } }
+    })
+    await expect(
+      httpHistorySource(fetchFn).values({
+        path: 'navigation.attitude#/roll',
+        methods: ['last'],
+        seconds: 3600,
+        resolution: 30
+      })
+    ).rejects.toThrow('navigation.attitude is not numeric')
   })
 
   it('rejects with the server’s message when the query fails', async () => {
