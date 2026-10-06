@@ -4,6 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { RANGE_HYSTERESIS, RANGE_INVERTED, RANGE_NOT_WIDER } from '../../../src/model/rangeMessages'
 import { LEVEL_PRIORITY, type CombinatorKind, type Rule } from '../../../src/model/rule'
 import {
+  FIELD_ZONES_ELSEWHERE_MESSAGE,
   FIELD_ZONES_LEVEL_MESSAGE,
   FIELD_ZONES_MESSAGE,
   FIELD_ZONES_PATH_MESSAGE
@@ -2819,8 +2820,17 @@ describe('RuleEditor, a field path', () => {
     fireEvent.blur(select('Search by name or path'))
     expect(description(checkbox(/Use the value's zones/))).toContain(FIELD_ZONES_MESSAGE)
     const picker = select(/^Zones from path/)
+    expect(description(picker)).not.toContain('Empty uses')
+    type(picker, ROLL)
+    fireEvent.blur(picker)
+    expect(description(select(/^Zones from path/))).toContain(FIELD_ZONES_ELSEWHERE_MESSAGE)
+    expect(description(select(/^Zones from path/))).not.toContain('Empty uses')
+    type(picker, 'navigation.attitude#roll')
+    fireEvent.blur(picker)
+    expect(screen.queryByText(/^From the zones of/)).toBeNull()
     type(picker, HOUSE_VOLTAGE)
     fireEvent.blur(picker)
+    expect(description(select(/^Zones from path/))).not.toContain('Empty uses')
     expect(checkbox(/Use the value's zones/).getAttribute('aria-invalid')).toBeNull()
     expect(screen.queryByText(FIELD_ZONES_MESSAGE)).toBeNull()
     expect(screen.getByText(/^From the zones of/).textContent).toBe(

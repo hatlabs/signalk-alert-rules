@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  FIELD_ZONES_ELSEWHERE_MESSAGE,
   FIELD_ZONES_LEVEL_MESSAGE,
   FIELD_ZONES_MESSAGE,
   FIELD_ZONES_PATH_MESSAGE,
@@ -157,6 +158,16 @@ describe('fieldZonesError', () => {
       at: 'path',
       message: FIELD_ZONES_PATH_MESSAGE
     })
+  })
+
+  it('asks a field signal for a path with zones, since leaving it empty takes the field', () => {
+    expect(fieldZonesError(ROLL, ROLL, FIELD_ZONES_MESSAGE)).toEqual({
+      at: 'path',
+      message: FIELD_ZONES_ELSEWHERE_MESSAGE
+    })
+    expect(FIELD_ZONES_ELSEWHERE_MESSAGE).toBe(
+      'A field has no zones: choose a path that has zones.'
+    )
   })
 
   it('finds nothing wrong with zones from a plain path, or a pointer that is not one', () => {

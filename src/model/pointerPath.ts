@@ -25,6 +25,9 @@ export const FIELD_ZONES_MESSAGE = 'A field has no zones: turn this off and type
 export const FIELD_ZONES_PATH_MESSAGE =
   'A field has no zones: choose another path or leave this empty.'
 
+/** Under "Zones from path" on a field signal, which left empty gives a field's zones too. */
+export const FIELD_ZONES_ELSEWHERE_MESSAGE = 'A field has no zones: choose a path that has zones.'
+
 /** Under a condition's zone level. */
 export const FIELD_ZONES_LEVEL_MESSAGE =
   'A field has no zones: choose A fixed value and type the limit.'
@@ -121,14 +124,15 @@ export function fieldZonesError(
   signalPath: string | undefined,
   onField: string
 ): FieldZonesError | undefined {
+  const onFieldSignal = signalPath !== undefined && isPointerPath(signalPath)
   if (zonesPath !== undefined) {
-    return isPointerPath(zonesPath) && splitPointerPath(zonesPath).valid
-      ? { at: 'path', message: FIELD_ZONES_PATH_MESSAGE }
-      : undefined
+    if (!isPointerPath(zonesPath) || !splitPointerPath(zonesPath).valid) return undefined
+    return {
+      at: 'path',
+      message: onFieldSignal ? FIELD_ZONES_ELSEWHERE_MESSAGE : FIELD_ZONES_PATH_MESSAGE
+    }
   }
-  return signalPath !== undefined && isPointerPath(signalPath)
-    ? { at: 'limit', message: onField }
-    : undefined
+  return onFieldSignal ? { at: 'limit', message: onField } : undefined
 }
 
 // RFC 6901 decodes ~1 before ~0, so that ~01 is "~1" and not "/".

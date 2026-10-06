@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { alertPathOf } from '../../src/alerts/paths.js'
 import {
+  FIELD_ZONES_ELSEWHERE_MESSAGE,
   FIELD_ZONES_LEVEL_MESSAGE,
   FIELD_ZONES_MESSAGE,
   FIELD_ZONES_PATH_MESSAGE,
@@ -418,6 +419,13 @@ describe('validateRule', () => {
       const malformed = { ...zoned, limit: { ...zoned.limit, path: 'x#y' } }
       expect(errorsOf(rule({ detector: malformed }))).toEqual([
         { path: '/detector/limit/path', message: POINTER_MESSAGE }
+      ])
+    })
+
+    it('asks a field rule naming a field for its zones for a path with zones', () => {
+      const detector = { ...zoned, limit: { ...zoned.limit, path: 'x#/y' } }
+      expect(errorsOf(rule({ signal: { path: ROLL }, detector }))).toEqual([
+        { path: '/detector/limit/path', message: FIELD_ZONES_ELSEWHERE_MESSAGE }
       ])
     })
 

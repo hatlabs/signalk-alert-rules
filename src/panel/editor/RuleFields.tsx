@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { renderMessage } from '../../alerts/message'
 import {
+  FIELD_ZONES_ELSEWHERE_MESSAGE,
   FIELD_ZONES_LEVEL_MESSAGE,
   FIELD_ZONES_MESSAGE,
   FIELD_ZONES_PATH_MESSAGE,
@@ -54,6 +55,7 @@ export interface CheckedErrors {
 
 const FIELD_ZONES_MESSAGES: ReadonlySet<string> = new Set([
   FIELD_ZONES_MESSAGE,
+  FIELD_ZONES_ELSEWHERE_MESSAGE,
   FIELD_ZONES_PATH_MESSAGE,
   FIELD_ZONES_LEVEL_MESSAGE
 ])

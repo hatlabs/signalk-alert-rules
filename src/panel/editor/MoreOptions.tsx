@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { RANGE_HYSTERESIS } from '../../model/rangeMessages'
 import type { Priority, ZoneLevel } from '../../model/rule'
-import { FIELD_ZONES_MESSAGE, FIELD_ZONES_PATH_MESSAGE } from '../../model/pointerPath'
+import { FIELD_ZONES_MESSAGE, isPointerPath } from '../../model/pointerPath'
 import { PriorityBadge } from '../list/PriorityBadge'
 import { PathPicker } from '../paths/PathPicker'
 import { withoutFields, type PathList } from '../paths/selfPaths'
@@ -60,10 +60,11 @@ function Zones({ form, onChange, measure, paths, units }: ZonesProps) {
   const zones = (entry?.zones ?? []).filter((z) => climbed.has(z.state as ZoneLevel))
   const zoneMeasure = { ...measure, unit: entry?.unit ?? measure.unit }
   const on = isZoneLimited(form.detector)
-  // Zones that would come from a field, as the form's errors say: there are none to
-  // describe, only the error shown.
   const onField = useFieldErrors(ZONES).includes(FIELD_ZONES_MESSAGE)
-  const zonesOfField = onField || zonePathErrors.includes(FIELD_ZONES_PATH_MESSAGE)
+  // A field has no zones: leaving the path empty would give none, and a path typed
+  // as a field, valid or not, has none to describe.
+  const fieldSignal = single !== undefined && isPointerPath(single)
+  const zonesOfField = zonePath !== undefined && isPointerPath(zonePath)
   return (
     <>
       <CheckField
@@ -99,7 +100,7 @@ function Zones({ form, onChange, measure, paths, units }: ZonesProps) {
             paths={withoutFields(paths)}
             errors={zonePathErrors}
             hint={
-              single === undefined || onField ? undefined : single === '' ? (
+              single === undefined || fieldSignal ? undefined : single === '' ? (
                 "Empty uses the zones of the value's path."
               ) : (
                 <>
