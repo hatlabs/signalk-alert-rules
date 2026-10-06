@@ -351,7 +351,21 @@ describe('HistoryChart', () => {
       expect(screen.getByRole('status').textContent).toMatch(
         /^Lowest 2\.865 ° at .+; highest 22\.92 ° at .+\. It went above the limit\.$/
       )
-      expect(screen.queryByText(/would not have alerted/)).toBeNull()
+    })
+
+    it('names the extremes of last values that stayed inside the limits, and stops there', async () => {
+      const inside: HistoryPoint[] = Array.from({ length: 144 }, (_, i) => ({
+        time: NOW - 24 * HOUR + i * BUCKET,
+        value: i === 100 ? 0.1 : 0.05
+      }))
+      render(
+        <HistoryChart history={fakeHistory(() => Promise.resolve({ last: inside }))} spec={roll} />
+      )
+      await settle()
+      // A peak between two last values may have passed a limit, so no verdict follows.
+      expect(screen.getByRole('status').textContent).toMatch(
+        /^Lowest 2\.865 ° at [^.;]+; highest 5\.73 ° at [^.;]+\.$/
+      )
     })
 
     it('says history is unavailable, without the note, when the provider refuses the object path', async () => {
