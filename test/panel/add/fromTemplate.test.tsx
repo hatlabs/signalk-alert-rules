@@ -1408,7 +1408,7 @@ describe('rules from a template with two slots', () => {
 
   describe('a template that leaves the source open', () => {
     const sourced: PathEntry[] = [
-      { ...voltage('start', 12.6), sources: ['n2k.1', 'venus.0'] },
+      { ...voltage('start', 12.6), sources: ['n2k.1', 'n2k.3'] },
       { ...voltage('house', 13.2), sources: ['n2k.2'] },
       revolutions('main', 30)
     ]
@@ -1424,10 +1424,10 @@ describe('rules from a template with two slots', () => {
       expect(options(source())).toEqual([
         ['Choose a source', true],
         ['n2k.1', false],
-        ['venus.0', false]
+        ['n2k.3', false]
       ])
       expect(status().textContent).toBe('Choose a source for rule 1')
-      choose(1, 'Source', 'venus.0')
+      choose(1, 'Source', 'n2k.3')
       choose(1, 'Battery', 'house')
       expect(source().value).toBe('')
       choose(1, 'Source', 'n2k.2')

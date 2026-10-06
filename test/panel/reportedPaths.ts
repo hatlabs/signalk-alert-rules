@@ -59,7 +59,7 @@ export const reported: PathEntry[] = [
     units: 'A',
     unit: amperes,
     value: -2.1,
-    sources: ['can0.226', 'venus.0'],
+    sources: ['can0.226', 'n2k.2'],
     preferredSource: 'can0.226'
   },
   { path: 'electrical.batteries.start.current', units: 'A', unit: amperes, value: 0.3 },
