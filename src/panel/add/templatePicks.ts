@@ -74,6 +74,11 @@ function inWatchedPath(template: Template, slot: Slot): boolean {
   return openPath(template)?.includes(placeholder(slot.name)) ?? false
 }
 
+/** The slots in the path the template's rule watches, whose choices decide its sources. */
+export function watchedSlots(template: Template): Slot[] {
+  return slotsOf(template).filter((slot) => inWatchedPath(template, slot))
+}
+
 /** The path a pick's rule watches. */
 export function watchedPath(template: Template, pick: TemplatePick): string {
   return slotsOf(template).reduce(
@@ -229,6 +234,14 @@ function slotPaths(template: Template, slot: string): string[] {
     path.split('.').includes(placeholder(slot))
   )
   return [...new Set(using)]
+}
+
+/** The first path a slot is in, as the user reads it: `propulsion.<name>.revolutions`. */
+export function slotPattern(template: Template, slot: string): string {
+  return slotsOf(template).reduce(
+    (path, s) => path.replaceAll(placeholder(s.name), '<name>'),
+    slotPaths(template, slot)[0] ?? ''
+  )
 }
 
 /**

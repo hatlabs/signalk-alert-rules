@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { ruleAlertPath } from '../../../src/model/alertPath'
 import type { Rule } from '../../../src/model/rule'
 import type { Template } from '../../../src/model/template'
 import { validateRule } from '../../../src/model/validate'
@@ -1139,6 +1140,273 @@ describe('rules from a template with two slots', () => {
     window.history.replaceState(null, '', `/${href}`)
     await screen.findByRole('tab', { name: shown })
   }
+
+  const revolutions = (engine: string, value: number): PathEntry => ({
+    path: `propulsion.${engine}.revolutions`,
+    units: 'Hz',
+    unit: displayUnit({ units: 'Hz' }),
+    value
+  })
+
+  /** Add rule, the Engines set, the alternator template: the row picker. */
+  async function openRows() {
+    window.history.replaceState(null, '', '/#add')
+    await screen.findByText('Engines')
+    fireEvent.click(screen.getByRole('link', { name: /^Engines/ }))
+    const links = await screen.findAllByRole('link', { name: /^Engine alternator not charging/ })
+    fireEvent.click(links[0])
+    await screen.findByRole('group', { name: 'Rule 1' })
+  }
+
+  const cell = (rule: number, label: string) =>
+    within(
+      screen.getByRole('group', { name: `Rule ${String(rule)}` })
+    ).getByRole<HTMLSelectElement>('combobox', { name: label })
+
+  it('makes the rule of a row prefilled from the one battery and engine, from Add rule to Create', async () => {
+    const api = renderShell(
+      { rules: [], listing },
+      { reported: [voltage('start', 12.6), revolutions('main', 30)] }
+    )
+    await openRows()
+    expect(cell(1, 'Battery').value).toBe('start')
+    expect(cell(1, 'Engine').value).toBe('main')
+    await continueWith('Continue with 1 rule')
+    fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+    await screen.findByRole('heading', { name: 'Engine main alternator not charging' })
+    expect(createdRules(api).map((r) => [r.slug, r.template?.pick, ruleAlertPath(r)])).toEqual([
+      [
+        'alternator-not-charging-start-main',
+        { battery: 'start', engine: 'main' },
+        'electrical.batteries.start.mainAlternatorNotCharging'
+      ]
+    ])
+  })
+
+  const twin = [voltage('start', 12.6), revolutions('port', 30), revolutions('starboard', 0)]
+  const status = () => screen.getByRole('status')
+  const continueButton = () => screen.getByRole<HTMLButtonElement>('button', { name: /^Continue/ })
+  const options = (select: HTMLSelectElement) =>
+    [...select.options].map((o) => [o.textContent, o.disabled])
+  const choose = (rule: number, label: string, value: string) => {
+    change(cell(rule, label), value)
+  }
+
+  /** The row picker straight from its link, with the rows `picks` restores. */
+  async function openPicker(picks: Record<string, string>[], template = alternator.id) {
+    const href = hashWithRoute('', {
+      kind: 'add',
+      from: 'template',
+      set: 'engines',
+      template,
+      picks
+    })
+    window.history.replaceState(null, '', `/${href}`)
+    await screen.findByRole('group', { name: 'Rule 1' })
+  }
+
+  it('reads each slot’s choices with their values, asking for both in the lead', async () => {
+    renderShell({ rules: [], listing }, { reported: [...twin, voltage('house', 13.2)] })
+    await openRows()
+    expect(
+      screen.getByText(/Choose a battery and an engine for each rule\./).textContent
+    ).toContain('Each row becomes its own rule.')
+    expect(screen.queryByText('Reporting now')).toBeNull()
+    expect(options(cell(1, 'Battery'))).toEqual([
+      ['Choose a battery', true],
+      ['house · 13.2 V', false],
+      ['start · 12.6 V', false]
+    ])
+    expect(options(cell(1, 'Engine'))).toEqual([
+      ['Choose an engine', true],
+      ['port · 30 Hz', false],
+      ['starboard · 0 Hz', false]
+    ])
+    expect(cell(1, 'Engine').value).toBe('')
+    expect(status().textContent).toBe('Choose a battery for rule 1')
+    expect(continueButton().disabled).toBe(true)
+    expect(continueButton().textContent).toBe('Continue with 1 rule')
+  })
+
+  it('makes a rule for each of twin engines charging one battery, with alert paths apart', async () => {
+    const api = renderShell({ rules: [], listing }, { reported: twin })
+    await openRows()
+    expect(screen.queryByRole('button', { name: /^Remove rule/ })).toBeNull()
+    choose(1, 'Engine', 'port')
+    fireEvent.click(screen.getByRole('button', { name: 'Add another' }))
+    expect(cell(2, 'Battery').value).toBe('start')
+    expect(document.activeElement).toBe(cell(2, 'Engine'))
+    choose(2, 'Engine', 'starboard')
+    expect(status().textContent).toBe('')
+    await continueWith('Continue with 2 rules')
+    expect(tab(/start · port/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Create 2 rules' }))
+    await screen.findByRole('heading', { name: 'Alert rules' })
+    expect(createdRules(api).map((r) => [r.slug, ruleAlertPath(r)])).toEqual([
+      [
+        'alternator-not-charging-start-port',
+        'electrical.batteries.start.portAlternatorNotCharging'
+      ],
+      [
+        'alternator-not-charging-start-starboard',
+        'electrical.batteries.start.starboardAlternatorNotCharging'
+      ]
+    ])
+  })
+
+  it('removes a row, moving focus to the next row or the one before, and says which went', async () => {
+    renderShell({ rules: [], listing }, { reported: twin })
+    await openPicker([
+      { battery: 'start', engine: 'port' },
+      { battery: 'start', engine: 'starboard' },
+      { battery: 'start' }
+    ])
+    fireEvent.click(screen.getByRole('button', { name: 'Remove rule 1' }))
+    expect(cell(1, 'Engine').value).toBe('starboard')
+    expect(document.activeElement).toBe(cell(1, 'Battery'))
+    expect(status().textContent).toBe('Rule 1 removed. Choose an engine for rule 2')
+    fireEvent.click(screen.getByRole('button', { name: 'Remove rule 2' }))
+    expect(screen.queryByRole('group', { name: 'Rule 2' })).toBeNull()
+    expect(document.activeElement).toBe(cell(1, 'Battery'))
+    expect(status().textContent).toBe('Rule 2 removed.')
+    expect(screen.queryByRole('button', { name: /^Remove rule/ })).toBeNull()
+    expect(continueButton().disabled).toBe(false)
+  })
+
+  it('blocks two rows that are the same, a missing choice named first', async () => {
+    renderShell({ rules: [], listing }, { reported: twin })
+    await openPicker([
+      { battery: 'start', engine: 'port' },
+      { battery: 'start', engine: 'port' },
+      { battery: 'start' }
+    ])
+    expect(status().textContent).toBe('Choose an engine for rule 3')
+    choose(3, 'Engine', 'starboard')
+    expect(status().textContent).toBe('Rules 1 and 2 are the same')
+    expect(continueButton().disabled).toBe(true)
+    expect(continueButton().textContent).toBe('Continue with 3 rules')
+  })
+
+  it('fills a slot nothing reports with a typed name, offered in every row', async () => {
+    renderShell({ rules: [], listing }, { reported: [voltage('start', 12.6)] })
+    await openRows()
+    expect(options(cell(1, 'Engine'))).toEqual([['Nothing reports yet', true]])
+    const typed = screen.getByRole('textbox', { name: 'Engine not listed?' })
+    expect(typed.getAttribute('placeholder')).toBe('The name in the path')
+    expect(screen.getByText(/as propulsion\.<name>\.revolutions\./)).toBeTruthy()
+    change(typed, 'port side')
+    fireEvent.click(screen.getAllByRole('button', { name: 'Add' })[1])
+    expect(screen.getByRole('alert').textContent).toContain('one path segment')
+    change(typed, 'port')
+    fireEvent.click(screen.getAllByRole('button', { name: 'Add' })[1])
+    expect(cell(1, 'Engine').value).toBe('port')
+    expect(options(cell(1, 'Engine'))).toEqual([
+      ['Choose an engine', true],
+      ['port · not reporting yet', false]
+    ])
+    expect((typed as HTMLInputElement).value).toBe('')
+    fireEvent.click(screen.getByRole('button', { name: 'Add another' }))
+    expect(cell(2, 'Engine').value).toBe('')
+    expect(options(cell(2, 'Engine'))).toContainEqual(['port · not reporting yet', false])
+  })
+
+  it('offers only typed names while the paths fail', async () => {
+    const failing: PathSource = {
+      selfPaths: () => Promise.reject(new Error('timed out')),
+      distanceUnit: () => Promise.resolve(displayUnit({ units: 'm' }))
+    }
+    render(<Shell api={serverApi({ rules: [], listing })} paths={failing} />)
+    await openRows()
+    expect(screen.getByRole('alert').textContent).toContain('Could not load paths: timed out.')
+    expect(options(cell(1, 'Battery'))).toEqual([['Nothing reports yet', true]])
+    expect(options(cell(1, 'Engine'))).toEqual([['Nothing reports yet', true]])
+    change(screen.getByRole('textbox', { name: 'Battery not listed?' }), 'start')
+    fireEvent.click(screen.getAllByRole('button', { name: 'Add' })[0])
+    expect(cell(1, 'Battery').value).toBe('start')
+  })
+
+  it('marks a row whose picks already have a rule from the template', async () => {
+    renderShell({ rules: [mainRule], listing }, { reported })
+    await openPicker([
+      { battery: 'start', engine: 'main' },
+      { battery: 'house', engine: 'main' }
+    ])
+    const [first, second] = screen.getAllByRole('group', { name: /^Rule/ })
+    expect(first.textContent).toContain(
+      'Already has a rule from this template: Engine main alternator not charging'
+    )
+    expect(second.textContent).not.toContain('Already has a rule')
+    expect(continueButton().disabled).toBe(false)
+  })
+
+  it('keeps a chosen engine that stopped reporting, marked so, and prefills no chosen slot', async () => {
+    renderShell(
+      { rules: [], listing },
+      { reported: [voltage('start', 12.6), revolutions('port', 30)] }
+    )
+    await openPicker([
+      { battery: 'house', engine: 'port' },
+      { battery: 'start', engine: 'starboard' }
+    ])
+    expect(cell(1, 'Battery').value).toBe('house')
+    expect(options(cell(1, 'Battery'))).toContainEqual(['house · not reporting', false])
+    expect(cell(2, 'Engine').value).toBe('starboard')
+    expect(options(cell(2, 'Engine'))).toEqual([
+      ['Choose an engine', true],
+      ['port · 30 Hz', false],
+      ['starboard · not reporting', false]
+    ])
+  })
+
+  it('goes back from the rules to the rows as they were', async () => {
+    renderShell({ rules: [], listing }, { reported: twin })
+    await openRows()
+    choose(1, 'Engine', 'starboard')
+    fireEvent.click(screen.getByRole('button', { name: 'Add another' }))
+    choose(2, 'Engine', 'port')
+    await continueWith('Continue with 2 rules')
+    fireEvent.click(screen.getByRole('link', { name: 'Choose what it watches' }))
+    await screen.findByRole('group', { name: 'Rule 2' })
+    expect([cell(1, 'Engine').value, cell(2, 'Engine').value]).toEqual(['starboard', 'port'])
+    expect(cell(2, 'Battery').value).toBe('start')
+  })
+
+  describe('a template that leaves the source open', () => {
+    const sourced: PathEntry[] = [
+      { ...voltage('start', 12.6), sources: ['n2k.1', 'venus.0'] },
+      { ...voltage('house', 13.2), sources: ['n2k.2'] },
+      revolutions('main', 30)
+    ]
+
+    it('waits for the battery before offering its sources, clearing the source when it changes', async () => {
+      const api = renderShell({ rules: [], listing }, { reported: sourced })
+      await openPicker([{ engine: 'main' }], bySource.id)
+      const source = () => cell(1, 'Source')
+      expect(source().disabled).toBe(true)
+      expect(options(source())).toEqual([['Choose a battery first', true]])
+      choose(1, 'Battery', 'start')
+      expect(source().disabled).toBe(false)
+      expect(options(source())).toEqual([
+        ['Choose a source', true],
+        ['n2k.1', false],
+        ['venus.0', false]
+      ])
+      expect(status().textContent).toBe('Choose a source for rule 1')
+      choose(1, 'Source', 'venus.0')
+      choose(1, 'Battery', 'house')
+      expect(source().value).toBe('')
+      choose(1, 'Source', 'n2k.2')
+      await continueWith('Continue with 1 rule')
+      fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+      await screen.findByRole('heading', { name: 'Engine main alternator not charging' })
+      expect(createdRules(api).map((r) => [r.template?.pick, r.signal])).toEqual([
+        [
+          { battery: 'house', engine: 'main', source: 'n2k.2' },
+          { path: 'electrical.batteries.house.voltage', source: 'n2k.2' }
+        ]
+      ])
+    })
+  })
 
   it('labels a tab with its source after the slots, and marks a battery not reporting', async () => {
     renderShell({ rules: [], listing }, { reported })
