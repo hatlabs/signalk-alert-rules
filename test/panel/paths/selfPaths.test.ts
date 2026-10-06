@@ -275,6 +275,31 @@ describe('parseSelfPaths, fields of an object path', () => {
     expect(paths[1]).toMatchObject({ value: 12, valueType: 'number', unit: { symbol: 'm' } })
   })
 
+  it('keeps a position without a fix in the list, beside its fields', () => {
+    const paths = parseSelfPaths({
+      navigation: {
+        position: {
+          value: null,
+          $source: 'gnss.bow',
+          meta: {
+            properties: {
+              latitude: { type: 'number', units: 'deg' },
+              longitude: { type: 'number', units: 'deg' },
+              altitude: { type: 'number', units: 'm' }
+            }
+          }
+        }
+      }
+    })
+    expect(paths.map((p) => p.path)).toEqual([
+      'navigation.position',
+      'navigation.position#/altitude',
+      'navigation.position#/latitude',
+      'navigation.position#/longitude'
+    ])
+    expect(paths.every((p) => !('value' in p))).toBe(true)
+  })
+
   it('lists no field of a notification, whose metadata declares its state and message', () => {
     const paths = parseSelfPaths({
       notifications: {
