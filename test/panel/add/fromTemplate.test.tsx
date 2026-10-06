@@ -1104,7 +1104,16 @@ describe('rules from a template with two slots', () => {
     ],
     problems: []
   }
-  const reported = [...boat, voltage('start', 12.6)]
+  const reported: PathEntry[] = [
+    ...boat,
+    voltage('start', 12.6),
+    {
+      path: 'propulsion.main.revolutions',
+      units: 'Hz',
+      unit: displayUnit({ units: 'Hz' }),
+      value: 30
+    }
+  ]
   const mainRule = ruleEntry({
     slug: 'alternator-not-charging-start-main',
     rule: {
@@ -1145,7 +1154,7 @@ describe('rules from a template with two slots', () => {
     expect(tab(/windlass · port · n2k\.1/).textContent).toContain('not reporting yet')
   })
 
-  it('labels each tab with its slots and marks the row whose picks have a rule', async () => {
+  it('labels each tab with its slots, marking the row with a rule and the one whose engine is silent', async () => {
     const api = renderShell({ rules: [mainRule], listing }, { reported })
     await openTabs([
       { battery: 'start', engine: 'main' },
@@ -1153,7 +1162,8 @@ describe('rules from a template with two slots', () => {
     ])
     expect(tab(/start · main/).textContent).toContain('already has a rule')
     expect(tab(/start · port/).textContent).not.toContain('already has a rule')
-    expect(tab(/start · port/).textContent).not.toContain('not reporting yet')
+    expect(tab(/start · main/).textContent).not.toContain('not reporting yet')
+    expect(tab(/start · port/).textContent).toContain('not reporting yet')
     fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
     await screen.findByRole('heading', { name: 'Engine port alternator not charging' })
     expect(createdRules(api).map((r) => [r.slug, r.template?.pick])).toEqual([
@@ -1185,5 +1195,91 @@ describe('rules from a template with two slots', () => {
       'alternator-not-charging-start-port',
       'alternator-not-charging-start-port-2'
     ])
+  })
+})
+
+describe('rules from a template with one slot named other than instance', () => {
+  afterEach(() => {
+    cleanup()
+    window.history.replaceState(null, '', '/')
+  })
+
+  const batteryLow: Template = {
+    id: 'battery-low',
+    slots: [{ name: 'battery', label: 'Battery' }],
+    condition: 'voltageLow',
+    rule: {
+      name: 'Battery ${battery} voltage low',
+      message: 'Battery ${battery} voltage below {limit}: {value}',
+      signal: { path: 'electrical.batteries.${battery}.voltage' },
+      detector: {
+        type: 'sustained',
+        direction: 'below',
+        steps: [{ limit: 12, priority: 'warning' }],
+        duration: 60
+      }
+    }
+  }
+  const listing: TemplateListing = {
+    sets: [
+      {
+        id: 'batteries',
+        name: 'Batteries',
+        version: '1.0.0',
+        source: 'file batteries.yaml',
+        templates: [batteryLow],
+        new: []
+      }
+    ],
+    problems: []
+  }
+
+  it('lists each battery, takes a typed one, and labels each tab with its pick', async () => {
+    const api = renderShell({ rules: [], listing })
+    const href = hashWithRoute('', {
+      kind: 'add',
+      from: 'template',
+      set: 'batteries',
+      template: batteryLow.id
+    })
+    window.history.replaceState(null, '', `/${href}`)
+    await screen.findByRole('list', { name: 'Picks' })
+    pick(/^House bank/)
+    change(screen.getByRole('textbox', { name: 'Not listed?' }), 'windlass')
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    expect(screen.getByRole('checkbox', { name: /^windlass/ })).toHaveProperty('checked', true)
+    await continueWith('Continue with 2 rules')
+    expect(tab(/House bank/).textContent).not.toContain('not reporting yet')
+    expect(tab(/windlass/).textContent).toContain('not reporting yet')
+    fireEvent.click(screen.getByRole('button', { name: 'Create 2 rules' }))
+    await screen.findByRole('heading', { name: 'Alert rules' })
+    expect(createdRules(api).map((r) => [r.slug, r.signal, r.template?.pick])).toEqual([
+      ['battery-low-house', { path: 'electrical.batteries.house.voltage' }, { battery: 'house' }],
+      [
+        'battery-low-windlass',
+        { path: 'electrical.batteries.windlass.voltage' },
+        { battery: 'windlass' }
+      ]
+    ])
+  })
+
+  it('keeps a typed battery checked on the way back from the rules', async () => {
+    renderShell({ rules: [], listing })
+    const href = hashWithRoute('', {
+      kind: 'add',
+      from: 'template',
+      set: 'batteries',
+      template: batteryLow.id
+    })
+    window.history.replaceState(null, '', `/${href}`)
+    await screen.findByRole('list', { name: 'Picks' })
+    pick(/^House bank/)
+    change(screen.getByRole('textbox', { name: 'Not listed?' }), 'windlass')
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    await continueWith('Continue with 2 rules')
+    fireEvent.click(screen.getByRole('link', { name: 'Choose what it watches' }))
+    await screen.findByRole('list', { name: 'Picks' })
+    expect(screen.getByRole('checkbox', { name: /^windlass/ })).toHaveProperty('checked', true)
+    expect(screen.getByRole('checkbox', { name: /^House bank/ })).toHaveProperty('checked', true)
   })
 })

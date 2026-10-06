@@ -39,7 +39,14 @@ import { FormHistory } from '../history/FormHistory'
 import type { HistorySource } from '../history/historySource'
 import type { PathList, PathSource } from '../paths/selfPaths'
 import type { UnitLookup } from '../signalUnits'
-import { candidates, pickKey, ruleWatching, templateTitle, watchedPath } from './templatePicks'
+import {
+  candidates,
+  onlySlot,
+  pickKey,
+  pickReports,
+  ruleWatching,
+  templateTitle
+} from './templatePicks'
 import { copySettings, drafts, tabsHint } from './templateDrafts'
 
 /**
@@ -126,22 +133,27 @@ function initialTabs(props: FormProps): Tab[] {
   )
   const taken = new Set(rules.map((r) => r.slug))
   const slots = slotsOf(template)
+  const only = onlySlot(template)
   return drafts(set, template, picks, taken, units).map(({ pick, form }) => {
     const key = pickKey(pick)
     const existing = ruleWatching(set.id, template, pick, rules)
     const candidate = found.get(key)
-    const watched = watchedPath(template, pick)
-    // The candidates know one slot only; a pick of more is named by its choices.
+    // The candidates list a single slot's picks; a pick of more is named by its
+    // choices, and waits until each choice reports a path its slot is in.
     const { label, waiting } =
       slots.length > 1
         ? {
             label: [...slots.map((slot) => picked(pick, slot.name)), picked(pick, SOURCE_PICK)]
               .filter((choice) => choice !== undefined)
               .join(' · '),
-            waiting: !reported.some((p) => p.path === watched)
+            waiting: !pickReports(template, pick, reported)
           }
         : {
-            label: candidate?.label ?? pick.instance ?? pick.source ?? templateTitle(template),
+            label:
+              candidate?.label ??
+              (only === undefined ? undefined : picked(pick, only.name)) ??
+              pick.source ??
+              templateTitle(template),
             waiting: candidate?.entry === undefined
           }
     return {

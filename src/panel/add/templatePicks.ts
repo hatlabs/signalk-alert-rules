@@ -3,19 +3,12 @@
  * reporting now, read from the server's self paths, and instances typed in.
  */
 import type { TemplatePick } from '../../model/rule'
-import type { Template } from '../../model/template'
-import {
-  SLOT_PICK_MESSAGE,
-  SLOT_PICK_PATTERN,
-  INSTANCE_PLACEHOLDER,
-  picked,
-  slotsOf
-} from '../../templates/instantiate'
+import type { Slot, Template } from '../../model/template'
+import { SLOT_PICK_MESSAGE, SLOT_PICK_PATTERN, picked, slotsOf } from '../../templates/instantiate'
 import { isInvalid, isRecord, type ListedRule } from '../api'
 import type { PathEntry } from '../paths/selfPaths'
-import { matchedInstances } from '../signalUnits'
+import { matchedInstances, matchesPattern } from '../signalUnits'
 
-const PLACEHOLDER = `\${${INSTANCE_PLACEHOLDER}}`
 const SLOT_PICK = new RegExp(SLOT_PICK_PATTERN)
 
 /** One way to fill a template's open parts, as the picker lists it. */
@@ -46,7 +39,16 @@ export function templateTitle(template: Template): string {
   return stripped.replace(/\s+/g, ' ').trim()
 }
 
-/** The path the template's picks are found under: its input's, or the input that carries the instance. */
+/**
+ * The slot of a template with exactly one, which the checkbox picker lists:
+ * `open: [instance]`'s or one declared under any name.
+ */
+export function onlySlot(template: Template): Slot | undefined {
+  const slots = slotsOf(template)
+  return slots.length === 1 ? slots[0] : undefined
+}
+
+/** The path the template's picks are found under: its input's, or the input that carries a slot. */
 function openPath(template: Template): string | undefined {
   const { signal } = template.rule
   if (!isRecord(signal)) return undefined
@@ -55,12 +57,21 @@ function openPath(template: Template): string | undefined {
   const paths = inputs.flatMap((i: unknown) =>
     isRecord(i) && typeof i.path === 'string' ? [i.path] : []
   )
-  return paths.find((p) => p.includes(PLACEHOLDER)) ?? paths[0]
+  const slots = slotsOf(template)
+  return paths.find((p) => slots.some((slot) => p.includes(placeholder(slot.name)))) ?? paths[0]
 }
 
 /** The path picks are found under, as the user reads it: `electrical.batteries.<name>.voltage`. */
 export function openPattern(template: Template): string | undefined {
-  return openPath(template)?.replaceAll(PLACEHOLDER, '<name>')
+  return slotsOf(template).reduce<string | undefined>(
+    (path, slot) => path?.replaceAll(placeholder(slot.name), '<name>'),
+    openPath(template)
+  )
+}
+
+/** Whether a slot shows in the path the template's rule watches. */
+function inWatchedPath(template: Template, slot: Slot): boolean {
+  return openPath(template)?.includes(placeholder(slot.name)) ?? false
 }
 
 /** The path a pick's rule watches. */
@@ -80,13 +91,12 @@ export function watchedPath(template: Template, pick: TemplatePick): string {
  * name of the path watched, else the path segment.
  */
 function instanceLabel(
-  pattern: string,
+  group: string,
   instance: string,
   entry: PathEntry | undefined,
   byPath: ReadonlyMap<string, PathEntry>
 ): string {
-  const at = pattern.indexOf(PLACEHOLDER)
-  const named = byPath.get(`${pattern.slice(0, at)}${instance}.name`)?.value
+  const named = byPath.get(`${group}${instance}.name`)?.value
   if (typeof named === 'string' && named !== '') return named
   return entry?.displayName ?? instance
 }
@@ -98,12 +108,12 @@ export function pickKey(pick: TemplatePick): string {
 }
 
 /**
- * The name of a rule made from this template for the pick. A single-slot
- * template's rule is matched on what it watches now, from the source when
- * one is picked: its pick is only what it was made with, and its path may
- * have been changed since. A template with more slots is matched on the
- * stored pick, since a slot that only a gate uses, such as an engine, does
- * not show in the watched path.
+ * The name of a rule made from this template for the pick. A template whose
+ * one slot is in the watched path is matched on what its rule watches now,
+ * from the source when one is picked: its pick is only what it was made
+ * with, and its path may have been changed since. Any other template is
+ * matched on the stored pick, since a slot that only a gate uses, such as an
+ * engine, does not show in the watched path.
  */
 export function ruleWatching(
   setId: string,
@@ -111,7 +121,8 @@ export function ruleWatching(
   pick: TemplatePick,
   rules: readonly ListedRule[]
 ): string | undefined {
-  const bySlots = slotsOf(template).length > 1
+  const slots = slotsOf(template)
+  const bySlots = slots.length > 1 || slots.some((slot) => !inWatchedPath(template, slot))
   const watched = watchedPath(template, pick)
   for (const entry of rules) {
     if (isInvalid(entry)) continue
@@ -126,10 +137,11 @@ export function ruleWatching(
 }
 
 /**
- * The picks the template can be used with now: each instance reporting under
- * its open path, or each source reporting it, or both paired; a template
- * with nothing open has its one rule. Each names the rule it already has
- * from the template, if any.
+ * The picks a template with at most one slot can be used with now: each
+ * instance reporting under its open path, or each source reporting it, or
+ * both paired; a template with nothing open has its one rule. Each names the
+ * rule it already has from the template, if any. A template with more slots
+ * is picked slot by slot instead, and lists nothing here.
  */
 export function candidates(
   setId: string,
@@ -138,7 +150,8 @@ export function candidates(
   rules: readonly ListedRule[]
 ): Candidate[] {
   const path = openPath(template)
-  if (path === undefined) return []
+  if (path === undefined || slotsOf(template).length > 1) return []
+  const slot = onlySlot(template)
   const open = template.open ?? []
   const byPath = new Map(paths.map((p) => [p.path, p]))
   const found: Candidate[] = []
@@ -146,29 +159,142 @@ export function candidates(
     const ruleName = ruleWatching(setId, template, candidate.pick, rules)
     found.push(ruleName === undefined ? candidate : { ...candidate, ruleName })
   }
-  const instances = open.includes('instance')
-    ? matchedInstances(path.replaceAll(PLACEHOLDER, '*'), paths)
-    : [undefined]
-  for (const instance of instances) {
-    const named = instance === undefined ? {} : { instance }
+  // The path up to the slot, under which an instance reports its name.
+  const group = slot === undefined ? '' : path.slice(0, path.indexOf(placeholder(slot.name)))
+  const choices: { named: TemplatePick; instance?: string; found?: SlotCandidate }[] =
+    slot === undefined
+      ? [{ named: {} }]
+      : inWatchedPath(template, slot)
+        ? matchedInstances(path.replaceAll(placeholder(slot.name), '*'), paths).map((instance) => ({
+            named: { [slot.name]: instance },
+            instance
+          }))
+        : // A slot only a gate or zone path uses: the instances reporting those.
+          slotCandidates(template, slot.name, paths).map((found) => ({
+            named: { [slot.name]: found.instance },
+            instance: found.instance,
+            found
+          }))
+  for (const { named, instance, found: slotFound } of choices) {
     const watched = watchedPath(template, named)
-    const entry = byPath.get(watched)
+    const entry = slotFound === undefined ? byPath.get(watched) : slotFound.entry
     const reported = entry === undefined ? {} : { entry }
     const label =
       instance === undefined
         ? (entry?.displayName ??
           (typeof template.rule.name === 'string' ? template.rule.name : watched))
-        : instanceLabel(path, instance, entry, byPath)
+        : (slotFound?.label ?? instanceLabel(group, instance, entry, byPath))
     if (!open.includes('source')) {
       add({ pick: named, label, path: watched, ...reported })
       continue
     }
-    for (const source of entry?.sources ?? []) {
+    // The source is pinned on the signal, so it is one the watched path reports.
+    for (const source of byPath.get(watched)?.sources ?? []) {
       const sourceLabel = instance === undefined ? source : `${label} · ${source}`
       add({ pick: { ...named, source }, label: sourceLabel, path: watched, ...reported })
     }
   }
   return found
+}
+
+/** One instance a slot can be filled with, as a row of the picker lists it. */
+export interface SlotCandidate {
+  /** The slot's pick: the path segment. */
+  instance: string
+  /** The instance's name, as the user knows it. */
+  label: string
+  /** The first path using the slot that the instance reports; absent for a typed one. */
+  entry?: PathEntry
+  /** Typed by the user rather than found reporting. */
+  typed?: true
+}
+
+/** Every string under a `path` key, in the order the document has them. */
+function pathsIn(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap(pathsIn)
+  if (!isRecord(value)) return []
+  return Object.entries(value).flatMap(([key, child]) =>
+    key === 'path' && typeof child === 'string' ? [child] : pathsIn(child)
+  )
+}
+
+/**
+ * The paths a slot is a segment of: the signal's first, so an instance shows
+ * the value its rule watches when it reports that, then the gates' and the
+ * zone limit's.
+ */
+function slotPaths(template: Template, slot: string): string[] {
+  const { signal, ...rest } = template.rule
+  const using = [...pathsIn(signal), ...pathsIn(rest)].filter((path) =>
+    path.split('.').includes(placeholder(slot))
+  )
+  return [...new Set(using)]
+}
+
+/**
+ * What one slot of a template can be filled with: each instance reporting any
+ * path the slot is in, showing that path's value, sorted by name; then each
+ * typed name nothing reports, in the order typed. Other slots in the same
+ * path match any segment.
+ */
+export function slotCandidates(
+  template: Template,
+  slot: string,
+  paths: readonly PathEntry[],
+  typed: readonly string[] = []
+): SlotCandidate[] {
+  const byPath = new Map(paths.map((p) => [p.path, p]))
+  const slotted = new Set(slotsOf(template).map((s) => placeholder(s.name)))
+  const found = new Map<string, SlotCandidate>()
+  for (const pattern of slotPaths(template, slot)) {
+    const parts = pattern.split('.')
+    const at = parts.indexOf(placeholder(slot))
+    const wildcard = parts.map((part) => (slotted.has(part) ? '*' : part)).join('.')
+    for (const entry of paths) {
+      if (!matchesPattern(wildcard, entry.path)) continue
+      const segments = entry.path.split('.')
+      const instance = segments[at]
+      if (found.has(instance)) continue
+      const group = segments
+        .slice(0, at)
+        .map((s) => `${s}.`)
+        .join('')
+      found.set(instance, { instance, label: instanceLabel(group, instance, entry, byPath), entry })
+    }
+  }
+  const reporting = [...found.values()].sort((a, b) =>
+    a.instance < b.instance ? -1 : a.instance > b.instance ? 1 : 0
+  )
+  const notReporting = [...new Set(typed)]
+    .filter((instance) => !found.has(instance))
+    .map((instance): SlotCandidate => ({ instance, label: instance, typed: true }))
+  return [...reporting, ...notReporting]
+}
+
+/**
+ * Whether every slot's choice reports a path the slot is in, with every
+ * slot of that path filled in, so two slots of one path report as the pair
+ * picked. The engine of a battery-and-engine pick shows only in a gate, so the
+ * watched path alone cannot tell a row with a silent engine from one that
+ * reports.
+ */
+export function pickReports(
+  template: Template,
+  pick: TemplatePick,
+  paths: readonly PathEntry[]
+): boolean {
+  const slots = slotsOf(template)
+  if (slots.some((slot) => picked(pick, slot.name) === undefined)) return false
+  const filled = (path: string) =>
+    slots.reduce(
+      (p, slot) => p.replaceAll(placeholder(slot.name), picked(pick, slot.name) ?? ''),
+      path
+    )
+  return slots.every((slot) =>
+    slotPaths(template, slot.name).some((path) =>
+      paths.some((entry) => matchesPattern(filled(path), entry.path))
+    )
+  )
 }
 
 /** Why a typed instance cannot be picked, if it cannot. */
@@ -177,19 +303,26 @@ export function instanceError(text: string): string | undefined {
   return SLOT_PICK.test(text) ? undefined : `The name ${SLOT_PICK_MESSAGE}.`
 }
 
-/** An instance typed in, for one that does not report yet, naming the rule it already has from the template. */
+/**
+ * An instance typed in for a template's one slot, for one that does not
+ * report yet, naming the rule it already has from the template.
+ */
 export function typedCandidate(
   setId: string,
   template: Template,
+  slot: Slot,
   instance: string,
   paths: readonly PathEntry[],
   rules: readonly ListedRule[]
 ): Candidate {
-  const watched = watchedPath(template, { instance })
-  const entry = paths.find((p) => p.path === watched)
-  const ruleName = ruleWatching(setId, template, { instance }, rules)
+  const pick = { [slot.name]: instance }
+  const watched = watchedPath(template, pick)
+  const entry = inWatchedPath(template, slot)
+    ? paths.find((p) => p.path === watched)
+    : slotCandidates(template, slot.name, paths).find((c) => c.instance === instance)?.entry
+  const ruleName = ruleWatching(setId, template, pick, rules)
   return {
-    pick: { instance },
+    pick,
     label: instance,
     path: watched,
     ...(entry === undefined ? {} : { entry }),
