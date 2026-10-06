@@ -3,9 +3,10 @@
  * as typed, and the unit each kind of field is entered in.
  */
 import { formatNumber } from '../../format'
+import { pathSegments, splitPointerPath } from '../../model/pointerPath'
 import type { CombinatorKind } from '../../model/rule'
 import { capitalised } from '../list/PriorityBadge'
-import type { Measure, UnitLookup } from '../signalUnits'
+import { instanceSegment, isWildcardPath, type Measure, type UnitLookup } from '../signalUnits'
 import { unitLabel } from '../units'
 import {
   parsedNumber,
@@ -55,13 +56,34 @@ function segmentWords(segment: string): string {
  * (`tanks.freshWater.0.currentLevel` reads "fresh water current level").
  */
 function pathWords(path: string): string {
-  const segments = path.split('.')
+  // A field's tokens follow its base path's segments, the field reading as the leaf.
+  const segments = pathSegments(path) ?? path.split('.')
   const leaf = segments.at(-1) ?? ''
   const before = segments
     .slice(1, -1)
     .reverse()
     .find((s) => !/^\d+$/.test(s))
   return before === undefined ? segmentWords(leaf) : `${segmentWords(before)} ${segmentWords(leaf)}`
+}
+
+/**
+ * What a path's leaf reads as beside its instance: the leaf in words, or
+ * for a field the base path's last segment and then the field,
+ * `navigation.attitude#/roll` "attitude roll". That segment is left out
+ * where it names nothing of its own: a wildcard, a number, the top group,
+ * or the instance, which is named apart.
+ */
+export function leafWords(path: string): string {
+  const split = splitPointerPath(path)
+  const base = split.basePath.split('.')
+  const last = base.at(-1) ?? ''
+  if (!split.valid || split.tokens.length === 0) return segmentWords(last)
+  const named =
+    base.length > 1 &&
+    last !== '*' &&
+    !/^\d+$/.test(last) &&
+    instanceSegment(path) !== base.length - 1
+  return [...(named ? [last] : []), ...split.tokens].map(segmentWords).join(' ')
 }
 
 /** `1 rule`, `2 rules`. */
@@ -76,10 +98,7 @@ export function joined(words: string[]): string {
 }
 
 function singleSubject(path: string, units: UnitLookup): string {
-  if (path.split('.').includes('*')) {
-    const leaf = path.split('.').at(-1) ?? ''
-    return `${capitalised(segmentWords(leaf))} of {instance}`
-  }
+  if (isWildcardPath(path)) return `${capitalised(leafWords(path))} of {instance}`
   return units.entry(path)?.displayName ?? capitalised(pathWords(path))
 }
 

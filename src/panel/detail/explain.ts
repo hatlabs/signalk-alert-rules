@@ -1,4 +1,6 @@
+import { splitPointerPath } from '../../model/pointerPath'
 import type { InstanceStatus, RuleEntry, RuleInfo, RuleStatus } from '../api'
+import { leafWords } from '../editor/words'
 import { elapsed, MINUTE, noData, problem, reading } from '../list/fact'
 import { capitalised } from '../list/PriorityBadge'
 import {
@@ -22,11 +24,6 @@ export function sentenceText(sentence: Sentence): string {
   return sentence.map((p) => (typeof p === 'string' ? p : p.strong)).join('')
 }
 
-/** `coolantTemperature` as "coolant temperature". */
-function words(segment: string): string {
-  return segment.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase()
-}
-
 /**
  * What the rule watches, as a sentence's subject: the path's display name when
  * the server gives one, otherwise its instance and leaf in words, "House
@@ -39,10 +36,10 @@ function subjectOf(rule: RuleInfo, units: UnitLookup, instance?: string): string
   const path = rule.signal.paths[0] ?? ''
   const named = path.includes('*') ? undefined : units.entry(path)?.displayName
   if (named !== undefined) return named
-  const parts = path.split('.')
+  const parts = splitPointerPath(path).basePath.split('.')
   const at = instanceSegment(path)
   const which = instance ?? (at === undefined || parts[at] === '*' ? undefined : parts[at])
-  const leaf = words(parts.at(-1) ?? '')
+  const leaf = leafWords(path)
   return capitalised(which === undefined ? leaf : `${which} ${leaf}`)
 }
 
