@@ -4,6 +4,7 @@ import {
   POINTER_TOKEN_MESSAGE,
   isPointerPath,
   pathSegments,
+  resolvePointer,
   splitPointerPath
 } from '../../src/model/pointerPath.js'
 
@@ -97,5 +98,33 @@ describe('pathSegments', () => {
 
   it('is undefined for an invalid pointer', () => {
     expect(pathSegments('navigation.attitude#roll')).toBeUndefined()
+  })
+})
+
+describe('resolvePointer', () => {
+  const attitude = { roll: 0.1, pitch: -0.2, yaw: 3, nested: { a: { b: 7 } }, empty: null }
+
+  it('is the whole value for no tokens', () => {
+    expect(resolvePointer(attitude, [])).toBe(attitude)
+  })
+
+  it('walks the tokens into nested objects', () => {
+    expect(resolvePointer(attitude, ['roll'])).toBe(0.1)
+    expect(resolvePointer(attitude, ['nested', 'a', 'b'])).toBe(7)
+    expect(resolvePointer(attitude, ['empty'])).toBeNull()
+  })
+
+  it('is undefined for a field the value does not have', () => {
+    expect(resolvePointer(attitude, ['heel'])).toBeUndefined()
+    expect(resolvePointer(attitude, ['roll', 'x'])).toBeUndefined()
+    expect(resolvePointer(null, ['roll'])).toBeUndefined()
+    expect(resolvePointer(12, ['roll'])).toBeUndefined()
+    expect(resolvePointer([1, 2], ['0'])).toBeUndefined()
+  })
+
+  it('reads own fields only, never what an object inherits', () => {
+    expect(resolvePointer(attitude, ['__proto__'])).toBeUndefined()
+    expect(resolvePointer(attitude, ['constructor'])).toBeUndefined()
+    expect(resolvePointer(attitude, ['toString'])).toBeUndefined()
   })
 })
