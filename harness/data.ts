@@ -189,7 +189,8 @@ const states: Partial<Record<string, Shown>> = {
   'depth-sensor-silent': {
     condition: { condition: 'noData', reason: 'inputUnavailable', lastSeen: minutesAgo(12) },
     instances: [instanceState({ condition: 'noData', reason: 'inputUnavailable' })]
-  }
+  },
+  heel: normalReading('navigation.attitude#/roll')
 }
 
 const disabled: Partial<Record<string, Disabled>> = {
@@ -321,12 +322,30 @@ function brokenExample(
   }
 }
 
+/** A heel alert: a rule on the roll field of `navigation.attitude`'s object value. */
+function fieldEntry(): RuleEntry {
+  const result = validateRule({
+    name: 'Heel',
+    message: 'Heel beyond {limit}: {value}',
+    slug: 'heel',
+    signal: { path: 'navigation.attitude#/roll' },
+    detector: {
+      type: 'outside',
+      // 20° each way, stored in radians.
+      steps: [{ low: -0.3491, high: 0.3491, priority: 'warning' }],
+      duration: 10
+    }
+  })
+  if (!result.ok) throw new Error(`the heel rule is not valid: ${JSON.stringify(result.errors)}`)
+  return ruleEntry(result.value, shownState(result.value, false, 'mixed'))
+}
+
 /**
  * A stored rule beside the examples under each `rules` value: one the editor
- * cannot make, or one made from a template.
+ * cannot make, one made from a template, or one on a field.
  */
 export const extraRules: Record<
-  'fixedLimit' | 'angularRatio' | 'eventValue' | 'zoneSteps' | 'templated',
+  'fixedLimit' | 'angularRatio' | 'eventValue' | 'zoneSteps' | 'templated' | 'field',
   () => ListedRule
 > = {
   fixedLimit: () =>
@@ -353,7 +372,8 @@ export const extraRules: Record<
       name: 'House battery zone and steps',
       detector: { ...rule.detector, steps: [{ limit: 12, priority: 'warning' }] }
     })),
-  templated: templatedEntry
+  templated: templatedEntry,
+  field: fieldEntry
 }
 
 /** What the plugin found while loading, beside the stored rule that does not run. */
