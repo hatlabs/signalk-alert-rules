@@ -5,7 +5,7 @@ import type {
   SubscriptionManager,
   Unsubscribes
 } from '@signalk/server-api'
-import { wildcards } from '../alerts/paths.js'
+import { fillWildcard, wildcards } from '../alerts/paths.js'
 import { resolvePointer, splitPointerPath } from '../model/pointerPath.js'
 import { MAX_INSTANCES, type PathInput, type Signal } from '../model/rule.js'
 import { combine } from './combinators.js'
@@ -57,11 +57,7 @@ function fieldOf(path: string): { basePath: string; tokens: readonly string[] } 
 export function bindPath(path: string, instance: Instance | undefined): string {
   if (instance === undefined) return path
   const { basePath } = fieldOf(path)
-  const bound = basePath
-    .split('.')
-    .map((s) => (s === '*' ? instance.name : s))
-    .join('.')
-  return bound + path.slice(basePath.length)
+  return fillWildcard(basePath, instance.name) + path.slice(basePath.length)
 }
 
 export interface Sample {
