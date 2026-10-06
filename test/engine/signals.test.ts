@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { openSignal, type Reading, type Sample } from '../../src/engine/signals.js'
+import { bindPath, openSignal, type Reading, type Sample } from '../../src/engine/signals.js'
 import { canonicalSourceRef } from '../../src/engine/sourceRefs.js'
 import { MAX_INSTANCES, type Signal } from '../../src/model/rule.js'
 import { FakeSubscriptionManager } from '../helpers/FakeSubscriptionManager.js'
@@ -361,5 +361,122 @@ describe('closing a signal', () => {
     expect(sm.activeSubscriptions).toBe(0)
     sm.publish('a.b', 's', 1)
     expect(samples).toEqual([])
+  })
+})
+
+describe('field of an object path', () => {
+  const ATTITUDE = 'navigation.attitude'
+  const ROLL = 'navigation.attitude#/roll'
+  const UNAVAILABLE = { available: false, timedOut: false }
+
+  it("reads the field from the base path's value", () => {
+    const sm = new FakeSubscriptionManager()
+    const { samples } = record({ path: ROLL }, sm)
+    sm.publish(ATTITUDE, 'imu', { roll: 0.4, pitch: 0, yaw: 0 })
+    sm.publish(ATTITUDE, 'imu', { roll: 0.1, pitch: 0, yaw: 0 })
+    expect(readings(samples)).toEqual([value(0.4), value(0.1)])
+    expect(samples[0]?.instance).toBeUndefined()
+  })
+
+  it('reads a nested field', () => {
+    const sm = new FakeSubscriptionManager()
+    const { samples } = record({ path: 'a.b#/c/d' }, sm)
+    sm.publish('a.b', 'x', { c: { d: 'on' } })
+    expect(readings(samples)).toEqual([value('on')])
+  })
+
+  it('a value without the field, or with a field of no readable shape, is unavailable', () => {
+    const sm = new FakeSubscriptionManager()
+    const { samples } = record({ path: ROLL }, sm)
+    sm.publish(ATTITUDE, 'imu', { pitch: 0, yaw: 0 })
+    sm.publish(ATTITUDE, 'imu', { roll: [1], pitch: 0 })
+    sm.publish(ATTITUDE, 'imu', 0.4)
+    expect(readings(samples)).toEqual([UNAVAILABLE, UNAVAILABLE, UNAVAILABLE])
+  })
+
+  it("a null value is unavailable, timed out when the server's marker says so", () => {
+    const sm = new FakeSubscriptionManager()
+    const { samples } = record({ path: ROLL }, sm)
+    sm.publish(ATTITUDE, 'imu', null)
+    sm.timeOut(ATTITUDE, 'imu')
+    sm.publish(ATTITUDE, 'imu', { roll: null })
+    expect(readings(samples)).toEqual([
+      UNAVAILABLE,
+      { available: false, timedOut: true },
+      UNAVAILABLE
+    ])
+  })
+
+  it('a field that is itself a position reads as a position', () => {
+    const sm = new FakeSubscriptionManager()
+    const { samples } = record({ path: 'navigation.anchor#/position' }, sm)
+    sm.publish('navigation.anchor', 'gnss', { position: { latitude: 60, longitude: 25 } })
+    expect(readings(samples)).toEqual([value({ latitude: 60, longitude: 25 })])
+  })
+
+  it('reads inherited object members as unavailable', () => {
+    const sm = new FakeSubscriptionManager()
+    const proto = record({ path: 'navigation.attitude#/__proto__' }, sm)
+    const ctor = record({ path: 'navigation.attitude#/constructor' }, sm)
+    sm.publish(ATTITUDE, 'imu', { roll: 0.4 })
+    expect(readings(proto.samples)).toEqual([UNAVAILABLE])
+    expect(readings(ctor.samples)).toEqual([UNAVAILABLE])
+  })
+
+  it('a pinned source ignores the field from another source', () => {
+    const sm = new FakeSubscriptionManager(['imu.a', 'imu.b'])
+    const { samples } = record({ path: ROLL, source: 'imu.b' }, sm)
+    sm.publish(ATTITUDE, 'imu.a', { roll: 0.1 })
+    sm.publish(ATTITUDE, 'imu.b', { roll: 0.2 })
+    expect(readings(samples)).toEqual([value(0.2)])
+  })
+
+  it('a wildcard in the base path reads the field per instance', () => {
+    const sm = new FakeSubscriptionManager()
+    const { samples } = record({ path: 'propulsion.*.drive#/trim' }, sm)
+    sm.publish('propulsion.port.drive', 'n2k', { trim: 0.1 })
+    sm.publish('propulsion.port.other.drive', 'n2k', { trim: 0.5 })
+    sm.publish('propulsion.starboard.drive', 'n2k', { trim: 0.2 })
+    expect(samples).toEqual([
+      { instance: { name: 'port', segment: 'port' }, reading: value(0.1), replayed: false },
+      {
+        instance: { name: 'starboard', segment: 'starboard' },
+        reading: value(0.2),
+        replayed: false
+      }
+    ])
+  })
+
+  it('a wildcard directly before the pointer reads the field per instance', () => {
+    const sm = new FakeSubscriptionManager()
+    const { samples } = record({ path: 'electrical.batteries.*#/voltage' }, sm)
+    sm.publish('electrical.batteries.house', 'bmv', { voltage: 12.6 })
+    expect(samples).toEqual([
+      { instance: { name: 'house', segment: 'house' }, reading: value(12.6), replayed: false }
+    ])
+  })
+
+  it('combines two fields of one object path', () => {
+    const sm = new FakeSubscriptionManager()
+    const { samples } = record(
+      {
+        combinator: 'difference',
+        inputs: [{ path: ROLL }, { path: 'navigation.attitude#/pitch' }]
+      },
+      sm
+    )
+    sm.publish(ATTITUDE, 'imu', { roll: 0.5, pitch: 0.25 })
+    expect(readings(samples).at(-1)).toEqual(value(0.25))
+  })
+})
+
+describe('bindPath', () => {
+  const house = { name: 'house', segment: 'house' }
+
+  it('puts the instance in place of the wildcard of a field path', () => {
+    expect(bindPath('electrical.batteries.*#/voltage', house)).toBe(
+      'electrical.batteries.house#/voltage'
+    )
+    expect(bindPath('propulsion.*.drive#/trim', house)).toBe('propulsion.house.drive#/trim')
   })
 })
