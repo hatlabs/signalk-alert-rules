@@ -1,3 +1,4 @@
+import { splitPointerPath } from '../model/pointerPath.js'
 import { zoneLimitOf, type Limit, type Rule, type Signal } from '../model/rule.js'
 import { acceptedByCore, fillWildcard } from './paths.js'
 
@@ -28,7 +29,10 @@ export function referencesOf(rule: Rule, instance?: string): string[] {
       ...signalPaths(gate.signal),
       ...limitPaths(gate.limit)
     ])
-  ].map((path) => (instance === undefined ? path : fillWildcard(path, instance)))
+  ]
+    // A reference names data core can look up, which a field of a value is not.
+    .map((path) => splitPointerPath(path).basePath)
+    .map((path) => (instance === undefined ? path : fillWildcard(path, instance)))
   // Core drops every reference when it refuses one.
   return [...new Set(paths)].filter(acceptedByCore).slice(0, MAX_REFERENCES)
 }
