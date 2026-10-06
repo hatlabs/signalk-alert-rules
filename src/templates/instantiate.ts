@@ -14,10 +14,10 @@ import { isRecord, pointer } from '../util.js'
 export const MAX_SLUG = 64
 
 // A test keeps these equal to the model's: the one path segment a slot's
-// placeholder stands for, so a pick can neither deepen the path nor make it
-// a wildcard.
-export const SLOT_PICK_PATTERN = '^[^.\\s*]+$'
-export const SLOT_PICK_MESSAGE = 'must be one path segment, without dots, whitespace or *'
+// placeholder stands for, so a pick can neither deepen the path, make it a
+// wildcard nor turn it into a field's pointer.
+export const SLOT_PICK_PATTERN = '^[^.\\s*#]+$'
+export const SLOT_PICK_MESSAGE = 'must be one path segment, without dots, whitespace, * or #'
 const SLOT_PICK = new RegExp(SLOT_PICK_PATTERN)
 
 /** A slot's name, which keys its pick; a test keeps it equal to the model's. */
@@ -62,12 +62,17 @@ export interface PlaceholderUse {
   name: string
   key: string
   at: string
-  /** The placeholder is a whole dot-separated segment of its string. */
+  /** The placeholder is a whole segment of its string, between dots or before a field pointer. */
   segment: boolean
+  /** The placeholder is in a field pointer, after `#`. */
+  inPointer: boolean
 }
 
 function isSegment(text: string, start: number, end: number): boolean {
-  return (start === 0 || text[start - 1] === '.') && (end === text.length || text[end] === '.')
+  return (
+    (start === 0 || text[start - 1] === '.') &&
+    (end === text.length || text[end] === '.' || text[end] === '#')
+  )
 }
 
 /**
@@ -93,7 +98,8 @@ export function substitutePlaceholders(
             name,
             key,
             at: childAt,
-            segment: isSegment(child, offset, offset + match.length)
+            segment: isSegment(child, offset, offset + match.length),
+            inPointer: child.slice(0, offset).includes('#')
           })
         )
         return [key, replaced]

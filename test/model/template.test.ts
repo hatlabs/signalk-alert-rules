@@ -270,6 +270,32 @@ describe('validateTemplateSet with slots', () => {
     ])
   })
 
+  it('takes a slot placeholder just before a field pointer as a whole segment', () => {
+    const signal = { path: 'electrical.batteries.${battery}#/voltage' }
+    expect(errorsOf(withSlotRule({ signal }))).toEqual([])
+  })
+
+  it('reports a slot placeholder in a field pointer', () => {
+    const gate = alternator.rule.gates[0]
+    const gates = [{ ...gate, signal: { path: 'propulsion.main#/${engine}' } }]
+    expect(errorsOf(withSlotRule({ gates }))).toEqual([
+      {
+        path: '/templates/0/rule/gates/0/signal/path',
+        message: '${engine} cannot be in the field pointer after "#"'
+      }
+    ])
+  })
+
+  it('reports an open instance in a field pointer', () => {
+    const signal = { path: 'navigation.attitude#/${instance}' }
+    expect(errorsOf(withRule({ signal }))).toEqual([
+      {
+        path: '/templates/0/rule/signal/path',
+        message: '${instance} cannot be in the field pointer after "#"'
+      }
+    ])
+  })
+
   it('reports a slot name that is not a letter followed by letters and digits', () => {
     for (const name of ['2nd', 'main-engine', 'main_engine', '']) {
       const slots = [slot(name, 'Battery'), slot('engine')]

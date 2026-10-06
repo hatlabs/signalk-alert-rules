@@ -32,15 +32,18 @@ export const PATTERN_MESSAGE_KEY = 'x-pattern-message'
 export const SLUG_PATTERN = '^[a-z0-9]+(-[a-z0-9]+)*$'
 export const SLUG_MESSAGE = 'must be lowercase letters and digits separated by single hyphens'
 
-// One segment of a path, other than the wildcard.
-const PATH_SEGMENT = '[^.\\s*]+'
+// One segment of a path, other than the wildcard; `#` starts a field's pointer.
+const PATH_SEGMENT = '[^.\\s*#]+'
 
-// A dot-separated path relative to vessels.self; `*` stands alone as a segment.
-const PATH_PATTERN = `^(${PATH_SEGMENT}|\\*)(\\.(${PATH_SEGMENT}|\\*))*$`
+// A dot-separated path relative to vessels.self, in which `*` stands alone as
+// a segment, optionally followed by `#` and a pointer to a field of its value.
+// The pointer is checked with the rule, so that its errors can say what is
+// wrong with it.
+const PATH_PATTERN = `^(${PATH_SEGMENT}|\\*)(\\.(${PATH_SEGMENT}|\\*))*(#[\\s\\S]*)?$`
 
 /** A slot's pick: the one path segment its placeholder, such as `${instance}`, stands for. */
 export const SLOT_PICK_PATTERN = `^${PATH_SEGMENT}$`
-export const SLOT_PICK_MESSAGE = 'must be one path segment, without dots, whitespace or *'
+export const SLOT_PICK_MESSAGE = 'must be one path segment, without dots, whitespace, * or #'
 
 /** Most slots a template declares. */
 export const MAX_SLOTS = 4

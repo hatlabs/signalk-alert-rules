@@ -8,6 +8,7 @@ import {
   singlePath
 } from '../alerts/paths.js'
 import { isRecord } from '../util.js'
+import { pathSegments } from './pointerPath.js'
 import type { Rule } from './rule.js'
 import type { ValidationError } from './validate.js'
 
@@ -26,7 +27,8 @@ export function conditionMissing(raw: unknown): ValidationError | undefined {
       path: CONDITION_POINTER,
       message: 'is required: a rule over several paths has no default name'
     }
-  if (singlePath(raw.signal)?.split('.').at(-1) === WILDCARD)
+  const path = singlePath(raw.signal)
+  if (path !== undefined && pathSegments(path)?.at(-1) === WILDCARD)
     return {
       path: CONDITION_POINTER,
       message: 'is required: an input path ending in a wildcard has no default name'

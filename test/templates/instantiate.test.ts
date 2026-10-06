@@ -161,7 +161,8 @@ describe('instantiate', () => {
   it.each([
     ['a deeper path', 'house.port'],
     ['a wildcard', '*'],
-    ['whitespace', 'house bank']
+    ['whitespace', 'house bank'],
+    ['a field pointer', 'house#/voltage']
   ])('refuses an instance pick that is not one path segment: %s', (_, instance) => {
     expect(instantiate(SET, voltageLow, { instance })).toEqual({
       ok: false,
@@ -274,7 +275,8 @@ describe('instantiate with slots', () => {
 
   it.each([
     ['a deeper path', 'main.port'],
-    ['a wildcard', '*']
+    ['a wildcard', '*'],
+    ['a "#"', 'a#b']
   ])('refuses a slot pick that is not one path segment: %s', (_, engine) => {
     expect(instantiate(SET, alternator, { battery: 'start', engine })).toEqual({
       ok: false,
@@ -412,11 +414,17 @@ describe('substitutePlaceholders', () => {
       condition: 'INSTANCELow'
     })
     expect(uses).toEqual([
-      { name: 'instance', key: 'name', at: '/name', segment: false },
-      { name: 'instance', key: 'path', at: '/signal/path', segment: true },
-      { name: 'instance', key: 'path', at: '/gates/0/signal/path', segment: true },
-      { name: 'other', key: 'path', at: '/gates/0/signal/path', segment: false },
-      { name: 'instance', key: 'condition', at: '/condition', segment: false }
+      { name: 'instance', key: 'name', at: '/name', segment: false, inPointer: false },
+      { name: 'instance', key: 'path', at: '/signal/path', segment: true, inPointer: false },
+      {
+        name: 'instance',
+        key: 'path',
+        at: '/gates/0/signal/path',
+        segment: true,
+        inPointer: false
+      },
+      { name: 'other', key: 'path', at: '/gates/0/signal/path', segment: false, inPointer: false },
+      { name: 'instance', key: 'condition', at: '/condition', segment: false, inPointer: false }
     ])
   })
 

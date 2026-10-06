@@ -16,6 +16,7 @@ import {
 } from './rule.js'
 import { wildcards } from '../alerts/paths.js'
 import { alertPathErrors, conditionMissing } from './alertPath.js'
+import { isPointerPath, splitPointerPath } from './pointerPath.js'
 import { RANGE_HYSTERESIS, RANGE_INVERTED, RANGE_NOT_WIDER } from './rangeMessages.js'
 import { isRecord, pointer } from '../util.js'
 
@@ -46,6 +47,9 @@ export interface ValidationContext {
 export function angularUnitsMessage(units: string): string {
   return `angular combination needs radians, the path is in ${units}`
 }
+
+/** Zones are metadata of a path, never of a field of its value. */
+export const FIELD_ZONES_MESSAGE = 'A field has no zones: turn this off and type the limits.'
 
 export function timeoutValueTypeMessage(valueType: 'boolean' | 'string'): string {
   return `core never times out ${valueType} paths`
@@ -252,14 +256,17 @@ function schemaCheck(
   return [...nested, ...errors]
 }
 
-// Signal K names every position-valued leaf `position`.
+// Signal K names every position-valued leaf `position`; a field of one, such
+// as its altitude, is not a position.
 function isPositionPath(path: string): boolean {
-  return path.split('.').at(-1) === 'position'
+  return !isPointerPath(path) && path.split('.').at(-1) === 'position'
 }
 
 function pathErrors(path: string, at: string, wildcard: string | undefined): ValidationError[] {
   if (path.startsWith('vessels.'))
     return [{ path: at, message: 'must be relative to vessels.self' }]
+  const split = splitPointerPath(path)
+  if (!split.valid) return [{ path: at, message: split.message }]
   const count = wildcards(path)
   if (count > 1) return [{ path: at, message: 'may contain at most one wildcard segment' }]
   if (count === 1 && wildcard !== undefined) return [{ path: at, message: wildcard }]
@@ -315,7 +322,12 @@ function limitErrors(
   wildcard: string | undefined
 ): ValidationError[] {
   if (limit.kind !== 'zone') return []
-  if (limit.path !== undefined) return pathErrors(limit.path, pointer(at, 'path'), wildcard)
+  if (limit.path !== undefined) {
+    const pathAt = pointer(at, 'path')
+    const errors = pathErrors(limit.path, pathAt, wildcard)
+    if (errors.length > 0 || !isPointerPath(limit.path)) return errors
+    return [{ path: pathAt, message: FIELD_ZONES_MESSAGE }]
+  }
   if ('combinator' in signal) {
     return [
       {
@@ -324,7 +336,8 @@ function limitErrors(
       }
     ]
   }
-  return []
+  // At the limit itself, where the editor shows its zones checkbox.
+  return isPointerPath(signal.path) ? [{ path: at, message: FIELD_ZONES_MESSAGE }] : []
 }
 
 function valueRequired(
