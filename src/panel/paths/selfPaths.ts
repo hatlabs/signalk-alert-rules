@@ -45,6 +45,9 @@ export interface PathSource {
 /** Keys of a Signal K tree node that hold data about the path rather than child paths. */
 const LEAF_KEYS = new Set(['value', 'values', 'meta', '$source', 'timestamp', 'pgn', 'sentence'])
 
+/** The group whose paths are alarms raised, not values to watch. */
+const NOTIFICATIONS = 'notifications'
+
 const SI_METRES: DisplayUnit = displayUnit({ units: 'm' })
 
 function optionalString(value: unknown): string | undefined {
@@ -252,7 +255,10 @@ export function parseSelfPaths(
       if (isReadable(node.value, isRecord(node.meta) ? node.meta : {})) {
         paths.push(entry(path, node, canonical))
       }
-      paths.push(...fieldEntries(path, node, canonical, displayUnitsFor))
+      // A notification's metadata declares its state and message, which are no value to watch.
+      if (prefix[0] !== NOTIFICATIONS) {
+        paths.push(...fieldEntries(path, node, canonical, displayUnitsFor))
+      }
     }
     for (const [key, child] of Object.entries(node)) {
       if (!LEAF_KEYS.has(key) && isRecord(child)) walk(child, [...prefix, key])

@@ -275,6 +275,26 @@ describe('parseSelfPaths, fields of an object path', () => {
     expect(paths[1]).toMatchObject({ value: 12, valueType: 'number', unit: { symbol: 'm' } })
   })
 
+  it('lists no field of a notification, whose metadata declares its state and message', () => {
+    const paths = parseSelfPaths({
+      notifications: {
+        mob: {
+          value: { state: 'emergency', method: ['visual', 'sound'], message: 'MOB' },
+          $source: 'x',
+          meta: {
+            description: 'Man overboard',
+            properties: {
+              method: { type: 'array', items: { enum: ['visual', 'sound'] } },
+              state: { type: 'string', title: 'alarmState', default: 'normal' },
+              message: { type: 'string' }
+            }
+          }
+        }
+      }
+    })
+    expect(paths).toEqual([])
+  })
+
   it('adds nothing for an object whose metadata declares no properties', () => {
     const paths = parseSelfPaths({
       navigation: { attitude: { value: { roll: 0 }, meta: { units: 'rad' } } }
