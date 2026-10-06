@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { alertPathOf } from '../../src/alerts/paths.js'
 import {
   FIELD_ZONES_LEVEL_MESSAGE,
+  FIELD_ZONES_MESSAGE,
   FIELD_ZONES_PATH_MESSAGE,
   POINTER_MESSAGE,
   POINTER_TOKEN_MESSAGE
 } from '../../src/model/pointerPath.js'
 import {
-  FIELD_ZONES_MESSAGE,
   angularUnitsMessage,
   validateRule,
   type PathInfo,

@@ -3,8 +3,12 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-libra
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RANGE_HYSTERESIS, RANGE_INVERTED, RANGE_NOT_WIDER } from '../../../src/model/rangeMessages'
 import { LEVEL_PRIORITY, type CombinatorKind, type Rule } from '../../../src/model/rule'
-import { FIELD_ZONES_LEVEL_MESSAGE, FIELD_ZONES_PATH_MESSAGE } from '../../../src/model/pointerPath'
-import { FIELD_ZONES_MESSAGE, validateRule } from '../../../src/model/validate'
+import {
+  FIELD_ZONES_LEVEL_MESSAGE,
+  FIELD_ZONES_MESSAGE,
+  FIELD_ZONES_PATH_MESSAGE
+} from '../../../src/model/pointerPath'
+import { validateRule } from '../../../src/model/validate'
 import { RuleRejectedError, type EditPreview, type FieldError } from '../../../src/panel/api'
 import { ZONE_PRIORITY } from '../../../src/panel/editor/MoreOptions'
 import type { PathSource } from '../../../src/panel/paths/selfPaths'

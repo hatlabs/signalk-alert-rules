@@ -54,8 +54,6 @@ export function angularUnitsMessage(units: string): string {
   return `angular combination needs radians, the path is in ${units}`
 }
 
-export { FIELD_ZONES_MESSAGE }
-
 export function timeoutValueTypeMessage(valueType: 'boolean' | 'string'): string {
   return `core never times out ${valueType} paths`
 }
