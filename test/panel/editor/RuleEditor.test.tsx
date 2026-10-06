@@ -2807,6 +2807,37 @@ describe('RuleEditor, a field path', () => {
     })
   })
 
+  it('takes the zones of a field rule from a plain path named for them', async () => {
+    const HOUSE_VOLTAGE = 'electrical.batteries.house.voltage'
+    const { api } = renderEditor({
+      editing: { entry: ruleEntry({ slug: battery.slug }), rule: battery }
+    })
+    refuseAsServer(api)
+    await formShown()
+    click(button('Change the value to watch'))
+    type(select('Search by name or path'), ROLL)
+    fireEvent.blur(select('Search by name or path'))
+    expect(description(checkbox(/Use the value's zones/))).toContain(FIELD_ZONES_MESSAGE)
+    const picker = select(/^Zones from path/)
+    type(picker, HOUSE_VOLTAGE)
+    fireEvent.blur(picker)
+    expect(checkbox(/Use the value's zones/).getAttribute('aria-invalid')).toBeNull()
+    expect(screen.queryByText(FIELD_ZONES_MESSAGE)).toBeNull()
+    expect(screen.getByText(/^From the zones of/).textContent).toBe(
+      `From the zones of ${HOUSE_VOLTAGE}`
+    )
+    // The first Save names the clear margin the change of unit emptied; the second sends.
+    click(button('Save'))
+    click(button('Save'))
+    await waitFor(() => {
+      expect(api.updateRule).toHaveBeenCalled()
+    })
+    expect(api.updateRule.mock.calls[0]?.[1]).toMatchObject({
+      signal: { path: ROLL },
+      detector: { limit: { kind: 'zone', level: 'warn', path: HOUSE_VOLTAGE } }
+    })
+  })
+
   it('refuses a field typed as the path to take zones from, saying what to do there', async () => {
     const { api } = renderEditor({
       editing: { entry: ruleEntry({ slug: battery.slug }), rule: battery }
