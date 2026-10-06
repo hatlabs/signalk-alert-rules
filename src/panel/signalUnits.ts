@@ -51,13 +51,14 @@ function parts(path: string): { base: string[]; pointer: string } {
   return { base: basePath.split('.'), pointer: path.slice(basePath.length) }
 }
 
-function segments(path: string): string[] {
+/** The base path's segments, where an instance lies. */
+export function baseSegments(path: string): string[] {
   return parts(path).base
 }
 
 /** Whether a path has a wildcard instance. */
 export function isWildcardPath(path: string): boolean {
-  return segments(path).includes('*')
+  return baseSegments(path).includes('*')
 }
 
 /** Whether `path` is `pattern` with its wildcard segment, if any, filled in. */
@@ -190,7 +191,7 @@ export function withInstanceWildcard(path: string): string | undefined {
 /** The name in a path's instance segment, if it has one. */
 export function instanceOf(path: string): string | undefined {
   const at = instanceSegment(path)
-  return at === undefined ? undefined : segments(path)[at]
+  return at === undefined ? undefined : baseSegments(path)[at]
 }
 
 /** A wildcard path with its wildcard filled in by `instance`. */
@@ -201,10 +202,10 @@ export function withInstance(pattern: string, instance: string): string {
 
 /** The instance names a wildcard path matches among the reported paths, sorted. */
 export function matchedInstances(pattern: string, paths: readonly PathEntry[]): string[] {
-  const at = segments(pattern).indexOf('*')
+  const at = baseSegments(pattern).indexOf('*')
   if (at < 0) return []
   const names = paths
     .filter((p) => matchesPattern(pattern, p.path))
-    .map((p) => segments(p.path)[at])
+    .map((p) => baseSegments(p.path)[at])
   return [...new Set(names)].sort()
 }

@@ -13,7 +13,7 @@ import {
 } from '../../templates/instantiate'
 import { isInvalid, isRecord, type ListedRule } from '../api'
 import type { PathEntry } from '../paths/selfPaths'
-import { matchedInstances, matchesPattern } from '../signalUnits'
+import { baseSegments, matchedInstances, matchesPattern } from '../signalUnits'
 
 const SLOT_PICK = new RegExp(SLOT_PICK_PATTERN)
 
@@ -237,7 +237,7 @@ function pathsIn(value: unknown): string[] {
 function slotPaths(template: Template, slot: string): string[] {
   const { signal, ...rest } = template.rule
   const using = [...pathsIn(signal), ...pathsIn(rest)].filter((path) =>
-    path.split('.').includes(placeholder(slot))
+    baseSegments(path).includes(placeholder(slot))
   )
   return [...new Set(using)]
 }
@@ -266,12 +266,13 @@ export function slotCandidates(
   const slotted = new Set(slotsOf(template).map((s) => placeholder(s.name)))
   const found = new Map<string, SlotCandidate>()
   for (const pattern of slotPaths(template, slot)) {
-    const parts = pattern.split('.')
+    const parts = baseSegments(pattern)
     const at = parts.indexOf(placeholder(slot))
-    const wildcard = parts.map((part) => (slotted.has(part) ? '*' : part)).join('.')
+    const pointer = pattern.slice(parts.join('.').length)
+    const wildcard = parts.map((part) => (slotted.has(part) ? '*' : part)).join('.') + pointer
     for (const entry of paths) {
       if (!matchesPattern(wildcard, entry.path)) continue
-      const segments = entry.path.split('.')
+      const segments = baseSegments(entry.path)
       const instance = segments[at]
       if (found.has(instance)) continue
       const group = segments
