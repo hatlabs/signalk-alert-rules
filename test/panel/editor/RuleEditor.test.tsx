@@ -3,6 +3,12 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-libra
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RANGE_HYSTERESIS, RANGE_INVERTED, RANGE_NOT_WIDER } from '../../../src/model/rangeMessages'
 import { LEVEL_PRIORITY, type CombinatorKind, type Rule } from '../../../src/model/rule'
+import {
+  FIELD_ZONES_ELSEWHERE_MESSAGE,
+  FIELD_ZONES_LEVEL_MESSAGE,
+  FIELD_ZONES_MESSAGE,
+  FIELD_ZONES_PATH_MESSAGE
+} from '../../../src/model/pointerPath'
 import { validateRule } from '../../../src/model/validate'
 import { RuleRejectedError, type EditPreview, type FieldError } from '../../../src/panel/api'
 import { ZONE_PRIORITY } from '../../../src/panel/editor/MoreOptions'
@@ -2699,6 +2705,233 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     choose('Combined combination', 'difference')
     expect(textbox('Limit for step 1')).toHaveProperty('value', '180')
     expect(document.querySelectorAll('[aria-invalid="true"]')).toHaveLength(0)
+  })
+})
+
+describe('RuleEditor, a field path', () => {
+  afterEach(cleanup)
+
+  const ROLL = 'navigation.attitude#/roll'
+  const DEGREE = Math.PI / 180
+  const battery = example('house-battery-low')
+  const fieldOptions = () =>
+    screen.queryAllByRole('option').filter((o) => o.textContent.includes('#/'))
+
+  it('saves an outside range typed in degrees in radians, and opens it as typed', async () => {
+    const { api, onSaved } = renderEditor({ start: { path: ROLL, kind: 'outside' } })
+    await formShown()
+    expect(screen.getAllByText('Attitude roll').length).toBeGreaterThan(0)
+    expect(screen.getByText('alerts.navigation.attitude.')).toBeTruthy()
+    expect(textbox('Condition name').getAttribute('placeholder')).toBe('rollOutOfRange')
+    choose('Priority for step 1', 'warning')
+    type(textbox('Low limit for step 1'), '-20')
+    type(textbox('High limit for step 1'), '20')
+    expect(textbox('High limit for step 1').parentElement?.textContent).toContain('°')
+    create()
+    await saved(onSaved)
+    const [[rule]] = api.createRule.mock.calls
+    expect(rule.signal).toEqual({ path: ROLL })
+    const step = rule.detector.type === 'outside' ? rule.detector.steps[0] : undefined
+    expect(step?.low).toBeCloseTo(-20 * DEGREE)
+    expect(step?.high).toBeCloseTo(20 * DEGREE)
+    cleanup()
+    renderEditor({ editing: { entry: ruleEntry({ slug: rule.slug }), rule } })
+    await formShown()
+    expect(textbox('Low limit for step 1')).toHaveProperty('value', '-20')
+    expect(textbox('High limit for step 1')).toHaveProperty('value', '20')
+  })
+
+  it("pins a field to one of its object's sources", async () => {
+    const { api, onSaved } = renderEditor({ start: { path: ROLL, kind: 'above' } })
+    await formShown()
+    choose('Source', 'imu.1')
+    choose('Priority for step 1', 'warning')
+    type(textbox('Limit for step 1'), '20')
+    create()
+    await saved(onSaved)
+    expect(api.createRule.mock.calls[0]?.[0].signal).toEqual({ path: ROLL, source: 'imu.1' })
+  })
+
+  /** The server refuses what the model refuses. */
+  function refuseAsServer(api: FakeApi) {
+    api.previewRule.mockImplementation((_slug, rule) => {
+      const result = validateRule(rule)
+      return result.ok
+        ? Promise.resolve(noChange)
+        : Promise.reject(new RuleRejectedError('invalid request body', result.errors))
+    })
+  }
+
+  const zoneGate: Rule = {
+    ...battery,
+    gates: [
+      {
+        signal: { path: 'electrical.batteries.house.voltage' },
+        direction: 'above',
+        limit: { kind: 'zone', level: 'warn' }
+      }
+    ]
+  }
+
+  it('says at once why a zone rule whose path becomes a field has no zones', async () => {
+    const { api } = renderEditor({
+      editing: { entry: ruleEntry({ slug: battery.slug }), rule: battery }
+    })
+    refuseAsServer(api)
+    await formShown()
+    click(button('Change the value to watch'))
+    type(select('Search by name or path'), ROLL)
+    fireEvent.blur(select('Search by name or path'))
+    const zones = checkbox(/Use the value's zones/)
+    expect(zones).toHaveProperty('checked', true)
+    expect(zones.getAttribute('aria-invalid')).toBe('true')
+    expect(description(zones)).toContain(FIELD_ZONES_MESSAGE)
+    expect(description(zones)).not.toContain(ZONES_INVALID)
+    expect(screen.queryByText(/Empty uses the zones of/)).toBeNull()
+    expect(screen.queryByText(/^From the zones of/)).toBeNull()
+    expect(screen.getByText(/Fix Use the value's zones/)).toBeTruthy()
+    // The first Save names the clear margin the change of unit emptied; the second sends.
+    click(button('Save'))
+    click(button('Save'))
+    await waitFor(() => {
+      expect(api.previewRule).toHaveBeenCalled()
+    })
+    expect(api.updateRule).not.toHaveBeenCalled()
+    expect(description(checkbox(/Use the value's zones/))).toContain(FIELD_ZONES_MESSAGE)
+    click(checkbox(/Use the value's zones/))
+    expect(checkbox(/Use the value's zones/).getAttribute('aria-invalid')).toBeNull()
+    choose('Priority for step 1', 'warning')
+    type(textbox('Limit for step 1'), '20')
+    click(button('Save'))
+    await waitFor(() => {
+      expect(api.updateRule).toHaveBeenCalled()
+    })
+  })
+
+  it('takes the zones of a field rule from a plain path named for them', async () => {
+    const HOUSE_VOLTAGE = 'electrical.batteries.house.voltage'
+    const { api } = renderEditor({
+      editing: { entry: ruleEntry({ slug: battery.slug }), rule: battery }
+    })
+    refuseAsServer(api)
+    await formShown()
+    click(button('Change the value to watch'))
+    type(select('Search by name or path'), ROLL)
+    fireEvent.blur(select('Search by name or path'))
+    expect(description(checkbox(/Use the value's zones/))).toContain(FIELD_ZONES_MESSAGE)
+    const picker = select(/^Zones from path/)
+    expect(description(picker)).not.toContain('Empty uses')
+    type(picker, ROLL)
+    fireEvent.blur(picker)
+    expect(description(select(/^Zones from path/))).toContain(FIELD_ZONES_ELSEWHERE_MESSAGE)
+    expect(description(select(/^Zones from path/))).not.toContain('Empty uses')
+    type(picker, 'navigation.attitude#roll')
+    fireEvent.blur(picker)
+    expect(screen.queryByText(/^From the zones of/)).toBeNull()
+    type(picker, HOUSE_VOLTAGE)
+    fireEvent.blur(picker)
+    expect(description(select(/^Zones from path/))).not.toContain('Empty uses')
+    expect(checkbox(/Use the value's zones/).getAttribute('aria-invalid')).toBeNull()
+    expect(screen.queryByText(FIELD_ZONES_MESSAGE)).toBeNull()
+    expect(screen.getByText(/^From the zones of/).textContent).toBe(
+      `From the zones of ${HOUSE_VOLTAGE}`
+    )
+    // The first Save names the clear margin the change of unit emptied; the second sends.
+    click(button('Save'))
+    click(button('Save'))
+    await waitFor(() => {
+      expect(api.updateRule).toHaveBeenCalled()
+    })
+    expect(api.updateRule.mock.calls[0]?.[1]).toMatchObject({
+      signal: { path: ROLL },
+      detector: { limit: { kind: 'zone', level: 'warn', path: HOUSE_VOLTAGE } }
+    })
+  })
+
+  it('refuses a field typed as the path to take zones from, saying what to do there', async () => {
+    const { api } = renderEditor({
+      editing: { entry: ruleEntry({ slug: battery.slug }), rule: battery }
+    })
+    refuseAsServer(api)
+    await formShown()
+    const picker = select(/^Zones from path/)
+    expect(screen.getByText(/^From the zones of/)).toBeTruthy()
+    type(picker, ROLL)
+    fireEvent.blur(picker)
+    expect(screen.queryByText(/^From the zones of/)).toBeNull()
+    expect(screen.queryByText(/reports no zone at this level/)).toBeNull()
+    expect(select(/^Zones from path/).getAttribute('aria-invalid')).toBe('true')
+    expect(description(select(/^Zones from path/))).toContain(FIELD_ZONES_PATH_MESSAGE)
+    click(button('Save'))
+    await waitFor(() => {
+      expect(description(select(/^Zones from path/))).toContain(FIELD_ZONES_PATH_MESSAGE)
+    })
+    expect(screen.queryByText(/^From the zones of/)).toBeNull()
+    expect(api.updateRule).not.toHaveBeenCalled()
+    // The refused Save's error goes once the path names one with zones.
+    type(select(/^Zones from path/), 'electrical.batteries.start.voltage')
+    fireEvent.blur(select(/^Zones from path/))
+    expect(select(/^Zones from path/).getAttribute('aria-invalid')).toBeNull()
+    expect(description(select(/^Zones from path/))).not.toContain(FIELD_ZONES_PATH_MESSAGE)
+    expect(screen.queryByText(/A field has no zones/)).toBeNull()
+  })
+
+  it('refuses a zone condition whose input becomes a field, saying what to do there', async () => {
+    const { api } = renderEditor({
+      editing: { entry: ruleEntry({ slug: zoneGate.slug }), rule: zoneGate }
+    })
+    refuseAsServer(api)
+    await formShown()
+    const input = select('Condition 1 input path')
+    type(input, ROLL)
+    fireEvent.blur(input)
+    expect(select('Zone level').getAttribute('aria-invalid')).toBe('true')
+    expect(description(select('Zone level'))).toContain(FIELD_ZONES_LEVEL_MESSAGE)
+    click(button('Save'))
+    click(button('Save'))
+    await waitFor(() => {
+      expect(api.previewRule).toHaveBeenCalled()
+    })
+    expect(description(select('Zone level'))).toContain(FIELD_ZONES_LEVEL_MESSAGE)
+    expect(description(select('Zone level'))).not.toContain('The path reports no zones yet.')
+    expect(api.updateRule).not.toHaveBeenCalled()
+    click(screen.getByRole('radio', { name: 'A fixed value' }))
+    expect(screen.queryByText(FIELD_ZONES_LEVEL_MESSAGE)).toBeNull()
+    expect(textbox('Condition 1 limit').getAttribute('aria-invalid')).toBeNull()
+    expect(screen.queryByText(/the limit of Only while condition 1/)).toBeNull()
+  })
+
+  it('keeps a stored zone condition chosen when its input becomes a field, to be changed', async () => {
+    renderEditor({ editing: { entry: ruleEntry({ slug: zoneGate.slug }), rule: zoneGate } })
+    await formShown()
+    const input = select('Condition 1 input path')
+    type(input, ROLL)
+    fireEvent.blur(input)
+    const zone = screen.getByRole('radio', { name: /zone level/ })
+    expect(zone).toHaveProperty('checked', true)
+    click(screen.getByRole('radio', { name: 'A fixed value' }))
+    expect(screen.queryByRole('radio', { name: /zone level/ })).toBeNull()
+  })
+
+  it('lists no field to take zones from', async () => {
+    renderEditor({ editing: { entry: ruleEntry({ slug: battery.slug }), rule: battery } })
+    await formShown()
+    const picker = select(/^Zones from path/)
+    fireEvent.focus(picker)
+    type(picker, 'attitude')
+    expect(fieldOptions()).toEqual([])
+  })
+
+  it('offers a condition on a field no zone level', async () => {
+    renderEditor({ start: { path: 'electrical.batteries.house.voltage', kind: 'below' } })
+    await formShown()
+    openMoreOptions()
+    click(button('Add a condition'))
+    expect(screen.getByRole('radio', { name: /zone level/ })).toBeTruthy()
+    const input = select('Condition 1 input path')
+    type(input, ROLL)
+    fireEvent.blur(input)
+    expect(screen.queryByRole('radio', { name: /zone level/ })).toBeNull()
   })
 })
 

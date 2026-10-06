@@ -12,7 +12,7 @@ import {
   type RuleForm,
   type StepForm
 } from '../editor/formModel'
-import { signalMeasure, type SignalShape, type UnitLookup } from '../signalUnits'
+import { isWildcardPath, signalMeasure, type SignalShape, type UnitLookup } from '../signalUnits'
 import { fromSI } from '../units'
 import type { SummaryLimit } from './chart'
 import type { ChartSpec } from './HistoryChart'
@@ -61,7 +61,7 @@ function specOf(
 ): ChartSpec | undefined {
   const [path] = signal.paths
   if (signal.combinator !== undefined || signal.paths.length !== 1 || path === '') return undefined
-  if (path.split('.').includes('*')) return undefined
+  if (isWildcardPath(path)) return undefined
   if (side === undefined) return undefined
   const reported = units.entry(path)?.value
   if (reported !== undefined && typeof reported !== 'number') return undefined

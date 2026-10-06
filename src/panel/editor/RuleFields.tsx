@@ -1,5 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { renderMessage } from '../../alerts/message'
+import {
+  FIELD_ZONES_ELSEWHERE_MESSAGE,
+  FIELD_ZONES_LEVEL_MESSAGE,
+  FIELD_ZONES_MESSAGE,
+  FIELD_ZONES_PATH_MESSAGE,
+  fieldZonesError
+} from '../../model/pointerPath'
 import { PathPicker } from '../paths/PathPicker'
 import type { PathList } from '../paths/selfPaths'
 import { matchedInstances, signalMeasure, type UnitLookup } from '../signalUnits'
@@ -15,11 +22,19 @@ import {
   toRule,
   withNumbersInUnit,
   type FormError,
-  type RuleForm
+  type LimitForm,
+  type RuleForm,
+  type SignalForm
 } from './formModel'
 import { strayBraces, withGenerated } from './message'
 import { MoreOptions } from './MoreOptions'
-import { attachErrors, fieldPointers, underMoreOptions, type AttachedErrors } from './sections'
+import {
+  attachErrors,
+  fieldPointers,
+  underMoreOptions,
+  ZONES,
+  type AttachedErrors
+} from './sections'
 import { PathTyping, sourceOptions, withPath } from './SignalFields'
 import { StepFields } from './StepFields'
 import { subjectOf } from './words'
@@ -38,6 +53,55 @@ export interface CheckedErrors {
   attached: AttachedErrors
 }
 
+const FIELD_ZONES_MESSAGES: ReadonlySet<string> = new Set([
+  FIELD_ZONES_MESSAGE,
+  FIELD_ZONES_ELSEWHERE_MESSAGE,
+  FIELD_ZONES_PATH_MESSAGE,
+  FIELD_ZONES_LEVEL_MESSAGE
+])
+
+/**
+ * A zone limit at `at` whose zones would come from a field, which has none:
+ * a field named as its zones path, or else its signal's single path. As the
+ * validator words it, `onField` for the latter.
+ */
+function limitZonesErrors(
+  limit: LimitForm,
+  signal: SignalForm,
+  at: string,
+  onField: string
+): FormError[] {
+  if (limit.kind !== 'zone') return []
+  const field = fieldZonesError(
+    limit.path === '' ? undefined : limit.path,
+    signal.mode === 'single' ? signal.slots[0]?.path : undefined,
+    onField
+  )
+  return field === undefined
+    ? []
+    : [{ path: field.at === 'path' ? `${at}/path` : at, message: field.message }]
+}
+
+/**
+ * The form's zone limits on fields, shown as soon as the form holds them, as
+ * a stored rule's errors are on opening, rather than only once Save is refused.
+ */
+function fieldZonesErrors(form: RuleForm): FormError[] {
+  return [
+    ...(isZoneLimited(form.detector)
+      ? limitZonesErrors(form.detector.limit, form.signal, ZONES, FIELD_ZONES_MESSAGE)
+      : []),
+    ...form.gates.flatMap((gate, i) =>
+      limitZonesErrors(
+        gate.limit,
+        gate.signal,
+        `/gates/${String(i)}/limit`,
+        FIELD_ZONES_LEVEL_MESSAGE
+      )
+    )
+  ]
+}
+
 /** A form's errors on their fields, an overlap refusal naming the rule that holds the alert path. */
 export function checkedErrors(
   form: RuleForm,
@@ -46,7 +110,12 @@ export function checkedErrors(
   ruleName: (slug: string) => string | undefined
 ): CheckedErrors {
   let holder: string | undefined
-  const named = errors.map((e) => {
+  // The form decides the field-zones errors; a refused Save's copies would outlive a fix.
+  const derived = [
+    ...errors.filter((e) => !FIELD_ZONES_MESSAGES.has(e.message)),
+    ...fieldZonesErrors(form)
+  ]
+  const named = derived.map((e) => {
     const overlap = e.path === '/condition' ? OVERLAP.exec(e.message) : null
     if (overlap === null) return e
     const slug = overlap[1]

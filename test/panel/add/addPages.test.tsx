@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { KindPicker } from '../../../src/panel/add/KindPicker'
 import { PathSearch } from '../../../src/panel/add/PathSearch'
 import type { PathSource } from '../../../src/panel/paths/selfPaths'
+import { displayUnit } from '../../../src/panel/units'
 import { pathSource } from '../editor/editorFixtures'
 
 const search = () => screen.getByRole('searchbox', { name: 'Search by name or path' })
@@ -57,6 +58,43 @@ describe('PathSearch', () => {
     query('a.b')
     expect(screen.getByRole('link', { name: /Use the path as typed/ })).toBeTruthy()
   })
+
+  it('finds a field by its path, with its value in the display unit', async () => {
+    renderSearch()
+    await screen.findByRole('list', { name: 'Values' })
+    query('attitude roll')
+    const row = screen.getByRole('link', { name: /navigation\.attitude#\/roll/ })
+    expect(row.getAttribute('href')).toBe('#to=navigation.attitude#/roll')
+    expect(row.textContent).toContain('2.865 °')
+    expect(within(row).getByText('Attitude roll')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /^navigation\.attitude$/ })).toBeNull()
+  })
+
+  it('offers a typed field no metadata lists as typed', async () => {
+    renderSearch()
+    await screen.findByRole('list', { name: 'Values' })
+    query('navigation.attitude#/heave')
+    expect(screen.getByRole('link', { name: /Use the path as typed/ }).getAttribute('href')).toBe(
+      '#to=navigation.attitude#/heave'
+    )
+  })
+
+  it.each([
+    [
+      'navigation.attitude#roll',
+      'After "#", write the field name starting with "/", for example "#/roll".'
+    ],
+    ['navigation.attitude#/a.b', 'A field name after "#" cannot contain dots, whitespace or *.']
+  ])(
+    'explains a typed pointer that is not one, %s, in place of the typed row',
+    async (typed, message) => {
+      renderSearch()
+      await screen.findByRole('list', { name: 'Values' })
+      query(typed)
+      expect(screen.queryByRole('link', { name: /Use the path as typed/ })).toBeNull()
+      expect(screen.getByText(message)).toBeTruthy()
+    }
+  )
 })
 
 describe('KindPicker', () => {
@@ -82,6 +120,28 @@ describe('KindPicker', () => {
   it('offers no kind that needs a number for a value that is not one', async () => {
     renderPicker('propulsion.port.state')
     await screen.findByText(/now/)
+    expect(screen.queryByRole('radio', { name: /Below a limit/ })).toBeNull()
+    expect(screen.getByRole('radio', { name: /A given state/ })).toBeTruthy()
+  })
+
+  it('names a field after its base path, with its value in degrees and no zones', async () => {
+    renderPicker('navigation.attitude#/roll')
+    expect(await screen.findByText(/Attitude roll, now/)).toBeTruthy()
+    expect(screen.getByText('2.865 °')).toBeTruthy()
+    expect(screen.getByText(/Its metadata has no zones\./)).toBeTruthy()
+    expect(screen.getByRole('radio', { name: /Outside a range/ })).toBeTruthy()
+  })
+
+  it('offers the kinds of the type metadata declares for a field with no value yet', async () => {
+    const source: PathSource = {
+      selfPaths: () =>
+        Promise.resolve([
+          { path: 'a.b#/mode', unit: displayUnit({}), valueType: 'string' as const }
+        ]),
+      distanceUnit: () => Promise.resolve(displayUnit({ units: 'm' }))
+    }
+    render(<KindPicker paths={source} path="a.b#/mode" backHref="#back" choose={vi.fn()} />)
+    await screen.findByText(/not reporting now/)
     expect(screen.queryByRole('radio', { name: /Below a limit/ })).toBeNull()
     expect(screen.getByRole('radio', { name: /A given state/ })).toBeTruthy()
   })

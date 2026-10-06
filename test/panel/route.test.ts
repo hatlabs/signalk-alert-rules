@@ -195,6 +195,7 @@ describe('hashWithRoute', () => {
     { kind: 'add', from: 'template' },
     { kind: 'add', from: 'path', path: 'a.*.b c' },
     { kind: 'add', from: 'path', path: 'a.b', when: 'often' },
+    { kind: 'add', from: 'path', path: 'navigation.attitude#/roll', when: 'outside' },
     { kind: 'add', from: 'template', set: 'a&b' },
     {
       kind: 'add',

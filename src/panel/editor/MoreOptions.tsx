@@ -1,9 +1,10 @@
 import { useRef, useState } from 'react'
 import { RANGE_HYSTERESIS } from '../../model/rangeMessages'
 import type { Priority, ZoneLevel } from '../../model/rule'
+import { FIELD_ZONES_MESSAGE, isPointerPath } from '../../model/pointerPath'
 import { PriorityBadge } from '../list/PriorityBadge'
 import { PathPicker } from '../paths/PathPicker'
-import type { PathList } from '../paths/selfPaths'
+import { withoutFields, type PathList } from '../paths/selfPaths'
 import type { Measure, UnitLookup } from '../signalUnits'
 import {
   CheckField,
@@ -59,13 +60,22 @@ function Zones({ form, onChange, measure, paths, units }: ZonesProps) {
   const zones = (entry?.zones ?? []).filter((z) => climbed.has(z.state as ZoneLevel))
   const zoneMeasure = { ...measure, unit: entry?.unit ?? measure.unit }
   const on = isZoneLimited(form.detector)
+  const onField = useFieldErrors(ZONES).includes(FIELD_ZONES_MESSAGE)
+  // A field has no zones: leaving the path empty would give none, and a path typed
+  // as a field, valid or not, has none to describe.
+  const fieldSignal = single !== undefined && isPointerPath(single)
+  const zonesOfField = zonePath !== undefined && isPointerPath(zonePath)
   return (
     <>
       <CheckField
         label={<strong>Use the value&apos;s zones</strong>}
         pointer={ZONES}
         hint="Instead of typing the steps"
-        errorMessage="The stored zone setting is not valid: choose a zone, or turn this off and type the steps."
+        errorMessage={
+          onField
+            ? FIELD_ZONES_MESSAGE
+            : 'The stored zone setting is not valid: choose a zone, or turn this off and type the steps.'
+        }
         checked={on}
         onChange={(checked) => {
           onChange(withDetector(form, { limit: { ...limit, kind: checked ? 'zone' : 'fixed' } }))
@@ -87,10 +97,10 @@ function Zones({ form, onChange, measure, paths, units }: ZonesProps) {
           <PathPicker
             label={single === undefined ? 'Zones from path' : 'Zones from path (optional)'}
             value={limit.path}
-            paths={paths}
+            paths={withoutFields(paths)}
             errors={zonePathErrors}
             hint={
-              single === undefined ? undefined : single === '' ? (
+              single === undefined || fieldSignal ? undefined : single === '' ? (
                 "Empty uses the zones of the value's path."
               ) : (
                 <>
@@ -102,38 +112,40 @@ function Zones({ form, onChange, measure, paths, units }: ZonesProps) {
               onChange(withDetector(form, { limit: { ...limit, path } }))
             }}
           />
-          <div className="skar-card skar-zones">
-            {zonePath === undefined || zonePath === '' ? (
-              <p className="skar-hint">Choose the path whose zones the rule uses.</p>
-            ) : (
-              <>
-                <p className="skar-hint">
-                  From the zones of <span className="skar-mono">{zonePath}</span>
-                </p>
-                {limit.level === '' ? (
-                  <p className="skar-hint">Choose the zone to start at.</p>
-                ) : zones.length === 0 ? (
+          {!zonesOfField && (
+            <div className="skar-card skar-zones">
+              {zonePath === undefined || zonePath === '' ? (
+                <p className="skar-hint">Choose the path whose zones the rule uses.</p>
+              ) : (
+                <>
                   <p className="skar-hint">
-                    It reports no zone at this level or above yet, so the rule cannot alert.
+                    From the zones of <span className="skar-mono">{zonePath}</span>
                   </p>
-                ) : (
-                  <ul className="skar-ladder">
-                    {zones.map((z) => (
-                      <li
-                        key={`${z.state} ${String(z.lower)} ${String(z.upper)}`}
-                        className="skar-rung"
-                      >
-                        <PriorityBadge priority={ZONE_PRIORITY[z.state as ZoneLevel]} />
-                        <span className="skar-rung-condition">
-                          {zoneText(z, zoneMeasure).replace(/^(\w+):/, '$1 zone:')}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </>
-            )}
-          </div>
+                  {limit.level === '' ? (
+                    <p className="skar-hint">Choose the zone to start at.</p>
+                  ) : zones.length === 0 ? (
+                    <p className="skar-hint">
+                      It reports no zone at this level or above yet, so the rule cannot alert.
+                    </p>
+                  ) : (
+                    <ul className="skar-ladder">
+                      {zones.map((z) => (
+                        <li
+                          key={`${z.state} ${String(z.lower)} ${String(z.upper)}`}
+                          className="skar-rung"
+                        >
+                          <PriorityBadge priority={ZONE_PRIORITY[z.state as ZoneLevel]} />
+                          <span className="skar-rung-condition">
+                            {zoneText(z, zoneMeasure).replace(/^(\w+):/, '$1 zone:')}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </>
       )}
     </>

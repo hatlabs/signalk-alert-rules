@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { RuleEntry } from '../../../src/panel/api'
 import { explain, instanceFact, sentenceText } from '../../../src/panel/detail/explain'
+import { pathName } from '../../../src/panel/editor/words'
 import { ruleDisplay } from '../../../src/panel/rules/describe'
 import type { PathEntry } from '../../../src/panel/paths/selfPaths'
 import { unitLookup } from '../../../src/panel/signalUnits'
@@ -259,6 +260,54 @@ describe('explain', () => {
       }
     })
     expect(text(entry)).toBe('Stbd coolant temperature has not reported for 2 h.')
+  })
+
+  describe('a field rule', () => {
+    const silent = (path: string, name?: string) =>
+      ruleEntry({
+        rule: { detector: { type: 'sustained', direction: 'above' }, signal: { paths: [path] } },
+        status: {
+          condition: 'noData',
+          reason: 'inputUnavailable',
+          lastSeen: ago(2 * HOUR),
+          instances: [],
+          ...(name === undefined ? {} : { instance: { name, segment: name } })
+        }
+      })
+
+    it("names the field after its base path's words", () => {
+      expect(text(silent('navigation.attitude#/roll'))).toBe(
+        'Attitude roll has not reported for 2 h.'
+      )
+      expect(text(silent('navigation.attitude#/a/b'))).toBe(
+        'Attitude a b has not reported for 2 h.'
+      )
+    })
+
+    it('names the instance of the base path once', () => {
+      expect(text(silent('electrical.batteries.house#/voltage'))).toBe(
+        'House voltage has not reported for 2 h.'
+      )
+      expect(text(silent('electrical.batteries.*#/voltage', 'start'))).toBe(
+        'Start voltage has not reported for 2 h.'
+      )
+    })
+
+    it('names a field as the path search and editor do', () => {
+      for (const path of ['electrical.batteries.house#/voltage', 'navigation.attitude#/a/b']) {
+        expect(text(silent(path))).toBe(`${pathName(path)} has not reported for 2 h.`)
+      }
+    })
+
+    it("takes the field's display name from metadata", () => {
+      const named = unitLookup(
+        [{ path: 'navigation.attitude#/roll', unit: displayUnit({}), displayName: 'Heel' }],
+        displayUnit({ units: 'm' })
+      )
+      expect(sentenceText(explain(silent('navigation.attitude#/roll'), named, NOW))).toBe(
+        'Heel has not reported for 2 h.'
+      )
+    })
   })
 
   it('counts the instances of a wildcard rule that are all within limits', () => {

@@ -59,7 +59,7 @@ export function KindPicker({ paths, path, backHref, choose, headingRef }: KindPi
   const { units, ready } = useUnits(paths)
   const [chosen, setChosen] = useState<ConditionKind | undefined>(undefined)
   const entry = units.entry(path)
-  const kinds = kindsFor(entry?.value)
+  const kinds = kindsFor(entry?.value, entry?.valueType)
   const main = kinds.filter((k) => k.main)
   const more = kinds.filter((k) => !k.main)
   const subject = subjectOf({ ...emptySignal(), slots: [{ path, source: '' }] }, units)

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { PathEntry } from '../../src/panel/paths/selfPaths'
 import {
   instanceSegment,
+  isWildcardPath,
+  matchesPattern,
   matchedInstances,
   signalMeasure,
   unitLookup,
@@ -103,5 +105,54 @@ describe('instances', () => {
     expect(matchedInstances('electrical.batteries.*.voltage', paths)).toEqual(['house', 'start'])
     expect(matchedInstances('propulsion.*.oilPressure', paths)).toEqual([])
     expect(matchedInstances('propulsion.port.revolutions', paths)).toEqual([])
+  })
+
+  describe('of a field path', () => {
+    const fields: PathEntry[] = [
+      ...paths,
+      { path: 'electrical.batteries.house#/voltage', unit: displayUnit({ units: 'V' }) },
+      { path: 'electrical.batteries.start#/voltage', unit: displayUnit({ units: 'V' }) },
+      { path: 'electrical.batteries.start#/current', unit: displayUnit({ units: 'A' }) }
+    ]
+
+    it('reads a wildcard directly before the pointer as the instance', () => {
+      expect(isWildcardPath('electrical.batteries.*#/voltage')).toBe(true)
+      expect(isWildcardPath('propulsion.*.x#/y')).toBe(true)
+      expect(isWildcardPath('navigation.attitude#/roll')).toBe(false)
+      expect(matchedInstances('electrical.batteries.*#/voltage', fields)).toEqual([
+        'house',
+        'start'
+      ])
+    })
+
+    it('matches only fields at the same pointer, never the plain path', () => {
+      expect(
+        matchesPattern('electrical.batteries.*#/voltage', 'electrical.batteries.house#/voltage')
+      ).toBe(true)
+      expect(
+        matchesPattern('electrical.batteries.*#/voltage', 'electrical.batteries.start#/current')
+      ).toBe(false)
+      expect(
+        matchesPattern('electrical.batteries.*.voltage', 'electrical.batteries.house#/voltage')
+      ).toBe(false)
+      expect(
+        matchesPattern('electrical.batteries.*#/voltage', 'electrical.batteries.house.voltage')
+      ).toBe(false)
+    })
+
+    it('finds the instance in the base path, the field standing for the leaf', () => {
+      expect(instanceSegment('electrical.batteries.house#/voltage')).toBe(2)
+      expect(instanceSegment('propulsion.port#/a/b')).toBe(1)
+      expect(instanceSegment('electrical.batteries#/a/b')).toBeUndefined()
+      expect(withInstanceWildcard('electrical.batteries.house#/voltage')).toBe(
+        'electrical.batteries.*#/voltage'
+      )
+    })
+
+    it("finds a wildcard field's unit from a field it matches", () => {
+      expect(unitLookup(fields, nmi).entry('electrical.batteries.*#/current')?.unit.symbol).toBe(
+        'A'
+      )
+    })
   })
 })

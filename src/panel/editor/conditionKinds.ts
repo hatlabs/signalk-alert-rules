@@ -4,6 +4,7 @@
  * vocabulary stays out of the editor.
  */
 import type { SignalValue } from '../api'
+import type { FieldType } from '../paths/selfPaths'
 import {
   withDetector,
   type DetectorForm,
@@ -107,11 +108,19 @@ export const CONDITION_KINDS: readonly KindInfo[] = [
   }
 ]
 
-/** The kinds a value can have: a value that is not a number cannot be compared with a limit. */
-export function kindsFor(value: SignalValue | undefined): readonly KindInfo[] {
-  return value === undefined || typeof value === 'number'
-    ? CONDITION_KINDS
-    : CONDITION_KINDS.filter((k) => !k.numeric)
+/**
+ * The kinds a value can have: a value that is not a number cannot be
+ * compared with a limit. Without a value, a field's declared type decides.
+ */
+export function kindsFor(
+  value: SignalValue | undefined,
+  valueType?: FieldType
+): readonly KindInfo[] {
+  const numeric =
+    value === undefined
+      ? valueType === undefined || valueType === 'number'
+      : typeof value === 'number'
+  return numeric ? CONDITION_KINDS : CONDITION_KINDS.filter((k) => !k.numeric)
 }
 
 export function kindOf(d: DetectorForm): ConditionKind | undefined {

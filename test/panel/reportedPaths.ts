@@ -1,6 +1,6 @@
 // The server's paths for panel tests. It imports nothing Node-only, so the
 // render harness (harness/) serves the same paths in the browser.
-import type { PathEntry, PathSource } from '../../src/panel/paths/selfPaths'
+import { parseSelfPaths, type PathEntry, type PathSource } from '../../src/panel/paths/selfPaths'
 import { unitLookup } from '../../src/panel/signalUnits'
 import { displayUnit } from '../../src/panel/units'
 
@@ -19,10 +19,8 @@ export const distance = displayUnit({
   units: 'm',
   displayUnits: { formula: 'value * 0.0005399568034557236', symbol: 'nmi' }
 })
-const degrees = displayUnit({
-  units: 'rad',
-  displayUnits: { formula: 'value * 57.29577951308231', symbol: '°' }
-})
+const DEGREES = { formula: 'value * 57.29577951308231', symbol: '°' }
+const degrees = displayUnit({ units: 'rad', displayUnits: DEGREES })
 const knots = displayUnit({
   units: 'm/s',
   displayUnits: { formula: 'value * 1.94384', symbol: 'kn' }
@@ -31,6 +29,39 @@ const percent = displayUnit({
   units: 'ratio',
   displayUnits: { formula: 'value * 100', symbol: '%' }
 })
+
+/**
+ * Attitude as the server reports it: an object value whose fields its
+ * built-in metadata declares, in radians, and the default preset's degrees.
+ */
+const attitude: PathEntry[] = parseSelfPaths(
+  {
+    navigation: {
+      attitude: {
+        value: { roll: 0.05, pitch: -0.02, yaw: 1.2 },
+        $source: 'imu.1',
+        meta: {
+          description: 'Vessel attitude: roll, pitch and yaw',
+          properties: {
+            roll: {
+              type: 'number',
+              units: 'rad',
+              description: 'Vessel roll, +ve is list to starboard'
+            },
+            pitch: { type: 'number', units: 'rad', description: 'Pitch, +ve is bow up' },
+            yaw: {
+              type: 'number',
+              units: 'rad',
+              description: 'Vessel yaw, +ve is heading change to starboard'
+            }
+          }
+        }
+      }
+    }
+  },
+  undefined,
+  (units) => (units === 'rad' ? DEGREES : undefined)
+)
 
 /** What the server reports: every path the worked examples read, and a few more. */
 export const reported: PathEntry[] = [
@@ -94,7 +125,8 @@ export const reported: PathEntry[] = [
     value: 2.5,
     sources: ['gnss.bow', 'gnss.stern'],
     preferredSource: 'gnss.stern'
-  }
+  },
+  ...attitude
 ]
 
 export const units = unitLookup(reported, distance)

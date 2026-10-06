@@ -3,9 +3,16 @@
  * as typed, and the unit each kind of field is entered in.
  */
 import { formatNumber } from '../../format'
+import { isPointerPath, splitPointerPath } from '../../model/pointerPath'
 import type { CombinatorKind } from '../../model/rule'
 import { capitalised } from '../list/PriorityBadge'
-import type { Measure, UnitLookup } from '../signalUnits'
+import {
+  baseSegments,
+  instanceSegment,
+  isWildcardPath,
+  type Measure,
+  type UnitLookup
+} from '../signalUnits'
 import { unitLabel } from '../units'
 import {
   parsedNumber,
@@ -55,6 +62,8 @@ function segmentWords(segment: string): string {
  * (`tanks.freshWater.0.currentLevel` reads "fresh water current level").
  */
 function pathWords(path: string): string {
+  // A field reads as the rule detail names it: its instance, then its leaf words.
+  if (isPointerPath(path)) return instanceWords(path)
   const segments = path.split('.')
   const leaf = segments.at(-1) ?? ''
   const before = segments
@@ -62,6 +71,46 @@ function pathWords(path: string): string {
     .reverse()
     .find((s) => !/^\d+$/.test(s))
   return before === undefined ? segmentWords(leaf) : `${segmentWords(before)} ${segmentWords(leaf)}`
+}
+
+/** A path in words as a name, "Attitude roll" for `navigation.attitude#/roll`. */
+export function pathName(path: string): string {
+  return capitalised(pathWords(path))
+}
+
+/**
+ * What a path's leaf reads as beside its instance: the leaf in words, or
+ * for a field the base path's last segment and then the field,
+ * `navigation.attitude#/roll` "attitude roll". That segment is left out
+ * where it names nothing of its own: a wildcard, a number, the top group,
+ * or the instance, which is named apart.
+ */
+export function leafWords(path: string): string {
+  const split = splitPointerPath(path)
+  const base = split.basePath.split('.')
+  const last = base.at(-1) ?? ''
+  if (!split.valid || split.tokens.length === 0) return segmentWords(last)
+  const named =
+    base.length > 1 &&
+    last !== '*' &&
+    !/^\d+$/.test(last) &&
+    instanceSegment(path) !== base.length - 1
+  return [...(named ? [last] : []), ...split.tokens].map(segmentWords).join(' ')
+}
+
+/**
+ * A path as the rule detail names it: its instance, then its leaf words,
+ * "house voltage" for `electrical.batteries.house#/voltage`; a field is named
+ * this way everywhere.
+ *
+ * @param instance the instance a wildcard path is named for
+ */
+export function instanceWords(path: string, instance?: string): string {
+  const at = instanceSegment(path)
+  const segment = at === undefined ? undefined : baseSegments(path)[at]
+  const which = instance ?? (segment === '*' ? undefined : segment)
+  const leaf = leafWords(path)
+  return which === undefined ? leaf : `${which} ${leaf}`
 }
 
 /** `1 rule`, `2 rules`. */
@@ -76,11 +125,8 @@ export function joined(words: string[]): string {
 }
 
 function singleSubject(path: string, units: UnitLookup): string {
-  if (path.split('.').includes('*')) {
-    const leaf = path.split('.').at(-1) ?? ''
-    return `${capitalised(segmentWords(leaf))} of {instance}`
-  }
-  return units.entry(path)?.displayName ?? capitalised(pathWords(path))
+  if (isWildcardPath(path)) return `${capitalised(leafWords(path))} of {instance}`
+  return units.entry(path)?.displayName ?? pathName(path)
 }
 
 /**

@@ -1,8 +1,59 @@
 import { describe, expect, it } from 'vitest'
-import { emptyStep, type StepForm } from '../../../src/panel/editor/formModel'
-import { clearMarginText } from '../../../src/panel/editor/words'
-import type { Measure } from '../../../src/panel/signalUnits'
+import {
+  emptySignal,
+  emptyStep,
+  hasWildcard,
+  type SignalForm,
+  type StepForm
+} from '../../../src/panel/editor/formModel'
+import { clearMarginText, pathName, subjectOf } from '../../../src/panel/editor/words'
+import { unitLookup, type Measure } from '../../../src/panel/signalUnits'
 import { displayUnit } from '../../../src/panel/units'
+
+const single = (path: string): SignalForm => ({ ...emptySignal(), slots: [{ path, source: '' }] })
+const none = unitLookup([], displayUnit({ units: 'm' }))
+
+describe('subjectOf', () => {
+  it("names a field after its base path's words", () => {
+    expect(subjectOf(single('navigation.attitude#/roll'), none)).toBe('Attitude roll')
+    expect(subjectOf(single('navigation.attitude.roll'), none)).toBe('Attitude roll')
+  })
+
+  it('names a nested field and a field of an instance as the rule detail does', () => {
+    expect(subjectOf(single('navigation.attitude#/a/b'), none)).toBe('Attitude a b')
+    expect(pathName('navigation.attitude#/a/b')).toBe('Attitude a b')
+    expect(subjectOf(single('electrical.batteries.house#/voltage'), none)).toBe('House voltage')
+  })
+
+  it("prefers the field's display name from metadata", () => {
+    const named = unitLookup(
+      [{ path: 'navigation.attitude#/roll', unit: displayUnit({}), displayName: 'Heel' }],
+      displayUnit({ units: 'm' })
+    )
+    expect(subjectOf(single('navigation.attitude#/roll'), named)).toBe('Heel')
+  })
+
+  it('reads a wildcard directly before the pointer as the instance', () => {
+    expect(subjectOf(single('electrical.batteries.*#/voltage'), none)).toBe('Voltage of {instance}')
+    expect(subjectOf(single('propulsion.*.attitude#/roll'), none)).toBe(
+      'Attitude roll of {instance}'
+    )
+    expect(hasWildcard(single('electrical.batteries.*#/voltage'))).toBe(true)
+    expect(hasWildcard(single('navigation.attitude#/roll'))).toBe(false)
+  })
+
+  it('names a combination of fields by its inputs', () => {
+    const combined: SignalForm = {
+      ...emptySignal(),
+      mode: 'combine',
+      slots: [
+        { path: 'navigation.attitude#/roll', source: '' },
+        { path: 'navigation.attitude#/pitch', source: '' }
+      ]
+    }
+    expect(subjectOf(combined, none)).toBe('Difference of attitude roll and attitude pitch')
+  })
+})
 
 const DEGREES: Measure = {
   kind: 'absolute',

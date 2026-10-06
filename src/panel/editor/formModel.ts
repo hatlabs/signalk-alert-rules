@@ -26,6 +26,7 @@ import type {
 import { alertParent, defaultCondition } from '../../alerts/paths'
 import { isRecord, type FieldError } from '../api'
 import {
+  isWildcardPath,
   measureSettled,
   POSITION_KINDS,
   signalMeasure,
@@ -334,7 +335,7 @@ export function signalShape(signal: SignalForm): SignalShape {
 }
 
 export function hasWildcard(signal: SignalForm): boolean {
-  return signal.mode === 'single' && (signal.slots[0]?.path ?? '').split('.').includes('*')
+  return signal.mode === 'single' && isWildcardPath(signal.slots[0]?.path ?? '')
 }
 
 /**

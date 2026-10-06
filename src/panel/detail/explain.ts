@@ -1,4 +1,5 @@
 import type { InstanceStatus, RuleEntry, RuleInfo, RuleStatus } from '../api'
+import { instanceWords } from '../editor/words'
 import { elapsed, MINUTE, noData, problem, reading } from '../list/fact'
 import { capitalised } from '../list/PriorityBadge'
 import {
@@ -10,7 +11,7 @@ import {
   stepCondition,
   type RuleDisplay
 } from '../rules/describe'
-import { instanceSegment, type UnitLookup } from '../signalUnits'
+import type { UnitLookup } from '../signalUnits'
 
 /** A piece of an explanation; the emphasised pieces carry what the operator scans for. */
 export type Part = string | { strong: string }
@@ -20,11 +21,6 @@ const strong = (text: string): Part => ({ strong: text })
 
 export function sentenceText(sentence: Sentence): string {
   return sentence.map((p) => (typeof p === 'string' ? p : p.strong)).join('')
-}
-
-/** `coolantTemperature` as "coolant temperature". */
-function words(segment: string): string {
-  return segment.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase()
 }
 
 /**
@@ -39,11 +35,7 @@ function subjectOf(rule: RuleInfo, units: UnitLookup, instance?: string): string
   const path = rule.signal.paths[0] ?? ''
   const named = path.includes('*') ? undefined : units.entry(path)?.displayName
   if (named !== undefined) return named
-  const parts = path.split('.')
-  const at = instanceSegment(path)
-  const which = instance ?? (at === undefined || parts[at] === '*' ? undefined : parts[at])
-  const leaf = words(parts.at(-1) ?? '')
-  return capitalised(which === undefined ? leaf : `${which} ${leaf}`)
+  return capitalised(instanceWords(path, instance))
 }
 
 type Facts = Pick<

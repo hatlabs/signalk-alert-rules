@@ -1,5 +1,7 @@
 import { useId, useState, type Ref } from 'react'
+import { isPointerPath, splitPointerPath } from '../../model/pointerPath'
 import { BackIcon } from '../detail/icons'
+import { pathName } from '../editor/words'
 import { matches } from '../paths/PathPicker'
 import { LIVE_POLL_MS, useSelfPaths, type PathEntry, type PathSource } from '../paths/selfPaths'
 import { formatValue } from '../rules/describe'
@@ -31,11 +33,29 @@ function shownValue(entry: PathEntry): string {
     : formatValue(entry.value, { kind: 'absolute', unit: entry.unit })
 }
 
-/** A path the server has not reported, typed in full: a rule may watch it before it reports. */
-function typedPath(query: string, paths: readonly PathEntry[]): string | undefined {
+/**
+ * A row's name above its path: the display name, or for a field, whose
+ * pointer reads poorly, its path in words as the editor names it.
+ */
+function rowName(entry: PathEntry): string | undefined {
+  return entry.displayName ?? (isPointerPath(entry.path) ? pathName(entry.path) : undefined)
+}
+
+/**
+ * A path the server has not reported, typed in full: a rule may watch it
+ * before it reports. A typed field whose pointer is not one gives the
+ * reason instead.
+ */
+function typedPath(
+  query: string,
+  paths: readonly PathEntry[]
+): { path: string } | { error: string } | undefined {
   const typed = query.trim()
-  if (!/^[^\s.]+(\.[^\s.]+)+$/.test(typed) || paths.some((p) => p.path === typed)) return undefined
-  return typed
+  const split = splitPointerPath(typed)
+  if (!/^[^\s.]+(\.[^\s.]+)+$/.test(split.basePath) || paths.some((p) => p.path === typed)) {
+    return undefined
+  }
+  return split.valid ? { path: typed } : { error: split.message }
 }
 
 export interface PathSearchProps {
@@ -89,28 +109,36 @@ export function PathSearch({ paths: source, backHref, pathHref, headingRef }: Pa
       )}
       {(found.length > 0 || typed !== undefined) && (
         <ul className="skar-rows" aria-label="Values">
-          {found.slice(0, SHOWN).map((entry) => (
-            <li key={entry.path}>
-              <a className="skar-row" href={pathHref(entry.path)}>
-                <span className="skar-row-main">
-                  <span className="skar-row-name">{entry.displayName ?? entry.path}</span>
-                  {entry.displayName !== undefined && (
-                    <span className="skar-mono">{entry.path}</span>
-                  )}
-                </span>
-                <span className="skar-row-value">{shownValue(entry)}</span>
-              </a>
-            </li>
-          ))}
-          {typed !== undefined && (
+          {found.slice(0, SHOWN).map((entry) => {
+            const name = rowName(entry)
+            return (
+              <li key={entry.path}>
+                <a className="skar-row" href={pathHref(entry.path)}>
+                  <span className="skar-row-main">
+                    <span className="skar-row-name">{name ?? entry.path}</span>
+                    {name !== undefined && <span className="skar-mono">{entry.path}</span>}
+                  </span>
+                  <span className="skar-row-value">{shownValue(entry)}</span>
+                </a>
+              </li>
+            )
+          })}
+          {typed !== undefined && 'path' in typed && (
             <li>
-              <a className="skar-row" href={pathHref(typed)}>
+              <a className="skar-row" href={pathHref(typed.path)}>
                 <span className="skar-row-main">
                   <span className="skar-row-name">Use the path as typed</span>
-                  <span className="skar-mono">{typed}</span>
+                  <span className="skar-mono">{typed.path}</span>
                 </span>
                 <span className="skar-row-value skar-muted">not reporting yet</span>
               </a>
+            </li>
+          )}
+          {typed !== undefined && 'error' in typed && (
+            <li className="skar-row">
+              <span className="skar-error" role="alert">
+                {typed.error}
+              </span>
             </li>
           )}
         </ul>

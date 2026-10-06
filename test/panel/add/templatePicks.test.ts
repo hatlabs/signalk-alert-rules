@@ -314,6 +314,32 @@ describe('typed instances', () => {
   })
 })
 
+describe('a template on a field whose slot is directly before the pointer', () => {
+  const fieldBoat: PathEntry[] = [
+    { path: 'electrical.batteries.house#/voltage', unit: volts, value: 13.2 },
+    { path: 'electrical.batteries.start#/voltage', unit: volts, value: 12.6 },
+    { path: 'electrical.batteries.start#/current', unit: volts, value: 1 },
+    voltage('aux', 12.1)
+  ]
+  const fieldLow: Template = {
+    ...lifepo4,
+    open: undefined,
+    slots: [{ name: 'battery', label: 'Battery' }],
+    rule: { ...lifepo4.rule, signal: { path: 'electrical.batteries.${battery}#/voltage' } }
+  }
+
+  it('lists the instances reporting the field, never the plain path', () => {
+    expect(candidates('builtin', fieldLow, fieldBoat, []).map((c) => [c.path, c.pick])).toEqual([
+      ['electrical.batteries.house#/voltage', { battery: 'house' }],
+      ['electrical.batteries.start#/voltage', { battery: 'start' }]
+    ])
+    expect(slotCandidates(fieldLow, 'battery', fieldBoat).map((c) => c.instance)).toEqual([
+      'house',
+      'start'
+    ])
+  })
+})
+
 describe('a template with one slot named other than instance', () => {
   const batteryLow: Template = {
     ...lifepo4,

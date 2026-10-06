@@ -5,11 +5,22 @@ import {
   alertsWhen,
   discardedTotals,
   combinatorLabel,
+  isWildcard,
   ruleDisplay
 } from '../../../src/panel/rules/describe'
 import { unitLookup } from '../../../src/panel/signalUnits'
 import { displayUnit } from '../../../src/panel/units'
 import { instance, ruleEntry } from '../fixtures'
+
+describe('isWildcard', () => {
+  const on = (path: string) => ruleEntry({ rule: { signal: { paths: [path] } } }).rule
+
+  it('reads a wildcard directly before the pointer', () => {
+    expect(isWildcard(on('electrical.batteries.*#/voltage'))).toBe(true)
+    expect(isWildcard(on('propulsion.*.x#/y'))).toBe(true)
+    expect(isWildcard(on('navigation.attitude#/roll'))).toBe(false)
+  })
+})
 
 describe('discardedTotals', () => {
   it('lists each instance total above zero, named for a wildcard rule', () => {

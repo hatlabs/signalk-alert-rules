@@ -136,6 +136,12 @@ describe('condition kinds', () => {
     ])
   })
 
+  it("lets a field's declared type decide while it has no value, and its value after", () => {
+    expect(kindsFor(undefined, 'number')).toHaveLength(CONDITION_KINDS.length)
+    expect(kindsFor(undefined, 'boolean').some((k) => k.numeric)).toBe(false)
+    expect(kindsFor(12.4, 'string')).toHaveLength(CONDITION_KINDS.length)
+  })
+
   it('gives each kind a label and a real example', () => {
     for (const k of CONDITION_KINDS) {
       expect(k.label).not.toBe('')

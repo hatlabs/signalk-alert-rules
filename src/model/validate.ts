@@ -16,7 +16,13 @@ import {
 } from './rule.js'
 import { wildcards } from '../alerts/paths.js'
 import { alertPathErrors, conditionMissing } from './alertPath.js'
-import { isPointerPath, splitPointerPath } from './pointerPath.js'
+import {
+  FIELD_ZONES_LEVEL_MESSAGE,
+  FIELD_ZONES_MESSAGE,
+  fieldZonesError,
+  isPointerPath,
+  splitPointerPath
+} from './pointerPath.js'
 import { RANGE_HYSTERESIS, RANGE_INVERTED, RANGE_NOT_WIDER } from './rangeMessages.js'
 import { isRecord, pointer } from '../util.js'
 
@@ -47,9 +53,6 @@ export interface ValidationContext {
 export function angularUnitsMessage(units: string): string {
   return `angular combination needs radians, the path is in ${units}`
 }
-
-/** Zones are metadata of a path, never of a field of its value. */
-export const FIELD_ZONES_MESSAGE = 'A field has no zones: turn this off and type the limits.'
 
 export function timeoutValueTypeMessage(valueType: 'boolean' | 'string'): string {
   return `core never times out ${valueType} paths`
@@ -315,29 +318,38 @@ function signalErrors(
   return errors
 }
 
+/**
+ * @param onField what to do about a zone limit on a field, worded for where
+ * the editor shows the limit: a detector's zones checkbox, a gate's zone level
+ */
 function limitErrors(
   limit: Limit,
   signal: Signal,
   at: string,
-  wildcard: string | undefined
+  wildcard: string | undefined,
+  onField: string
 ): ValidationError[] {
   if (limit.kind !== 'zone') return []
+  const pathAt = pointer(at, 'path')
   if (limit.path !== undefined) {
-    const pathAt = pointer(at, 'path')
     const errors = pathErrors(limit.path, pathAt, wildcard)
-    if (errors.length > 0 || !isPointerPath(limit.path)) return errors
-    return [{ path: pathAt, message: FIELD_ZONES_MESSAGE }]
-  }
-  if ('combinator' in signal) {
+    if (errors.length > 0) return errors
+  } else if ('combinator' in signal) {
     return [
       {
-        path: pointer(at, 'path'),
+        path: pathAt,
         message: 'a zone limit on a combined signal must name the path whose zones it uses'
       }
     ]
   }
-  // At the limit itself, where the editor shows its zones checkbox.
-  return isPointerPath(signal.path) ? [{ path: at, message: FIELD_ZONES_MESSAGE }] : []
+  const field = fieldZonesError(
+    limit.path,
+    'combinator' in signal ? undefined : signal.path,
+    onField
+  )
+  return field === undefined
+    ? []
+    : [{ path: field.at === 'path' ? pathAt : at, message: field.message }]
 }
 
 function valueRequired(
@@ -381,7 +393,7 @@ function detectorErrors(rule: Rule, wildcard: string | undefined): ValidationErr
     case 'projection':
       return d.limit === undefined
         ? []
-        : limitErrors(d.limit, rule.signal, pointer(at, 'limit'), wildcard)
+        : limitErrors(d.limit, rule.signal, pointer(at, 'limit'), wildcard, FIELD_ZONES_MESSAGE)
     case 'accumulator': {
       const errors = d.resetOn ? eventErrors(d.resetOn, pointer(at, 'resetOn')) : []
       if (
@@ -604,7 +616,15 @@ function semanticErrors(rule: Rule, ctx: ValidationContext): ValidationError[] {
   rule.gates?.forEach((gate, i) => {
     const at = pointer('/gates', i)
     errors.push(...signalErrors(gate.signal, pointer(at, 'signal'), bound, ctx))
-    errors.push(...limitErrors(gate.limit, gate.signal, pointer(at, 'limit'), bound))
+    errors.push(
+      ...limitErrors(
+        gate.limit,
+        gate.signal,
+        pointer(at, 'limit'),
+        bound,
+        FIELD_ZONES_LEVEL_MESSAGE
+      )
+    )
   })
   return errors
 }
