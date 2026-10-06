@@ -30,6 +30,8 @@ import {
   ruleDisplay,
   type RuleDisplay
 } from '../rules/describe'
+import { isPointerPath } from '../../model/pointerPath'
+import { pathName } from '../editor/words'
 import { HistoryChart } from '../history/HistoryChart'
 import type { HistorySource } from '../history/historySource'
 import { detailChart } from '../history/ruleChart'
@@ -558,8 +560,13 @@ export function RuleDetail({
         <HistoryChart
           history={history}
           spec={chart}
-          // The path's own name heads its chart; without one the chart names its span.
-          title={units.entry(chart.path)?.displayName}
+          // The path's own name heads its chart; without one the chart names its
+          // span, but a field, whose path alone does not say what it is, is named
+          // as the rule's words name it.
+          title={
+            units.entry(chart.path)?.displayName ??
+            (isPointerPath(chart.path) ? pathName(chart.path) : undefined)
+          }
         />
       )}
       {wildcard && (
