@@ -613,6 +613,24 @@ describe('httpPathSource', () => {
       })
     })
 
+    it('reads the preferences again at the next read of the paths after they failed', async () => {
+      const failing = fakeFetch({ '/signalk/v1/api/vessels/self': { body: fieldTree } })
+      const working = fakeFetch(preferences)
+      let failed = true
+      const fetchFn = vi.fn<typeof fetch>((input, init) =>
+        failed ? failing(input, init) : working(input, init)
+      )
+      const source = httpPathSource(fetchFn)
+      const first = await source.selfPaths()
+      expect(field(first, 'navigation.attitude#/roll')?.unit).toMatchObject({ si: true })
+      failed = false
+      const second = await source.selfPaths()
+      expect(field(second, 'navigation.attitude#/roll')?.unit).toMatchObject({
+        symbol: '°',
+        si: false
+      })
+    })
+
     it('reads the preferences once, not at every read of the paths', async () => {
       const fetchFn = fakeFetch(preferences)
       const source = httpPathSource(fetchFn)

@@ -342,7 +342,7 @@ async function loadDistanceUnit(fetchFn: Fetch): Promise<DisplayUnit> {
  * category of its SI unit, or for a unit several share, such as metres for
  * depth and distance, the primary one, else the first by name.
  */
-async function loadFieldUnits(fetchFn: Fetch): Promise<DisplayUnitsFor> {
+async function loadFieldUnits(fetchFn: Fetch): Promise<DisplayUnitsFor | undefined> {
   const [preset, categories, primary] = await Promise.all([
     loadPreset(fetchFn),
     getJson(fetchFn, '/signalk/v1/unitpreferences/categories').catch(() => undefined),
@@ -354,8 +354,8 @@ async function loadFieldUnits(fetchFn: Fetch): Promise<DisplayUnitsFor> {
       : {}
   const primaries =
     isRecord(primary) && isRecord(primary.effectivePrimary) ? primary.effectivePrimary : {}
+  if (preset === undefined) return undefined
   return (units) => {
-    if (preset === undefined) return undefined
     const candidates = Object.keys(toBase)
       .filter((c) => toBase[c] === units)
       .sort()
@@ -367,8 +367,9 @@ async function loadFieldUnits(fetchFn: Fetch): Promise<DisplayUnitsFor> {
 
 /** The source over HTTP, relative to the admin UI's origin. */
 export function httpPathSource(fetchFn: Fetch = (input, init) => fetch(input, init)): PathSource {
-  // Read once: the paths are read again every few seconds, the preferences rarely change.
-  let fieldUnits: Promise<DisplayUnitsFor> | undefined
+  // Read once they answer: the paths are read again every few seconds, the preferences
+  // rarely change. Unread, fields show in SI until a later read reaches them.
+  let fieldUnits: Promise<DisplayUnitsFor | undefined> | undefined
   return {
     selfPaths: async () => {
       fieldUnits ??= loadFieldUnits(fetchFn)
@@ -378,6 +379,7 @@ export function httpPathSource(fetchFn: Fetch = (input, init) => fetch(input, in
         getJson(fetchFn, '/signalk/v1/api/sources').catch(() => undefined),
         fieldUnits
       ])
+      if (displayUnitsFor === undefined) fieldUnits = undefined
       return parseSelfPaths(tree, sources, displayUnitsFor)
     },
     distanceUnit: () => loadDistanceUnit(fetchFn)
