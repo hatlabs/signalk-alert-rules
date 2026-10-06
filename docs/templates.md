@@ -97,7 +97,7 @@ With `instance` in `open`, the template's rule writes the instance as `${instanc
 
 - An open instance needs `${instance}` in at least one path, and `${instance}` anywhere needs `instance` in `open`.
 - `${instance}` is the only placeholder substituted; any other `${...}` in a path, the name or the message is an error.
-- A template's paths may address a [field](rules.md#fields) of an object value, such as `navigation.attitude#/roll`. `${instance}` is a whole path segment and may end the base path, as in `electrical.batteries.${instance}#/voltage`, but cannot appear after `#`, in the pointer: the template names the field.
+- A template's paths may address a [field of an object value](rules.md#fields-of-object-values), such as `navigation.attitude#/roll`. `${instance}` is a whole path segment and may end the base path, as in `electrical.batteries.${instance}#/voltage`, but cannot appear after `#`, in the pointer: the template names the field.
 - A picked instance is one path segment: no dots, no whitespace, no `*`, no `#`, at most 255 characters.
 
 ### Open source

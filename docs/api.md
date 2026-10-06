@@ -45,8 +45,8 @@ Rules are stored in the plugin's data directory, one file per rule as `rules/<sl
 ```
 
 - `slug`: the rule's slug, as in its body.
-- `rule`: the rule as stored. A path addressing a [field](rules.md#fields) of an object value is one string, `navigation.attitude#/roll`, in the body as in the file.
-- `alertPath`: the rule's alert path without the `alerts.` prefix, its condition name under the parent its input gives, as [Alert paths](rules.md#alert-paths) describes. It is derived, not part of the rule; a wildcard rule's has a `*` where each instance's segment goes, and a field's pointer tokens are segments of it: an outside rule on `navigation.attitude#/roll` has `navigation.attitude.rollOutOfRange`.
+- `rule`: the rule as stored. A path addressing a [field of an object value](rules.md#fields-of-object-values) is one string, `navigation.attitude#/roll`, in the body as in the file.
+- `alertPath`: the rule's alert path without the `alerts.` prefix, its condition name under the parent its input gives, as [Alert paths](rules.md#alert-paths) describes. It is derived, not part of the rule; a wildcard rule's has a `*` where each instance's segment goes, and a field path's pointer tokens are segments of it: an outside rule on `navigation.attitude#/roll` has `navigation.attitude.rollOutOfRange`.
 - `disabled`: present while the rule is disabled: when, by whom and, when given, why; see [Rule controls](#rule-controls).
 - `state`: the rule's state: `ruleState` (`enabled` or `disabled`), its `condition` with a `reason` code and that reason's facts, `changedAt`, the time either last changed since the plugin started (an adopted alert keeps its raise time), `issues` and `errors`, and one row per instance, as described in [State](rules.md#state). While the plugin has not started evaluating, the condition is `noData` with the reason `notEvaluated`, and the rule's accumulator totals are instance rows with `progress`.
 
@@ -189,7 +189,7 @@ The webapp's other views ride the same way: `#edit=<slug>` opens a rule in the e
 
 ## Errors
 
-Errors answer `{ "error": "<message>" }`. A body that fails validation answers 400 and adds `errors`, a list of `{ "path", "message" }` with a JSON pointer to each offending field. A malformed field pointer is an error at its path, and a zone limit on a field one at the limit or its `path`, with the messages [Fields](rules.md#fields) and [Zone limits](rules.md#zone-limits) give.
+Errors answer `{ "error": "<message>" }`. A body that fails validation answers 400 and adds `errors`, a list of `{ "path", "message" }` with a JSON pointer to each offending field. A field path with a malformed pointer is an error at that path, and a zone limit on a field of an object value one at the limit or its `path`, with the messages [Fields of object values](rules.md#fields-of-object-values) and [Zone limits](rules.md#zone-limits) give.
 
 | Status | When |
 |---|---|

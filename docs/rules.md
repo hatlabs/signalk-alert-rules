@@ -64,9 +64,9 @@ A signal is a single path or a combination of paths on `vessels.self`.
 { "path": "navigation.position", "source": "gnss.bow" }
 ```
 
-- `path` is relative to `vessels.self`; a path starting with `vessels.` is rejected. It is at most 255 characters. It may end in `#` and a pointer to one field of an object value, such as `navigation.attitude#/roll`; see [Fields](#fields).
+- `path` is relative to `vessels.self`; a path starting with `vessels.` is rejected. It is at most 255 characters. It may end in `#` and a pointer to one field of an object value, such as `navigation.attitude#/roll`; see [Fields](#fields-of-object-values).
 - `source` is optional. Without it the rule reads the preferred source, as the server ranks sources. With it the rule reads only that `$source`, whatever its rank.
-- A path may contain one wildcard segment, `*`, which matches exactly one path segment; a field's pointer has none. Each matching path is an instance of the rule with its own detector and its own alert. The instance name is the segment the wildcard matched. At most 64 instances per rule are admitted; later ones are ignored and reported in the rule's issues.
+- A path may contain one wildcard segment, `*`, which matches exactly one path segment; a field path's pointer has none. Each matching path is an instance of the rule with its own detector and its own alert. The instance name is the segment the wildcard matched. At most 64 instances per rule are admitted; later ones are ignored and reported in the rule's issues.
 - A wildcard elsewhere in the rule, in a gate's signal or a zone limit's `path`, binds to the rule signal's instance, so it is allowed only when the rule signal has a wildcard. `propulsion.*.revolutions` in a gate of a rule on `propulsion.*.coolantTemperature` is the port engine's revolutions for the port instance.
 
 A reading is a number, a string, a boolean or a position (`latitude`, `longitude`). A `null` value, a non-finite number or any other value is *unavailable*; `null` with `state.timedOut` is the server's timed-out marker, which is also unavailable except to timeout rules. A signal that has produced nothing since the rule started is *never seen*.
@@ -102,7 +102,7 @@ Each input subscribes through the server's subscription manager, which replays t
 - `angular: true` is accepted on `difference`, `absDifference`, `spread` and `mean`, and makes them treat values as angles in radians: a difference wraps to [-π, π), so 358° and 3° are 5° apart; `mean` is the circular mean, unavailable when the inputs cancel out; `spread` is the smallest arc holding every angle. When the rule is validated with the server's path information and the server knows an input's units, anything but `rad` is rejected. A rule saved before its inputs report is checked again whenever it evaluates: once an input's `meta.units` is anything but `rad`, the rule is a problem with the reason `unitsNotRadians`, naming the `path` and its `units`, and an active alert is cleared.
 - The combined value exists once every input has reported, and is recomputed whenever any input reports. It is unavailable while any input is unavailable, and timed out when any unavailable input is timed out.
 
-### Fields
+### Fields of object values
 
 A path can address one field of an object value: the Signal K path, `#`, and an [RFC 6901](https://www.rfc-editor.org/rfc/rfc6901) pointer into the path's value, the form Skip and the history providers use. Signal K reports the vessel's roll, pitch and yaw only inside the value of `navigation.attitude`, so a heel alert watches `navigation.attitude#/roll`, for example with an [outside](#outside) rule. No path is named after heel: the webapp's path search finds roll by "roll" or "attitude", not by "heel". A field is accepted wherever a path is, in a signal, a combinator's input and a gate's signal, except as a zone limit's `path`, since a field has no zones (see [Zone limits](#zone-limits)).
 
@@ -240,14 +240,14 @@ Alert Rules only reads `meta.zones`; it never writes meta.
 
 A zone limit takes a sustained, projection or gate threshold from the `meta.zones` of a path instead of a fixed value; an outside rule takes none. It names the least severe zone level the rule watches: `alert`, `warn`, `alarm` or `emergency`. The rule covers that level and every more severe level the zones define. Zones in `normal`, `nominal` or any other state raise nothing, give no threshold and play no part in resolving one.
 
-A [field](#fields) has no zones: zones are metadata of a path, never of a field of its value. Validation refuses a zone limit that would take its zones from a field, in a detector or a gate: one whose `path` is a field, and one without a `path` on a signal that is a field. Each message says what to do in the webapp's editor, which shows it as soon as the form holds such a limit:
+A [field of an object value](#fields-of-object-values) has no zones: zones are metadata of a path, never of a field of its value. Validation refuses a zone limit that would take its zones from a field, in a detector or a gate: one whose `path` is a field path, and one without a `path` on a signal whose path is a field path. Each message says what to do in the webapp's editor, which shows it as soon as the form holds such a limit:
 
 | Zone limit | Error at | Message, and where the editor shows it |
 |---|---|---|
-| a detector's, without `path`, on a field | `/detector/limit` | "A field has no zones: turn this off and type the limits.", on "Use the value's zones", which stays shown and checked until turned off |
-| a gate's, without `path`, on a field | `/gates/<i>/limit` | "A field has no zones: choose A fixed value and type the limit.", on the condition's zone level under "Only while"; a condition on a field otherwise offers only a fixed value |
-| one whose `path` is a field, on a signal that is not | `.../limit/path` | "A field has no zones: choose another path or leave this empty.", under "Zones from path" |
-| one whose `path` is a field, on a field | `.../limit/path` | "A field has no zones: choose a path that has zones.", under "Zones from path", since leaving it empty would take the zones of the signal's field |
+| a detector's, without `path`, on a field path | `/detector/limit` | "A field has no zones: turn this off and type the limits.", on "Use the value's zones", which stays shown and checked until turned off |
+| a gate's, without `path`, on a field path | `/gates/<i>/limit` | "A field has no zones: choose A fixed value and type the limit.", on the condition's zone level under "Only while"; a condition on a field otherwise offers only a fixed value |
+| one whose `path` is a field path, on a signal that is not | `.../limit/path` | "A field has no zones: choose another path or leave this empty.", under "Zones from path" |
+| one whose `path` is a field path, on a field path | `.../limit/path` | "A field has no zones: choose a path that has zones.", under "Zones from path", since leaving it empty would take the zones of the signal's field |
 
 #### Runs
 
@@ -337,7 +337,7 @@ A rule's alert lives in the data model, at a condition name under the parent the
 - For a single input path, it is the path's parent. When the path ends in a wildcard, it is the whole path, so that each instance has an alert of its own.
 - For a combined signal, it is the longest run of leading segments the parents of all its inputs share: `propulsion.port.revolutions` and `propulsion.starboard.revolutions` give `propulsion`. When they share none, the alert path is the condition name alone.
 
-A [field](#fields)'s segments are its base path's followed by its pointer's tokens: `navigation.attitude#/roll` has the parent `navigation.attitude` and the leaf `roll`, so an outside rule on it alerts at `alerts.navigation.attitude.rollOutOfRange`. That is the alert path a rule on `navigation.attitude.roll` with the same detector would have, so the two overlap and cannot both exist. `electrical.batteries.*#/voltage` ends in `voltage`, not in the wildcard, so it needs no stored condition name.
+A [field path](#fields-of-object-values)'s segments are its base path's followed by its pointer's tokens: `navigation.attitude#/roll` has the parent `navigation.attitude` and the leaf `roll`, so an outside rule on it alerts at `alerts.navigation.attitude.rollOutOfRange`. That is the alert path a rule on `navigation.attitude.roll` with the same detector would have, so the two overlap and cannot both exist. `electrical.batteries.*#/voltage` ends in `voltage`, not in the wildcard, so it needs no stored condition name.
 
 Only the condition name is the rule's to choose, in its optional `condition` field. Left out, it is the input's leaf, camel-cased, plus a suffix for the detector: `High` or `Low` for a sustained comparison, `OutOfRange` for an outside rule (`electrical.ac.shore.phase.single.frequencyOutOfRange`), `ProjectedHigh` or `ProjectedLow` for a projection, `Rising` or `Falling` for a slope, `Match`, `Mismatch`, `Changed`, `Decreased` or `TimedOut` for a match, `Accumulated`, `Frequent` and `Missing` for an accumulator, count and absence. That default follows every edit of the input and detector; a stored name is kept through them. A combined signal and an input ending in a wildcard have no leaf to name the condition by, so they need a stored name.
 
@@ -367,7 +367,7 @@ Alert Rules raises through delta ingress: a delta from the plugin, whose id core
 
 A clear is the value `null`: it reports that the condition ended, and is the last thing Alert Rules sends about the alert.
 
-`references`, written at each raise, lists the data paths the rule reads for the alert's instance: its input paths first, then its zone limit's path, then each gate's input paths and zone limit's path, with the instance's name in place of the wildcard and a field's base path in place of the field, since core refuses `#` in a reference. Duplicates and paths core would refuse are left out, since core drops every reference when it refuses one, and the list keeps the first 50, the most core accepts. A rule that reads no path core accepts sends no `references`.
+`references`, written at each raise, lists the data paths the rule reads for the alert's instance: its input paths first, then its zone limit's path, then each gate's input paths and zone limit's path, with the instance's name in place of the wildcard and a field path's base path in place of the field path, since core refuses `#` in a reference. Duplicates and paths core would refuse are left out, since core drops every reference when it refuses one, and the list keeps the first 50, the most core accepts. A rule that reads no path core accepts sends no `references`.
 
 The keys of `data`, written at each raise:
 
@@ -395,7 +395,7 @@ A rule's `message` is a template. Alert Rules fills in its placeholders when it 
 
 "House bank voltage below {limit} for {duration}: {value}" reads "House bank voltage below 11.8 V for 30 s: 11.7 V".
 
-Values are in SI, labelled with the unit the input path's `meta.units` names (for a [field](#fields), the unit its base path's metadata gives it): for a combined signal, its first input's that has one, metres for `distance` and `positionSpread`, and none for `ratio`. A ratio is shown as a percentage. The server's display-unit preferences are resolved per user when the server answers a client and are not readable by a plugin, and a message reads the same for everyone. Durations are in seconds, minutes or hours: 30 s, 5 min, 2 h.
+Values are in SI, labelled with the unit the input path's `meta.units` names (for a [field path](#fields-of-object-values), the unit its base path's metadata gives it): for a combined signal, its first input's that has one, metres for `distance` and `positionSpread`, and none for `ratio`. A ratio is shown as a percentage. The server's display-unit preferences are resolved per user when the server answers a client and are not readable by a plugin, and a message reads the same for everyone. Durations are in seconds, minutes or hours: 30 s, 5 min, 2 h.
 
 A placeholder with nothing to fill it in reads as a dash, "–": `{duration}` on a rule without one, `{value}` before the input has reported since start, `{limit}` of a zone limit whose zones have not been read, or `{limit}` of an outside rule whose value has not gone past either limit, when the alert's data holds no `limit`. Any other text in braces stays as written.
 
