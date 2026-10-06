@@ -67,6 +67,21 @@ export function pathSegments(path: string): string[] | undefined {
   return split.valid ? [...split.basePath.split('.'), ...split.tokens] : undefined
 }
 
+/**
+ * The field the tokens address in a value, undefined when the value has no
+ * such field. Only an object's own fields count: the tokens come from a
+ * rule, and `#/constructor` must not read what every object inherits.
+ */
+export function resolvePointer(value: unknown, tokens: readonly string[]): unknown {
+  let field = value
+  for (const token of tokens) {
+    if (typeof field !== 'object' || field === null || Array.isArray(field)) return undefined
+    if (!Object.hasOwn(field, token)) return undefined
+    field = (field as Record<string, unknown>)[token]
+  }
+  return field
+}
+
 // RFC 6901 decodes ~1 before ~0, so that ~01 is "~1" and not "/".
 function unescapeToken(token: string): string {
   return token.replaceAll('~1', '/').replaceAll('~0', '~')

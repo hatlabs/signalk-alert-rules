@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
+import { RuleEvaluator, type RuleEvent } from '../../src/engine/evaluator.js'
 import { openSignal, type Reading } from '../../src/engine/signals.js'
+import { ruleAlertPath } from '../../src/model/alertPath.js'
 import type { Rule, Signal } from '../../src/model/rule.js'
 import { validateRule } from '../../src/model/validate.js'
 import { workedExamples } from '../fixtures/worked-examples.js'
@@ -54,4 +56,56 @@ describe('worked example signals from recorded deltas', () => {
       expect(last.size).toBe(recorded.expected.length)
     })
   }
+})
+
+// Signal K reports roll only inside navigation.attitude's object value, so a
+// heel alert watches that field.
+describe('heel from the roll of navigation.attitude', () => {
+  const DEG = Math.PI / 180
+  const heel = validateRule({
+    name: 'Heel',
+    slug: 'heel',
+    message: 'Heel {value} past {limit}',
+    signal: { path: 'navigation.attitude#/roll' },
+    detector: {
+      type: 'outside',
+      steps: [{ low: -20 * DEG, high: 20 * DEG, priority: 'warning' }],
+      duration: 5
+    }
+  })
+
+  it('alerts while the roll stays outside the range and clears when it is back inside', () => {
+    if (!heel.ok) throw new Error(JSON.stringify(heel.errors))
+    expect(ruleAlertPath(heel.value)).toBe('navigation.attitude.rollOutOfRange')
+    const sm = new FakeSubscriptionManager()
+    const events: [number, RuleEvent['type'], number | undefined][] = []
+    let now = 0
+    const evaluator = new RuleEvaluator(
+      heel.value,
+      {
+        subscriptions: sm,
+        meta: (path) => (path === 'navigation.attitude#/roll' ? { units: 'rad' } : undefined),
+        timeoutSettings: () => ({ enforce: true, useDefaults: true }),
+        clock: () => now
+      },
+      (e) => events.push([now, e.type, e.type === 'raise' ? e.limit : undefined])
+    )
+    evaluator.start()
+    const attitude = (t: number, roll: number) => {
+      now = t
+      sm.publish('navigation.attitude', 'imu', { roll, pitch: 0.02, yaw: 1.2 })
+    }
+    attitude(0, 0.1)
+    attitude(1, 0.4)
+    now = 5
+    evaluator.tick()
+    expect(events).toEqual([])
+    now = 6
+    evaluator.tick()
+    attitude(8, 0.1)
+    expect(events).toEqual([
+      [6, 'raise', 20 * DEG],
+      [8, 'clear', undefined]
+    ])
+  })
 })

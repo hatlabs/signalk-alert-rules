@@ -6,7 +6,8 @@ import { canonicalSourceRef } from '../engine/sourceRefs.js'
 import type { AlertsReader, CoreAlert } from './emitter.js'
 import { deltaPath } from './paths.js'
 import type { RunnerDeps } from './runner.js'
-import { isRecord } from '../util.js'
+import { splitPointerPath } from '../model/pointerPath.js'
+import { isRecord, own } from '../util.js'
 
 // The published server-api types predate the core alerts API; these are the
 // parts of it SKAR reads.
@@ -43,6 +44,35 @@ function pathMeta(value: unknown): PathMeta | undefined {
   }
 }
 
+/** The units a path's meta gives the field its `properties` describe at the tokens. */
+function propertyUnits(meta: unknown, tokens: readonly string[]): string | undefined {
+  let node = meta
+  for (const token of tokens) {
+    node = isRecord(node) && isRecord(node.properties) ? own(node.properties, token) : undefined
+  }
+  return isRecord(node) && typeof node.units === 'string' ? node.units : undefined
+}
+
+/**
+ * A field's meta: the base path's timing, since the field arrives in the base
+ * path's deltas, and no zones, which are a path's and never a field's. The
+ * metadata lookup has no entry for a field, so its units come from the base
+ * path's `properties`, the data tree's first as for a whole path.
+ */
+function fieldMeta(
+  app: ServerAPI,
+  basePath: string,
+  tokens: readonly string[]
+): PathMeta | undefined {
+  const tree: unknown = app.getSelfPath(`${basePath}.meta`)
+  const base = pathMeta(tree)
+  const units =
+    propertyUnits(tree, tokens) ??
+    propertyUnits(app.getMetadata(`vessels.self.${basePath}`), tokens)
+  if (base === undefined && units === undefined) return undefined
+  return { zones: undefined, units, timeout: base?.timeout, updateContract: base?.updateContract }
+}
+
 /**
  * The server's data-timeout settings. They are not a public plugin API: the
  * plugin's app is a shallow copy of the server's, so `config.settings` is
@@ -64,6 +94,10 @@ export function serverDeps(app: ServerAPI, pluginId: string): RunnerDeps {
     pluginId,
     subscriptions: app.subscriptionmanager,
     meta: (path) => {
+      const split = splitPointerPath(path)
+      if (split.valid && split.tokens.length > 0) {
+        return fieldMeta(app, split.basePath, split.tokens)
+      }
       const meta = pathMeta(app.getSelfPath(`${path}.meta`))
       if (meta?.units !== undefined) return meta
       // The data tree's meta holds what was set for the path, not the units

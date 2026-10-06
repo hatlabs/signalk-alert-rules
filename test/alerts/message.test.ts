@@ -210,6 +210,26 @@ describe('signalUnits', () => {
     expect(signalUnits(signal, undefined, units)).toBeUndefined()
   })
 
+  it("reads a field's units, with the instance in place of a wildcard before the pointer", () => {
+    const signal = { path: 'electrical.batteries.*#/voltage' }
+    const units = meta({ 'electrical.batteries.house#/voltage': 'V' })
+    expect(signalUnits(signal, { name: 'house', segment: 'house' }, units)).toBe('V')
+  })
+
+  it("renders a field's value and limit in the field's units", () => {
+    const heel = valid({
+      name: 'Heel',
+      slug: 'heel',
+      message: 'Roll {value} past {limit}',
+      signal: { path: 'navigation.attitude#/roll' },
+      detector: { type: 'outside', steps: [{ low: -0.35, high: 0.35, priority: 'warning' }] }
+    })
+    const units = signalUnits(heel.signal, undefined, meta({ 'navigation.attitude#/roll': 'rad' }))
+    expect(renderMessage(heel, { value: 0.4, step: 0, limit: 0.35, units })).toBe(
+      'Roll 0.4 rad past 0.35 rad'
+    )
+  })
+
   it('reads a combination’s units from its first input that has them', () => {
     const units = meta({ b: 'K' })
     const inputs = [{ path: 'a' }, { path: 'b' }]

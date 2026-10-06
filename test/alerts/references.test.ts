@@ -87,6 +87,33 @@ describe('referencesOf', () => {
     ])
   })
 
+  it("names a field's base path, once for fields of the same path, for the instance", () => {
+    const combined = valid({
+      ...base,
+      condition: 'apart',
+      signal: {
+        combinator: 'difference',
+        inputs: [{ path: 'navigation.attitude#/roll' }, { path: 'navigation.attitude#/pitch' }]
+      }
+    })
+    expect(referencesOf(combined)).toEqual(['navigation.attitude'])
+    const wildcard = valid({
+      ...base,
+      signal: { path: 'electrical.batteries.*#/voltage' },
+      gates: [
+        {
+          signal: { path: 'electrical.batteries.*.current' },
+          direction: 'above',
+          limit: { kind: 'fixed', value: 0 }
+        }
+      ]
+    })
+    expect(referencesOf(wildcard, 'house')).toEqual([
+      'electrical.batteries.house',
+      'electrical.batteries.house.current'
+    ])
+  })
+
   it('leaves out a path core would refuse, which would otherwise lose every reference', () => {
     const rule = valid({ ...base, signal: { path: 'electrical.batteries.*.voltage' } })
     expect(referencesOf(rule, 'house bank')).toEqual([])

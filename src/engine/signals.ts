@@ -5,6 +5,8 @@ import type {
   SubscriptionManager,
   Unsubscribes
 } from '@signalk/server-api'
+import { fillWildcard, wildcards } from '../alerts/paths.js'
+import { resolvePointer, splitPointerPath } from '../model/pointerPath.js'
 import { MAX_INSTANCES, type PathInput, type Signal } from '../model/rule.js'
 import { combine } from './combinators.js'
 import { InstanceRegistry, instanceIn } from './instances.js'
@@ -41,13 +43,21 @@ export interface Instance {
   segment: string
 }
 
+/**
+ * The Signal K path an input reads and the tokens of the field it addresses
+ * in that path's value; no tokens for the whole value. Rules reach the
+ * engine validated, so an invalid pointer is not expected here.
+ */
+function fieldOf(path: string): { basePath: string; tokens: readonly string[] } {
+  const split = splitPointerPath(path)
+  return { basePath: split.basePath, tokens: split.valid ? split.tokens : [] }
+}
+
 /** A path with its wildcard segment replaced by the instance's name. */
 export function bindPath(path: string, instance: Instance | undefined): string {
   if (instance === undefined) return path
-  return path
-    .split('.')
-    .map((s) => (s === '*' ? instance.name : s))
-    .join('.')
+  const { basePath } = fieldOf(path)
+  return fillWildcard(basePath, instance.name) + path.slice(basePath.length)
 }
 
 export interface Sample {
@@ -81,8 +91,9 @@ function isPosition(value: object): value is Position {
   )
 }
 
-function toReading(pv: PathValue): Reading {
-  const { value } = pv
+function toReading(pv: PathValue, tokens: readonly string[]): Reading {
+  const value = pv.value === null ? null : resolvePointer(pv.value, tokens)
+  if (value === undefined) return UNAVAILABLE
   if (value === null) return { available: false, timedOut: pv.state?.timedOut === true }
   if (typeof value === 'number')
     return Number.isFinite(value) ? { available: true, value } : UNAVAILABLE
@@ -93,7 +104,8 @@ function toReading(pv: PathValue): Reading {
   return UNAVAILABLE
 }
 
-type OnValue = (path: string, reading: Reading, replayed: boolean) => void
+/** A value of the base path the input reads, from a source it accepts. */
+type OnValue = (pv: PathValue, replayed: boolean) => void
 
 interface Subscriptions {
   manager: SubscriptionManager
@@ -107,6 +119,7 @@ function subscribeInput(
   onValue: OnValue
 ): Unsubscribes {
   const { source } = input
+  const { basePath } = fieldOf(input.path)
   // Deltas carry the provider's form of a ref, which for an NMEA 2000 device
   // may be its bus address rather than its CAN name.
   const accepts = (ref: string | undefined) =>
@@ -119,7 +132,7 @@ function subscribeInput(
   manager.subscribe(
     {
       context: SELF,
-      subscribe: [{ path: input.path as Path }],
+      subscribe: [{ path: basePath as Path }],
       // The preferred-source bus never carries a lower-ranked source's values.
       sourcePolicy: input.source === undefined ? 'preferred' : 'all'
     },
@@ -129,7 +142,7 @@ function subscribeInput(
       for (const update of delta.updates) {
         if (!('values' in update)) continue
         if (!accepts(update.$source)) continue
-        for (const pv of update.values) onValue(pv.path, toReading(pv), replaying)
+        for (const pv of update.values) onValue(pv, replaying)
       }
     }
   )
@@ -142,20 +155,22 @@ function openPath(
   subscriptions: Subscriptions,
   handlers: SignalHandlers
 ): Unsubscribes {
-  if (!input.path.split('.').includes('*')) {
-    return subscribeInput(input, subscriptions, handlers.onError, (path, reading, replayed) => {
-      if (path === input.path) handlers.onSample({ reading, replayed })
+  const { basePath, tokens } = fieldOf(input.path)
+  if (wildcards(basePath) === 0) {
+    return subscribeInput(input, subscriptions, handlers.onError, (pv, replayed) => {
+      if (pv.path === basePath) handlers.onSample({ reading: toReading(pv, tokens), replayed })
     })
   }
   const registry = new InstanceRegistry()
   // Bounded like the admitted set: every distinct matching path would otherwise add a name.
   const reported = new Set<string>()
-  return subscribeInput(input, subscriptions, handlers.onError, (path, reading, replayed) => {
-    const name = instanceIn(input.path, path)
+  return subscribeInput(input, subscriptions, handlers.onError, (pv, replayed) => {
+    const name = instanceIn(basePath, pv.path)
     if (name === undefined) return
     const admission = registry.admit(name)
     if (admission.ok) {
-      handlers.onSample({ instance: { name, segment: admission.segment }, reading, replayed })
+      const instance = { name, segment: admission.segment }
+      handlers.onSample({ instance, reading: toReading(pv, tokens), replayed })
     } else if (reported.size < MAX_INSTANCES && !reported.has(name)) {
       reported.add(name)
       handlers.onIssue(admission.reason)
@@ -183,14 +198,31 @@ function openCombinator(
     return combine(signal.combinator, values, angular)
   }
 
-  return signal.inputs.flatMap((input, i) =>
-    subscribeInput(input, subscriptions, handlers.onError, (path, reading, replayed) => {
-      if (path !== input.path) return
-      latest[i] = reading
-      const result = combined()
-      if (result !== undefined) handlers.onSample({ reading: result, replayed })
-    })
-  )
+  // Fields of one path arrive in one delta: read apart, the first field's
+  // update would combine with the other field's previous value.
+  const shared = new Map<string, number[]>()
+  signal.inputs.forEach((input, i) => {
+    const key = JSON.stringify([fieldOf(input.path).basePath, input.source ?? null])
+    const indices = shared.get(key)
+    if (indices === undefined) shared.set(key, [i])
+    else indices.push(i)
+  })
+
+  return [...shared.values()].flatMap((indices) => {
+    const fields = indices.map((i) => ({ i, ...fieldOf(signal.inputs[i].path) }))
+    const { basePath } = fields[0]
+    return subscribeInput(
+      signal.inputs[indices[0]],
+      subscriptions,
+      handlers.onError,
+      (pv, replayed) => {
+        if (pv.path !== basePath) return
+        for (const { i, tokens } of fields) latest[i] = toReading(pv, tokens)
+        const result = combined()
+        if (result !== undefined) handlers.onSample({ reading: result, replayed })
+      }
+    )
+  })
 }
 
 /**

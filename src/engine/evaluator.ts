@@ -12,6 +12,8 @@ import {
   type ZoneLevel
 } from '../model/rule.js'
 import { ruleAlertPath } from '../model/alertPath.js'
+import { wildcards } from '../alerts/paths.js'
+import { isPointerPath } from '../model/pointerPath.js'
 import type { Clock } from './clock.js'
 import {
   AccumulatorDetector,
@@ -332,7 +334,7 @@ export function structuralChanges(current: Rule, next: Rule): string[] {
 }
 
 export function isWildcard(signal: Signal): boolean {
-  return !('combinator' in signal) && signal.path.split('.').includes('*')
+  return !('combinator' in signal) && wildcards(signal.path) > 0
 }
 
 /**
@@ -781,8 +783,11 @@ export class RuleEvaluator {
       cause,
       ...(contract === undefined ? {} : { contract })
     })
-    if (typeof unit.lastValue === 'boolean') return problem('booleanPath')
-    if (typeof unit.lastValue === 'string') return problem('stringPath')
+    // Core times out an object path whatever its fields hold.
+    if (!isPointerPath(this.rule.signal.path)) {
+      if (typeof unit.lastValue === 'boolean') return problem('booleanPath')
+      if (typeof unit.lastValue === 'string') return problem('stringPath')
+    }
     const settings = this.ctx.timeoutSettings()
     if (settings !== undefined && !settings.enforce) return problem('notEnforced')
     // Meta exists only once the path has a value; a path never seen since

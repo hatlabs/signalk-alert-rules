@@ -1280,6 +1280,121 @@ describe('wildcard rules', () => {
   })
 })
 
+describe('field rules', () => {
+  const ATTITUDE = 'navigation.attitude'
+  const ROLL = 'navigation.attitude#/roll'
+  const rollHigh = valid({
+    name: 'Roll high',
+    slug: 'roll-high',
+    message: 'Roll is high',
+    signal: { path: ROLL },
+    detector: {
+      type: 'sustained',
+      direction: 'above',
+      steps: [{ limit: 0.35, priority: 'warning' }]
+    }
+  })
+
+  it('evaluate each instance of a wildcard directly before the pointer against its own gate', () => {
+    const rule = valid({
+      name: 'Battery low',
+      slug: 'battery-low',
+      message: 'Battery {instance} low',
+      signal: { path: 'electrical.batteries.*#/voltage' },
+      detector: {
+        type: 'sustained',
+        direction: 'below',
+        steps: [{ limit: 12, priority: 'warning' }]
+      },
+      gates: [
+        {
+          signal: { path: 'electrical.batteries.*#/current' },
+          direction: 'below',
+          limit: { kind: 'fixed', value: 0 }
+        }
+      ]
+    })
+    const { at, log, evaluator } = setup(rule)
+    at(0, 'electrical.batteries.house', { voltage: 11.5, current: -5 })
+    at(0, 'electrical.batteries.start', { voltage: 11.5, current: 2 })
+    expect(log).toEqual([[0, 'raise', 'house', 'warning']])
+    expect(evaluator.status().instances.map((u) => u.instance?.name)).toEqual(['house', 'start'])
+    at(1)
+    expect(log).toEqual([[0, 'raise', 'house', 'warning']])
+  })
+
+  it('a gate on a field holds on that field of the base path', () => {
+    const rule = valid({
+      ...rollHigh,
+      gates: [
+        {
+          signal: { path: 'navigation.attitude#/pitch' },
+          direction: 'below',
+          limit: { kind: 'fixed', value: 0.1 }
+        }
+      ]
+    })
+    const { at, log } = setup(rule)
+    at(0, ATTITUDE, { roll: 0.4, pitch: 0.2 })
+    expect(log).toEqual([])
+    at(1, ATTITUDE, { roll: 0.4, pitch: 0 })
+    expect(log).toEqual([[1, 'raise', '', 'warning']])
+  })
+
+  it("times out on the base path's timeout, as its meta reports for the field", () => {
+    const rule = valid({ ...depthTimeout, signal: { path: ROLL } })
+    const { at, log, evaluator } = setup(rule, {
+      settings: { enforce: true, useDefaults: false },
+      meta: { [ROLL]: { timeout: 10 } }
+    })
+    at(0, ATTITUDE, { roll: 0.1 })
+    at(10, ATTITUDE, null, TIMED_OUT)
+    at(40)
+    expect(log).toEqual([[40, 'raise', '', 'warning']])
+    expect(evaluator.status().instances[0]?.judgement.problem).toBeUndefined()
+  })
+
+  it('a timeout rule on a boolean field times out, since core times out the object', () => {
+    const SWITCH = 'electrical.switches.bilge#/state'
+    const rule = valid({ ...depthTimeout, signal: { path: SWITCH } })
+    const { at, log, evaluator } = setup(rule)
+    at(0, 'electrical.switches.bilge', { state: true })
+    expect(evaluator.status().instances[0]?.judgement.problem).toBeUndefined()
+    at(10, 'electrical.switches.bilge', null, TIMED_OUT)
+    at(40)
+    expect(log).toEqual([[40, 'raise', '', 'warning']])
+  })
+
+  it('an angular combination of fields reported in other units than radians is inactive', () => {
+    const PITCH = 'navigation.attitude#/pitch'
+    const rule = valid({
+      name: 'Roll and pitch apart',
+      slug: 'roll-pitch-apart',
+      condition: 'rollPitchApart',
+      message: 'm',
+      signal: {
+        combinator: 'absDifference',
+        angular: true,
+        inputs: [{ path: ROLL }, { path: PITCH }]
+      },
+      detector: {
+        type: 'sustained',
+        direction: 'above',
+        steps: [{ limit: 0.1, priority: 'caution' }]
+      }
+    })
+    const { at, evaluator } = setup(rule, {
+      meta: { [ROLL]: { units: 'rad' }, [PITCH]: { units: 'deg' } }
+    })
+    at(0, ATTITUDE, { roll: 0.4, pitch: 0 })
+    expect(evaluator.status().instances[0]?.judgement.problem).toEqual({
+      reason: 'unitsNotRadians',
+      path: PITCH,
+      units: 'deg'
+    })
+  })
+})
+
 const engineStopped = valid({
   name: 'Engine stopped',
   slug: 'engine-stopped',
