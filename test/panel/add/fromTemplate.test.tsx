@@ -1406,6 +1406,18 @@ describe('rules from a template with two slots', () => {
         ]
       ])
     })
+
+    it('takes a typed name only for a slot outside the signal path, which has no sources to offer', async () => {
+      renderShell({ rules: [], listing }, { reported: sourced.slice(0, 2) })
+      await openPicker([{ battery: 'start' }], bySource.id)
+      expect(screen.queryByRole('textbox', { name: 'Battery not listed?' })).toBeNull()
+      change(screen.getByRole('textbox', { name: 'Engine not listed?' }), 'aft')
+      fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+      expect(cell(1, 'Engine').value).toBe('aft')
+      choose(1, 'Source', 'n2k.1')
+      expect(status().textContent).toBe('')
+      expect(continueButton().disabled).toBe(false)
+    })
   })
 
   it('labels a tab with its source after the slots, and marks a battery not reporting', async () => {

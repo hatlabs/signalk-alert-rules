@@ -347,6 +347,11 @@ function SlotRows(props: TemplatePickerProps) {
   const slots = slotsOf(template)
   const sourceOpen = template.open?.includes(SOURCE_PICK) === true
   const signalSlots = watchedSlots(template)
+  // A typed instance has no sources to offer, so a slot in the signal path is
+  // only typed while the source is fixed.
+  const typedSlots = sourceOpen
+    ? slots.filter((slot) => !signalSlots.some((s) => s.name === slot.name))
+    : slots
   const reported = paths.status === 'ready' ? paths.paths : []
   const byPath = new Map(reported.map((p) => [p.path, p]))
   const nextKey = useRef(0)
@@ -570,7 +575,7 @@ function SlotRows(props: TemplatePickerProps) {
             })}
           </div>
           <div className="skar-slot-typed">
-            {slots.map((slot) => (
+            {typedSlots.map((slot) => (
               <TypedInstance
                 key={slot.name}
                 label={`${slot.label} not listed?`}
