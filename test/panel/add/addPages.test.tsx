@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { KindPicker } from '../../../src/panel/add/KindPicker'
 import { PathSearch } from '../../../src/panel/add/PathSearch'
@@ -66,6 +66,7 @@ describe('PathSearch', () => {
     const row = screen.getByRole('link', { name: /navigation\.attitude#\/roll/ })
     expect(row.getAttribute('href')).toBe('#to=navigation.attitude#/roll')
     expect(row.textContent).toContain('2.865 °')
+    expect(within(row).getByText('Attitude roll')).toBeTruthy()
     expect(screen.queryByRole('link', { name: /^navigation\.attitude$/ })).toBeNull()
   })
 

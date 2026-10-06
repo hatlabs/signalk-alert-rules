@@ -66,6 +66,11 @@ function pathWords(path: string): string {
   return before === undefined ? segmentWords(leaf) : `${segmentWords(before)} ${segmentWords(leaf)}`
 }
 
+/** A path in words as a name, "Attitude roll" for `navigation.attitude#/roll`. */
+export function pathName(path: string): string {
+  return capitalised(pathWords(path))
+}
+
 /**
  * What a path's leaf reads as beside its instance: the leaf in words, or
  * for a field the base path's last segment and then the field,
@@ -99,7 +104,7 @@ export function joined(words: string[]): string {
 
 function singleSubject(path: string, units: UnitLookup): string {
   if (isWildcardPath(path)) return `${capitalised(leafWords(path))} of {instance}`
-  return units.entry(path)?.displayName ?? capitalised(pathWords(path))
+  return units.entry(path)?.displayName ?? pathName(path)
 }
 
 /**

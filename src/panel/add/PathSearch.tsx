@@ -1,6 +1,7 @@
 import { useId, useState, type Ref } from 'react'
-import { splitPointerPath } from '../../model/pointerPath'
+import { isPointerPath, splitPointerPath } from '../../model/pointerPath'
 import { BackIcon } from '../detail/icons'
+import { pathName } from '../editor/words'
 import { matches } from '../paths/PathPicker'
 import { LIVE_POLL_MS, useSelfPaths, type PathEntry, type PathSource } from '../paths/selfPaths'
 import { formatValue } from '../rules/describe'
@@ -30,6 +31,14 @@ function shownValue(entry: PathEntry): string {
   return entry.value === undefined
     ? ''
     : formatValue(entry.value, { kind: 'absolute', unit: entry.unit })
+}
+
+/**
+ * A row's name above its path: the display name, or for a field, whose
+ * pointer reads poorly, its path in words as the editor names it.
+ */
+function rowName(entry: PathEntry): string | undefined {
+  return entry.displayName ?? (isPointerPath(entry.path) ? pathName(entry.path) : undefined)
 }
 
 /**
@@ -100,19 +109,20 @@ export function PathSearch({ paths: source, backHref, pathHref, headingRef }: Pa
       )}
       {(found.length > 0 || typed !== undefined) && (
         <ul className="skar-rows" aria-label="Values">
-          {found.slice(0, SHOWN).map((entry) => (
-            <li key={entry.path}>
-              <a className="skar-row" href={pathHref(entry.path)}>
-                <span className="skar-row-main">
-                  <span className="skar-row-name">{entry.displayName ?? entry.path}</span>
-                  {entry.displayName !== undefined && (
-                    <span className="skar-mono">{entry.path}</span>
-                  )}
-                </span>
-                <span className="skar-row-value">{shownValue(entry)}</span>
-              </a>
-            </li>
-          ))}
+          {found.slice(0, SHOWN).map((entry) => {
+            const name = rowName(entry)
+            return (
+              <li key={entry.path}>
+                <a className="skar-row" href={pathHref(entry.path)}>
+                  <span className="skar-row-main">
+                    <span className="skar-row-name">{name ?? entry.path}</span>
+                    {name !== undefined && <span className="skar-mono">{entry.path}</span>}
+                  </span>
+                  <span className="skar-row-value">{shownValue(entry)}</span>
+                </a>
+              </li>
+            )
+          })}
           {typed !== undefined && 'path' in typed && (
             <li>
               <a className="skar-row" href={pathHref(typed.path)}>
