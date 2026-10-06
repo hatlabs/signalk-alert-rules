@@ -1,4 +1,5 @@
 import { useId, useState, type Ref } from 'react'
+import { splitPointerPath } from '../../model/pointerPath'
 import { BackIcon } from '../detail/icons'
 import { matches } from '../paths/PathPicker'
 import { LIVE_POLL_MS, useSelfPaths, type PathEntry, type PathSource } from '../paths/selfPaths'
@@ -31,11 +32,21 @@ function shownValue(entry: PathEntry): string {
     : formatValue(entry.value, { kind: 'absolute', unit: entry.unit })
 }
 
-/** A path the server has not reported, typed in full: a rule may watch it before it reports. */
-function typedPath(query: string, paths: readonly PathEntry[]): string | undefined {
+/**
+ * A path the server has not reported, typed in full: a rule may watch it
+ * before it reports. A typed field whose pointer is not one gives the
+ * reason instead.
+ */
+function typedPath(
+  query: string,
+  paths: readonly PathEntry[]
+): { path: string } | { error: string } | undefined {
   const typed = query.trim()
-  if (!/^[^\s.]+(\.[^\s.]+)+$/.test(typed) || paths.some((p) => p.path === typed)) return undefined
-  return typed
+  const split = splitPointerPath(typed)
+  if (!/^[^\s.]+(\.[^\s.]+)+$/.test(split.basePath) || paths.some((p) => p.path === typed)) {
+    return undefined
+  }
+  return split.valid ? { path: typed } : { error: split.message }
 }
 
 export interface PathSearchProps {
@@ -102,15 +113,22 @@ export function PathSearch({ paths: source, backHref, pathHref, headingRef }: Pa
               </a>
             </li>
           ))}
-          {typed !== undefined && (
+          {typed !== undefined && 'path' in typed && (
             <li>
-              <a className="skar-row" href={pathHref(typed)}>
+              <a className="skar-row" href={pathHref(typed.path)}>
                 <span className="skar-row-main">
                   <span className="skar-row-name">Use the path as typed</span>
-                  <span className="skar-mono">{typed}</span>
+                  <span className="skar-mono">{typed.path}</span>
                 </span>
                 <span className="skar-row-value skar-muted">not reporting yet</span>
               </a>
+            </li>
+          )}
+          {typed !== undefined && 'error' in typed && (
+            <li className="skar-row">
+              <span className="skar-error" role="alert">
+                {typed.error}
+              </span>
             </li>
           )}
         </ul>
