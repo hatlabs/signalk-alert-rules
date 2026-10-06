@@ -321,10 +321,13 @@ function brokenExample(
   }
 }
 
-/** Stored rules the editor cannot make, each beside the examples under its `rules` value. */
-export const brokenRules: Record<
-  'fixedLimit' | 'angularRatio' | 'eventValue' | 'zoneSteps',
-  () => InvalidRuleEntry
+/**
+ * A stored rule beside the examples under each `rules` value: one the editor
+ * cannot make, or one made from a template.
+ */
+export const extraRules: Record<
+  'fixedLimit' | 'angularRatio' | 'eventValue' | 'zoneSteps' | 'templated',
+  () => ListedRule
 > = {
   fixedLimit: () =>
     brokenExample('house-battery-low', 'house-battery-fixed-limit', (rule) => ({
@@ -349,7 +352,8 @@ export const brokenRules: Record<
       ...rule,
       name: 'House battery zone and steps',
       detector: { ...rule.detector, steps: [{ limit: 12, priority: 'warning' }] }
-    }))
+    })),
+  templated: templatedEntry
 }
 
 /** What the plugin found while loading, beside the stored rule that does not run. */
@@ -371,7 +375,7 @@ export const templateSets: TemplateSetEntry[] = [
 ]
 
 /** A rule made from the two-slot alternator template, for the row it covers in the picker. */
-export function templatedEntry(): RuleEntry {
+function templatedEntry(): RuleEntry {
   const template = slotSet.templates.find((t) => t.id === 'alternator-not-charging')
   if (template === undefined) throw new Error('no two-slot alternator template')
   const made = instantiate(slotSet, template, { battery: 'start', engine: 'port' })
