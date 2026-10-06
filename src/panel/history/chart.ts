@@ -201,7 +201,8 @@ function furthestPassed(value: number, side: 'below' | 'above', limits: readonly
  * value, as each bucket keeps its extreme.
  *
  * @param series each bucket's lowest for a low limit and its highest for a
- *   high one, both for an outside rule; a slope's averages stand for either
+ *   high one, both for an outside rule; a slope's averages, or a field's last
+ *   values, stand for either
  */
 export function historySummary(
   series: HistorySeries,
@@ -212,8 +213,8 @@ export function historySummary(
   const notAlerted = (found: string) =>
     verdict ? `${found} The rule would not have alerted.` : found
   if (side === 'outside') {
-    const lowest = extreme(series.min ?? [], 'below')
-    const highest = extreme(series.max ?? [], 'above')
+    const lowest = extreme(series.min ?? series.last ?? [], 'below')
+    const highest = extreme(series.max ?? series.last ?? [], 'above')
     if (lowest === undefined || highest === undefined) return undefined
     const found = `Lowest ${at(lowest)}; highest ${at(highest)}.`
     if (limits.length === 0) return found
@@ -245,7 +246,10 @@ export function historySummary(
       ? `${found} It went below and above the ${first.name}.`
       : `${found} It went below the ${first.name} and above the ${second.name}.`
   }
-  const point = extreme(series[side === 'below' ? 'min' : 'max'] ?? series.average ?? [], side)
+  const point = extreme(
+    series[side === 'below' ? 'min' : 'max'] ?? series.average ?? series.last ?? [],
+    side
+  )
   if (point === undefined) return undefined
   const found = `${side === 'below' ? 'Lowest' : 'Highest'} ${at(point)}.`
   if (limits.length === 0) return found

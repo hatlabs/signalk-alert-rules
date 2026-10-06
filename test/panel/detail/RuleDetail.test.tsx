@@ -13,6 +13,7 @@ import type { PathEntry } from '../../../src/panel/paths/selfPaths'
 import { unitLookup } from '../../../src/panel/signalUnits'
 import { displayUnit } from '../../../src/panel/units'
 import { instance, ruleEntry } from '../fixtures'
+import { units as reportedUnits } from '../reportedPaths'
 
 const NOW = Date.parse('2026-09-30T12:00:00.000Z')
 const ago = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString()
@@ -1174,6 +1175,23 @@ describe('RuleDetail', () => {
       await settle()
       expect(screen.getByRole('heading', { name: 'House bank voltage' })).toBeTruthy()
       expect(screen.getByRole('img', { name: 'Last 24 hours with the limit' })).toBeTruthy()
+    })
+
+    it('names a field’s chart after the field, and a plain path’s without a name after its span', async () => {
+      const heel = ruleEntry({
+        rule: {
+          signal: { paths: ['navigation.attitude#/roll'] },
+          detector: { type: 'outside' },
+          steps: [{ low: -0.3491, high: 0.3491, priority: 'warning' }]
+        }
+      })
+      renderDetail(heel, { history: history(), units: reportedUnits })
+      await settle()
+      expect(screen.getByRole('heading', { name: 'Attitude roll' })).toBeTruthy()
+      cleanup()
+      renderDetail(houseLow, { history: history() })
+      await settle()
+      expect(screen.getByRole('heading', { name: 'Last 24 hours' })).toBeTruthy()
     })
 
     it('leaves the rest of the rule as it is when the history fails', async () => {

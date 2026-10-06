@@ -61,6 +61,9 @@ interface ChartProps {
 /** The width drawn for until the chart's own is known, as where nothing is laid out. */
 const FALLBACK_WIDTH = 360
 
+/** Under a line of last values, which a peak between two of them never reaches. */
+const LAST_NOTE = 'Last value per interval; short peaks may not show.'
+
 /** Room between a limit's label and the chart's right edge. */
 const LIMIT_LABEL_INSET = 4
 
@@ -319,6 +322,7 @@ function Chart({ history, spec, title, span, onSpan }: ChartProps) {
           )}
           {note === undefined && summary !== undefined && <p className="skar-hint">{summary}</p>}
         </div>
+        {recorded && methods.includes('last') && <p className="skar-hint">{LAST_NOTE}</p>}
       </div>
     </section>
   )

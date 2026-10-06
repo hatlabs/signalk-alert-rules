@@ -19,7 +19,8 @@ export const OPTIONS = {
    * detector limit, a ratio flagged as angles, a count whose "changes" event
    * carries a value, or a zone-limit rule that also has steps; or the
    * examples with a rule made from the two-slot alternator template for the
-   * start battery and the port engine.
+   * start battery and the port engine; or the examples with a heel rule on
+   * the roll field of `navigation.attitude`.
    */
   rules: [
     'examples',
@@ -29,7 +30,8 @@ export const OPTIONS = {
     'angularRatio',
     'eventValue',
     'zoneSteps',
-    'templated'
+    'templated',
+    'field'
   ],
   /** The rules' states: a mix of conditions, or the ones docs/examples.md shows where they differ. */
   states: ['mixed', 'docs'],

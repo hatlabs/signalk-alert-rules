@@ -13,9 +13,11 @@ import {
   type PanelApi,
   type RuleEntry
 } from '../../src/panel/api'
+import { detailChart } from '../../src/panel/history/ruleChart'
 import { withRefusals } from '../../src/panel/refusal'
 import { parseRoute } from '../../src/panel/route'
 import { slotsOf } from '../../src/templates/instantiate'
+import { units } from './reportedPaths'
 
 /**
  * The render harness's fake server against the panel: a renamed example, a
@@ -168,6 +170,23 @@ describe('render harness', () => {
       }
     }
     expect(compared).toBeGreaterThan(0)
+  })
+
+  it('stores a rule on a field with rules=field, and charts its last values', async () => {
+    const { api, history } = fakes('?rules=field')
+    const entry = (await api.rules()).find((r) => r.slug === 'heel')
+    if (entry === undefined || isInvalid(entry)) throw new Error('no valid heel rule')
+    expect(entry.status).toMatchObject({ condition: 'normal', value: 0.05 })
+    const spec = detailChart(entry.rule, units)
+    expect(spec).toMatchObject({ path: 'navigation.attitude#/roll', methods: ['last'] })
+    const { last = [] } = await history.values({
+      path: entry.rule.signal.paths[0],
+      methods: ['last'],
+      seconds: 3600,
+      resolution: 60
+    })
+    expect(last.length).toBeGreaterThan(0)
+    expect(last.every((p) => p.value !== null)).toBe(true)
   })
 
   it('gives every path with a value a source', async () => {

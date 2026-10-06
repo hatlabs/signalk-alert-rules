@@ -252,6 +252,28 @@ describe('historySummary', () => {
     )
   })
 
+  it('names the extremes of each bucket’s last value, as a field records', () => {
+    const outside = {
+      side: 'outside' as const,
+      limits: [
+        { value: 13, bound: 'low' as const },
+        { value: 14, bound: 'high' as const }
+      ],
+      steps: 1,
+      verdict: false
+    }
+    expect(historySummary({ last: series }, outside, words)).toBe(
+      'Lowest 13.02 V at 20 min; highest 14.10 V at 60 min. It went above the limit.'
+    )
+    expect(
+      historySummary(
+        { last: series },
+        { ...sustained('below', [{ value: 12.8 }]), verdict: false },
+        words
+      )
+    ).toBe('Lowest 13.02 V at 20 min.')
+  })
+
   it('says a single limit was passed, without claiming the duration held', () => {
     expect(historySummary({ min: series }, sustained('below', [{ value: 13.1 }]), words)).toBe(
       'Lowest 13.02 V at 20 min. It went below the limit.'

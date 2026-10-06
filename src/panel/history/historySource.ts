@@ -2,6 +2,7 @@
  * The server's History API (`/signalk/v2/api/history`), which answers only
  * while a history provider plugin is installed.
  */
+import { resolvePointer, splitPointerPath } from '../../model/pointerPath'
 import { getJson, isRecord, malformed } from '../api'
 
 const HISTORY_API = '/signalk/v2/api/history'
@@ -28,10 +29,14 @@ export const SPANS: readonly Span[] = [
 
 export const DEFAULT_SPAN: Span = SPANS[2]
 
-/** How a bucket's samples become its one value. */
-export type Aggregate = 'average' | 'min' | 'max'
+/**
+ * How a bucket's samples become its one value. A field's object path takes
+ * only `last` of these: providers refuse to average or compare objects.
+ */
+export type Aggregate = 'average' | 'min' | 'max' | 'last'
 
 export interface HistoryQuery {
+  /** A path, or a field of one (`navigation.attitude#/roll`). */
   path: string
   /** One series is answered per aggregate, in this order. */
   methods: readonly Aggregate[]
@@ -81,11 +86,15 @@ export function resolutionFor(seconds: number, widthPx: number): number {
  * and an aggregate it does not name has no values; only a body naming none
  * has its columns taken in the order asked. A value that is not a finite
  * number, or a bucket with no samples, is a gap in the line.
+ *
+ * @param tokens the pointer to the field read from each bucket's object
+ *   value; none to read the value itself
  */
 export function parseValues(
   body: unknown,
   what: string,
-  methods: readonly Aggregate[]
+  methods: readonly Aggregate[],
+  tokens: readonly string[] = []
 ): HistorySeries {
   if (!isRecord(body) || !Array.isArray(body.data)) throw malformed(what)
   const listed: unknown[] | undefined = Array.isArray(body.values) ? body.values : undefined
@@ -101,7 +110,7 @@ export function parseValues(
         ? asked
         : listed.findIndex((v: unknown) => isRecord(v) && v.method === method)
     series[method] = rows.map(({ time, row }) => {
-      const value = at === -1 ? undefined : row[1 + at]
+      const value = at === -1 ? undefined : resolvePointer(row[1 + at], tokens)
       return { time, value: typeof value === 'number' && Number.isFinite(value) ? value : null }
     })
   })
@@ -127,14 +136,18 @@ export function httpHistorySource(
       return provider
     },
     values: async ({ path, methods, source, seconds, resolution }) => {
+      // The server strips "#" and "/" from the paths asked, so a field is
+      // asked for by its object path, whose buckets carry the whole object.
+      const split = splitPointerPath(path)
+      const tokens = split.valid ? split.tokens : []
       const pinned = source === undefined ? '' : `|${source}`
       const query = new URLSearchParams({
-        paths: methods.map((method) => `${path}:${method}${pinned}`).join(','),
+        paths: methods.map((method) => `${split.basePath}:${method}${pinned}`).join(','),
         duration: `PT${String(seconds)}S`,
         resolution: String(resolution)
       })
       const url = `${HISTORY_API}/values?${query.toString()}`
-      return parseValues(await getJson(fetchFn, url), url, methods)
+      return parseValues(await getJson(fetchFn, url), url, methods, tokens)
     }
   }
 }
