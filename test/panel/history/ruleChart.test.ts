@@ -157,6 +157,7 @@ describe('detailChart', () => {
   it('charts nothing for a wildcard, a combined signal, a value that is not a number or a kind without a value limit', () => {
     const none = [
       rule({ signal: { paths: ['propulsion.*.coolantTemperature'] } }),
+      rule({ signal: { paths: ['electrical.batteries.*#/voltage'] } }),
       rule({
         signal: { paths: [COOLANT, 'propulsion.stbd.coolantTemperature'], combinator: 'max' }
       }),
