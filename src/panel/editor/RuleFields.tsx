@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { renderMessage } from '../../alerts/message'
+import { FIELD_ZONES_MESSAGE, isPointerPath } from '../../model/pointerPath'
 import { PathPicker } from '../paths/PathPicker'
 import type { PathList } from '../paths/selfPaths'
 import { matchedInstances, signalMeasure, type UnitLookup } from '../signalUnits'
@@ -19,7 +20,13 @@ import {
 } from './formModel'
 import { strayBraces, withGenerated } from './message'
 import { MoreOptions } from './MoreOptions'
-import { attachErrors, fieldPointers, underMoreOptions, type AttachedErrors } from './sections'
+import {
+  attachErrors,
+  fieldPointers,
+  underMoreOptions,
+  ZONES,
+  type AttachedErrors
+} from './sections'
 import { PathTyping, sourceOptions, withPath } from './SignalFields'
 import { StepFields } from './StepFields'
 import { subjectOf } from './words'
@@ -38,6 +45,21 @@ export interface CheckedErrors {
   attached: AttachedErrors
 }
 
+/**
+ * A zone limit taking its zones from a single path that is a field, which has
+ * none. Shown on the zones checkbox as soon as the form holds it, as a stored
+ * rule's errors are on opening, rather than only once Save is refused.
+ */
+export function fieldZonesErrors(form: RuleForm): FormError[] {
+  const path = form.signal.mode === 'single' ? form.signal.slots[0]?.path : undefined
+  return isZoneLimited(form.detector) &&
+    form.detector.limit.path === '' &&
+    path !== undefined &&
+    isPointerPath(path)
+    ? [{ path: ZONES, message: FIELD_ZONES_MESSAGE }]
+    : []
+}
+
 /** A form's errors on their fields, an overlap refusal naming the rule that holds the alert path. */
 export function checkedErrors(
   form: RuleForm,
@@ -46,7 +68,12 @@ export function checkedErrors(
   ruleName: (slug: string) => string | undefined
 ): CheckedErrors {
   let holder: string | undefined
-  const named = errors.map((e) => {
+  // The form decides the field-zones error; a refused Save's copy of it would outlive a fix.
+  const derived = [
+    ...errors.filter((e) => !(e.path === ZONES && e.message === FIELD_ZONES_MESSAGE)),
+    ...fieldZonesErrors(form)
+  ]
+  const named = derived.map((e) => {
     const overlap = e.path === '/condition' ? OVERLAP.exec(e.message) : null
     if (overlap === null) return e
     const slug = overlap[1]

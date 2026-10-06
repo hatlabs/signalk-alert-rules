@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { RANGE_HYSTERESIS } from '../../model/rangeMessages'
 import type { Priority, ZoneLevel } from '../../model/rule'
-import { FIELD_ZONES_MESSAGE } from '../../model/pointerPath'
+import { FIELD_ZONES_MESSAGE, isPointerPath } from '../../model/pointerPath'
 import { PriorityBadge } from '../list/PriorityBadge'
 import { PathPicker } from '../paths/PathPicker'
 import { withoutFields, type PathList } from '../paths/selfPaths'
@@ -61,6 +61,8 @@ function Zones({ form, onChange, measure, paths, units }: ZonesProps) {
   const zoneMeasure = { ...measure, unit: entry?.unit ?? measure.unit }
   const on = isZoneLimited(form.detector)
   const onField = useFieldErrors(ZONES).includes(FIELD_ZONES_MESSAGE)
+  // Zones that would come from a field: there are none to describe, only the error above.
+  const fromField = limit.path === '' && single !== undefined && isPointerPath(single)
   return (
     <>
       <CheckField
@@ -96,7 +98,7 @@ function Zones({ form, onChange, measure, paths, units }: ZonesProps) {
             paths={withoutFields(paths)}
             errors={zonePathErrors}
             hint={
-              single === undefined ? undefined : single === '' ? (
+              single === undefined || fromField ? undefined : single === '' ? (
                 "Empty uses the zones of the value's path."
               ) : (
                 <>
@@ -108,38 +110,40 @@ function Zones({ form, onChange, measure, paths, units }: ZonesProps) {
               onChange(withDetector(form, { limit: { ...limit, path } }))
             }}
           />
-          <div className="skar-card skar-zones">
-            {zonePath === undefined || zonePath === '' ? (
-              <p className="skar-hint">Choose the path whose zones the rule uses.</p>
-            ) : (
-              <>
-                <p className="skar-hint">
-                  From the zones of <span className="skar-mono">{zonePath}</span>
-                </p>
-                {limit.level === '' ? (
-                  <p className="skar-hint">Choose the zone to start at.</p>
-                ) : zones.length === 0 ? (
+          {!fromField && (
+            <div className="skar-card skar-zones">
+              {zonePath === undefined || zonePath === '' ? (
+                <p className="skar-hint">Choose the path whose zones the rule uses.</p>
+              ) : (
+                <>
                   <p className="skar-hint">
-                    It reports no zone at this level or above yet, so the rule cannot alert.
+                    From the zones of <span className="skar-mono">{zonePath}</span>
                   </p>
-                ) : (
-                  <ul className="skar-ladder">
-                    {zones.map((z) => (
-                      <li
-                        key={`${z.state} ${String(z.lower)} ${String(z.upper)}`}
-                        className="skar-rung"
-                      >
-                        <PriorityBadge priority={ZONE_PRIORITY[z.state as ZoneLevel]} />
-                        <span className="skar-rung-condition">
-                          {zoneText(z, zoneMeasure).replace(/^(\w+):/, '$1 zone:')}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </>
-            )}
-          </div>
+                  {limit.level === '' ? (
+                    <p className="skar-hint">Choose the zone to start at.</p>
+                  ) : zones.length === 0 ? (
+                    <p className="skar-hint">
+                      It reports no zone at this level or above yet, so the rule cannot alert.
+                    </p>
+                  ) : (
+                    <ul className="skar-ladder">
+                      {zones.map((z) => (
+                        <li
+                          key={`${z.state} ${String(z.lower)} ${String(z.upper)}`}
+                          className="skar-rung"
+                        >
+                          <PriorityBadge priority={ZONE_PRIORITY[z.state as ZoneLevel]} />
+                          <span className="skar-rung-condition">
+                            {zoneText(z, zoneMeasure).replace(/^(\w+):/, '$1 zone:')}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </>
       )}
     </>

@@ -16,7 +16,13 @@ import {
 } from './rule.js'
 import { wildcards } from '../alerts/paths.js'
 import { alertPathErrors, conditionMissing } from './alertPath.js'
-import { FIELD_ZONES_MESSAGE, isPointerPath, splitPointerPath } from './pointerPath.js'
+import {
+  FIELD_ZONES_LEVEL_MESSAGE,
+  FIELD_ZONES_MESSAGE,
+  FIELD_ZONES_PATH_MESSAGE,
+  isPointerPath,
+  splitPointerPath
+} from './pointerPath.js'
 import { RANGE_HYSTERESIS, RANGE_INVERTED, RANGE_NOT_WIDER } from './rangeMessages.js'
 import { isRecord, pointer } from '../util.js'
 
@@ -314,18 +320,23 @@ function signalErrors(
   return errors
 }
 
+/**
+ * @param onField what to do about a zone limit on a field, worded for where
+ * the editor shows the limit: a detector's zones checkbox, a gate's zone level
+ */
 function limitErrors(
   limit: Limit,
   signal: Signal,
   at: string,
-  wildcard: string | undefined
+  wildcard: string | undefined,
+  onField: string
 ): ValidationError[] {
   if (limit.kind !== 'zone') return []
   if (limit.path !== undefined) {
     const pathAt = pointer(at, 'path')
     const errors = pathErrors(limit.path, pathAt, wildcard)
     if (errors.length > 0 || !isPointerPath(limit.path)) return errors
-    return [{ path: pathAt, message: FIELD_ZONES_MESSAGE }]
+    return [{ path: pathAt, message: FIELD_ZONES_PATH_MESSAGE }]
   }
   if ('combinator' in signal) {
     return [
@@ -335,8 +346,7 @@ function limitErrors(
       }
     ]
   }
-  // At the limit itself, where the editor shows its zones checkbox.
-  return isPointerPath(signal.path) ? [{ path: at, message: FIELD_ZONES_MESSAGE }] : []
+  return isPointerPath(signal.path) ? [{ path: at, message: onField }] : []
 }
 
 function valueRequired(
@@ -380,7 +390,7 @@ function detectorErrors(rule: Rule, wildcard: string | undefined): ValidationErr
     case 'projection':
       return d.limit === undefined
         ? []
-        : limitErrors(d.limit, rule.signal, pointer(at, 'limit'), wildcard)
+        : limitErrors(d.limit, rule.signal, pointer(at, 'limit'), wildcard, FIELD_ZONES_MESSAGE)
     case 'accumulator': {
       const errors = d.resetOn ? eventErrors(d.resetOn, pointer(at, 'resetOn')) : []
       if (
@@ -603,7 +613,15 @@ function semanticErrors(rule: Rule, ctx: ValidationContext): ValidationError[] {
   rule.gates?.forEach((gate, i) => {
     const at = pointer('/gates', i)
     errors.push(...signalErrors(gate.signal, pointer(at, 'signal'), bound, ctx))
-    errors.push(...limitErrors(gate.limit, gate.signal, pointer(at, 'limit'), bound))
+    errors.push(
+      ...limitErrors(
+        gate.limit,
+        gate.signal,
+        pointer(at, 'limit'),
+        bound,
+        FIELD_ZONES_LEVEL_MESSAGE
+      )
+    )
   })
   return errors
 }

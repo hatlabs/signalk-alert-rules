@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { alertPathOf } from '../../src/alerts/paths.js'
-import { POINTER_MESSAGE, POINTER_TOKEN_MESSAGE } from '../../src/model/pointerPath.js'
+import {
+  FIELD_ZONES_LEVEL_MESSAGE,
+  FIELD_ZONES_PATH_MESSAGE,
+  POINTER_MESSAGE,
+  POINTER_TOKEN_MESSAGE
+} from '../../src/model/pointerPath.js'
 import {
   FIELD_ZONES_MESSAGE,
   angularUnitsMessage,
@@ -408,7 +413,7 @@ describe('validateRule', () => {
     it('refuses a zone limit whose zones path is a field', () => {
       const detector = { ...zoned, limit: { ...zoned.limit, path: 'x#/y' } }
       expect(errorsOf(rule({ detector }))).toEqual([
-        { path: '/detector/limit/path', message: FIELD_ZONES_MESSAGE }
+        { path: '/detector/limit/path', message: FIELD_ZONES_PATH_MESSAGE }
       ])
       const malformed = { ...zoned, limit: { ...zoned.limit, path: 'x#y' } }
       expect(errorsOf(rule({ detector: malformed }))).toEqual([
@@ -428,10 +433,10 @@ describe('validateRule', () => {
         limit: { kind: 'zone', level: 'warn', ...(zonesPath ? { path: zonesPath } : {}) }
       })
       expect(errorsOf(rule({ detector: heel, gates: [zoneGate(ROLL)] }))).toEqual([
-        { path: '/gates/0/limit', message: FIELD_ZONES_MESSAGE }
+        { path: '/gates/0/limit', message: FIELD_ZONES_LEVEL_MESSAGE }
       ])
       expect(errorsOf(rule({ detector: heel, gates: [zoneGate('a.b', ROLL)] }))).toEqual([
-        { path: '/gates/0/limit/path', message: FIELD_ZONES_MESSAGE }
+        { path: '/gates/0/limit/path', message: FIELD_ZONES_PATH_MESSAGE }
       ])
       const combined = {
         signal: { combinator: 'mean', inputs: [{ path: ROLL }, { path: 'a.b#/c' }] },
@@ -441,8 +446,14 @@ describe('validateRule', () => {
       expect(errorsOf(rule({ detector: heel, gates: [combined] }))).toEqual([])
     })
 
-    it('words the zones message for the editor checkbox it is shown on', () => {
+    it('words each zones message for the editor field it is shown on', () => {
       expect(FIELD_ZONES_MESSAGE).toBe('A field has no zones: turn this off and type the limits.')
+      expect(FIELD_ZONES_PATH_MESSAGE).toBe(
+        'A field has no zones: choose another path or leave this empty.'
+      )
+      expect(FIELD_ZONES_LEVEL_MESSAGE).toBe(
+        'A field has no zones: choose A fixed value and type the limit.'
+      )
     })
   })
 
