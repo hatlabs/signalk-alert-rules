@@ -12,6 +12,7 @@ import {
   type ZoneLevel
 } from '../model/rule.js'
 import { ruleAlertPath } from '../model/alertPath.js'
+import { wildcards } from '../alerts/paths.js'
 import type { Clock } from './clock.js'
 import {
   AccumulatorDetector,
@@ -332,7 +333,7 @@ export function structuralChanges(current: Rule, next: Rule): string[] {
 }
 
 export function isWildcard(signal: Signal): boolean {
-  return !('combinator' in signal) && signal.path.split('.').includes('*')
+  return !('combinator' in signal) && wildcards(signal.path) > 0
 }
 
 /**
