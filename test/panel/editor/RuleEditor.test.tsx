@@ -2868,6 +2868,12 @@ describe('RuleEditor, a field path', () => {
     })
     expect(screen.queryByText(/^From the zones of/)).toBeNull()
     expect(api.updateRule).not.toHaveBeenCalled()
+    // The refused Save's error goes once the path names one with zones.
+    type(select(/^Zones from path/), 'electrical.batteries.start.voltage')
+    fireEvent.blur(select(/^Zones from path/))
+    expect(select(/^Zones from path/).getAttribute('aria-invalid')).toBeNull()
+    expect(description(select(/^Zones from path/))).not.toContain(FIELD_ZONES_PATH_MESSAGE)
+    expect(screen.queryByText(/A field has no zones/)).toBeNull()
   })
 
   it('refuses a zone condition whose input becomes a field, saying what to do there', async () => {
