@@ -529,7 +529,10 @@ describe('httpPathSource', () => {
         }
       },
       '/signalk/v1/unitpreferences/primary-categories': {
-        body: { ambiguousUnits: { m: ['depth', 'distance'] }, effectivePrimary: { m: 'depth' } }
+        body: {
+          ambiguousUnits: { m: ['depth', 'distance'] },
+          effectivePrimary: { m: 'distance' }
+        }
       }
     }
     const field = (paths: PathEntry[], path: string) => paths.find((p) => p.path === path)
@@ -544,6 +547,21 @@ describe('httpPathSource', () => {
 
     it("takes an ambiguous unit's primary category, as the server does", async () => {
       const paths = await httpPathSource(fakeFetch(preferences)).selfPaths()
+      expect(field(paths, 'navigation.position#/altitude')?.unit).toMatchObject({
+        symbol: 'nmi',
+        si: false
+      })
+    })
+
+    it('takes the first category by name for an ambiguous unit without a primary', async () => {
+      const paths = await httpPathSource(
+        fakeFetch({
+          ...preferences,
+          '/signalk/v1/unitpreferences/primary-categories': {
+            body: { ambiguousUnits: { m: ['depth', 'distance'] }, effectivePrimary: {} }
+          }
+        })
+      ).selfPaths()
       expect(field(paths, 'navigation.position#/altitude')?.unit).toMatchObject({
         symbol: 'ft',
         si: false
