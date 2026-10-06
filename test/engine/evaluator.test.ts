@@ -1319,6 +1319,8 @@ describe('field rules', () => {
     at(0, 'electrical.batteries.start', { voltage: 11.5, current: 2 })
     expect(log).toEqual([[0, 'raise', 'house', 'warning']])
     expect(evaluator.status().instances.map((u) => u.instance?.name)).toEqual(['house', 'start'])
+    at(1)
+    expect(log).toEqual([[0, 'raise', 'house', 'warning']])
   })
 
   it('a gate on a field holds on that field of the base path', () => {
