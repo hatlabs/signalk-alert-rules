@@ -16,7 +16,7 @@ import {
 } from './rule.js'
 import { wildcards } from '../alerts/paths.js'
 import { alertPathErrors, conditionMissing } from './alertPath.js'
-import { isPointerPath, splitPointerPath } from './pointerPath.js'
+import { FIELD_ZONES_MESSAGE, isPointerPath, splitPointerPath } from './pointerPath.js'
 import { RANGE_HYSTERESIS, RANGE_INVERTED, RANGE_NOT_WIDER } from './rangeMessages.js'
 import { isRecord, pointer } from '../util.js'
 
@@ -48,8 +48,7 @@ export function angularUnitsMessage(units: string): string {
   return `angular combination needs radians, the path is in ${units}`
 }
 
-/** Zones are metadata of a path, never of a field of its value. */
-export const FIELD_ZONES_MESSAGE = 'A field has no zones: turn this off and type the limits.'
+export { FIELD_ZONES_MESSAGE }
 
 export function timeoutValueTypeMessage(valueType: 'boolean' | 'string'): string {
   return `core never times out ${valueType} paths`

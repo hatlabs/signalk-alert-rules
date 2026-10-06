@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-libra
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RANGE_HYSTERESIS, RANGE_INVERTED, RANGE_NOT_WIDER } from '../../../src/model/rangeMessages'
 import { LEVEL_PRIORITY, type CombinatorKind, type Rule } from '../../../src/model/rule'
-import { validateRule } from '../../../src/model/validate'
+import { FIELD_ZONES_MESSAGE, validateRule } from '../../../src/model/validate'
 import { RuleRejectedError, type EditPreview, type FieldError } from '../../../src/panel/api'
 import { ZONE_PRIORITY } from '../../../src/panel/editor/MoreOptions'
 import type { PathSource } from '../../../src/panel/paths/selfPaths'
@@ -2699,6 +2699,107 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     choose('Combined combination', 'difference')
     expect(textbox('Limit for step 1')).toHaveProperty('value', '180')
     expect(document.querySelectorAll('[aria-invalid="true"]')).toHaveLength(0)
+  })
+})
+
+describe('RuleEditor, a field path', () => {
+  afterEach(cleanup)
+
+  const ROLL = 'navigation.attitude#/roll'
+  const DEGREE = Math.PI / 180
+  const battery = example('house-battery-low')
+  const fieldOptions = () =>
+    screen.queryAllByRole('option').filter((o) => o.textContent.includes('#/'))
+
+  it('saves an outside range typed in degrees in radians, and opens it as typed', async () => {
+    const { api, onSaved } = renderEditor({ start: { path: ROLL, kind: 'outside' } })
+    await formShown()
+    expect(screen.getAllByText('Attitude roll').length).toBeGreaterThan(0)
+    expect(screen.getByText('alerts.navigation.attitude.')).toBeTruthy()
+    expect(textbox('Condition name').getAttribute('placeholder')).toBe('rollOutOfRange')
+    choose('Priority for step 1', 'warning')
+    type(textbox('Low limit for step 1'), '-20')
+    type(textbox('High limit for step 1'), '20')
+    expect(textbox('High limit for step 1').parentElement?.textContent).toContain('°')
+    create()
+    await saved(onSaved)
+    const [[rule]] = api.createRule.mock.calls
+    expect(rule.signal).toEqual({ path: ROLL })
+    const step = rule.detector.type === 'outside' ? rule.detector.steps[0] : undefined
+    expect(step?.low).toBeCloseTo(-20 * DEGREE)
+    expect(step?.high).toBeCloseTo(20 * DEGREE)
+    cleanup()
+    renderEditor({ editing: { entry: ruleEntry({ slug: rule.slug }), rule } })
+    await formShown()
+    expect(textbox('Low limit for step 1')).toHaveProperty('value', '-20')
+    expect(textbox('High limit for step 1')).toHaveProperty('value', '20')
+  })
+
+  it("pins a field to one of its object's sources", async () => {
+    const { api, onSaved } = renderEditor({ start: { path: ROLL, kind: 'above' } })
+    await formShown()
+    choose('Source', 'imu.1')
+    choose('Priority for step 1', 'warning')
+    type(textbox('Limit for step 1'), '20')
+    create()
+    await saved(onSaved)
+    expect(api.createRule.mock.calls[0]?.[0].signal).toEqual({ path: ROLL, source: 'imu.1' })
+  })
+
+  it('keeps the zones of a zone rule whose path becomes a field, refusing Save with why', async () => {
+    const { api } = renderEditor({
+      editing: { entry: ruleEntry({ slug: battery.slug }), rule: battery }
+    })
+    // The server refuses what the model refuses.
+    api.previewRule.mockImplementation((_slug, rule) => {
+      const result = validateRule(rule)
+      return result.ok
+        ? Promise.resolve(noChange)
+        : Promise.reject(new RuleRejectedError('invalid request body', result.errors))
+    })
+    await formShown()
+    click(button('Change the value to watch'))
+    type(select('Search by name or path'), ROLL)
+    fireEvent.blur(select('Search by name or path'))
+    // The first Save names the clear margin the change of unit emptied; the second sends.
+    click(button('Save'))
+    click(button('Save'))
+    const zones = checkbox(/Use the value's zones/)
+    await waitFor(() => {
+      expect(zones.getAttribute('aria-invalid')).toBe('true')
+    })
+    expect(zones).toHaveProperty('checked', true)
+    expect(description(zones)).toContain(FIELD_ZONES_MESSAGE)
+    expect(description(zones)).not.toContain(ZONES_INVALID)
+    expect(api.updateRule).not.toHaveBeenCalled()
+    click(zones)
+    choose('Priority for step 1', 'warning')
+    type(textbox('Limit for step 1'), '20')
+    click(button('Save'))
+    await waitFor(() => {
+      expect(api.updateRule).toHaveBeenCalled()
+    })
+  })
+
+  it('lists no field to take zones from', async () => {
+    renderEditor({ editing: { entry: ruleEntry({ slug: battery.slug }), rule: battery } })
+    await formShown()
+    const picker = select(/^Zones from path/)
+    fireEvent.focus(picker)
+    type(picker, 'attitude')
+    expect(fieldOptions()).toEqual([])
+  })
+
+  it('offers a condition on a field no zone level', async () => {
+    renderEditor({ start: { path: 'electrical.batteries.house.voltage', kind: 'below' } })
+    await formShown()
+    openMoreOptions()
+    click(button('Add a condition'))
+    expect(screen.getByRole('radio', { name: /zone level/ })).toBeTruthy()
+    const input = select('Condition 1 input path')
+    type(input, ROLL)
+    fireEvent.blur(input)
+    expect(screen.queryByRole('radio', { name: /zone level/ })).toBeNull()
   })
 })
 

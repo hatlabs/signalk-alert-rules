@@ -1,5 +1,6 @@
+import { isPointerPath } from '../../model/pointerPath'
 import { PathPicker } from '../paths/PathPicker'
-import type { PathList, Zone } from '../paths/selfPaths'
+import { withoutFields, type PathList, type Zone } from '../paths/selfPaths'
 import { formatValue } from '../rules/describe'
 import { signalMeasure, type Measure, type UnitLookup } from '../signalUnits'
 import { DurationInput, RadioGroup, SelectField, TextField, useFieldErrors } from './fields'
@@ -61,7 +62,12 @@ function LimitFields({
         legend={`${label} is`}
         pointer={`${at}/kind`}
         value={limit.kind}
-        options={LIMIT_KINDS}
+        // A field has no zones; a zone limit stored on one stays, to be turned off.
+        options={
+          signalPath !== undefined && isPointerPath(signalPath) && limit.kind !== 'zone'
+            ? LIMIT_KINDS.filter((k) => k.value !== 'zone')
+            : LIMIT_KINDS
+        }
         onChange={(kind) => {
           onChange({ ...limit, kind })
         }}
@@ -95,7 +101,7 @@ function LimitFields({
           <PathPicker
             label={signalPath === undefined ? 'Zones from path' : 'Zones from path (optional)'}
             value={limit.path}
-            paths={paths}
+            paths={withoutFields(paths)}
             errors={zonePathErrors}
             onChange={(path) => {
               onChange({ ...limit, path })

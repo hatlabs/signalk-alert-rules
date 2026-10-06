@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { canonicalSourceRef } from '../../engine/sourceRefs'
-import { splitPointerPath } from '../../model/pointerPath'
+import { isPointerPath, splitPointerPath } from '../../model/pointerPath'
 import { getJson, isRecord, type SignalValue } from '../api'
 import { displayUnit, type DisplayUnit, type UnitMeta } from '../units'
 
@@ -382,6 +382,13 @@ export type PathList =
   | { status: 'loading' }
   | { status: 'ready'; paths: PathEntry[] }
   | { status: 'failed'; error: string }
+
+/** The list without fields, for a picker of paths whose zones a rule uses: a field has none. */
+export function withoutFields(list: PathList): PathList {
+  return list.status === 'ready'
+    ? { status: 'ready', paths: list.paths.filter((p) => !isPointerPath(p.path)) }
+    : list
+}
 
 /** How often a view showing values as they are reads the paths again. */
 export const LIVE_POLL_MS = 5000

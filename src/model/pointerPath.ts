@@ -12,6 +12,9 @@ export const POINTER_MESSAGE =
 /** A field name becomes a segment of the alert path, so it holds what a segment may. */
 export const POINTER_TOKEN_MESSAGE = 'A field name after "#" cannot contain dots, whitespace or *.'
 
+/** Zones are metadata of a path, never of a field of its value; the webapp shows this too. */
+export const FIELD_ZONES_MESSAGE = 'A field has no zones: turn this off and type the limits.'
+
 /**
  * A path split into the Signal K path it reads and the tokens of the
  * pointer into that path's value; no tokens for a plain path, which
