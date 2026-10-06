@@ -210,6 +210,169 @@ describe('parseSelfPaths', () => {
   })
 })
 
+describe('parseSelfPaths, fields of an object path', () => {
+  const degrees = { formula: 'value * 57.29577951308232', symbol: '°' }
+  const displayUnitsFor = (units: string) => (units === 'rad' ? degrees : undefined)
+  const attitude = {
+    value: { roll: 0.1, pitch: -0.05, yaw: 1.2 },
+    $source: 'imu.1',
+    timestamp: '2026-09-30T12:00:00.000Z',
+    values: { 'imu.1': { value: {} }, 'imu.2': { value: {} } },
+    meta: {
+      description: 'Vessel attitude: roll, pitch and yaw',
+      properties: {
+        roll: { type: 'number', units: 'rad', description: 'Vessel roll' },
+        pitch: { type: 'number', units: 'rad' },
+        yaw: { type: 'number', units: 'rad', displayName: 'Heading (yaw)' }
+      }
+    }
+  }
+
+  it('lists one entry per field its metadata declares, in the display unit, with the base sources', () => {
+    const paths = parseSelfPaths({ navigation: { attitude } }, undefined, displayUnitsFor)
+    expect(paths.map((p) => p.path)).toEqual([
+      'navigation.attitude#/pitch',
+      'navigation.attitude#/roll',
+      'navigation.attitude#/yaw'
+    ])
+    expect(paths[1]).toEqual({
+      path: 'navigation.attitude#/roll',
+      description: 'Vessel roll',
+      units: 'rad',
+      unit: { symbol: '°', scale: 57.29577951308232, offset: 0, si: false },
+      valueType: 'number',
+      sources: ['imu.1', 'imu.2'],
+      preferredSource: 'imu.1',
+      value: 0.1
+    })
+    expect(paths[2].displayName).toBe('Heading (yaw)')
+  })
+
+  it('lists the fields of a position, as numbers, after the position itself', () => {
+    const paths = parseSelfPaths({
+      navigation: {
+        position: {
+          value: { latitude: 60.1, longitude: 24.9, altitude: 12 },
+          $source: 'gnss.bow',
+          meta: {
+            properties: {
+              latitude: { type: 'number', units: 'deg' },
+              longitude: { type: 'number', units: 'deg' },
+              altitude: { type: 'number', units: 'm' }
+            }
+          }
+        },
+        positionSource: { value: 'gnss', $source: 'gnss.bow' }
+      }
+    })
+    expect(paths.map((p) => p.path)).toEqual([
+      'navigation.position',
+      'navigation.position#/altitude',
+      'navigation.position#/latitude',
+      'navigation.position#/longitude',
+      'navigation.positionSource'
+    ])
+    expect(paths[1]).toMatchObject({ value: 12, valueType: 'number', unit: { symbol: 'm' } })
+  })
+
+  it('adds nothing for an object whose metadata declares no properties', () => {
+    const paths = parseSelfPaths({
+      navigation: { attitude: { value: { roll: 0 }, meta: { units: 'rad' } } }
+    })
+    expect(paths).toEqual([])
+  })
+
+  it('walks nested properties, takes integer as number and skips arrays and untyped fields', () => {
+    const paths = parseSelfPaths({
+      a: {
+        value: { inner: { level: 3, name: 'x' }, list: [1], count: 2, odd: 1, on: true },
+        meta: {
+          properties: {
+            inner: {
+              type: 'object',
+              properties: { level: { type: 'integer' }, name: { type: 'string' } }
+            },
+            list: { type: 'array' },
+            count: { type: 'integer' },
+            odd: {},
+            on: { type: 'boolean' }
+          }
+        }
+      }
+    })
+    expect(paths.map((p) => [p.path, p.valueType, p.value])).toEqual([
+      ['a#/count', 'number', 2],
+      ['a#/inner/level', 'number', 3],
+      ['a#/inner/name', 'string', 'x'],
+      ['a#/on', 'boolean', true]
+    ])
+  })
+
+  it('lists a declared field with no value, or a value of another type, without a value', () => {
+    const paths = parseSelfPaths({
+      navigation: {
+        attitude: {
+          value: { roll: 'level' },
+          meta: { properties: { roll: { type: 'number' }, pitch: { type: 'number' } } }
+        }
+      }
+    })
+    expect(paths.map((p) => p.path)).toEqual([
+      'navigation.attitude#/pitch',
+      'navigation.attitude#/roll'
+    ])
+    expect(paths.every((p) => !('value' in p))).toBe(true)
+  })
+
+  it('lists the fields while the object itself is unavailable', () => {
+    const paths = parseSelfPaths({ navigation: { attitude: { ...attitude, value: null } } })
+    expect(paths).toHaveLength(3)
+    expect(paths.every((p) => !('value' in p))).toBe(true)
+  })
+
+  it('escapes a field name holding "/" or "~", and leaves out one no rule path can hold', () => {
+    const paths = parseSelfPaths({
+      a: {
+        value: { 'x/y': 1, 'p~q': 2, 'm.n': 3, 'w v': 4 },
+        meta: {
+          properties: {
+            'x/y': { type: 'number' },
+            'p~q': { type: 'number' },
+            'm.n': { type: 'number' },
+            'w v': { type: 'number' }
+          }
+        }
+      }
+    })
+    expect(paths.map((p) => [p.path, p.value])).toEqual([
+      ['a#/p~0q', 2],
+      ['a#/x~1y', 1]
+    ])
+  })
+
+  it("reads a field from the object's own keys, never its prototype", () => {
+    const paths = parseSelfPaths({
+      a: { value: {}, meta: { properties: { constructor: { type: 'string' } } } }
+    })
+    expect(paths).toEqual([
+      {
+        path: 'a#/constructor',
+        unit: { symbol: '', scale: 1, offset: 0, si: true },
+        valueType: 'string'
+      }
+    ])
+  })
+
+  it('leaves the field in SI when no display unit resolves for its unit', () => {
+    const [field] = parseSelfPaths(
+      { a: { value: { r: 1 }, meta: { properties: { r: { type: 'number', units: 'Hz' } } } } },
+      undefined,
+      displayUnitsFor
+    )
+    expect(field.unit).toEqual({ symbol: 'Hz', scale: 1, offset: 0, si: true })
+  })
+})
+
 describe('httpPathSource', () => {
   it('reads the self tree with the session cookie', async () => {
     const fetchFn = fakeFetch({ '/signalk/v1/api/vessels/self': { body: selfTree } })
@@ -291,6 +454,112 @@ describe('httpPathSource', () => {
   it('falls back to metres, labelled SI, when the preferences cannot be read', async () => {
     const unit = await httpPathSource(fakeFetch({})).distanceUnit()
     expect(unit).toEqual({ symbol: 'm', scale: 1, offset: 0, si: true })
+  })
+
+  describe('a field’s display unit, from the preferences by its SI unit', () => {
+    const fieldTree = {
+      navigation: {
+        attitude: {
+          value: { roll: 0.1 },
+          meta: { properties: { roll: { type: 'number', units: 'rad' } } }
+        },
+        position: {
+          value: { latitude: 60.1, longitude: 24.9, altitude: 12 },
+          meta: {
+            properties: {
+              latitude: { type: 'number', units: 'deg' },
+              longitude: { type: 'number', units: 'deg' },
+              altitude: { type: 'number', units: 'm' }
+            }
+          }
+        }
+      }
+    }
+    const preferences = {
+      '/signalk/v1/api/vessels/self': { body: fieldTree },
+      '/signalk/v1/unitpreferences/config': { body: { activePreset: 'nautical-metric' } },
+      '/signalk/v1/unitpreferences/presets/nautical-metric': {
+        body: {
+          categories: {
+            angle: { baseUnit: 'rad', targetUnit: 'deg' },
+            depth: { baseUnit: 'm', targetUnit: 'ft' },
+            distance: { baseUnit: 'm', targetUnit: 'naut-mile' }
+          }
+        }
+      },
+      '/signalk/v1/unitpreferences/definitions': {
+        body: {
+          rad: { conversions: { deg: { formula: 'value * 57.29577951308232', symbol: '°' } } },
+          m: {
+            conversions: {
+              ft: { formula: 'value * 3.28084', symbol: 'ft' },
+              'naut-mile': { formula: 'value * 0.0005399568034557236', symbol: 'nmi' }
+            }
+          }
+        }
+      },
+      '/signalk/v1/unitpreferences/categories': {
+        body: {
+          categoryToBaseUnit: {
+            angle: 'rad',
+            angleDegrees: 'deg',
+            depth: 'm',
+            distance: 'm'
+          }
+        }
+      },
+      '/signalk/v1/unitpreferences/primary-categories': {
+        body: { ambiguousUnits: { m: ['depth', 'distance'] }, effectivePrimary: { m: 'depth' } }
+      }
+    }
+    const field = (paths: PathEntry[], path: string) => paths.find((p) => p.path === path)
+
+    it('converts through the category the SI unit belongs to', async () => {
+      const paths = await httpPathSource(fakeFetch(preferences)).selfPaths()
+      expect(field(paths, 'navigation.attitude#/roll')?.unit).toMatchObject({
+        symbol: '°',
+        si: false
+      })
+    })
+
+    it("takes an ambiguous unit's primary category, as the server does", async () => {
+      const paths = await httpPathSource(fakeFetch(preferences)).selfPaths()
+      expect(field(paths, 'navigation.position#/altitude')?.unit).toMatchObject({
+        symbol: 'ft',
+        si: false
+      })
+    })
+
+    it('shows a field in SI when its category has no target in the preset', async () => {
+      const paths = await httpPathSource(fakeFetch(preferences)).selfPaths()
+      expect(field(paths, 'navigation.position#/latitude')?.unit).toEqual({
+        symbol: 'deg',
+        scale: 1,
+        offset: 0,
+        si: true
+      })
+    })
+
+    it('shows fields in SI, and still lists them, when the preferences cannot be read', async () => {
+      const paths = await httpPathSource(
+        fakeFetch({ '/signalk/v1/api/vessels/self': { body: fieldTree } })
+      ).selfPaths()
+      expect(field(paths, 'navigation.attitude#/roll')?.unit).toMatchObject({
+        symbol: 'rad',
+        si: true
+      })
+    })
+
+    it('reads the preferences once, not at every read of the paths', async () => {
+      const fetchFn = fakeFetch(preferences)
+      const source = httpPathSource(fetchFn)
+      await source.selfPaths()
+      await source.selfPaths()
+      const definitionReads = fetchFn.mock.calls.filter(
+        ([url]) => url === '/signalk/v1/unitpreferences/definitions'
+      )
+      expect(definitionReads).toHaveLength(1)
+    })
   })
 
   it('falls back to metres when the preset names a unit with no conversion', async () => {
