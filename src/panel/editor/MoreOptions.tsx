@@ -61,8 +61,9 @@ function Zones({ form, onChange, measure, paths, units }: ZonesProps) {
   const zoneMeasure = { ...measure, unit: entry?.unit ?? measure.unit }
   const on = isZoneLimited(form.detector)
   const onField = useFieldErrors(ZONES).includes(FIELD_ZONES_MESSAGE)
-  // Zones that would come from a field: there are none to describe, only the error above.
+  // Zones that would come from a field: there are none to describe, only the error shown.
   const fromField = limit.path === '' && single !== undefined && isPointerPath(single)
+  const zonesOfField = zonePath !== undefined && isPointerPath(zonePath)
   return (
     <>
       <CheckField
@@ -110,7 +111,7 @@ function Zones({ form, onChange, measure, paths, units }: ZonesProps) {
               onChange(withDetector(form, { limit: { ...limit, path } }))
             }}
           />
-          {!fromField && (
+          {!zonesOfField && (
             <div className="skar-card skar-zones">
               {zonePath === undefined || zonePath === '' ? (
                 <p className="skar-hint">Choose the path whose zones the rule uses.</p>

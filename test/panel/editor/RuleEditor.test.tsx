@@ -2814,12 +2814,16 @@ describe('RuleEditor, a field path', () => {
     refuseAsServer(api)
     await formShown()
     const picker = select(/^Zones from path/)
+    expect(screen.getByText(/^From the zones of/)).toBeTruthy()
     type(picker, ROLL)
     fireEvent.blur(picker)
+    expect(screen.queryByText(/^From the zones of/)).toBeNull()
+    expect(screen.queryByText(/reports no zone at this level/)).toBeNull()
     click(button('Save'))
     await waitFor(() => {
       expect(description(select(/^Zones from path/))).toContain(FIELD_ZONES_PATH_MESSAGE)
     })
+    expect(screen.queryByText(/^From the zones of/)).toBeNull()
     expect(api.updateRule).not.toHaveBeenCalled()
   })
 
