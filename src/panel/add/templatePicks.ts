@@ -13,7 +13,7 @@ import {
 } from '../../templates/instantiate'
 import { isInvalid, isRecord, type ListedRule } from '../api'
 import type { PathEntry } from '../paths/selfPaths'
-import { baseSegments, matchedInstances, matchesPattern } from '../signalUnits'
+import { baseSegments, matchedInstances, matchesPattern, pathParts } from '../signalUnits'
 
 const SLOT_PICK = new RegExp(SLOT_PICK_PATTERN)
 
@@ -266,9 +266,8 @@ export function slotCandidates(
   const slotted = new Set(slotsOf(template).map((s) => placeholder(s.name)))
   const found = new Map<string, SlotCandidate>()
   for (const pattern of slotPaths(template, slot)) {
-    const parts = baseSegments(pattern)
+    const { base: parts, pointer } = pathParts(pattern)
     const at = parts.indexOf(placeholder(slot))
-    const pointer = pattern.slice(parts.join('.').length)
     const wildcard = parts.map((part) => (slotted.has(part) ? '*' : part)).join('.') + pointer
     for (const entry of paths) {
       if (!matchesPattern(wildcard, entry.path)) continue

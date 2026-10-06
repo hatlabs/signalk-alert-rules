@@ -1,4 +1,3 @@
-import { splitPointerPath } from '../../model/pointerPath'
 import type { InstanceStatus, RuleEntry, RuleInfo, RuleStatus } from '../api'
 import { leafWords } from '../editor/words'
 import { elapsed, MINUTE, noData, problem, reading } from '../list/fact'
@@ -12,7 +11,7 @@ import {
   stepCondition,
   type RuleDisplay
 } from '../rules/describe'
-import { instanceSegment, type UnitLookup } from '../signalUnits'
+import { baseSegments, instanceSegment, type UnitLookup } from '../signalUnits'
 
 /** A piece of an explanation; the emphasised pieces carry what the operator scans for. */
 export type Part = string | { strong: string }
@@ -36,7 +35,7 @@ function subjectOf(rule: RuleInfo, units: UnitLookup, instance?: string): string
   const path = rule.signal.paths[0] ?? ''
   const named = path.includes('*') ? undefined : units.entry(path)?.displayName
   if (named !== undefined) return named
-  const parts = splitPointerPath(path).basePath.split('.')
+  const parts = baseSegments(path)
   const at = instanceSegment(path)
   const which = instance ?? (at === undefined || parts[at] === '*' ? undefined : parts[at])
   const leaf = leafWords(path)

@@ -46,14 +46,14 @@ export const POSITION_KINDS: ReadonlySet<string> = new Set<CombinatorKind>([
  * wildcards, so splitting the whole path on `.` would read the segment
  * before it as `*#/roll`.
  */
-function parts(path: string): { base: string[]; pointer: string } {
+export function pathParts(path: string): { base: string[]; pointer: string } {
   const { basePath } = splitPointerPath(path)
   return { base: basePath.split('.'), pointer: path.slice(basePath.length) }
 }
 
 /** The base path's segments, where an instance lies. */
 export function baseSegments(path: string): string[] {
-  return parts(path).base
+  return pathParts(path).base
 }
 
 /** Whether a path has a wildcard instance. */
@@ -63,8 +63,8 @@ export function isWildcardPath(path: string): boolean {
 
 /** Whether `path` is `pattern` with its wildcard segment, if any, filled in. */
 export function matchesPattern(pattern: string, path: string): boolean {
-  const want = parts(pattern)
-  const have = parts(path)
+  const want = pathParts(pattern)
+  const have = pathParts(path)
   return (
     want.pointer === have.pointer &&
     want.base.length === have.base.length &&
@@ -168,7 +168,7 @@ const INSTANCE_GROUPS: readonly (readonly (string | null)[])[] = [
  * reliably an instance; the operator can still type `*` in its place.
  */
 export function instanceSegment(path: string): number | undefined {
-  const { base, pointer } = parts(path)
+  const { base, pointer } = pathParts(path)
   // A field is the leaf that follows the instance, so it counts as a segment.
   const length = base.length + (pointer === '' ? 0 : 1)
   const group = INSTANCE_GROUPS.find(
@@ -184,7 +184,7 @@ export function instanceSegment(path: string): number | undefined {
 export function withInstanceWildcard(path: string): string | undefined {
   const at = instanceSegment(path)
   if (at === undefined) return undefined
-  const { base, pointer } = parts(path)
+  const { base, pointer } = pathParts(path)
   return base.map((s, i) => (i === at ? '*' : s)).join('.') + pointer
 }
 
@@ -196,7 +196,7 @@ export function instanceOf(path: string): string | undefined {
 
 /** A wildcard path with its wildcard filled in by `instance`. */
 export function withInstance(pattern: string, instance: string): string {
-  const { base, pointer } = parts(pattern)
+  const { base, pointer } = pathParts(pattern)
   return base.map((s) => (s === '*' ? instance : s)).join('.') + pointer
 }
 
