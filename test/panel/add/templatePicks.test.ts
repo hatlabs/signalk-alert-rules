@@ -6,6 +6,7 @@ import {
   openPattern,
   pickKey,
   pickReports,
+  restoredPick,
   ruleWatching,
   slotCandidates,
   templateTitle,
@@ -563,6 +564,16 @@ describe('a template with two slots', () => {
     expect(
       ruleWatching('builtin', alternator, { battery: 'start', engine: 'port_1' }, rules)
     ).toBeUndefined()
+  })
+
+  it('restores of a pick only its open slots, each one path segment, and an open source', () => {
+    expect(
+      restoredPick(alternator, { battery: 'house', engine: 'main', source: 'x', instance: 'y' })
+    ).toEqual({ battery: 'house', engine: 'main' })
+    expect(restoredPick(alternator, { battery: 'a.b', engine: 'port side' })).toEqual({})
+    expect(
+      restoredPick({ ...alternator, open: ['source'] }, { battery: 'house', source: 'can0.226' })
+    ).toEqual({ battery: 'house', source: 'can0.226' })
   })
 
   it('lists for no slot the picks of a single-slot template', () => {

@@ -1358,6 +1358,31 @@ describe('rules from a template with two slots', () => {
     ])
   })
 
+  it('restores from the link only what the template leaves open', async () => {
+    const api = renderShell({ rules: [], listing }, { reported })
+    await openPicker([{ battery: 'house', engine: 'main', source: 'x' }])
+    await continueWith('Continue with 1 rule')
+    fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+    await screen.findByRole('heading', { name: 'Engine main alternator not charging' })
+    expect(createdRules(api).map((r) => r.template?.pick)).toEqual([
+      { battery: 'house', engine: 'main' }
+    ])
+  })
+
+  it('restores an empty row from a pick made for a template’s one slot', async () => {
+    const api = renderShell({ rules: [], listing }, { reported: [...twin, voltage('house', 13.2)] })
+    await openPicker([{ instance: 'main' }])
+    expect([cell(1, 'Battery').value, cell(1, 'Engine').value]).toEqual(['', ''])
+    choose(1, 'Battery', 'house')
+    choose(1, 'Engine', 'port')
+    await continueWith('Continue with 1 rule')
+    fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+    await screen.findByRole('heading', { name: 'Engine port alternator not charging' })
+    expect(createdRules(api).map((r) => r.template?.pick)).toEqual([
+      { battery: 'house', engine: 'port' }
+    ])
+  })
+
   it('goes back from the rules to the rows as they were', async () => {
     renderShell({ rules: [], listing }, { reported: twin })
     await openRows()

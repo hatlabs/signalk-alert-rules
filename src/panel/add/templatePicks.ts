@@ -4,7 +4,13 @@
  */
 import type { TemplatePick } from '../../model/rule'
 import type { Slot, Template } from '../../model/template'
-import { SLOT_PICK_MESSAGE, SLOT_PICK_PATTERN, picked, slotsOf } from '../../templates/instantiate'
+import {
+  SLOT_PICK_MESSAGE,
+  SLOT_PICK_PATTERN,
+  SOURCE_PICK,
+  picked,
+  slotsOf
+} from '../../templates/instantiate'
 import { isInvalid, isRecord, type ListedRule } from '../api'
 import type { PathEntry } from '../paths/selfPaths'
 import { matchedInstances, matchesPattern } from '../signalUnits'
@@ -308,6 +314,24 @@ export function pickReports(
       paths.some((entry) => matchesPattern(filled(path), entry.path))
     )
   )
+}
+
+/**
+ * What of a pick from a link or an earlier visit a template's rows can show:
+ * each slot's choice that is one path segment, and the source when the
+ * template leaves it open. A key the template does not leave open would be
+ * hidden in its row and refused on Continue.
+ */
+export function restoredPick(template: Template, pick: TemplatePick): TemplatePick {
+  const restored: TemplatePick = {}
+  for (const slot of slotsOf(template)) {
+    const value = picked(pick, slot.name)
+    if (value !== undefined && SLOT_PICK.test(value)) restored[slot.name] = value
+  }
+  const source = picked(pick, SOURCE_PICK)
+  if (source !== undefined && template.open?.includes(SOURCE_PICK) === true)
+    restored[SOURCE_PICK] = source
+  return restored
 }
 
 /** Why a typed instance cannot be picked, if it cannot. */

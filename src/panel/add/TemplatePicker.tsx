@@ -14,6 +14,7 @@ import {
   onlySlot,
   openPattern,
   pickKey,
+  restoredPick,
   ruleWatching,
   slotCandidates,
   slotPattern,
@@ -358,7 +359,7 @@ function SlotRows(props: TemplatePickerProps) {
   const newRow = (pick: TemplatePick): SlotRow => ({ key: nextKey.current++, pick })
   const [rows, setRows] = useState<SlotRow[]>(() =>
     props.picked !== undefined && props.picked.length > 0
-      ? props.picked.map((p) => newRow({ ...p }))
+      ? props.picked.map((p) => newRow(restoredPick(template, p)))
       : [newRow({})]
   )
   const [typed, setTyped] = useState<Partial<Record<string, string[]>>>({})
