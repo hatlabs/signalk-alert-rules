@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { RuleEntry } from '../../../src/panel/api'
 import { explain, instanceFact, sentenceText } from '../../../src/panel/detail/explain'
+import { pathName } from '../../../src/panel/editor/words'
 import { ruleDisplay } from '../../../src/panel/rules/describe'
 import type { PathEntry } from '../../../src/panel/paths/selfPaths'
 import { unitLookup } from '../../../src/panel/signalUnits'
@@ -290,6 +291,12 @@ describe('explain', () => {
       expect(text(silent('electrical.batteries.*#/voltage', 'start'))).toBe(
         'Start voltage has not reported for 2 h.'
       )
+    })
+
+    it('names a field as the path search and editor do', () => {
+      for (const path of ['electrical.batteries.house#/voltage', 'navigation.attitude#/a/b']) {
+        expect(text(silent(path))).toBe(`${pathName(path)} has not reported for 2 h.`)
+      }
     })
 
     it("takes the field's display name from metadata", () => {

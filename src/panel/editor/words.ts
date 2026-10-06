@@ -7,7 +7,7 @@ import { isPointerPath, splitPointerPath } from '../../model/pointerPath'
 import type { CombinatorKind } from '../../model/rule'
 import { capitalised } from '../list/PriorityBadge'
 import {
-  instanceOf,
+  baseSegments,
   instanceSegment,
   isWildcardPath,
   type Measure,
@@ -63,10 +63,7 @@ function segmentWords(segment: string): string {
  */
 function pathWords(path: string): string {
   // A field reads as the rule detail names it: its instance, then its leaf words.
-  if (isPointerPath(path)) {
-    const instance = instanceOf(path)
-    return [...(instance === undefined ? [] : [instance]), leafWords(path)].join(' ')
-  }
+  if (isPointerPath(path)) return instanceWords(path)
   const segments = path.split('.')
   const leaf = segments.at(-1) ?? ''
   const before = segments
@@ -99,6 +96,21 @@ export function leafWords(path: string): string {
     !/^\d+$/.test(last) &&
     instanceSegment(path) !== base.length - 1
   return [...(named ? [last] : []), ...split.tokens].map(segmentWords).join(' ')
+}
+
+/**
+ * A path as the rule detail names it: its instance, then its leaf words,
+ * "house voltage" for `electrical.batteries.house#/voltage`; a field is named
+ * this way everywhere.
+ *
+ * @param instance the instance a wildcard path is named for
+ */
+export function instanceWords(path: string, instance?: string): string {
+  const at = instanceSegment(path)
+  const segment = at === undefined ? undefined : baseSegments(path)[at]
+  const which = instance ?? (segment === '*' ? undefined : segment)
+  const leaf = leafWords(path)
+  return which === undefined ? leaf : `${which} ${leaf}`
 }
 
 /** `1 rule`, `2 rules`. */
