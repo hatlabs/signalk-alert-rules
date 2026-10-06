@@ -196,6 +196,18 @@ describe('detailChart', () => {
     expect(spec?.limits.map((l) => Math.round(l.value))).toEqual([-20, 20])
   })
 
+  it('charts a field’s rate of change with each bucket’s last value, not its average', () => {
+    const spec = detailChart(
+      rule({
+        signal: { paths: [ROLL] },
+        detector: { type: 'slope', direction: 'rising' },
+        steps: [{ limit: 0.01, priority: 'warning' }]
+      }),
+      reportedUnits
+    )
+    expect(spec).toMatchObject({ path: ROLL, methods: ['last'], side: 'above', verdict: false })
+  })
+
   it('charts a field pinned to a source with that source', () => {
     const spec = detailChart(
       rule({ signal: { paths: [ROLL] }, source: 'imu.1', detector: { type: 'outside' } }),
