@@ -99,6 +99,38 @@ export function resolvePointer(value: unknown, tokens: readonly string[]): unkno
   return field
 }
 
+/** A zone limit whose zones would come from a field: what to say, and on what. */
+export interface FieldZonesError {
+  /** On the limit itself, or on the zones path it names. */
+  at: 'limit' | 'path'
+  message: string
+}
+
+/**
+ * Whether a zone limit takes its zones from a field, which has none: the
+ * zones path it names, else its signal's single path. The validator and the
+ * webapp's editor both ask this, so they refuse the same limits.
+ *
+ * @param zonesPath the zones path the limit names; undefined for its signal's
+ * @param signalPath the signal's single path; undefined for a combined signal
+ * @param onField what to say of a limit on a field signal, worded for where
+ * the editor shows that limit
+ */
+export function fieldZonesError(
+  zonesPath: string | undefined,
+  signalPath: string | undefined,
+  onField: string
+): FieldZonesError | undefined {
+  if (zonesPath !== undefined) {
+    return isPointerPath(zonesPath) && splitPointerPath(zonesPath).valid
+      ? { at: 'path', message: FIELD_ZONES_PATH_MESSAGE }
+      : undefined
+  }
+  return signalPath !== undefined && isPointerPath(signalPath)
+    ? { at: 'limit', message: onField }
+    : undefined
+}
+
 // RFC 6901 decodes ~1 before ~0, so that ~01 is "~1" and not "/".
 function unescapeToken(token: string): string {
   return token.replaceAll('~1', '/').replaceAll('~0', '~')

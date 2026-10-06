@@ -4,8 +4,7 @@ import {
   FIELD_ZONES_LEVEL_MESSAGE,
   FIELD_ZONES_MESSAGE,
   FIELD_ZONES_PATH_MESSAGE,
-  isPointerPath,
-  splitPointerPath
+  fieldZonesError
 } from '../../model/pointerPath'
 import { PathPicker } from '../paths/PathPicker'
 import type { PathList } from '../paths/selfPaths'
@@ -71,14 +70,14 @@ function limitZonesErrors(
   onField: string
 ): FormError[] {
   if (limit.kind !== 'zone') return []
-  if (limit.path !== '') {
-    const split = splitPointerPath(limit.path)
-    return split.valid && isPointerPath(limit.path)
-      ? [{ path: `${at}/path`, message: FIELD_ZONES_PATH_MESSAGE }]
-      : []
-  }
-  const path = signal.mode === 'single' ? signal.slots[0]?.path : undefined
-  return path !== undefined && isPointerPath(path) ? [{ path: at, message: onField }] : []
+  const field = fieldZonesError(
+    limit.path === '' ? undefined : limit.path,
+    signal.mode === 'single' ? signal.slots[0]?.path : undefined,
+    onField
+  )
+  return field === undefined
+    ? []
+    : [{ path: field.at === 'path' ? `${at}/path` : at, message: field.message }]
 }
 
 /**

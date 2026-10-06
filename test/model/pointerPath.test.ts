@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  FIELD_ZONES_LEVEL_MESSAGE,
+  FIELD_ZONES_MESSAGE,
+  FIELD_ZONES_PATH_MESSAGE,
   POINTER_MESSAGE,
   POINTER_TOKEN_MESSAGE,
+  fieldZonesError,
   isPointerPath,
   pathSegments,
   resolvePointer,
@@ -126,5 +130,39 @@ describe('resolvePointer', () => {
     expect(resolvePointer(attitude, ['__proto__'])).toBeUndefined()
     expect(resolvePointer(attitude, ['constructor'])).toBeUndefined()
     expect(resolvePointer(attitude, ['toString'])).toBeUndefined()
+  })
+})
+
+describe('fieldZonesError', () => {
+  const ROLL = 'navigation.attitude#/roll'
+  const VOLTS = 'electrical.batteries.house.voltage'
+
+  it("puts a limit taking a field signal's own zones at the limit, worded for its place", () => {
+    expect(fieldZonesError(undefined, ROLL, FIELD_ZONES_MESSAGE)).toEqual({
+      at: 'limit',
+      message: FIELD_ZONES_MESSAGE
+    })
+    expect(fieldZonesError(undefined, ROLL, FIELD_ZONES_LEVEL_MESSAGE)).toEqual({
+      at: 'limit',
+      message: FIELD_ZONES_LEVEL_MESSAGE
+    })
+  })
+
+  it('puts a field named as the zones path at the path', () => {
+    expect(fieldZonesError(ROLL, VOLTS, FIELD_ZONES_MESSAGE)).toEqual({
+      at: 'path',
+      message: FIELD_ZONES_PATH_MESSAGE
+    })
+    expect(fieldZonesError(ROLL, undefined, FIELD_ZONES_MESSAGE)).toEqual({
+      at: 'path',
+      message: FIELD_ZONES_PATH_MESSAGE
+    })
+  })
+
+  it('finds nothing wrong with zones from a plain path, or a pointer that is not one', () => {
+    expect(fieldZonesError(undefined, VOLTS, FIELD_ZONES_MESSAGE)).toBeUndefined()
+    expect(fieldZonesError(VOLTS, ROLL, FIELD_ZONES_MESSAGE)).toBeUndefined()
+    expect(fieldZonesError(undefined, undefined, FIELD_ZONES_MESSAGE)).toBeUndefined()
+    expect(fieldZonesError('navigation.attitude#roll', VOLTS, FIELD_ZONES_MESSAGE)).toBeUndefined()
   })
 })

@@ -19,7 +19,7 @@ import { alertPathErrors, conditionMissing } from './alertPath.js'
 import {
   FIELD_ZONES_LEVEL_MESSAGE,
   FIELD_ZONES_MESSAGE,
-  FIELD_ZONES_PATH_MESSAGE,
+  fieldZonesError,
   isPointerPath,
   splitPointerPath
 } from './pointerPath.js'
@@ -330,21 +330,26 @@ function limitErrors(
   onField: string
 ): ValidationError[] {
   if (limit.kind !== 'zone') return []
+  const pathAt = pointer(at, 'path')
   if (limit.path !== undefined) {
-    const pathAt = pointer(at, 'path')
     const errors = pathErrors(limit.path, pathAt, wildcard)
-    if (errors.length > 0 || !isPointerPath(limit.path)) return errors
-    return [{ path: pathAt, message: FIELD_ZONES_PATH_MESSAGE }]
-  }
-  if ('combinator' in signal) {
+    if (errors.length > 0) return errors
+  } else if ('combinator' in signal) {
     return [
       {
-        path: pointer(at, 'path'),
+        path: pathAt,
         message: 'a zone limit on a combined signal must name the path whose zones it uses'
       }
     ]
   }
-  return isPointerPath(signal.path) ? [{ path: at, message: onField }] : []
+  const field = fieldZonesError(
+    limit.path,
+    'combinator' in signal ? undefined : signal.path,
+    onField
+  )
+  return field === undefined
+    ? []
+    : [{ path: field.at === 'path' ? pathAt : at, message: field.message }]
 }
 
 function valueRequired(
