@@ -1352,6 +1352,17 @@ describe('field rules', () => {
     expect(evaluator.status().instances[0]?.judgement.problem).toBeUndefined()
   })
 
+  it('a timeout rule on a boolean field times out, since core times out the object', () => {
+    const SWITCH = 'electrical.switches.bilge#/state'
+    const rule = valid({ ...depthTimeout, signal: { path: SWITCH } })
+    const { at, log, evaluator } = setup(rule)
+    at(0, 'electrical.switches.bilge', { state: true })
+    expect(evaluator.status().instances[0]?.judgement.problem).toBeUndefined()
+    at(10, 'electrical.switches.bilge', null, TIMED_OUT)
+    at(40)
+    expect(log).toEqual([[40, 'raise', '', 'warning']])
+  })
+
   it('an angular combination of fields reported in other units than radians is inactive', () => {
     const PITCH = 'navigation.attitude#/pitch'
     const rule = valid({
