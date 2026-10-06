@@ -2819,6 +2819,8 @@ describe('RuleEditor, a field path', () => {
     fireEvent.blur(picker)
     expect(screen.queryByText(/^From the zones of/)).toBeNull()
     expect(screen.queryByText(/reports no zone at this level/)).toBeNull()
+    expect(select(/^Zones from path/).getAttribute('aria-invalid')).toBe('true')
+    expect(description(select(/^Zones from path/))).toContain(FIELD_ZONES_PATH_MESSAGE)
     click(button('Save'))
     await waitFor(() => {
       expect(description(select(/^Zones from path/))).toContain(FIELD_ZONES_PATH_MESSAGE)
@@ -2836,13 +2838,20 @@ describe('RuleEditor, a field path', () => {
     const input = select('Condition 1 input path')
     type(input, ROLL)
     fireEvent.blur(input)
+    expect(select('Zone level').getAttribute('aria-invalid')).toBe('true')
+    expect(description(select('Zone level'))).toContain(FIELD_ZONES_LEVEL_MESSAGE)
     click(button('Save'))
     click(button('Save'))
     await waitFor(() => {
-      expect(description(select('Zone level'))).toContain(FIELD_ZONES_LEVEL_MESSAGE)
+      expect(api.previewRule).toHaveBeenCalled()
     })
+    expect(description(select('Zone level'))).toContain(FIELD_ZONES_LEVEL_MESSAGE)
     expect(description(select('Zone level'))).not.toContain('The path reports no zones yet.')
     expect(api.updateRule).not.toHaveBeenCalled()
+    click(screen.getByRole('radio', { name: 'A fixed value' }))
+    expect(screen.queryByText(FIELD_ZONES_LEVEL_MESSAGE)).toBeNull()
+    expect(textbox('Condition 1 limit').getAttribute('aria-invalid')).toBeNull()
+    expect(screen.queryByText(/the limit of Only while condition 1/)).toBeNull()
   })
 
   it('keeps a stored zone condition chosen when its input becomes a field, to be changed', async () => {

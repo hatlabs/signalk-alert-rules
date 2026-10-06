@@ -1,6 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { renderMessage } from '../../alerts/message'
-import { FIELD_ZONES_MESSAGE, isPointerPath } from '../../model/pointerPath'
+import {
+  FIELD_ZONES_LEVEL_MESSAGE,
+  FIELD_ZONES_MESSAGE,
+  FIELD_ZONES_PATH_MESSAGE,
+  isPointerPath,
+  splitPointerPath
+} from '../../model/pointerPath'
 import { PathPicker } from '../paths/PathPicker'
 import type { PathList } from '../paths/selfPaths'
 import { matchedInstances, signalMeasure, type UnitLookup } from '../signalUnits'
@@ -16,7 +22,9 @@ import {
   toRule,
   withNumbersInUnit,
   type FormError,
-  type RuleForm
+  type LimitForm,
+  type RuleForm,
+  type SignalForm
 } from './formModel'
 import { strayBraces, withGenerated } from './message'
 import { MoreOptions } from './MoreOptions'
@@ -45,19 +53,52 @@ export interface CheckedErrors {
   attached: AttachedErrors
 }
 
+const FIELD_ZONES_MESSAGES: ReadonlySet<string> = new Set([
+  FIELD_ZONES_MESSAGE,
+  FIELD_ZONES_PATH_MESSAGE,
+  FIELD_ZONES_LEVEL_MESSAGE
+])
+
 /**
- * A zone limit taking its zones from a single path that is a field, which has
- * none. Shown on the zones checkbox as soon as the form holds it, as a stored
- * rule's errors are on opening, rather than only once Save is refused.
+ * A zone limit at `at` whose zones would come from a field, which has none:
+ * a field named as its zones path, or else its signal's single path. As the
+ * validator words it, `onField` for the latter.
  */
-export function fieldZonesErrors(form: RuleForm): FormError[] {
-  const path = form.signal.mode === 'single' ? form.signal.slots[0]?.path : undefined
-  return isZoneLimited(form.detector) &&
-    form.detector.limit.path === '' &&
-    path !== undefined &&
-    isPointerPath(path)
-    ? [{ path: ZONES, message: FIELD_ZONES_MESSAGE }]
-    : []
+function limitZonesErrors(
+  limit: LimitForm,
+  signal: SignalForm,
+  at: string,
+  onField: string
+): FormError[] {
+  if (limit.kind !== 'zone') return []
+  if (limit.path !== '') {
+    const split = splitPointerPath(limit.path)
+    return split.valid && isPointerPath(limit.path)
+      ? [{ path: `${at}/path`, message: FIELD_ZONES_PATH_MESSAGE }]
+      : []
+  }
+  const path = signal.mode === 'single' ? signal.slots[0]?.path : undefined
+  return path !== undefined && isPointerPath(path) ? [{ path: at, message: onField }] : []
+}
+
+/**
+ * The form's zone limits on fields, shown as soon as the form holds them, as
+ * a stored rule's errors are on opening, rather than only once Save is refused.
+ */
+function fieldZonesErrors(form: RuleForm): FormError[] {
+  return [
+    ...(isZoneLimited(form.detector)
+      ? limitZonesErrors(form.detector.limit, form.signal, ZONES, FIELD_ZONES_MESSAGE)
+      : []),
+    ...form.gates.flatMap((gate, i) =>
+      limitZonesErrors(
+        gate.limit,
+        gate.signal,
+        `/gates/${String(i)}/limit`,
+        FIELD_ZONES_LEVEL_MESSAGE
+      )
+    )
+  ]
 }
 
 /** A form's errors on their fields, an overlap refusal naming the rule that holds the alert path. */
@@ -68,9 +109,9 @@ export function checkedErrors(
   ruleName: (slug: string) => string | undefined
 ): CheckedErrors {
   let holder: string | undefined
-  // The form decides the field-zones error; a refused Save's copy of it would outlive a fix.
+  // The form decides the field-zones errors; a refused Save's copies would outlive a fix.
   const derived = [
-    ...errors.filter((e) => !(e.path === ZONES && e.message === FIELD_ZONES_MESSAGE)),
+    ...errors.filter((e) => !FIELD_ZONES_MESSAGES.has(e.message)),
     ...fieldZonesErrors(form)
   ]
   const named = derived.map((e) => {
