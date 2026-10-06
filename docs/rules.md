@@ -112,7 +112,7 @@ A path can address one field of an object value: the Signal K path, `#`, and an 
 
 - The pointer starts with `/` and has one token per level: `#/roll` is the field `roll`, `#/a/b` the field `b` of the field `a`.
 - In a token, `~1` stands for `/` and `~0` for `~`; any other `~` is an error.
-- A path has at most one `#`, and the pointer is not empty: without the `#` the path already addresses the whole value.
+- A path has at most one `#`. Unlike RFC 6901, neither the pointer nor any of its tokens may be empty: without the `#` the path already addresses the whole value, and `#/`, `#/roll/` and `#/a//b` are refused.
 - A token may not contain `.`, whitespace or `*`, because each token becomes a segment of the [alert path](#alert-paths). The pointer has no wildcard.
 
 A malformed pointer is refused at the path with "After "#", write the field name starting with "/", for example "#/roll".", and a token holding a dot, whitespace or `*` with "A field name after "#" cannot contain dots, whitespace or *.".
