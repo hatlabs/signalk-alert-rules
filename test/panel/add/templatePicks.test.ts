@@ -3,15 +3,20 @@ import type { Template } from '../../../src/model/template'
 import {
   candidates,
   instanceError,
+  labelsJoined,
   openPattern,
   pickKey,
   pickReports,
   restoredPick,
+  rowsProblem,
   ruleWatching,
   slotCandidates,
+  slotPattern,
   templateTitle,
   typedCandidate,
   watchedPath,
+  watchedSlots,
+  withArticle,
   type SlotCandidate
 } from '../../../src/panel/add/templatePicks'
 import type { PathEntry } from '../../../src/panel/paths/selfPaths'
@@ -574,6 +579,68 @@ describe('a template with two slots', () => {
     expect(
       restoredPick({ ...alternator, open: ['source'] }, { battery: 'house', source: 'can0.226' })
     ).toEqual({ battery: 'house', source: 'can0.226' })
+  })
+
+  it('decides the sources by the slots in its signal path alone', () => {
+    expect(watchedSlots(alternator).map((s) => s.name)).toEqual(['battery'])
+    const nested: Template = {
+      ...alternator,
+      rule: {
+        ...alternator.rule,
+        signal: { path: 'propulsion.${engine}.alternators.${battery}.voltage' }
+      }
+    }
+    expect(watchedSlots(nested).map((s) => s.name)).toEqual(['battery', 'engine'])
+  })
+
+  it('shows each slot’s first path with every slot as <name>', () => {
+    expect(slotPattern(alternator, 'battery')).toBe('electrical.batteries.<name>.voltage')
+    expect(slotPattern(alternator, 'engine')).toBe('propulsion.<name>.revolutions')
+  })
+
+  describe('why the rows cannot continue', () => {
+    it('names the first row missing a choice, a slot before the source, in rule order', () => {
+      expect(rowsProblem(alternator, true, [{ engine: 'main' }])).toBe(
+        'Choose a battery for rule 1'
+      )
+      expect(
+        rowsProblem(alternator, true, [{ battery: 'start', engine: 'main' }, { engine: 'main' }])
+      ).toBe('Choose a source for rule 1')
+    })
+
+    it('names a missing choice before rows that are the same', () => {
+      const same = { battery: 'start', engine: 'main' }
+      expect(rowsProblem(alternator, false, [same, same, { battery: 'start' }])).toBe(
+        'Choose an engine for rule 3'
+      )
+      expect(
+        rowsProblem(alternator, true, [
+          { ...same, source: 'n2k.1' },
+          { ...same, source: 'n2k.1' },
+          same
+        ])
+      ).toBe('Choose a source for rule 3')
+    })
+
+    it('names the first two rows that are the same, else nothing', () => {
+      const port = { battery: 'start', engine: 'port' }
+      const starboard = { battery: 'start', engine: 'starboard' }
+      expect(rowsProblem(alternator, false, [port, starboard, port])).toBe(
+        'Rules 1 and 3 are the same'
+      )
+      expect(rowsProblem(alternator, false, [port, starboard])).toBeUndefined()
+    })
+  })
+
+  it('joins one, two and three slots’ labels, each with its article', () => {
+    const battery = { name: 'battery', label: 'Battery' }
+    const charger = { name: 'charger', label: 'Charger' }
+    const engine = { name: 'engine', label: 'Engine' }
+    expect(withArticle('engine')).toBe('an engine')
+    expect(withArticle('battery')).toBe('a battery')
+    expect(labelsJoined([battery])).toBe('a battery')
+    expect(labelsJoined([battery, engine])).toBe('a battery and an engine')
+    expect(labelsJoined([battery, charger, engine])).toBe('a battery, a charger and an engine')
   })
 
   it('lists for no slot the picks of a single-slot template', () => {

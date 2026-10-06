@@ -1,6 +1,6 @@
 import { useId, useLayoutEffect, useRef, useState, type CSSProperties, type Ref } from 'react'
 import type { TemplatePick } from '../../model/rule'
-import type { Slot, Template } from '../../model/template'
+import type { Template } from '../../model/template'
 import { SOURCE_PICK, picked, slotsOf } from '../../templates/instantiate'
 import type { ListedRule } from '../api'
 import { BackIcon } from '../detail/icons'
@@ -11,10 +11,12 @@ import { useUnits } from '../signalUnits'
 import {
   candidates,
   instanceError,
+  labelsJoined,
   onlySlot,
   openPattern,
   pickKey,
   restoredPick,
+  rowsProblem,
   ruleWatching,
   slotCandidates,
   slotPattern,
@@ -22,6 +24,7 @@ import {
   typedCandidate,
   watchedPath,
   watchedSlots,
+  withArticle,
   type Candidate
 } from './templatePicks'
 
@@ -289,39 +292,8 @@ interface FocusTarget {
   firstEmpty: boolean
 }
 
-const withArticle = (word: string) => `${/^[aeiou]/i.test(word) ? 'an' : 'a'} ${word}`
-
-/** "a battery and an engine", "a battery, a charger and an engine". */
-function labelsJoined(slots: readonly Slot[]): string {
-  const words = slots.map((s) => withArticle(s.label.toLowerCase()))
-  const last = words.pop() ?? ''
-  return words.length === 0 ? last : `${words.join(', ')} and ${last}`
-}
-
 function without(pick: TemplatePick, key: string): TemplatePick {
   return Object.fromEntries(Object.entries(pick).filter(([k]) => k !== key))
-}
-
-/** The first reason the rows cannot continue, in rule order: a missing choice before a repeat. */
-function rowsProblem(
-  template: Template,
-  sourceOpen: boolean,
-  picks: readonly TemplatePick[]
-): string | undefined {
-  for (const [i, pick] of picks.entries()) {
-    const rule = String(i + 1)
-    const missing = slotsOf(template).find((slot) => picked(pick, slot.name) === undefined)
-    if (missing !== undefined)
-      return `Choose ${withArticle(missing.label.toLowerCase())} for rule ${rule}`
-    if (sourceOpen && picked(pick, SOURCE_PICK) === undefined)
-      return `Choose a source for rule ${rule}`
-  }
-  const keys = picks.map(pickKey)
-  for (const [i, key] of keys.entries()) {
-    const j = keys.indexOf(key, i + 1)
-    if (j >= 0) return `Rules ${String(i + 1)} and ${String(j + 1)} are the same`
-  }
-  return undefined
 }
 
 interface Choice {
