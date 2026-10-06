@@ -92,10 +92,13 @@ function LimitFields({
             onChange={(level) => {
               onChange({ ...limit, level })
             }}
+            // A field never reports zones; the error on the level says what to do.
             hint={
-              zones === undefined
-                ? 'The path reports no zones yet.'
-                : `Zones now: ${zones.map((z) => zoneText(z, zoneMeasure)).join('; ')}`
+              zonePath !== undefined && isPointerPath(zonePath)
+                ? undefined
+                : zones === undefined
+                  ? 'The path reports no zones yet.'
+                  : `Zones now: ${zones.map((z) => zoneText(z, zoneMeasure)).join('; ')}`
             }
           />
           <PathPicker

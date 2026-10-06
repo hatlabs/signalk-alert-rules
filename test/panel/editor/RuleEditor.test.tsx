@@ -2841,6 +2841,7 @@ describe('RuleEditor, a field path', () => {
     await waitFor(() => {
       expect(description(select('Zone level'))).toContain(FIELD_ZONES_LEVEL_MESSAGE)
     })
+    expect(description(select('Zone level'))).not.toContain('The path reports no zones yet.')
     expect(api.updateRule).not.toHaveBeenCalled()
   })
 
