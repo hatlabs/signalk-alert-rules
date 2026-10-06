@@ -286,6 +286,98 @@ describe('HistoryChart', () => {
     })
   })
 
+  describe('of a field', () => {
+    const DEGREES_PER_RAD = 180 / Math.PI
+    const degrees = displayUnit({
+      units: 'rad',
+      displayUnits: { formula: `value * ${String(DEGREES_PER_RAD)}`, symbol: '°' }
+    })
+    const roll: ChartSpec = {
+      path: 'navigation.attitude#/roll',
+      methods: ['last'],
+      measure: { kind: 'absolute', unit: degrees },
+      limits: [
+        { value: -20, bound: 'low' },
+        { value: 20, bound: 'high' }
+      ],
+      steps: 1,
+      side: 'outside',
+      verdict: false
+    }
+    const NOTE = 'Last value per interval; short peaks may not show.'
+
+    const urlOf = (input: Parameters<typeof fetch>[0]) =>
+      typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+
+    /** A provider's answer for the object path: each bucket's whole object, one bucket empty. */
+    function attitudeFetch(status = 200) {
+      return vi.fn<typeof fetch>((input) => {
+        const url = urlOf(input)
+        const body = url.endsWith('/_providers')
+          ? { provider: {} }
+          : status !== 200
+            ? { error: 'navigation.attitude takes only first, last or middle_index' }
+            : {
+                values: [{ path: 'navigation.attitude', method: 'last' }],
+                data: Array.from({ length: 144 }, (_, i) => [
+                  new Date(NOW - 24 * HOUR + i * BUCKET).toISOString(),
+                  i === 70 ? null : { roll: i === 100 ? 0.4 : 0.05, pitch: 0, yaw: 1.2 }
+                ])
+              }
+        return Promise.resolve(
+          new Response(JSON.stringify(body), {
+            status: url.endsWith('/_providers') ? 200 : status,
+            headers: { 'Content-Type': 'application/json' }
+          })
+        )
+      })
+    }
+
+    it('draws each bucket’s last field value from its object path, with the note and no verdict', async () => {
+      const fetchFn = attitudeFetch()
+      render(<HistoryChart history={httpHistorySource(fetchFn)} spec={roll} />)
+      await settle()
+      await settle()
+      const asked = fetchFn.mock.calls
+        .map(([input]) => urlOf(input))
+        .find((u) => u.includes('/values'))
+      expect(new URL(asked ?? '', 'http://localhost').searchParams.get('paths')).toBe(
+        'navigation.attitude:last'
+      )
+      const chart = screen.getByRole('img', { name: 'Last 24 hours with the limits' })
+      // The empty bucket breaks the line.
+      expect(chart.querySelectorAll('polyline')).toHaveLength(2)
+      expect(screen.getByText(NOTE)).toBeTruthy()
+      expect(screen.getByRole('status').textContent).toMatch(
+        /^Lowest 2\.865 ° at .+; highest 22\.92 ° at .+\. It went above the limit\.$/
+      )
+      expect(screen.queryByText(/would not have alerted/)).toBeNull()
+    })
+
+    it('says history is unavailable, without the note, when the provider refuses the object path', async () => {
+      render(<HistoryChart history={httpHistorySource(attitudeFetch(400))} spec={roll} />)
+      await settle()
+      await settle()
+      expect(screen.getByRole('status').textContent).toBe('History unavailable.')
+      expect(screen.queryByRole('img')).toBeNull()
+      expect(screen.queryByText(NOTE)).toBeNull()
+    })
+
+    it('says when nothing was recorded, without the note', async () => {
+      render(<HistoryChart history={fakeHistory(() => Promise.resolve({}))} spec={roll} />)
+      await settle()
+      expect(screen.getByRole('status').textContent).toBe('Nothing recorded in the last 24 hours.')
+      expect(screen.queryByText(NOTE)).toBeNull()
+    })
+
+    it('leaves the note off a path’s chart', async () => {
+      render(<HistoryChart history={fakeHistory()} spec={coolant} />)
+      await settle()
+      expect(screen.getByRole('img')).toBeTruthy()
+      expect(screen.queryByText(NOTE)).toBeNull()
+    })
+  })
+
   it('takes the title it is given, as the detail names the path', async () => {
     render(<HistoryChart history={fakeHistory()} spec={coolant} title="Port coolant" />)
     await settle()

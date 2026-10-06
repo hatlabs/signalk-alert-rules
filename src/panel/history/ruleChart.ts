@@ -3,6 +3,7 @@
  * path, compared with a limit or watched for its rate of change. The
  * History API records paths, not a rule's combined or per-instance signal.
  */
+import { isPointerPath, splitPointerPath } from '../../model/pointerPath'
 import type { RuleInfo } from '../api'
 import type { Aggregate } from './historySource'
 import {
@@ -50,6 +51,12 @@ const EXTREMES: Readonly<Record<Side, readonly Aggregate[]>> = {
 
 const AVERAGE: readonly Aggregate[] = ['average']
 
+/**
+ * Providers record a field under its object path, which takes only first,
+ * last or middle values, so a peak shorter than a bucket may not show.
+ */
+const LAST: readonly Aggregate[] = ['last']
+
 function specOf(
   signal: SignalShape,
   type: string,
@@ -61,20 +68,22 @@ function specOf(
 ): ChartSpec | undefined {
   const [path] = signal.paths
   if (signal.combinator !== undefined || signal.paths.length !== 1 || path === '') return undefined
-  if (isWildcardPath(path)) return undefined
+  if (isWildcardPath(path) || !splitPointerPath(path).valid) return undefined
   if (side === undefined) return undefined
+  const field = isPointerPath(path)
   const reported = units.entry(path)?.value
   if (reported !== undefined && typeof reported !== 'number') return undefined
   const limited = VALUE_LIMITED.has(type) ? steps.filter((limits) => limits.length > 0) : []
   return {
     path,
-    methods: type === 'slope' ? AVERAGE : EXTREMES[side],
+    methods: field ? LAST : type === 'slope' ? AVERAGE : EXTREMES[side],
     source,
     measure: signalMeasure(signal, units),
     limits: limited.flat(),
     steps: limited.length,
     side,
-    verdict: JUDGED.has(type)
+    // A limit no last value passed may still have been passed between them.
+    verdict: !field && JUDGED.has(type)
   }
 }
 

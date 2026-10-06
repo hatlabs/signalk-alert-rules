@@ -7,6 +7,7 @@ import type { PathEntry } from '../../../src/panel/paths/selfPaths'
 import { unitLookup } from '../../../src/panel/signalUnits'
 import { displayUnit } from '../../../src/panel/units'
 import { ruleEntry } from '../fixtures'
+import { units as reportedUnits } from '../reportedPaths'
 
 const COOLANT = 'propulsion.port.coolantTemperature'
 const STATE = 'electrical.inverters.main.state'
@@ -20,6 +21,8 @@ const paths: PathEntry[] = [
   { path: STATE, unit: displayUnit({}), value: 'invert' }
 ]
 const units = unitLookup(paths, displayUnit({ units: 'm' }))
+
+const ROLL = 'navigation.attitude#/roll'
 
 const rule = (overrides: Partial<RuleEntry['rule']> = {}) => ruleEntry({ rule: overrides }).rule
 
@@ -179,6 +182,33 @@ describe('detailChart', () => {
       detailChart(rule({ signal: { paths: ['tanks.fuel.main.currentLevel'] } }), units)
     ).toBeDefined()
   })
+  it('charts a field with each bucket’s last value, and gives no verdict', () => {
+    const spec = detailChart(
+      rule({
+        signal: { paths: [ROLL] },
+        detector: { type: 'outside' },
+        steps: [{ low: -0.35, high: 0.35, priority: 'warning' }]
+      }),
+      reportedUnits
+    )
+    expect(spec).toMatchObject({ path: ROLL, methods: ['last'], side: 'outside', verdict: false })
+    expect(spec?.measure.unit.symbol).toBe('°')
+    expect(spec?.limits.map((l) => Math.round(l.value))).toEqual([-20, 20])
+  })
+
+  it('charts a field pinned to a source with that source', () => {
+    const spec = detailChart(
+      rule({ signal: { paths: [ROLL] }, source: 'imu.1', detector: { type: 'outside' } }),
+      reportedUnits
+    )
+    expect(spec?.source).toBe('imu.1')
+  })
+
+  it('charts nothing for a field of a wildcard path', () => {
+    expect(
+      detailChart(rule({ signal: { paths: ['electrical.batteries.*#/voltage'] } }), units)
+    ).toBeUndefined()
+  })
 })
 
 function form(kind: ConditionKind, path: string, edit: (f: RuleForm) => void = () => undefined) {
@@ -226,6 +256,24 @@ describe('editorChart', () => {
       units
     )
     expect(spec?.limits).toEqual([])
+  })
+
+  it('charts a field as typed with each bucket’s last value, and gives no verdict', () => {
+    const spec = editorChart(
+      form('outside', ROLL, (f) => {
+        f.steps[0] = { ...f.steps[0], low: '-20', high: '20', priority: 'warning' }
+      }),
+      reportedUnits
+    )
+    expect(spec).toMatchObject({ path: ROLL, methods: ['last'], side: 'outside', verdict: false })
+    expect(spec?.limits).toEqual([
+      { value: -20, priority: 'warning', bound: 'low' },
+      { value: 20, priority: 'warning', bound: 'high' }
+    ])
+  })
+
+  it('charts nothing for a field typed with a pointer that is not one', () => {
+    expect(editorChart(form('outside', 'navigation.attitude#roll'), reportedUnits)).toBeUndefined()
   })
 
   it('charts nothing before a path or a kind is chosen, or for a kind without a value limit', () => {
