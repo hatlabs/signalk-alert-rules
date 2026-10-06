@@ -1364,6 +1364,73 @@ select.skar-input {
   white-space: nowrap;
 }
 
+/* The row picker: one card per rule, the legend inside it rather than on its border. */
+.skar-slot-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.skar-slot-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 14px;
+  background: var(--skar-surface);
+  border: 1px solid var(--skar-border);
+  border-radius: 6px;
+}
+
+.skar-slot-row > legend {
+  float: left;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+
+/* One select per slot, then Source: stacked on a phone, side by side from 768 px. */
+.skar-slot-cells {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+
+@media (min-width: 768px) {
+  .skar-slot-cells {
+    grid-template-columns: repeat(var(--skar-cells, 2), minmax(0, 1fr));
+  }
+}
+
+/* An unchosen select reads as a prompt, not a value. */
+select.skar-input.skar-select-empty {
+  color: var(--skar-muted);
+}
+
+select.skar-input:disabled {
+  background: var(--skar-hover);
+  color: var(--skar-muted);
+  opacity: 1;
+}
+
+.skar-slot-row .skar-warning {
+  font-size: 0.8125rem;
+}
+
+.skar-slot-typed {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* One line held while empty, so a message appearing does not move Continue. */
+.skar-picker-status {
+  min-height: calc(0.8125rem * 1.4);
+}
+
 .skar-tabs-row {
   display: flex;
   flex-wrap: wrap;

@@ -4,7 +4,13 @@
  */
 import type { TemplatePick } from '../../model/rule'
 import type { Slot, Template } from '../../model/template'
-import { SLOT_PICK_MESSAGE, SLOT_PICK_PATTERN, picked, slotsOf } from '../../templates/instantiate'
+import {
+  SLOT_PICK_MESSAGE,
+  SLOT_PICK_PATTERN,
+  SOURCE_PICK,
+  picked,
+  slotsOf
+} from '../../templates/instantiate'
 import { isInvalid, isRecord, type ListedRule } from '../api'
 import type { PathEntry } from '../paths/selfPaths'
 import { matchedInstances, matchesPattern } from '../signalUnits'
@@ -72,6 +78,11 @@ export function openPattern(template: Template): string | undefined {
 /** Whether a slot shows in the path the template's rule watches. */
 function inWatchedPath(template: Template, slot: Slot): boolean {
   return openPath(template)?.includes(placeholder(slot.name)) ?? false
+}
+
+/** The slots in the path the template's rule watches, whose choices decide its sources. */
+export function watchedSlots(template: Template): Slot[] {
+  return slotsOf(template).filter((slot) => inWatchedPath(template, slot))
 }
 
 /** The path a pick's rule watches. */
@@ -231,6 +242,14 @@ function slotPaths(template: Template, slot: string): string[] {
   return [...new Set(using)]
 }
 
+/** The first path a slot is in, as the user reads it: `propulsion.<name>.revolutions`. */
+export function slotPattern(template: Template, slot: string): string {
+  return slotsOf(template).reduce(
+    (path, s) => path.replaceAll(placeholder(s.name), '<name>'),
+    slotPaths(template, slot)[0] ?? ''
+  )
+}
+
 /**
  * What one slot of a template can be filled with: each instance reporting any
  * path the slot is in, showing that path's value, sorted by name; then each
@@ -297,6 +316,24 @@ export function pickReports(
   )
 }
 
+/**
+ * What of a pick from a link or an earlier visit a template's rows can show:
+ * each slot's choice that is one path segment, and the source when the
+ * template leaves it open. A key the template does not leave open would be
+ * hidden in its row and refused on Continue.
+ */
+export function restoredPick(template: Template, pick: TemplatePick): TemplatePick {
+  const restored: TemplatePick = {}
+  for (const slot of slotsOf(template)) {
+    const value = picked(pick, slot.name)
+    if (value !== undefined && SLOT_PICK.test(value)) restored[slot.name] = value
+  }
+  const source = picked(pick, SOURCE_PICK)
+  if (source !== undefined && template.open?.includes(SOURCE_PICK) === true)
+    restored[SOURCE_PICK] = source
+  return restored
+}
+
 /** Why a typed instance cannot be picked, if it cannot. */
 export function instanceError(text: string): string | undefined {
   if (text === '') return 'Type the name used in the path.'
@@ -329,4 +366,35 @@ export function typedCandidate(
     ...(ruleName === undefined ? {} : { ruleName }),
     typed: true
   }
+}
+
+export const withArticle = (word: string) => `${/^[aeiou]/i.test(word) ? 'an' : 'a'} ${word}`
+
+/** "a battery and an engine", "a battery, a charger and an engine". */
+export function labelsJoined(slots: readonly Slot[]): string {
+  const words = slots.map((s) => withArticle(s.label.toLowerCase()))
+  const last = words.pop() ?? ''
+  return words.length === 0 ? last : `${words.join(', ')} and ${last}`
+}
+
+/** The first reason the rows cannot continue, in rule order: a missing choice before a repeat. */
+export function rowsProblem(
+  template: Template,
+  sourceOpen: boolean,
+  picks: readonly TemplatePick[]
+): string | undefined {
+  for (const [i, pick] of picks.entries()) {
+    const rule = String(i + 1)
+    const missing = slotsOf(template).find((slot) => picked(pick, slot.name) === undefined)
+    if (missing !== undefined)
+      return `Choose ${withArticle(missing.label.toLowerCase())} for rule ${rule}`
+    if (sourceOpen && picked(pick, SOURCE_PICK) === undefined)
+      return `Choose a source for rule ${rule}`
+  }
+  const keys = picks.map(pickKey)
+  for (const [i, key] of keys.entries()) {
+    const j = keys.indexOf(key, i + 1)
+    if (j >= 0) return `Rules ${String(i + 1)} and ${String(j + 1)} are the same`
+  }
+  return undefined
 }
