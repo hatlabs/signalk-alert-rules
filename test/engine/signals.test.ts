@@ -468,6 +468,37 @@ describe('field of an object path', () => {
     sm.publish(ATTITUDE, 'imu', { roll: 0.5, pitch: 0.25 })
     expect(readings(samples).at(-1)).toEqual(value(0.25))
   })
+
+  it('combines both fields of each delta at once, never one field with the previous other', () => {
+    const sm = new FakeSubscriptionManager()
+    const { samples } = record(
+      {
+        combinator: 'difference',
+        inputs: [{ path: ROLL }, { path: 'navigation.attitude#/pitch' }]
+      },
+      sm
+    )
+    sm.publish(ATTITUDE, 'imu', { roll: 0.5, pitch: 0.25 })
+    sm.publish(ATTITUDE, 'imu', { roll: 1, pitch: 0.5 })
+    expect(readings(samples)).toEqual([value(0.25), value(0.5)])
+  })
+
+  it('fields of one path pinned to different sources stay apart', () => {
+    const sm = new FakeSubscriptionManager()
+    const { samples } = record(
+      {
+        combinator: 'difference',
+        inputs: [
+          { path: ROLL, source: 'imu.a' },
+          { path: ROLL, source: 'imu.b' }
+        ]
+      },
+      sm
+    )
+    sm.publish(ATTITUDE, 'imu.a', { roll: 0.5 })
+    sm.publish(ATTITUDE, 'imu.b', { roll: 0.25 })
+    expect(readings(samples)).toEqual([value(0.25)])
+  })
 })
 
 describe('bindPath', () => {
