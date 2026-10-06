@@ -2836,6 +2836,18 @@ describe('RuleEditor, a field path', () => {
     expect(api.updateRule).not.toHaveBeenCalled()
   })
 
+  it('keeps a stored zone condition chosen when its input becomes a field, to be changed', async () => {
+    renderEditor({ editing: { entry: ruleEntry({ slug: zoneGate.slug }), rule: zoneGate } })
+    await formShown()
+    const input = select('Condition 1 input path')
+    type(input, ROLL)
+    fireEvent.blur(input)
+    const zone = screen.getByRole('radio', { name: /zone level/ })
+    expect(zone).toHaveProperty('checked', true)
+    click(screen.getByRole('radio', { name: 'A fixed value' }))
+    expect(screen.queryByRole('radio', { name: /zone level/ })).toBeNull()
+  })
+
   it('lists no field to take zones from', async () => {
     renderEditor({ editing: { entry: ruleEntry({ slug: battery.slug }), rule: battery } })
     await formShown()
