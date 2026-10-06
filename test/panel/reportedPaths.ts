@@ -8,6 +8,7 @@ import { displayUnit } from '../../src/panel/units'
 const si = (units: string) =>
   displayUnit({ units, displayUnits: { formula: 'value * 1', symbol: units } })
 const volts = si('V')
+const amperes = si('A')
 const rpm = displayUnit({ units: 'Hz', displayUnits: { formula: 'value * 60', symbol: 'rpm' } })
 const celsius = displayUnit({
   units: 'K',
@@ -52,6 +53,17 @@ export const reported: PathEntry[] = [
     displayName: 'Bow thruster battery voltage'
   },
   { path: 'electrical.batteries.start.voltage', units: 'V', unit: volts, value: 12.6 },
+  // A shunt and the battery monitor both report the house bank's current.
+  {
+    path: 'electrical.batteries.house.current',
+    units: 'A',
+    unit: amperes,
+    value: -2.1,
+    sources: ['can0.226', 'venus.0'],
+    preferredSource: 'can0.226'
+  },
+  { path: 'electrical.batteries.start.current', units: 'A', unit: amperes, value: 0.3 },
+  { path: 'electrical.chargers.shore.current', units: 'A', unit: amperes, value: 18.2 },
   { path: 'electrical.switches.bilgePump.state', unit: displayUnit({}), value: false },
   {
     path: 'navigation.headingMagnetic',

@@ -1,0 +1,89 @@
+# Templates with two slots, for the render harness only: the row picker's
+# states need them, and the built-in set has none yet. Not in the package.
+name: Two-slot templates
+id: two-slot
+version: 1.0.0
+description: Templates that span two things, picked in rows.
+
+templates:
+  - id: alternator-not-charging
+    description: >-
+      While an engine runs, a battery's voltage stays below 13.0 V for two
+      minutes, a warning that the engine's alternator is not charging it.
+    slots:
+      - { name: battery, label: Battery }
+      - { name: engine, label: Engine }
+    condition: ${engine}AlternatorNotCharging
+    rule:
+      name: Engine ${engine} alternator not charging
+      message: 'Engine ${engine} not charging battery ${battery}: {value}'
+      signal:
+        path: electrical.batteries.${battery}.voltage
+      detector:
+        type: sustained
+        direction: below
+        steps:
+          - { limit: 13.0, priority: warning }
+        duration: 120
+      gates:
+        - signal:
+            path: propulsion.${engine}.revolutions
+          direction: above
+          limit: { kind: fixed, value: 8 }
+          duration: 30
+
+  # Leaves the source open: a battery's current is reported by more than one
+  # device, and the source waits on the battery the signal path names.
+  - id: charger-not-charging
+    description: >-
+      While a charger puts out current, a battery's current stays below 0.5 A
+      for five minutes, a warning that the charge is not reaching it.
+    slots:
+      - { name: battery, label: Battery }
+      - { name: charger, label: Charger }
+    open: [source]
+    condition: ${charger}ChargeNotReaching
+    rule:
+      name: Charger ${charger} not charging battery ${battery}
+      message: 'Charger ${charger} not charging battery ${battery}: {value}'
+      signal:
+        path: electrical.batteries.${battery}.current
+      detector:
+        type: sustained
+        direction: below
+        steps:
+          - { limit: 0.5, priority: warning }
+        duration: 300
+      gates:
+        - signal:
+            path: electrical.chargers.${charger}.current
+          direction: above
+          limit: { kind: fixed, value: 1 }
+          duration: 60
+
+  # Nothing reports a solar array, so its slot shows as empty.
+  - id: solar-not-charging
+    description: >-
+      While a solar array makes power, a battery's voltage stays below 13.0 V
+      for ten minutes, a warning that the array is not charging it.
+    slots:
+      - { name: battery, label: Battery }
+      - { name: array, label: Solar array }
+    condition: ${array}SolarNotCharging
+    rule:
+      name: Solar ${array} not charging battery ${battery}
+      message: 'Solar ${array} not charging battery ${battery}: {value}'
+      signal:
+        path: electrical.batteries.${battery}.voltage
+      detector:
+        type: sustained
+        direction: below
+        steps:
+          - { limit: 13.0, priority: warning }
+        duration: 600
+      gates:
+        - signal:
+            path: electrical.solar.${array}.panelPower
+          direction: above
+          limit: { kind: fixed, value: 50 }
+          duration: 60

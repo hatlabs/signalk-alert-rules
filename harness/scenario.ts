@@ -17,9 +17,20 @@ export const OPTIONS = {
    * that does not run and a file that could not be read; or the examples with
    * a stored rule the editor cannot make: a sustained rule with a fixed
    * detector limit, a ratio flagged as angles, a count whose "changes" event
-   * carries a value, or a zone-limit rule that also has steps.
+   * carries a value, or a zone-limit rule that also has steps; or the
+   * examples with a rule made from the two-slot alternator template for the
+   * start battery and the port engine.
    */
-  rules: ['examples', 'empty', 'partial', 'fixedLimit', 'angularRatio', 'eventValue', 'zoneSteps'],
+  rules: [
+    'examples',
+    'empty',
+    'partial',
+    'fixedLimit',
+    'angularRatio',
+    'eventValue',
+    'zoneSteps',
+    'templated'
+  ],
   /** The rules' states: a mix of conditions, or the ones docs/examples.md shows where they differ. */
   states: ['mixed', 'docs'],
   access: ['admin', 'readwrite', 'readonly'],
@@ -39,7 +50,7 @@ export const OPTIONS = {
   controls: ['ok', 'refused'],
   /** What an edit would do: nothing, or restart the rule and clear its alert. */
   preview: ['none', 'restart'],
-  /** `/templates`: the built-in and example sets, the same with every template new, none, never answering, or failing. */
+  /** `/templates`: the built-in, example and harness two-slot sets, the same with every template new, none, never answering, or failing. */
   templates: ['ready', 'new', 'none', 'loading', 'error']
 } as const
 

@@ -23,6 +23,8 @@ import { reported } from '../test/panel/reportedPaths'
 import builtinYaml from '../templates/builtin.yaml?raw'
 import exampleSetYaml from '../examples/template-set-example/templates.yaml?raw'
 import exampleSetPackage from '../examples/template-set-example/package.json'
+import { instantiate } from '../src/templates/instantiate'
+import slotSetYaml from './slot-templates.yaml?raw'
 
 const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString()
 
@@ -360,10 +362,24 @@ function templateSet(yaml: string, source: string): TemplateSetEntry {
   return { ...set, source, templates, new: [] }
 }
 
+const slotSet = templateSet(slotSetYaml, 'file harness/slot-templates.yaml')
+
 export const templateSets: TemplateSetEntry[] = [
   templateSet(builtinYaml, 'built-in'),
-  templateSet(exampleSetYaml, `package ${exampleSetPackage.name}`)
+  templateSet(exampleSetYaml, `package ${exampleSetPackage.name}`),
+  slotSet
 ]
+
+/** A rule made from the two-slot alternator template, for the row it covers in the picker. */
+export function templatedEntry(): RuleEntry {
+  const template = slotSet.templates.find((t) => t.id === 'alternator-not-charging')
+  if (template === undefined) throw new Error('no two-slot alternator template')
+  const made = instantiate(slotSet, template, { battery: 'start', engine: 'port' })
+  const result = made.ok ? validateRule(made.value) : made
+  if (!result.ok)
+    throw new Error(`the templated rule is not valid: ${JSON.stringify(result.errors)}`)
+  return ruleEntry(result.value, freshState(false))
+}
 
 const HOUR_MS = 3_600_000
 

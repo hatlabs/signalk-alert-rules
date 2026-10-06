@@ -26,6 +26,7 @@ import {
   LOAD_ISSUE,
   paths,
   ruleEntry,
+  templatedEntry,
   templateSets
 } from './data'
 import type { Scenario } from './scenario'
@@ -90,7 +91,9 @@ export function fakeApi(scenario: Scenario): PanelApi {
         ? [...exampleEntries(scenario.states), invalidRuleEntry()]
         : scenario.rules === 'examples'
           ? exampleEntries(scenario.states)
-          : [...exampleEntries(scenario.states), brokenRules[scenario.rules]()]
+          : scenario.rules === 'templated'
+            ? [...exampleEntries(scenario.states), templatedEntry()]
+            : [...exampleEntries(scenario.states), brokenRules[scenario.rules]()]
   const store = new Map(initial.map((e) => [e.slug, e]))
   const loadedAt = Date.now()
   let listing: TemplateListing = {
