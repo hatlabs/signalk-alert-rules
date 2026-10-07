@@ -274,6 +274,27 @@ describe('the built-in templates', () => {
       'position-not-reporting': [['Position not reporting', 'navigation.position', {}, undefined]]
     })
   })
+
+  it('offer for the alternator an engine that reports only its revolutions', () => {
+    const { sets } = discoverTemplateSets({ builtin: BUILTIN_TEMPLATES })
+    const alternator = sets
+      .find((s) => s.set.id === 'builtin')
+      ?.set.templates.find((t) => t.id === 'alternator-not-charging')
+    if (alternator === undefined) throw new Error('no built-in alternator template')
+    const engineBoat: PathEntry[] = [
+      voltage('start', 12.6),
+      {
+        path: 'propulsion.main.revolutions',
+        units: 'Hz',
+        unit: displayUnit({ units: 'Hz' }),
+        value: 30
+      }
+    ]
+    const offered = (slot: string) =>
+      slotCandidates(alternator, slot, engineBoat).map((c) => c.instance)
+    expect(offered('engine')).toEqual(['main'])
+    expect(offered('battery')).toEqual(['start'])
+  })
 })
 
 describe('typed instances', () => {
