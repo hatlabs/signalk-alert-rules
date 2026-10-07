@@ -5,14 +5,15 @@ import { inputState, type InputState, type Reading, type SignalValue } from './s
 
 /**
  * Whether a rule is in use, as a sustained comparison on the gate's own
- * signal. An unavailable input keeps the last state, so an engine that
- * stopped before its controller went silent stays not running. An input never
- * seen since start does not hold; the evaluator makes the exception for an
- * adopted alert. The gate runs the comparison twice: once starting as not
- * holding, and once starting as holding, which is what an adopted alert
- * reads, so the alert is not dropped while the gate's duration runs and no
- * other alert gets that head start. A zone limit follows the zones on every
- * evaluation.
+ * signal that holds once the input has been past the limit for the duration
+ * and stops holding as soon as it is not. An unavailable input keeps the last
+ * state, so an engine that stopped before its controller went silent stays
+ * not running. An input never seen since start does not hold; the evaluator
+ * makes the exception for an adopted alert. The gate runs the comparison
+ * twice: once starting as not holding, and once starting as holding, which is
+ * what an adopted alert reads, so the alert is not dropped while the gate's
+ * duration runs and no other alert gets that head start. A zone limit follows
+ * the zones on every evaluation.
  */
 export class Gate {
   private plain: Detector | undefined
@@ -64,7 +65,7 @@ export class Gate {
   }
 
   private spec() {
-    const { direction, limit, duration, hysteresis, clearDuration } = this.model
+    const { direction, limit, duration } = this.model
     const resolved = resolveLimit(limit, direction, this.zones())
     if (!resolved.ok) {
       this.problem = resolved.missing
@@ -75,9 +76,7 @@ export class Gate {
       type: 'sustained',
       direction,
       limit: resolved.value,
-      duration,
-      hysteresis,
-      clearDuration
+      duration
     } as const
   }
 

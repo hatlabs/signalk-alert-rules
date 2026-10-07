@@ -232,6 +232,28 @@ describe('validateRule', () => {
       )
       expect(paths(errors)).toEqual(['/gates/0/signal/path'])
     })
+
+    it('refuses a clear margin or clear delay on a gate', () => {
+      const errors = errorsOf(
+        rule({
+          detector: minimalDetectors.match,
+          gates: [
+            {
+              signal: { path: 'propulsion.main.revolutions' },
+              direction: 'above',
+              limit: { kind: 'fixed', value: 1 },
+              duration: 10,
+              hysteresis: 1,
+              clearDuration: 5
+            }
+          ]
+        })
+      )
+      expect(errors).toEqual([
+        { path: '/gates/0/hysteresis', message: 'is not a known property' },
+        { path: '/gates/0/clearDuration', message: 'is not a known property' }
+      ])
+    })
   })
 
   describe('zone limits', () => {

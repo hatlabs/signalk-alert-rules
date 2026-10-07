@@ -1094,6 +1094,46 @@ describe('gates', () => {
     at(151, 'environment.mode', 1)
     expect(log).toEqual([[151, 'raise', '', 'caution']])
   })
+
+  it("an accumulator past its step raises again as soon as its gate holds, spaced only by the gate's duration", () => {
+    const MODE = 'environment.mode'
+    const rule = valid({
+      name: 'Genset hours',
+      slug: 'genset-hours',
+      message: 'Genset service due',
+      signal: { path: RPM },
+      detector: {
+        type: 'accumulator',
+        measure: 'time',
+        steps: [{ limit: 100, priority: 'caution' }]
+      },
+      gates: [
+        {
+          signal: { path: MODE },
+          direction: 'above',
+          limit: { kind: 'fixed', value: 0 },
+          duration: 10
+        }
+      ]
+    })
+    const { at, log } = setup(rule, { accumulated: new Map([['', 150]]) })
+    at(0, RPM, 30)
+    at(0, MODE, 1)
+    at(10)
+    at(20, MODE, 0)
+    at(30, MODE, 1)
+    at(39)
+    expect(log).toEqual([
+      [10, 'raise', '', 'caution'],
+      [20, 'clear', '']
+    ])
+    at(40)
+    expect(log).toEqual([
+      [10, 'raise', '', 'caution'],
+      [20, 'clear', ''],
+      [40, 'raise', '', 'caution']
+    ])
+  })
 })
 
 const DEPTH = 'environment.depth.belowTransducer'

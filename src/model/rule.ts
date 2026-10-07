@@ -267,13 +267,17 @@ const DetectorSchema = Type.Union(
   { [DISCRIMINATOR_KEY]: 'type' }
 )
 
-// A gate is a plain condition: one limit, no steps.
+// A gate is a plain condition: one limit, no steps, and no clear margin or
+// delay. A rule back in use restarts its detector, so the rule's duration
+// spaces the alerts of a flickering gate; an accumulator, which keeps
+// accumulating while out of use, and a rule with no duration raise again as
+// soon as the gate holds, so only the gate's own duration spaces those.
 const GateSchema = Type.Object(
   {
     signal: SignalSchema,
     direction: Type.Enum(['above', 'below']),
     limit: LimitSchema,
-    ...timingFields
+    duration: Type.Optional(duration())
   },
   closed
 )

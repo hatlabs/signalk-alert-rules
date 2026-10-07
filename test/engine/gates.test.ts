@@ -51,6 +51,15 @@ describe('gate', () => {
     expect(g.holds).toBe(false)
   })
 
+  it('stops holding on the first reading back at its limit, with no margin or delay', () => {
+    const g = gate(running)
+    g.sample(v(IDLE + 1), false, 0)
+    g.tick(10)
+    expect(g.holds).toBe(true)
+    g.sample(v(IDLE), false, 11)
+    expect(g.holds).toBe(false)
+  })
+
   it('a stopped engine whose rpm input then times out stays not holding', () => {
     const g = gate(running)
     g.sample(v(0), false, 0)
