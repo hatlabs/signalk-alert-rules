@@ -153,10 +153,9 @@ function steps(form: RuleForm) {
 
 function moreOptions(form: RuleForm) {
   const d = form.detector
-  if (d.hysteresis !== '' || d.clearDuration.amount !== '') {
+  if (d.hysteresis !== '') {
     openMoreOptions()
-    if (d.hysteresis !== '') type(textbox('Clear margin'), d.hysteresis)
-    duration('Clear delay', d.clearDuration)
+    type(textbox('Clear margin'), d.hysteresis)
   }
   if (form.latching) {
     openMoreOptions()

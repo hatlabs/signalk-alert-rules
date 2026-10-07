@@ -113,9 +113,7 @@ function stepPointers(form: RuleForm): string[] {
 function moreOptionsPointers(form: RuleForm, isNew: boolean): string[] {
   const d = form.detector
   return [
-    ...(d.type === 'sustained' || d.type === 'outside'
-      ? ['/detector/hysteresis', '/detector/clearDuration']
-      : []),
+    ...(d.type === 'sustained' || d.type === 'outside' ? ['/detector/hysteresis'] : []),
     ...(canLatch(d) ? ['/latching'] : []),
     ...form.gates.flatMap((gate, i) => {
       const at = `/gates/${String(i)}`
@@ -217,7 +215,6 @@ const LABELS: Readonly<Record<string, string>> = {
   '/detector/horizon': 'the time ahead',
   '/detector/duration': 'how long it must hold',
   '/detector/hysteresis': 'the clear margin',
-  '/detector/clearDuration': 'the clear delay',
   [ZONES]: "Use the value's zones",
   '/detector/limit/level': 'the zone to start at',
   '/detector/limit/path': 'the path of the zones',

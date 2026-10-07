@@ -102,7 +102,7 @@ export type EventOp = Event['op']
 type StateOp = 'above' | 'below' | 'equals' | 'notEquals'
 
 export type DurationUnit = 's' | 'min' | 'h'
-export const DURATION_FACTORS: Readonly<Record<DurationUnit, number>> = { s: 1, min: 60, h: 3600 }
+const DURATION_FACTORS: Readonly<Record<DurationUnit, number>> = { s: 1, min: 60, h: 3600 }
 
 export interface DurationField {
   amount: string
@@ -163,7 +163,6 @@ export interface DetectorForm {
   window: DurationField
   horizon: DurationField
   hysteresis: string
-  clearDuration: DurationField
   exact?: Exacts<'hysteresis'>
 }
 
@@ -288,8 +287,7 @@ export function emptyForm(): RuleForm {
       duration: noDuration(),
       window: noDuration(),
       horizon: noDuration(),
-      hysteresis: '',
-      clearDuration: noDuration()
+      hysteresis: ''
     },
     gates: []
   }
@@ -790,12 +788,10 @@ function readRule(rule: Rule, units: UnitLookup, emptied: FieldError[]): RuleFor
         d.limit = limitFrom(detector.limit, stored, '/detector/limit')
       d.duration = durationFrom(detector.duration)
       hysteresisFrom(detector.hysteresis)
-      d.clearDuration = durationFrom(detector.clearDuration)
       break
     case 'outside':
       d.duration = durationFrom(detector.duration)
       hysteresisFrom(detector.hysteresis)
-      d.clearDuration = durationFrom(detector.clearDuration)
       break
     case 'slope':
       d.trend = choiceFrom(detector.direction, TRENDS)
@@ -1104,16 +1100,14 @@ function readDetector(form: RuleForm, measure: Measure, read: Reader): Detector 
         direction: read.choice(d.direction, `${at}/direction`),
         ...valueLimit(),
         duration: read.duration(d.duration, `${at}/duration`, true),
-        hysteresis: hysteresis(d.hysteresis),
-        clearDuration: read.duration(d.clearDuration, `${at}/clearDuration`, true)
+        hysteresis: hysteresis(d.hysteresis)
       }) as Detector
     case 'outside':
       return defined({
         type: 'outside',
         steps: steps(),
         duration: read.duration(d.duration, `${at}/duration`, true),
-        hysteresis: hysteresis(d.hysteresis),
-        clearDuration: read.duration(d.clearDuration, `${at}/clearDuration`, true)
+        hysteresis: hysteresis(d.hysteresis)
       }) as Detector
     case 'slope':
       return defined({

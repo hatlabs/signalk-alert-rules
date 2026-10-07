@@ -35,7 +35,7 @@ export type DetectorSpec =
  * an accumulator's total.
  */
 export type Progress =
-  | { kind: 'timer'; toward: 'set' | 'clear'; elapsed: number; target: number }
+  | { kind: 'timer'; elapsed: number; target: number }
   | { kind: 'events'; count: number; limit: number }
   | { kind: 'total'; total: number; limit: number }
 
@@ -80,13 +80,12 @@ export interface Detector {
  */
 export function timerProgress(
   timer: Stopwatch,
-  toward: 'set' | 'clear',
   target: number | undefined,
   now: number
 ): Progress | undefined {
   const elapsed = timer.elapsed(now)
   if (target === undefined || target <= 0 || (!timer.running && elapsed === 0)) return undefined
-  return { kind: 'timer', toward, elapsed, target }
+  return { kind: 'timer', elapsed, target }
 }
 
 export function sameValue(a: SignalValue, b: SignalValue): boolean {

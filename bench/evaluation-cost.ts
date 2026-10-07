@@ -191,8 +191,7 @@ function detectorFor(kind: Kind, i: number): unknown {
         direction: 'above',
         steps: [{ limit: 85, priority: 'warning' }],
         duration: 5 + (i % 30),
-        hysteresis: 2,
-        clearDuration: 10
+        hysteresis: 2
       }
     case 'zone':
       return {
@@ -200,8 +199,7 @@ function detectorFor(kind: Kind, i: number): unknown {
         direction: 'above',
         limit: { kind: 'zone', level: 'warn' },
         duration: 10,
-        hysteresis: 1,
-        clearDuration: 10
+        hysteresis: 1
       }
     case 'slope':
       return {

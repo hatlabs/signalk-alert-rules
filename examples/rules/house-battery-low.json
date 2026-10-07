@@ -13,7 +13,6 @@
       "level": "warn"
     },
     "duration": 60,
-    "hysteresis": 0.2,
-    "clearDuration": 30
+    "hysteresis": 0.2
   }
 }

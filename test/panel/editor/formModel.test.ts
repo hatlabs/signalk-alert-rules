@@ -452,8 +452,7 @@ describe('an outside rule', () => {
         { low: -0.6108652381980153, high: 0.6108652381980153, priority: 'alarm' }
       ],
       duration: 10,
-      hysteresis: 0.03490658503988659,
-      clearDuration: 30
+      hysteresis: 0.03490658503988659
     }
   }
 
@@ -475,7 +474,6 @@ describe('an outside rule', () => {
     ])
     expect(form.detector.hysteresis).toBe('2')
     expect(form.detector.duration).toEqual({ amount: '10', unit: 's' })
-    expect(form.detector.clearDuration).toEqual({ amount: '30', unit: 's' })
   })
 
   it('round-trips with every step and its timing', () => {
@@ -1135,7 +1133,7 @@ describe('a stored rule that does not validate', () => {
       ])
     })
 
-    it('drops the range and clear margin, keeping the durations', () => {
+    it('drops the range and clear margin, keeping the duration', () => {
       const form = withoutSignal('shore-power-frequency')
       expect(form.steps.map((s) => [s.low, s.high, s.priority])).toEqual([
         ['', '', 'warning'],
@@ -1143,8 +1141,7 @@ describe('a stored rule that does not validate', () => {
       ])
       expect(form.detector).toMatchObject({
         hysteresis: '',
-        duration: { amount: '10', unit: 's' },
-        clearDuration: { amount: '30', unit: 's' }
+        duration: { amount: '10', unit: 's' }
       })
     })
 

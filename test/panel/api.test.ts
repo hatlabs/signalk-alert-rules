@@ -47,8 +47,7 @@ const ruleEntry = {
       direction: 'below',
       limit: { kind: 'zone', level: 'warn' },
       duration: 60,
-      hysteresis: 0.2,
-      clearDuration: 30
+      hysteresis: 0.2
     },
     gates: [
       {
@@ -351,7 +350,6 @@ describe('httpApi', () => {
           steps: [],
           duration: 60,
           hysteresis: 0.2,
-          clearDuration: 30,
           detector: { type: 'sustained', direction: 'below', zoneLevel: 'warn' },
           signal: { paths: ['electrical.batteries.*.voltage'] },
           gates: [

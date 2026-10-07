@@ -166,8 +166,7 @@ const ValueSchema = Type.Union([num('absolute'), Type.String(), Type.Boolean()])
 
 const timingFields = {
   duration: Type.Optional(duration()),
-  hysteresis: Type.Optional(nonNegative('interval')),
-  clearDuration: Type.Optional(duration())
+  hysteresis: Type.Optional(nonNegative('interval'))
 }
 
 /**

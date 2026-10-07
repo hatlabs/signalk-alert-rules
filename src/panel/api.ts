@@ -153,8 +153,6 @@ export interface RuleInfo {
   duration?: number
   /** How far, in SI, the value must be back past the first step for the alert to clear. */
   hysteresis?: number
-  /** How long, in seconds, the value must stay back before the alert clears. */
-  clearDuration?: number
   /** The message as stored, its placeholders not filled in. */
   message: string
   detector: {
@@ -578,7 +576,6 @@ export function parseListedRule(body: unknown, what: string): ListedRule {
       steps,
       ...optional('duration', num(d.duration)),
       ...optional('hysteresis', num(d.hysteresis)),
-      ...optional('clearDuration', num(d.clearDuration)),
       message: string(v.message),
       detector: {
         type: string(d.type),

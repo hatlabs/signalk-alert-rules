@@ -32,24 +32,19 @@ describe('reconfiguring a detector in place', () => {
     expect(detector.reconfigure({ ...lowVoltage, duration: 20 }, 30)).toBe('set')
   })
 
-  it('an active condition whose new limit the value is back past clears after the clear duration', () => {
-    const { at, detector } = harness({ ...lowVoltage, clearDuration: 10 })
+  it('an active condition whose new limit the value is back past clears at once', () => {
+    const { at, detector } = harness(lowVoltage)
     at(0, v(11.9))
     at(60)
-    detector.reconfigure({ ...lowVoltage, limit: 11.5, clearDuration: 10 }, 100)
-    expect(at(109)).toBeUndefined()
-    expect(at(110)).toBe('clear')
+    expect(detector.reconfigure({ ...lowVoltage, limit: 11.5 }, 100)).toBe('clear')
   })
 
-  it('an edit checks the value against the new limit before the old timer', () => {
-    const { at, detector } = harness({ ...lowVoltage, duration: 0, clearDuration: 60 })
-    at(0, v(11))
-    at(1, v(12.3))
-    expect(
-      detector.reconfigure({ ...lowVoltage, limit: 12.5, duration: 0, clearDuration: 20 }, 31)
-    ).toBeUndefined()
-    at(1000)
-    expect(detector.active).toBe(true)
+  it('a narrower margin the value is back past clears at once', () => {
+    const { at, detector } = harness({ ...lowVoltage, hysteresis: 0.5 })
+    at(0, v(11.9))
+    at(60)
+    expect(at(70, v(12.3))).toBeUndefined()
+    expect(detector.reconfigure({ ...lowVoltage, hysteresis: 0.2 }, 80)).toBe('clear')
   })
 
   it('a count detector evaluates a lowered limit at once', () => {

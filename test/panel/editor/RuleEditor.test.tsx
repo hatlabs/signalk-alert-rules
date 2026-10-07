@@ -1697,8 +1697,7 @@ describe('RuleEditor, an invalid stored rule', () => {
       direction: 'below',
       steps: [{ limit: 11.8, priority: 'warning' }],
       duration: 60,
-      hysteresis: 0.2,
-      clearDuration: 30
+      hysteresis: 0.2
     } as const
     const { api, onSaved } = renderEditor({
       invalid: {
@@ -1928,7 +1927,7 @@ describe('RuleEditor, outside a range', () => {
     expect(rule.detector).not.toHaveProperty('limit')
   })
 
-  it('offers how long it must hold, the clear margin and the clear delay', async () => {
+  it('offers how long it must hold and the clear margin, and no clear delay', async () => {
     renderEditor({ start: { path: HOUSE, kind: 'outside' } })
     await formShown()
     expect(textbox('For at least')).toBeTruthy()
@@ -1936,7 +1935,7 @@ describe('RuleEditor, outside a range', () => {
     expect(description(textbox('Clear margin'))).toContain(
       'How far inside the range the value must come back to clear.'
     )
-    expect(textbox('Clear delay')).toBeTruthy()
+    expect(screen.queryByRole('textbox', { name: 'Clear delay' })).toBeNull()
   })
 
   it('asks for a missing high limit on its field, and moves focus there', async () => {
@@ -2491,7 +2490,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     expect(stepAlert('Limit for step 1')?.textContent).toContain('Step 2: fill in the limit')
   })
 
-  /** Two steps, a clear margin and a clear delay, so the summary also tells how the alert clears. */
+  /** Two steps and a clear margin, so the summary also tells how the alert clears. */
   const clearingEdit = () => {
     const rule: Rule = {
       ...logSpeed,
@@ -2503,8 +2502,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
           { limit: 3.6, priority: 'alarm' }
         ],
         duration: 60,
-        hysteresis: 0.1,
-        clearDuration: 30
+        hysteresis: 0.1
       }
     }
     return { entry: ruleEntry({ slug: rule.slug }), rule }

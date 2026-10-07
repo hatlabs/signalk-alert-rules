@@ -74,7 +74,7 @@ export class MatchDetector extends ConditionDetector<MatchSpec> {
 
   override progress(now: number): Progress | undefined {
     if (this.active || this.events !== undefined) return undefined
-    return timerProgress(this.timer, 'set', this.spec.duration, now)
+    return timerProgress(this.timer, this.spec.duration, now)
   }
 
   /** Whether the reading matches, or undefined when it can say nothing. */

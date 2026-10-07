@@ -710,6 +710,20 @@ describe('validateRule', () => {
       expect(errors).toContainEqual({ path: '/detector/limit', message: 'is not a known property' })
     })
 
+    it('refuses a clear delay, on an outside or a sustained detector', () => {
+      const sustained = {
+        type: 'sustained',
+        direction: 'below',
+        steps: [step({ limit: 12 })],
+        clearDuration: 30
+      }
+      for (const detector of [{ ...outside([-25, 25, 'warning']), clearDuration: 30 }, sustained]) {
+        expect(errorsOf(rule({ detector }))).toEqual([
+          { path: '/detector/clearDuration', message: 'is not a known property' }
+        ])
+      }
+    })
+
     it("needs hysteresis under half the first step's range to clear", () => {
       const detector = (hysteresis: number) => ({
         ...outside([-25, 25, 'warning']),
@@ -730,8 +744,7 @@ describe('validateRule', () => {
       const detector = {
         ...outside([-25, 25, 'warning'], [-25.5, 25.5, 'alarm']),
         hysteresis: 20,
-        duration: 10,
-        clearDuration: 30
+        duration: 10
       }
       expect(errorsOf(rule({ detector }))).toEqual([])
     })

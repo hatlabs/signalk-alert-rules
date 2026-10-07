@@ -20,7 +20,6 @@
       }
     ],
     "duration": 10,
-    "hysteresis": 0.2,
-    "clearDuration": 30
+    "hysteresis": 0.2
   }
 }

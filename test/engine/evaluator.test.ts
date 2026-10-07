@@ -111,7 +111,7 @@ describe('zone limits', () => {
   const zoned = { meta: { [VOLTAGE]: { zones: batteryZones } } }
   const escalating = valid({
     ...batteryLow,
-    detector: { ...batteryLow.detector, hysteresis: 0.1, clearDuration: 10 }
+    detector: { ...batteryLow.detector, hysteresis: 0.1 }
   })
 
   it("an adopted alert keeps core's priority at its named level until the value enters a severer one", () => {
@@ -170,10 +170,9 @@ describe('zone limits', () => {
     at(130, VOLTAGE, 12.05)
     at(200)
     at(210, VOLTAGE, 12.2)
-    at(220)
     expect(log).toEqual([
       [30, 'raise', '', 'alarm'],
-      [220, 'clear', '']
+      [210, 'clear', '']
     ])
     expect(evaluator.status().instances[0]?.judgement.alert).toBeUndefined()
   })
@@ -273,8 +272,7 @@ describe('zone limits', () => {
       detector: {
         ...batteryLow.detector,
         limit: { kind: 'zone', level: 'alert' },
-        hysteresis: 0.1,
-        clearDuration: 60
+        hysteresis: 0.1
       }
     })
     const raiseToWarn = (rule: Rule): Rule =>
@@ -449,8 +447,7 @@ describe('escalation steps', () => {
         { limit: 11.8, priority: 'alarm' }
       ],
       duration: 30,
-      hysteresis: 0.1,
-      clearDuration: 10
+      hysteresis: 0.1
     }
   })
 
@@ -497,11 +494,10 @@ describe('escalation steps', () => {
     at(210, VOLTAGE, 12.25)
     at(300)
     at(310, VOLTAGE, 12.4)
-    at(320)
     expect(log).toEqual([
       [40, 'raise', '', 'warning'],
       [80, 'priority', '', 'alarm'],
-      [320, 'clear', '']
+      [310, 'clear', '']
     ])
     expect(evaluator.status().instances[0]?.judgement.alert?.step).toBeUndefined()
   })
@@ -735,8 +731,7 @@ const heel = valid({
       { low: -35, high: 35, priority: 'alarm' }
     ],
     duration: 10,
-    hysteresis: 2,
-    clearDuration: 5
+    hysteresis: 2
   }
 })
 
@@ -780,17 +775,15 @@ describe('outside rules', () => {
     })
   })
 
-  it('clears only inside the range narrowed by the hysteresis, after the clear duration', () => {
+  it('clears as soon as the value is inside the range narrowed by the hysteresis', () => {
     const { at, log } = setup(heel)
     at(0, HEEL, 27)
     at(10)
     at(11, HEEL, 24)
     at(100)
-    at(101, HEEL, 22.9)
-    at(105)
     expect(log).toEqual([[10, 'raise', '', 'warning']])
-    at(106)
-    expect(log.at(-1)).toEqual([106, 'clear', ''])
+    at(101, HEEL, 22.9)
+    expect(log.at(-1)).toEqual([101, 'clear', ''])
   })
 
   it('a jump from one side to the other within the duration raises on time, with the side reached', () => {
@@ -1627,15 +1620,14 @@ describe('adopted alerts', () => {
   })
 
   it('an adopted alert cleared by its gate does not raise again when the rule returns to use', () => {
-    const rule = {
-      ...oilPressure,
-      detector: { ...oilPressure.detector, clearDuration: 10 }
-    } as Rule
+    // The cached pressure is above the limit but inside the clear margin, so
+    // only the gate can clear the alert at start.
+    const rule = { ...oilPressure, detector: { ...oilPressure.detector, hysteresis: 50000 } }
     const { at, log } = setup(rule, {
       adopted: [{}],
       cached: [
         [RPM, 0],
-        [OIL, 300000]
+        [OIL, 120000]
       ]
     })
     at(100, RPM, 30)
@@ -1986,10 +1978,10 @@ describe('zone changes and adopted gates', () => {
 })
 
 describe('live status', () => {
-  it('reports the value, the limit, the timer toward set and toward clear, and each gate', () => {
+  it('reports the value, the limit, the timer toward set, and each gate', () => {
     const rule = valid({
       ...oilPressure,
-      detector: { ...oilPressure.detector, hysteresis: 50000, clearDuration: 10 }
+      detector: { ...oilPressure.detector, hysteresis: 50000 }
     })
     const { at, evaluator } = setup(rule)
     at(0, RPM, 30)
@@ -2005,17 +1997,11 @@ describe('live status', () => {
     at(15)
     expect(evaluator.status().instances[0]?.progress).toEqual({
       kind: 'timer',
-      toward: 'set',
       elapsed: 3,
       target: 5
     })
     at(17)
-    at(20, OIL, 200000)
-    at(24)
-    expect(evaluator.status().instances[0]).toMatchObject({
-      value: 200000,
-      progress: { kind: 'timer', toward: 'clear', elapsed: 4, target: 10 }
-    })
+    expect(evaluator.status().instances[0]?.progress).toBeUndefined()
   })
 
   it('a gate input never seen does not hold, and one gone unavailable keeps its state', () => {

@@ -29,8 +29,7 @@ const oil = valid({
     direction: 'below',
     steps: [{ limit: 100000, priority: 'alarm' }],
     duration: 5,
-    hysteresis: 50000,
-    clearDuration: 10
+    hysteresis: 50000
   }
 })
 const gatedOil = valid({
@@ -57,8 +56,7 @@ const batteryLow = valid({
     direction: 'below',
     limit: { kind: 'zone', level: 'warn' },
     duration: 5,
-    hysteresis: 0.1,
-    clearDuration: 5
+    hysteresis: 0.1
   }
 })
 const batteryZones: PathMeta = {
@@ -1252,16 +1250,6 @@ describe('rule status', () => {
       reason: 'withinLimits',
       gates: [{ holds: true, input: 'unavailable' }]
     })
-  })
-
-  it('reports an alert timing its clear duration as alerting, without the timer', () => {
-    const { at, run, runner } = setup([oil])
-    at(0, OIL, 0)
-    run(1, 5)
-    at(6, OIL, 200000)
-    at(8)
-    expect(runner.state(OIL_ID)).toMatchObject({ condition: 'alerting', value: 200000 })
-    expect(runner.state(OIL_ID)?.progress).toBeUndefined()
   })
 
   it('reports awaiting input for an active alert whose input went unavailable', () => {

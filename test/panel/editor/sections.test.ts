@@ -142,7 +142,6 @@ describe('fieldPointers', () => {
       '/message',
       '/condition',
       '/detector/hysteresis',
-      '/detector/clearDuration',
       '/detector/limit',
       '/slug'
     ])
@@ -167,8 +166,7 @@ describe('fieldPointers', () => {
       '/detector/duration',
       '/message',
       '/condition',
-      '/detector/hysteresis',
-      '/detector/clearDuration'
+      '/detector/hysteresis'
     ])
   })
 
@@ -249,13 +247,11 @@ describe('underMoreOptions', () => {
     }
   })
 
-  it('places the clear margin and delay of an outside rule under More options', () => {
+  it('places the clear margin of an outside rule under More options', () => {
     const outside = form((f) => {
       f.detector.type = 'outside'
     })
-    for (const p of ['/detector/hysteresis', '/detector/clearDuration']) {
-      expect(underMoreOptions(outside, false, p)).toBe(true)
-    }
+    expect(underMoreOptions(outside, false, '/detector/hysteresis')).toBe(true)
   })
 
   it('places latching under More options where the condition can latch', () => {
