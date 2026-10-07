@@ -1,4 +1,4 @@
-import { useContext, useId, useState } from 'react'
+import { useContext, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { Priority } from '../../model/rule'
 import { RANGE_INVERTED, RANGE_NOT_WIDER } from '../../model/rangeMessages'
 import type { SignalValue } from '../api'
@@ -197,6 +197,14 @@ export function StepFields({ form, onChange, measure, units, valueKind, value }:
   const shownPriority = steps[chosen ?? steps.length - 1]?.priority ?? ''
   const ladder = ladderText(form, units)
   const now = nowText(form, value, units)
+  // A commit that empties the limits shortens the summary between mousedown and mouseup;
+  // holding its height while their errors are withheld keeps a click below on its target.
+  const summary = useRef<HTMLParagraphElement>(null)
+  const summaryHeight = useRef<number | undefined>(undefined)
+  const holdSummary = stepErrors.some((e) => e.withheld)
+  useLayoutEffect(() => {
+    if (!holdSummary) summaryHeight.current = summary.current?.getBoundingClientRect().height
+  })
   const canEscalate =
     steps.length < maxSteps(form.detector) && steps.at(-1)?.priority !== 'emergency'
   const limitLabel = quantity === 'match' ? 'state' : 'limit'
@@ -352,7 +360,17 @@ export function StepFields({ form, onChange, measure, units, valueKind, value }:
         </div>
       )}
       {(ladder !== undefined || now !== undefined) && (
-        <p className="skar-hint">{[ladder, now].filter((t) => t !== undefined).join(' ')}</p>
+        <p
+          ref={summary}
+          className="skar-hint"
+          style={
+            holdSummary && summaryHeight.current !== undefined
+              ? { minHeight: summaryHeight.current }
+              : undefined
+          }
+        >
+          {[ladder, now].filter((t) => t !== undefined).join(' ')}
+        </p>
       )}
       {shownPriority !== '' && (
         <p className="skar-hint skar-priority-hint">

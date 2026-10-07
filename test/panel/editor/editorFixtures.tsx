@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { expect, vi } from 'vitest'
+import { expect, onTestFinished, vi } from 'vitest'
 import type { Rule } from '../../../src/model/rule'
 import { validateRule } from '../../../src/model/validate'
 import type { PanelApi, RuleEntry } from '../../../src/panel/api'
@@ -103,6 +103,31 @@ export function shownDescription(element: HTMLElement): string {
       return copy.textContent
     })
     .join(' ')
+}
+
+/** The steps' summary, telling how the alert climbs and clears. */
+export const stepsSummary = () => screen.getByText(/^The alert is raised/)
+
+/** The stub height of the summary while it tells how the alert clears; only its difference from SUMMARY_CLIMBING matters. */
+export const SUMMARY_CLEARING = 54.6
+/** The stub height of the summary without that sentence. */
+export const SUMMARY_CLIMBING = 36.4
+
+/** Gives the steps' summary the layout jsdom lacks, for this test; every other box stays empty. */
+export function summaryLaidOut() {
+  const spy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+    this: Element
+  ) {
+    const height = !this.textContent.startsWith('The alert is raised')
+      ? 0
+      : this.textContent.includes('It clears only')
+        ? SUMMARY_CLEARING
+        : SUMMARY_CLIMBING
+    return DOMRect.fromRect({ width: height === 0 ? 0 : 300, height })
+  })
+  onTestFinished(() => {
+    spy.mockRestore()
+  })
 }
 
 export async function saved(onSaved: ReturnType<typeof vi.fn>) {

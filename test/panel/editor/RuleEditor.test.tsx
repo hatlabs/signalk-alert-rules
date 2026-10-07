@@ -31,6 +31,10 @@ import {
   saved,
   select,
   shownDescription,
+  stepsSummary,
+  SUMMARY_CLEARING,
+  SUMMARY_CLIMBING,
+  summaryLaidOut,
   textbox,
   type,
   type FakeApi
@@ -2401,6 +2405,91 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
       expect(alert.textContent).not.toContain('Step 1')
     }
     expect(stepAlert('Limit for step 1')?.textContent).toContain('Step 2: fill in the limit')
+  })
+
+  /** Two steps, a clear margin and a clear delay, so the summary also tells how the alert clears. */
+  const clearingEdit = () => {
+    const rule: Rule = {
+      ...logSpeed,
+      detector: {
+        type: 'sustained',
+        direction: 'above',
+        steps: [
+          { limit: 2.57, priority: 'warning' },
+          { limit: 3.6, priority: 'alarm' }
+        ],
+        duration: 60,
+        hysteresis: 0.1,
+        clearDuration: 30
+      }
+    }
+    return { entry: ruleEntry({ slug: rule.slug }), rule }
+  }
+  /** The editor after a commit that empties both limits, the summary's height measured before it. */
+  const summaryEmptied = async () => {
+    summaryLaidOut()
+    const rendered = renderEditor({ editing: clearingEdit() })
+    await formShown()
+    expect(stepsSummary().textContent).toContain('It clears only')
+    expect(stepsSummary().style.minHeight).toBe('')
+    changePath(SPEED)
+    return rendered
+  }
+
+  it('keeps the steps summary’s height while the emptied limits’ errors are withheld', async () => {
+    await summaryEmptied()
+    expect(stepsSummary().textContent).toContain('…')
+    expect(stepsSummary().textContent).not.toContain('It clears only')
+    // Set in the render that shortens the text, so nothing below moves under a click.
+    expect(stepsSummary().style.minHeight).toBe(`${String(SUMMARY_CLEARING)}px`)
+  })
+
+  it('holds the steps summary’s height after the limits are typed again, until Save', async () => {
+    await summaryEmptied()
+    type(textbox('Limit for step 1'), '5')
+    type(textbox('Limit for step 2'), '7')
+    expect(stepsSummary().textContent).not.toContain('…')
+    // The emptied limits' errors stay withheld until Save, typed again or not.
+    expect(textbox('Limit for step 1').getAttribute('aria-invalid')).toBe('true')
+    expect(stepsSummary().style.minHeight).toBe(`${String(SUMMARY_CLEARING)}px`)
+    click(button('Save'))
+    expect(stepsSummary().style.minHeight).toBe('')
+  })
+
+  it('lets the steps summary’s height go at Save, which shows the errors', async () => {
+    const { api } = await summaryEmptied()
+    click(button('Save'))
+    expect(api.previewRule).not.toHaveBeenCalled()
+    expect(shownDescription(textbox('Limit for step 1'))).toContain('fill in the limit')
+    expect(stepsSummary().style.minHeight).toBe('')
+  })
+
+  it('holds the steps summary at its height just before the commit', async () => {
+    summaryLaidOut()
+    renderEditor({ editing: clearingEdit() })
+    await formShown()
+    // Without step 1's limit there is no clear point to tell.
+    type(textbox('Limit for step 1'), '')
+    expect(stepsSummary().textContent).not.toContain('It clears only')
+    changePath(SPEED)
+    expect(stepsSummary().style.minHeight).toBe(`${String(SUMMARY_CLIMBING)}px`)
+  })
+
+  it('holds no height for a summary first shown while the errors are withheld', async () => {
+    summaryLaidOut()
+    // A wildcard's value is not the rule's, so only the ladder makes a summary.
+    const { rule } = clearingEdit()
+    const coolant: Rule = { ...rule, signal: { path: 'propulsion.*.coolantTemperature' } }
+    renderEditor({ editing: { entry: ruleEntry({ slug: coolant.slug }), rule: coolant } })
+    await formShown()
+    expect(stepsSummary().style.minHeight).toBe('')
+    click(button('Remove step 2'))
+    expect(screen.queryByText(/^The alert is raised/)).toBeNull()
+    changePath('propulsion.*.revolutions')
+    expect(textbox('Limit for step 1').getAttribute('aria-invalid')).toBe('true')
+    // A path's value shows as it is typed, while the emptied limit's errors stay withheld.
+    typePath('propulsion.port.revolutions')
+    expect(screen.getByText(/^Now /).style.minHeight).toBe('')
   })
 
   it('withholds the emptied values a total counts while and starts again at, until Save', async () => {
