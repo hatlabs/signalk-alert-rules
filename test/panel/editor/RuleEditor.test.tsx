@@ -2118,13 +2118,23 @@ describe('RuleEditor, the keyboard a number brings up', () => {
     for (const field of fields) expect(inputMode(field)).toBeNull()
   })
 
-  it('offers a minus for a condition limit, and the keypad for its clear margin', async () => {
+  it('offers a minus for a condition limit', async () => {
     renderEditor({ start: { path: HOUSE, kind: 'below' } })
     await formShown()
     openMoreOptions()
     click(button('Add a condition'))
     expect(inputMode('Condition 1 limit')).toBeNull()
-    expect(inputMode('Condition 1 clear margin')).toBe('decimal')
+  })
+
+  it('asks a condition for no clear margin and no stops-holding delay', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    openMoreOptions()
+    click(button('Add a condition'))
+    const condition = within(screen.getByRole('group', { name: 'Only while, condition 1' }))
+    expect(condition.getByLabelText('Condition 1: for at least')).toBeTruthy()
+    expect(condition.queryByLabelText(/clear margin/i)).toBeNull()
+    expect(condition.queryByLabelText(/stops holding/i)).toBeNull()
   })
 
   it('offers the keypad for a count, a duration and the clear margin', async () => {
@@ -2722,13 +2732,8 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
 
   describe('a condition removed', () => {
     const COOLANT = 'propulsion.port.coolantTemperature'
-    // Two conditions, the second with a clear margin to empty.
-    const twoGated = (): Rule => {
-      const rpm = example('engine-rpm-mismatch')
-      return { ...rpm, gates: rpm.gates?.map((g, i) => (i === 1 ? { ...g, hysteresis: 1 } : g)) }
-    }
     async function openTwoGated() {
-      const rule = twoGated()
+      const rule = example('engine-rpm-mismatch')
       const rendered = renderEditor({ editing: { entry: ruleEntry({ slug: rule.slug }), rule } })
       await formShown()
       openMoreOptions()
@@ -2740,31 +2745,25 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
       fireEvent.blur(search)
     }
 
-    it('moves a later condition’s emptied limit and clear margin with it', async () => {
+    it('moves a later condition’s emptied limit with it', async () => {
       await openTwoGated()
       changeGatePath(2, COOLANT)
-      expect(textbox('Condition 2 clear margin')).toHaveProperty('value', '')
       click(button('Remove condition 1'))
       expect(textbox('Condition 1 limit')).toHaveProperty('value', '')
       expect(description(textbox('Condition 1 limit'))).toContain('is required')
-      expect(description(textbox('Condition 1 clear margin'))).toContain(RETYPE)
-      expect(footer()).toBe(
-        'Fill in the limit of Only while condition 1 to save. The clear margin of Only while condition 1 was emptied: type it again or leave it empty.'
-      )
+      expect(footer()).toBe('Fill in the limit of Only while condition 1 to save.')
     })
 
-    it('keeps the emptied numbers’ text withheld on the condition they moved to, until Save', async () => {
+    it('keeps the emptied limit’s text withheld on the condition it moved to, until Save', async () => {
       await openTwoGated()
       changeGatePath(2, COOLANT)
       click(button('Remove condition 1'))
-      for (const field of ['Condition 1 limit', 'Condition 1 clear margin']) {
-        expect(textbox(field).getAttribute('aria-invalid')).toBe('true')
-        expect(description(textbox(field))).toMatch(/is required|typed again/)
-        expect(shownDescription(textbox(field))).not.toMatch(/is required|typed again/)
-      }
+      const limit = textbox('Condition 1 limit')
+      expect(limit.getAttribute('aria-invalid')).toBe('true')
+      expect(description(limit)).toContain('is required')
+      expect(shownDescription(limit)).not.toContain('is required')
       click(button('Save'))
       expect(shownDescription(textbox('Condition 1 limit'))).toContain('is required')
-      expect(shownDescription(textbox('Condition 1 clear margin'))).toContain(RETYPE)
     })
 
     it('keeps the text a Save showed shown on the condition it moved to', async () => {
@@ -2773,7 +2772,6 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
       click(button('Save'))
       click(button('Remove condition 1'))
       expect(shownDescription(textbox('Condition 1 limit'))).toContain('is required')
-      expect(shownDescription(textbox('Condition 1 clear margin'))).toContain(RETYPE)
     })
 
     it('drops the removed condition’s errors from the condition now at its place', async () => {
@@ -2783,22 +2781,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
       click(button('Remove condition 1'))
       expect(textbox('Condition 1 limit')).toHaveProperty('value', '480')
       expect(textbox('Condition 1 limit').getAttribute('aria-invalid')).not.toBe('true')
-      expect(textbox('Condition 1 clear margin').getAttribute('aria-invalid')).not.toBe('true')
       expect(footer()).toBe('')
-    })
-
-    it('keeps a clear margin a refused Save named as named once its condition moves', async () => {
-      const { api, onSaved } = await openTwoGated()
-      changeGatePath(2, COOLANT)
-      click(button('Save'))
-      expect(api.previewRule).not.toHaveBeenCalled()
-      click(button('Remove condition 1'))
-      type(textbox('Condition 1 limit'), '90')
-      click(button('Save'))
-      await saved(onSaved)
-      const [gate] = api.updateRule.mock.calls[0]?.[1].gates ?? []
-      expect(gate.signal).toEqual({ path: COOLANT })
-      expect(gate.hysteresis).toBeUndefined()
     })
   })
 

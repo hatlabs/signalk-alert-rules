@@ -5,15 +5,14 @@ import { RuleDetail } from '../../../src/panel/detail/RuleDetail'
 import { withKind } from '../../../src/panel/editor/conditionKinds'
 import { durationFrom, emptyForm, emptyStep } from '../../../src/panel/editor/formModel'
 import { ladderText } from '../../../src/panel/editor/live'
-import { gateCondition } from '../../../src/panel/rules/describe'
 import { unitLookup } from '../../../src/panel/signalUnits'
 import { displayUnit } from '../../../src/panel/units'
 import { ruleEntry } from '../fixtures'
 
 /**
- * The rule detail, a gate and the editor word when an alert clears from the
- * same clear margin and delay; one table runs through all three so they
- * cannot disagree.
+ * The rule detail and the editor word when an alert clears from the same
+ * clear margin and delay; one table runs through both so they cannot
+ * disagree.
  */
 
 const HOUSE = 'electrical.batteries.house.voltage'
@@ -28,9 +27,8 @@ const units = unitLookup(
   displayUnit({ units: 'm' })
 )
 
-type Side = 'below' | 'above'
 interface Row {
-  kind: Side | 'outside'
+  kind: 'below' | 'above' | 'outside'
   /** The first two steps: a limit each, or a range each for outside. */
   steps: [number, number] | [[number, number], [number, number]]
   margin?: number
@@ -121,21 +119,7 @@ function editorClause(row: Row): string {
   return /It clears only (.*)\.$/.exec(ladderText(f, units) ?? '')?.[1] ?? ''
 }
 
-function gateText(row: Row & { kind: Side }): string {
-  const limit = row.steps[0] as number
-  return gateCondition(
-    {
-      paths: [HOUSE],
-      direction: row.kind,
-      limit,
-      ...(row.margin === undefined ? {} : { hysteresis: row.margin }),
-      ...(row.delay === undefined ? {} : { clearDuration: row.delay })
-    },
-    units
-  )
-}
-
-describe('when an alert clears, as the detail, a gate and the editor word it', () => {
+describe('when an alert clears, as the detail and the editor word it', () => {
   afterEach(cleanup)
 
   it.each(rows)('$kind $steps, margin $margin, delay $delay: $where', (row) => {
@@ -143,11 +127,5 @@ describe('when an alert clears, as the detail, a gate and the editor word it', (
       row.eased ? `once back ${row.where}` : `Clears when the value is back ${row.where}.`
     )
     expect(editorClause(row)).toBe(row.eased ? `once back ${row.where}` : row.where)
-    if (row.kind !== 'outside') {
-      const limit = `${row.kind} ${String(row.steps[0])} V`
-      expect(gateText({ ...row, kind: row.kind })).toBe(
-        row.eased ? `${limit}; stops holding once back ${row.where}` : limit
-      )
-    }
   })
 })

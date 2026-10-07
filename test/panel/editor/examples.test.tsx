@@ -172,8 +172,6 @@ function moreOptions(form: RuleForm) {
     if (gate.limit.kind !== 'fixed') throw new Error('no worked example has a zone gate')
     type(textbox(`${name} limit`), gate.limit.value)
     duration(`${name}: for at least`, gate.duration)
-    if (gate.hysteresis !== '') type(textbox(`${name} clear margin`), gate.hysteresis)
-    duration(`${name}: stops holding after`, gate.clearDuration)
   })
 }
 

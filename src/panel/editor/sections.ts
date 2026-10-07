@@ -123,9 +123,7 @@ function moreOptionsPointers(form: RuleForm, isNew: boolean): string[] {
         ...signalPointers(gate.signal, `${at}/signal`),
         `${at}/direction`,
         ...limitPointers(gate.limit, `${at}/limit`),
-        `${at}/duration`,
-        `${at}/hysteresis`,
-        `${at}/clearDuration`
+        `${at}/duration`
       ]
     }),
     ...(form.signal.mode === 'combine' ? signalPointers(form.signal, '/signal') : []),
@@ -251,7 +249,6 @@ export function fieldLabel(pointer: string, form: RuleForm): string {
     if (/^\/signal\/inputs(\/\d+(\/path)?)?$/.test(within)) return paths
     if (within === '/signal/path') return path
     if (within === '/direction') return `the direction of ${condition}`
-    if (within === '/hysteresis') return `the clear margin of ${condition}`
     if (within === '/signal') return form.gates[index]?.signal.mode === 'combine' ? paths : path
     return condition
   }

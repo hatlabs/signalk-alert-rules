@@ -231,7 +231,7 @@ describe('fieldPointers', () => {
         '/latching',
         '/gates/0/signal/path',
         '/gates/0/limit/value',
-        '/gates/0/hysteresis'
+        '/gates/0/duration'
       ])
     )
   })
@@ -283,28 +283,20 @@ describe('saveHint', () => {
 
   describe('clear margins a change of unit emptied', () => {
     const retype = 'must be typed again in the unit of the chosen path'
-    const gated = form((f) => {
-      f.detector.type = 'sustained'
-      f.gates = [emptyGate()]
-    })
-    const notes = [
-      { path: '/detector/hysteresis', message: retype },
-      { path: '/gates/0/hysteresis', message: retype }
-    ]
+    const notes = [{ path: '/detector/hysteresis', message: retype }]
 
-    it('names each after what else stops the save', () => {
-      expect(saveHint([{ path: '/name', message: 'is required' }, ...notes], gated)).toBe(
-        'Fill in the name to save. The clear margin and the clear margin of Only while condition 1 were emptied: type them again or leave them empty.'
+    it('names it after what else stops the save', () => {
+      expect(saveHint([{ path: '/name', message: 'is required' }, ...notes], sustained)).toBe(
+        'Fill in the name to save. The clear margin was emptied: type it again or leave it empty.'
       )
     })
 
-    it('says the next Save leaves them empty once a footer named them and nothing else stops it', () => {
-      const named = new Set(notes.map((e) => e.path))
-      expect(saveHint(notes, gated, named)).toBe(
-        'The clear margin and the clear margin of Only while condition 1 were emptied: type them again, or Save leaves them empty.'
+    it('says the next Save leaves it empty once a footer named it and nothing else stops it', () => {
+      expect(saveHint(notes, sustained, new Set(['/detector/hysteresis']))).toBe(
+        'The clear margin was emptied: type it again, or Save leaves it empty.'
       )
-      expect(saveHint(notes, gated, new Set(['/detector/hysteresis']))).toBe(
-        'The clear margin and the clear margin of Only while condition 1 were emptied: type them again or leave them empty.'
+      expect(saveHint(notes, sustained)).toBe(
+        'The clear margin was emptied: type it again or leave it empty.'
       )
     })
 

@@ -265,29 +265,13 @@ function formatInterval(value: number, measure: Measure): string {
   return withUnit(formatNumber(fromSI('interval', value, measure.unit)), measure.unit.symbol)
 }
 
-/**
- * When a gate holds, after its path: "above 480 rpm for 10 s", and once it
- * stops, by its clear margin and after its clear delay when it sets them.
- */
+/** When a gate holds, after its path: "above 480 rpm for 10 s". */
 export function gateCondition(gate: RuleGate, units: UnitLookup): string {
-  const measure = signalMeasure(gate, units)
   const { direction = '', limit, zoneLevel = '', duration = 0 } = gate
   const held = duration > 0 ? ` for ${formatDuration(duration)}` : ''
-  const condition =
-    limit === undefined
-      ? `${direction} the ${zoneLevel} zone${held}`
-      : `${direction} ${formatValue(limit, measure)}${held}`
-  const side = OPPOSITE_SIDE[direction]
-  if (side === undefined) return condition
-  const clear = clearPoint({ side, limit }, gate.hysteresis, gate.clearDuration)
-  if (!clear.eased) return condition
-  const where = wherePast(
-    clear,
-    zoneLevel,
-    (v) => formatValue(v, measure),
-    (v) => formatInterval(v, measure)
-  )
-  return `${condition}; stops holding ${onceBack(where, clear)}`
+  return limit === undefined
+    ? `${direction} the ${zoneLevel} zone${held}`
+    : `${direction} ${formatValue(limit, signalMeasure(gate, units))}${held}`
 }
 
 /**

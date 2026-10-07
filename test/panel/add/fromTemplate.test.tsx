@@ -615,7 +615,7 @@ describe('Add rule from a template', () => {
         change(search, path)
         fireEvent.blur(search)
       }
-      /** Opens the house bank's rule with two conditions, the second's limit and margin emptied for its unit. */
+      /** Opens the house bank's rule with two conditions, the second's limit emptied for its unit. */
       async function secondConditionEmptied() {
         const api = renderShell(fresh())
         await openLifepo4()
@@ -627,9 +627,8 @@ describe('Add rule from a template', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Add a condition' }))
         settleConditionPath('electrical.batteries.house.voltage')
         change(textbox('Condition 2 limit'), '12')
-        change(textbox('Condition 2 clear margin'), '0.5')
         settleConditionPath('electrical.batteries.house.current')
-        expect(textbox('Condition 2 clear margin').value).toBe('')
+        expect(textbox('Condition 2 limit').value).toBe('')
         return api
       }
 
@@ -643,32 +642,12 @@ describe('Add rule from a template', () => {
         expect(shownDescription(conditionLimit())).toContain('is required')
       })
 
-      it('moves a later condition’s emptied numbers with it', async () => {
+      it('moves a later condition’s emptied limit with it', async () => {
         await secondConditionEmptied()
         fireEvent.click(screen.getByRole('button', { name: 'Remove condition 1' }))
         expect(describedBy(textbox('Condition 1 limit'))).toContain('is required')
         expect(shownDescription(textbox('Condition 1 limit'))).not.toContain('is required')
-        expect(describedBy(textbox('Condition 1 clear margin'))).toContain(
-          'must be typed again in the unit of the chosen path'
-        )
-        expect(footer()).toBe(
-          'Fill in the limit of Only while condition 1 on House bank to save. The clear margin of Only while condition 1 on House bank was emptied: type it again or leave it empty.'
-        )
-      })
-
-      it('keeps a clear margin a refused Create named as named once its condition moves', async () => {
-        const api = await secondConditionEmptied()
-        fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
-        expect(api.createRule).not.toHaveBeenCalled()
-        fireEvent.click(screen.getByRole('button', { name: 'Remove condition 1' }))
-        change(textbox('Condition 1 limit'), '5')
-        fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
-        await waitFor(() => {
-          expect(api.createRule).toHaveBeenCalledOnce()
-        })
-        const [gate] = createdRules(api)[0]?.gates ?? []
-        expect(gate.signal).toEqual({ path: 'electrical.batteries.house.current' })
-        expect(gate.hysteresis).toBeUndefined()
+        expect(footer()).toBe('Fill in the limit of Only while condition 1 on House bank to save.')
       })
     })
   })

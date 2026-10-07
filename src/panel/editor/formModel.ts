@@ -172,9 +172,6 @@ export interface GateForm {
   direction: 'above' | 'below' | ''
   limit: LimitForm
   duration: DurationField
-  hysteresis: string
-  clearDuration: DurationField
-  exact?: Exacts<'hysteresis'>
 }
 
 /**
@@ -258,9 +255,7 @@ export function emptyGate(): GateForm {
     signal: emptySignal(),
     direction: 'above',
     limit: noLimit(),
-    duration: noDuration(),
-    hysteresis: '',
-    clearDuration: noDuration()
+    duration: noDuration()
   }
 }
 
@@ -526,7 +521,7 @@ export function forgetEdited(form: RuleForm): RuleForm {
       resetOn: event(d.resetOn),
       event: event(d.event)
     }),
-    gates: form.gates.map((gate) => forget({ ...gate, limit: forget(gate.limit) }))
+    gates: form.gates.map((gate) => ({ ...gate, limit: forget(gate.limit) }))
   }
 }
 
@@ -702,18 +697,11 @@ function gateFrom(gate: Gate, at: string, units: UnitLookup, emptied: FieldError
   if (!isRecord(gate)) return { ...emptyGate(), direction: '' }
   const signal = signalFrom(gate.signal)
   const stored = { measure: storedMeasure(signal, units), emptied }
-  const hysteresis =
-    gate.hysteresis === undefined
-      ? undefined
-      : storedNumber(gate.hysteresis, 'interval', stored, `${at}/hysteresis`, true)
   return {
     signal,
     direction: choiceFrom(gate.direction, SIDES),
     limit: limitFrom(gate.limit, stored, `${at}/limit`),
-    duration: durationFrom(gate.duration),
-    hysteresis: hysteresis?.text ?? '',
-    clearDuration: durationFrom(gate.clearDuration),
-    ...exacts([['hysteresis', hysteresis?.exact]])
+    duration: durationFrom(gate.duration)
   }
 }
 
@@ -1177,15 +1165,7 @@ function readGate(form: GateForm, at: string, units: UnitLookup, read: Reader): 
     signal: readSignal(form.signal, `${at}/signal`, units, read),
     direction: read.choice(form.direction, `${at}/direction`),
     limit: readLimit(form.limit, `${at}/limit`, measure, read),
-    duration: read.duration(form.duration, `${at}/duration`, true),
-    hysteresis: read.number(
-      form.hysteresis,
-      `${at}/hysteresis`,
-      kindFor('interval', measure),
-      measure.unit,
-      { optional: true, exact: form.exact?.hysteresis }
-    ),
-    clearDuration: read.duration(form.clearDuration, `${at}/clearDuration`, true)
+    duration: read.duration(form.duration, `${at}/duration`, true)
   }) as Gate
 }
 
@@ -1274,26 +1254,20 @@ function unitKey(signal: SignalForm, units: UnitLookup): string {
   return [unit.symbol, String(unit.scale), String(unit.offset)].join('|')
 }
 
-/** The numbers of gate `index` typed in its signal's display unit: its limit and clear margin. */
+/** The number of gate `index` typed in its signal's display unit: its limit. */
 function gateNumbers(form: RuleForm, index: number): UnitNumber[] {
-  const at = `/gates/${String(index)}`
   const gate = form.gates[index]
-  const patch = (f: RuleForm, change: (g: GateForm) => GateForm): RuleForm => ({
-    ...f,
-    gates: f.gates.map((g, i) => (i === index ? change(g) : g))
-  })
   return [
     {
-      at: `${at}/limit/value`,
+      at: `/gates/${String(index)}/limit/value`,
       optional: false,
       text: gate.limit.value,
-      clear: (f: RuleForm) => patch(f, (g) => ({ ...g, limit: withEmpty(g.limit, 'value') }))
-    },
-    {
-      at: `${at}/hysteresis`,
-      optional: true,
-      text: gate.hysteresis,
-      clear: (f: RuleForm) => patch(f, (g) => withEmpty(g, 'hysteresis'))
+      clear: (f: RuleForm) => ({
+        ...f,
+        gates: f.gates.map((g, i) =>
+          i === index ? { ...g, limit: withEmpty(g.limit, 'value') } : g
+        )
+      })
     }
   ]
 }
@@ -1440,8 +1414,11 @@ export function withUnitErrors(
  * still empty: the only sign a margin was emptied, which a Save keeps.
  */
 export function standingRetypes(form: RuleForm, errors: readonly FormError[]): FormError[] {
-  const numbers = [...signalNumbers(form), ...form.gates.flatMap((_, i) => gateNumbers(form, i))]
-  const empty = new Set(numbers.filter((n) => n.text === '').map((n) => n.at))
+  const empty = new Set(
+    signalNumbers(form)
+      .filter((n) => n.text === '')
+      .map((n) => n.at)
+  )
   return errors.filter((e) => e.message === RETYPE_IN_UNIT && empty.has(e.path))
 }
 
@@ -1467,15 +1444,11 @@ export function forgetNamed(
 const GATE_POINTER = /^\/gates\/(\d+)(?=\/|$)/
 
 /**
- * The editor's errors and named clear margins once condition `removed` is
- * gone: its own dropped, and those of the conditions after it moved down by
- * one to the index each now holds.
+ * The editor's errors once condition `removed` is gone: its own dropped, and
+ * those of the conditions after it moved down by one to the index each now
+ * holds.
  */
-export function withoutGate<E extends FieldError>(
-  errors: readonly E[],
-  named: ReadonlySet<string>,
-  removed: number
-): { errors: E[]; named: Set<string> } {
+export function withoutGate<E extends FieldError>(errors: readonly E[], removed: number): E[] {
   const moved = (pointer: string): string[] => {
     const match = GATE_POINTER.exec(pointer)
     if (match === null) return [pointer]
@@ -1484,8 +1457,5 @@ export function withoutGate<E extends FieldError>(
     if (index < removed) return [pointer]
     return [`/gates/${String(index - 1)}${pointer.slice(match[0].length)}`]
   }
-  return {
-    errors: errors.flatMap((e) => moved(e.path).map((path) => ({ ...e, path }))),
-    named: new Set([...named].flatMap(moved))
-  }
+  return errors.flatMap((e) => moved(e.path).map((path) => ({ ...e, path })))
 }

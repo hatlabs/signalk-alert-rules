@@ -204,8 +204,6 @@ export interface RuleGate extends SignalPaths {
   limit?: number
   zoneLevel?: string
   duration?: number
-  hysteresis?: number
-  clearDuration?: number
 }
 
 /** The actor the server records for a request without a login, as it is with security off. */
@@ -607,9 +605,7 @@ export function parseListedRule(body: unknown, what: string): ListedRule {
           ...optional('direction', text(gate.direction)),
           ...optional('limit', limit.kind === 'fixed' ? num(limit.value) : undefined),
           ...optional('zoneLevel', limit.kind === 'zone' ? text(limit.level) : undefined),
-          ...optional('duration', num(gate.duration)),
-          ...optional('hysteresis', num(gate.hysteresis)),
-          ...optional('clearDuration', num(gate.clearDuration))
+          ...optional('duration', num(gate.duration))
         }
       })
     }

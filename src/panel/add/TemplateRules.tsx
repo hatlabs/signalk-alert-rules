@@ -505,7 +505,7 @@ function TabsForm(props: FormProps) {
                   })
                 }}
                 onGateRemoved={(index) => {
-                  replaceTab(active.key, withoutGate(active.errors, active.named, index))
+                  replaceTab(active.key, { errors: withoutGate(active.errors, index) })
                 }}
                 onUnitChange={(emptied) => {
                   replaceTab(active.key, {

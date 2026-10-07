@@ -236,9 +236,7 @@ function EditorForm(props: FormProps) {
               setErrors(errors.filter((e) => !e.path.startsWith('/detector/steps/')))
             }}
             onGateRemoved={(index) => {
-              const moved = withoutGate(errors, named, index)
-              setErrors(moved.errors)
-              setNamed(moved.named)
+              setErrors(withoutGate(errors, index))
             }}
             onUnitChange={(emptied) => {
               setErrors((last) => withUnitErrors(last, emptied))
