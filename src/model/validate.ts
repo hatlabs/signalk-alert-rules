@@ -34,30 +34,6 @@ export interface ValidationError {
 
 export type Result<T> = { ok: true; value: T } | { ok: false; errors: ValidationError[] }
 
-/** What the server knows about a path; either field is absent when unknown. */
-export interface PathInfo {
-  units?: string
-  valueType?: 'number' | 'string' | 'boolean' | 'object'
-}
-
-/**
- * Checks that need the server's knowledge of a path run only when `pathInfo`
- * answers for it. A rule saved before its path reports passes them; the
- * evaluator repeats them when the path's meta or first value arrives and
- * reports a failing rule as inactive, with the same wording.
- */
-export interface ValidationContext {
-  pathInfo?: (path: string) => PathInfo | undefined
-}
-
-export function angularUnitsMessage(units: string): string {
-  return `angular combination needs radians, the path is in ${units}`
-}
-
-export function timeoutValueTypeMessage(valueType: 'boolean' | 'string'): string {
-  return `core never times out ${valueType} paths`
-}
-
 export const TWO_INPUTS: ReadonlySet<CombinatorKind> = new Set([
   'difference',
   'absDifference',
@@ -276,12 +252,7 @@ function pathErrors(path: string, at: string, wildcard: string | undefined): Val
   return []
 }
 
-function signalErrors(
-  signal: Signal,
-  at: string,
-  wildcard: string | undefined,
-  ctx: ValidationContext
-): ValidationError[] {
+function signalErrors(signal: Signal, at: string, wildcard: string | undefined): ValidationError[] {
   if (!('combinator' in signal)) return pathErrors(signal.path, pointer(at, 'path'), wildcard)
 
   const kind = signal.combinator
@@ -308,11 +279,6 @@ function signalErrors(
           ? `${kind} needs a position path`
           : 'positions can only be combined by distance or positionSpread'
       })
-    } else if (signal.angular === true) {
-      const units = ctx.pathInfo?.(input.path)?.units
-      if (units !== undefined && units !== 'rad') {
-        errors.push({ path: inputAt, message: angularUnitsMessage(units) })
-      }
     }
   })
   return errors
@@ -456,20 +422,6 @@ function timeoutErrors(rule: Rule, duration: number | undefined): ValidationErro
   return []
 }
 
-function timeoutTypeErrors(rule: Rule, ctx: ValidationContext): ValidationError[] {
-  if (
-    rule.detector.type !== 'match' ||
-    rule.detector.op !== 'timedOut' ||
-    'combinator' in rule.signal
-  )
-    return []
-  const valueType = ctx.pathInfo?.(rule.signal.path)?.valueType
-  if (valueType === 'boolean' || valueType === 'string') {
-    return [{ path: '/signal/path', message: timeoutValueTypeMessage(valueType) }]
-  }
-  return []
-}
-
 // A zone-limit rule's steps, and so its priorities, come from its zone levels:
 // a sustained rule escalates through them, a projection keeps the level it
 // names.
@@ -601,21 +553,20 @@ function latchingErrors(rule: Rule): ValidationError[] {
   ]
 }
 
-function semanticErrors(rule: Rule, ctx: ValidationContext): ValidationError[] {
+function semanticErrors(rule: Rule): ValidationError[] {
   const signalWildcard = !('combinator' in rule.signal) && wildcards(rule.signal.path) > 0
   // A wildcard elsewhere in the rule binds to the signal's instance, so it needs one to bind to.
   const bound = signalWildcard ? undefined : 'a wildcard here needs a wildcard in the rule signal'
 
   const errors = [
-    ...signalErrors(rule.signal, '/signal', undefined, ctx),
+    ...signalErrors(rule.signal, '/signal', undefined),
     ...stepErrors(rule),
     ...latchingErrors(rule),
-    ...detectorErrors(rule, bound),
-    ...timeoutTypeErrors(rule, ctx)
+    ...detectorErrors(rule, bound)
   ]
   rule.gates?.forEach((gate, i) => {
     const at = pointer('/gates', i)
-    errors.push(...signalErrors(gate.signal, pointer(at, 'signal'), bound, ctx))
+    errors.push(...signalErrors(gate.signal, pointer(at, 'signal'), bound))
     errors.push(
       ...limitErrors(
         gate.limit,
@@ -630,14 +581,14 @@ function semanticErrors(rule: Rule, ctx: ValidationContext): ValidationError[] {
 }
 
 /** Validates one rule definition and returns it typed. */
-export function validateRule(input: unknown, ctx: ValidationContext = {}): Result<Rule> {
+export function validateRule(input: unknown): Result<Rule> {
   const missing = conditionMissing(input)
   const errors = schemaCheck(RuleSchema, input, nestedCombinatorErrors(input, ''))
   if (errors.length > 0) return fail(missing === undefined ? errors : [missing, ...errors])
   const rule = input as Rule
   const semantic = [
     ...(missing === undefined ? alertPathErrors(rule) : [missing]),
-    ...semanticErrors(rule, ctx)
+    ...semanticErrors(rule)
   ]
   return semantic.length > 0 ? fail(semantic) : { ok: true, value: rule }
 }

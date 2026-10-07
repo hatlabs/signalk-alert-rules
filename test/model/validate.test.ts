@@ -8,12 +8,7 @@ import {
   POINTER_MESSAGE,
   POINTER_TOKEN_MESSAGE
 } from '../../src/model/pointerPath.js'
-import {
-  angularUnitsMessage,
-  validateRule,
-  type PathInfo,
-  type ValidationError
-} from '../../src/model/validate.js'
+import { validateRule, type ValidationError } from '../../src/model/validate.js'
 import { workedExamples } from '../fixtures/worked-examples.js'
 
 const base = {
@@ -34,11 +29,8 @@ function step(limit: Record<string, unknown> = {}): Record<string, unknown> {
   return { ...limit, priority: 'warning' }
 }
 
-function errorsOf(
-  input: unknown,
-  pathInfo?: (path: string) => PathInfo | undefined
-): ValidationError[] {
-  const result = validateRule(input, { pathInfo })
+function errorsOf(input: unknown): ValidationError[] {
+  const result = validateRule(input)
   return result.ok ? [] : result.errors
 }
 
@@ -184,26 +176,6 @@ describe('validateRule', () => {
         })
       )
       expect(paths(errors)).toEqual(['/signal/angular'])
-    })
-
-    it('rejects angular over inputs whose known unit is not radians', () => {
-      const pathInfo = (path: string): PathInfo | undefined =>
-        path === 'environment.wind.angleApparent' ? { units: 'rad' } : { units: 'm/s' }
-      const errors = errorsOf(
-        rule({
-          signal: {
-            combinator: 'difference',
-            angular: true,
-            inputs: [
-              { path: 'environment.wind.angleApparent' },
-              { path: 'environment.wind.speedApparent' }
-            ]
-          },
-          detector: minimalDetectors.sustained
-        }),
-        pathInfo
-      )
-      expect(paths(errors)).toEqual(['/signal/inputs/1/path'])
     })
 
     it('rejects a wildcard combinator input', () => {
@@ -380,23 +352,6 @@ describe('validateRule', () => {
         inputs: [{ path: 'navigation.position#/altitude' }, { path: 'a.position#/altitude' }]
       }
       expect(errorsOf(rule({ signal: mean, detector: heel }))).toEqual([])
-    })
-
-    it("checks an angular combination against the field's unit", () => {
-      const asked: string[] = []
-      const pathInfo = (path: string): PathInfo => {
-        asked.push(path)
-        return { units: path === ROLL ? 'rad' : 'deg' }
-      }
-      const signal = {
-        combinator: 'difference',
-        angular: true,
-        inputs: [{ path: ROLL }, { path: 'navigation.attitude#/yaw' }]
-      }
-      expect(errorsOf(rule({ signal, detector: heel }), pathInfo)).toEqual([
-        { path: '/signal/inputs/1/path', message: angularUnitsMessage('deg') }
-      ])
-      expect(asked).toEqual([ROLL, 'navigation.attitude#/yaw'])
     })
 
     it.each([
@@ -836,18 +791,8 @@ describe('validateRule', () => {
   describe('timeout rules', () => {
     const timeout = { type: 'match', op: 'timedOut', steps: [step()], duration: 30 }
 
-    it('rejects a timeout rule on a boolean path', () => {
-      const errors = errorsOf(rule({ detector: timeout }), () => ({ valueType: 'boolean' }))
-      expect(paths(errors)).toEqual(['/signal/path'])
-    })
-
-    it('rejects a timeout rule on a string path', () => {
-      const errors = errorsOf(rule({ detector: timeout }), () => ({ valueType: 'string' }))
-      expect(paths(errors)).toEqual(['/signal/path'])
-    })
-
-    it('accepts a timeout rule on a path of unknown type', () => {
-      expect(errorsOf(rule({ detector: timeout }), () => undefined)).toEqual([])
+    it('accepts a timeout rule on a path with a duration', () => {
+      expect(errorsOf(rule({ detector: timeout }))).toEqual([])
     })
 
     it('requires a duration', () => {
