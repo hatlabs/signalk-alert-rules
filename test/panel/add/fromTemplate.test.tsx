@@ -23,7 +23,12 @@ import { hashWithRoute } from '../../../src/panel/route'
 import { Shell } from '../../../src/panel/Shell'
 import { displayUnit } from '../../../src/panel/units'
 import { BUILTIN_TEMPLATES, discoverTemplateSets } from '../../../src/templates/discovery'
-import { shownDescription } from '../editor/editorFixtures'
+import {
+  shownDescription,
+  stepsSummary,
+  SUMMARY_CLEARING,
+  summaryLaidOut
+} from '../editor/editorFixtures'
 import { noControls, onceShown, ruleEntry } from '../fixtures'
 
 const LIFEPO4 = 'battery-voltage-low-lifepo4'
@@ -422,6 +427,30 @@ describe('Add rule from a template', () => {
         .split(' ')
         .map((id) => document.getElementById(id)?.textContent ?? '')
         .join(' ')
+
+    it('keeps the steps summary’s height while the emptied limits’ errors are withheld, until Create', async () => {
+      const api = await houseOnUnreportedPath(() => {
+        summaryLaidOut()
+        expect(stepsSummary().textContent).toContain('It clears only')
+        expect(stepsSummary().style.minHeight).toBe('')
+      })
+      expect(stepsSummary().textContent).toContain('…')
+      expect(stepsSummary().textContent).not.toContain('It clears only')
+      expect(stepsSummary().style.minHeight).toBe(`${String(SUMMARY_CLEARING)}px`)
+      fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+      expect(api.createRule).not.toHaveBeenCalled()
+      expect(stepsSummary().style.minHeight).toBe('')
+    })
+
+    it('holds the steps summary’s height after the limits are typed again, until Create', async () => {
+      await houseOnUnreportedPath(summaryLaidOut)
+      fillLimits()
+      expect(stepsSummary().textContent).not.toContain('…')
+      // The emptied limits' errors stay withheld until Create, typed again or not.
+      expect(stepsSummary().style.minHeight).toBe(`${String(SUMMARY_CLEARING)}px`)
+      fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+      expect(stepsSummary().style.minHeight).toBe('')
+    })
 
     it('empties a limit typed for the old path, asking for it, and creates nothing', async () => {
       const api = await houseOnUnreportedPath(() => {
