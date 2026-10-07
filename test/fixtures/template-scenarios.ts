@@ -15,6 +15,7 @@ export interface TemplateScenario {
 }
 
 const HOUSE_VOLTAGE = 'electrical.batteries.house.voltage'
+const START_VOLTAGE = 'electrical.batteries.start.voltage'
 const HOUSE_SOC = 'electrical.batteries.house.capacity.stateOfCharge'
 const MAIN_RPM = 'propulsion.main.revolutions'
 const PUMP = 'electrical.switches.bilgePump.state'
@@ -192,26 +193,28 @@ export const templateScenarios: Record<string, TemplateScenario> = {
     }
   },
 
-  // The engine stops at 700 s and the battery rests at 12.6 V for five
-  // minutes, well past the two-minute duration, which raises nothing; only
-  // the drop while it runs does.
+  // The start battery rests at 12.6 V with the engine stopped for five
+  // minutes, well past the two-minute duration, which raises nothing. The
+  // engine starts at 300 s and runs from 330 s; the battery stays at 12.6 V,
+  // so the alert raises two minutes later, and clears when the battery
+  // charges at 13.8 V. Stopped again from 700 s, the resting battery raises
+  // nothing.
   'alternator-not-charging': {
-    pick: { instance: 'main' },
+    pick: { battery: 'start', engine: 'main' },
     scenario: {
       tick: 1,
       until: 1000,
       deltas: [
-        ...engineRunning(15, 700),
+        at(0, MAIN_RPM, 0),
+        ...every(10, 300, 700, (t) => at(t, MAIN_RPM, 15)),
         at(700, MAIN_RPM, 0),
-        at(0, 'propulsion.main.alternatorVoltage', 12.6),
-        at(20, 'propulsion.main.alternatorVoltage', 14.2),
-        at(300, 'propulsion.main.alternatorVoltage', 12.7),
-        at(600, 'propulsion.main.alternatorVoltage', 14.0),
-        at(700, 'propulsion.main.alternatorVoltage', 12.6)
+        at(0, START_VOLTAGE, 12.6),
+        at(600, START_VOLTAGE, 13.8),
+        at(700, START_VOLTAGE, 12.6)
       ],
       expected: [
-        [420, 'raise', 'propulsion.main.alternatorNotCharging', 'warning'],
-        [600, 'clear', 'propulsion.main.alternatorNotCharging']
+        [450, 'raise', 'electrical.batteries.start.mainAlternatorNotCharging', 'warning'],
+        [600, 'clear', 'electrical.batteries.start.mainAlternatorNotCharging']
       ]
     }
   },
