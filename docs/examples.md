@@ -30,13 +30,13 @@ Durations take a number and a unit (s, min or h) and are stored in seconds.
 
 [`house-battery-low.json`](../examples/rules/house-battery-low.json) · [scenario](rules.md#worked-examples)
 
-Warns when the house battery voltage stays in the `warn` zone of its metadata for 60 s, and climbs to alarm in the `alarm` zone. It clears 30 s after the voltage is 0.2 V back above the zone.
+Warns when the house battery voltage stays in the `warn` zone of its metadata for 60 s, and climbs to alarm in the `alarm` zone. It clears once the voltage is 0.2 V back above the zone.
 
 1. Value: `electrical.batteries.house.voltage`. Kind: **Below a limit**.
 2. Name: `House battery low`. Message: `House battery voltage is low`.
 3. For at least: 60 s.
 4. More options: check **Use the value's zones**, starting at the zone `warn`. The editor lists the zones the path reports and the priority each alerts at; Priority and limit then says the steps come from the zones.
-5. More options: Clear margin 0.2 V, Clear delay 30 s.
+5. More options: Clear margin 0.2 V.
 
 ![The editor for House battery low](images/examples/house-battery-low-editor.png)
 
@@ -202,13 +202,13 @@ The rule relies on the server marking the path timed out. On a server that does 
 
 [`shore-power-frequency.json`](../examples/rules/shore-power-frequency.json) · [scenario](rules.md#worked-examples)
 
-Warns when the shore power frequency is outside 49-51 Hz for 10 s, and climbs to alarm outside 48-52 Hz. It clears 30 s after the frequency is 0.2 Hz inside 49-51 Hz.
+Warns when the shore power frequency is outside 49-51 Hz for 10 s, and climbs to alarm outside 48-52 Hz. It clears once the frequency is 0.2 Hz inside 49-51 Hz.
 
 1. Value: `electrical.ac.shore.phase.single.frequency`. Kind: **Outside a range**.
 2. Name: `Shore power frequency`. Message: `Shore power frequency beyond {limit}: {value}`.
 3. Priority and limit: Warning, outside 49 to 51 Hz. **Escalate at…** adds step 2: Alarm, outside 48 to 52 Hz.
 4. Each step must hold for at least: 10 s.
-5. More options: Clear margin 0.2 Hz, Clear delay 30 s.
+5. More options: Clear margin 0.2 Hz.
 
 ![The editor for Shore power frequency](images/examples/shore-power-frequency-editor.png)
 
