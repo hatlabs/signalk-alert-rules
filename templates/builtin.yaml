@@ -1,6 +1,7 @@
 # The template set built into Alert Rules. A template is a rule whose
-# instance, written ${instance} in its paths, and the source of its input
-# can be left open; using it makes an ordinary rule with the picks filled in.
+# instance, written ${instance} in its paths, or named slots, written
+# ${<slot>}, and the source of its input can be left open; using it makes an
+# ordinary rule with the picks filled in.
 #
 # Limits are typical values for a 12 V cruising boat, in SI units: volts,
 # kelvin, pascal, hertz, seconds, and ratios from 0 to 1. Each one is meant
@@ -8,7 +9,7 @@
 # {limit}, {duration} and {value} are filled in when the alert is sent.
 name: Alert Rules
 id: builtin
-version: 1.0.0
+version: 1.1.0
 description: Templates that ship with Alert Rules.
 templates:
   # Batteries. Lead-acid and LiFePO4 banks are usable down to different
@@ -193,19 +194,24 @@ templates:
           limit: { kind: fixed, value: 8 }
           duration: 30
 
-  # A charging alternator holds a 12 V system above about 13.5 V; at rest a
-  # battery sits below 13 V.
+  # Charging is seen at the battery the alternator charges, usually the
+  # start battery: few engines report their alternator's own voltage. A
+  # charging alternator holds a 12 V battery above about 13.5 V; at rest it
+  # sits below 13 V. The condition names the engine, so two engines charging
+  # one battery each raise their own alert.
   - id: alternator-not-charging
     description: >-
-      While an engine runs, its alternator's voltage stays below 13.0 V for
-      two minutes, a warning that it is not charging.
-    open: [instance]
-    condition: alternatorNotCharging
+      While an engine runs, the battery it charges stays below 13.0 V for
+      two minutes, a warning that its alternator is not charging.
+    slots:
+      - { name: battery, label: Battery }
+      - { name: engine, label: Engine }
+    condition: ${engine}AlternatorNotCharging
     rule:
-      name: Engine ${instance} alternator not charging
-      message: 'Engine ${instance} alternator not charging: {value}'
+      name: Engine ${engine} alternator not charging
+      message: 'Engine ${engine} alternator not charging battery ${battery}: {value}'
       signal:
-        path: propulsion.${instance}.alternatorVoltage
+        path: electrical.batteries.${battery}.voltage
       detector:
         type: sustained
         direction: below
@@ -217,7 +223,7 @@ templates:
       # two-minute duration, so the gate needs no longer hold.
       gates:
         - signal:
-            path: propulsion.${instance}.revolutions
+            path: propulsion.${engine}.revolutions
           direction: above
           limit: { kind: fixed, value: 8 }
           duration: 30

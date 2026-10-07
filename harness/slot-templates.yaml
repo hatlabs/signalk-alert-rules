@@ -1,37 +1,12 @@
 # Templates with two slots, for the render harness only: the row picker's
-# states need them, and the built-in set has none yet. Not in the package.
+# states the built-in alternator cannot show, an open source and a slot
+# nothing reports. Not in the package.
 name: Two-slot templates
 id: two-slot
 version: 1.0.0
 description: Templates that span two things, picked in rows.
 
 templates:
-  - id: alternator-not-charging
-    description: >-
-      While an engine runs, a battery's voltage stays below 13.0 V for two
-      minutes, a warning that the engine's alternator is not charging it.
-    slots:
-      - { name: battery, label: Battery }
-      - { name: engine, label: Engine }
-    condition: ${engine}AlternatorNotCharging
-    rule:
-      name: Engine ${engine} alternator not charging
-      message: 'Engine ${engine} not charging battery ${battery}: {value}'
-      signal:
-        path: electrical.batteries.${battery}.voltage
-      detector:
-        type: sustained
-        direction: below
-        steps:
-          - { limit: 13.0, priority: warning }
-        duration: 120
-      gates:
-        - signal:
-            path: propulsion.${engine}.revolutions
-          direction: above
-          limit: { kind: fixed, value: 8 }
-          duration: 30
-
   # Leaves the source open: a battery's current is reported by more than one
   # device, and the source waits on the battery the signal path names.
   - id: charger-not-charging

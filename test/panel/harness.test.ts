@@ -271,52 +271,59 @@ describe('render harness', () => {
   // The row picker's states as AGENTS.md "Rendering the UI" lists them.
   const TWIN = '[{"battery":"start","engine":"port"},{"battery":"start","engine":"starboard"}]'
   it.each([
-    ['populated', 'charger-not-charging', undefined],
-    ['twin', 'alternator-not-charging', TWIN],
+    ['populated', 'two-slot', 'charger-not-charging', undefined],
+    ['twin', 'builtin', 'alternator-not-charging', TWIN],
     [
       'partial',
+      'builtin',
       'alternator-not-charging',
       '[{"battery":"start","engine":"port"},{"battery":"start"}]'
     ],
     [
       'duplicate',
+      'builtin',
       'alternator-not-charging',
       '[{"battery":"start","engine":"port"},{"battery":"start","engine":"port"}]'
     ],
     [
       'stale',
+      'builtin',
       'alternator-not-charging',
       '[{"battery":"start","engine":"port"},{"battery":"start","engine":"center"}]'
     ],
-    ['empty', 'solar-not-charging', '[{"battery":"start"}]'],
+    ['empty', 'two-slot', 'solar-not-charging', '[{"battery":"start"}]'],
     [
       'source pending',
+      'two-slot',
       'charger-not-charging',
       '[{"battery":"house","charger":"shore","source":"can0.226"},{"charger":"shore"}]'
     ]
-  ])('opens the two-slot %s state on a template the harness lists', async (_, id, picks) => {
-    const hash = `#add=template&set=two-slot&template=${id}${picks === undefined ? '' : `&picks=${encodeURIComponent(picks)}`}`
-    const route = parseRoute(hash)
-    if (route.kind !== 'add' || route.from !== 'template')
-      throw new Error(`${hash} is not a picker`)
-    const set = parseTemplates(await fakes().api.templates(), '/templates').sets.find(
-      (s) => s.id === route.set
-    )
-    const template = set?.templates.find((t) => t.id === route.template)
-    if (template === undefined) throw new Error(`the harness lists no ${id}`)
-    expect(slotsOf(template).length).toBe(2)
-    const keys = new Set([...slotsOf(template).map((s) => s.name), 'source'])
-    expect(route.picks?.flatMap(Object.keys).filter((k) => !keys.has(k)) ?? []).toEqual([])
-    expect(route.picks).toEqual(picks === undefined ? undefined : JSON.parse(picks))
-  })
+  ])(
+    'opens the %s row picker state in %s on a template the harness lists',
+    async (_, setId, id, picks) => {
+      const hash = `#add=template&set=${setId}&template=${id}${picks === undefined ? '' : `&picks=${encodeURIComponent(picks)}`}`
+      const route = parseRoute(hash)
+      if (route.kind !== 'add' || route.from !== 'template')
+        throw new Error(`${hash} is not a picker`)
+      const set = parseTemplates(await fakes().api.templates(), '/templates').sets.find(
+        (s) => s.id === route.set
+      )
+      const template = set?.templates.find((t) => t.id === route.template)
+      if (template === undefined) throw new Error(`the harness lists no ${id} in ${setId}`)
+      expect(slotsOf(template).length).toBe(2)
+      const keys = new Set([...slotsOf(template).map((s) => s.name), 'source'])
+      expect(route.picks?.flatMap(Object.keys).filter((k) => !keys.has(k)) ?? []).toEqual([])
+      expect(route.picks).toEqual(picks === undefined ? undefined : JSON.parse(picks))
+    }
+  )
 
-  it('stores beside the examples a rule from the two-slot alternator for rules=templated', async () => {
+  it('stores beside the examples a rule from the built-in alternator for rules=templated', async () => {
     const entry = (await fakes('?rules=templated').api.rules()).find(
       (r) => r.slug === 'alternator-not-charging-start-port'
     )
     if (entry === undefined || isInvalid(entry)) throw new Error('no templated rule')
     expect(entry.rule.template).toMatchObject({
-      set: 'two-slot',
+      set: 'builtin',
       pick: { battery: 'start', engine: 'port' }
     })
   })

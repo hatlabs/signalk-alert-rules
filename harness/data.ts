@@ -386,19 +386,19 @@ function templateSet(yaml: string, source: string): TemplateSetEntry {
   return { ...set, source, templates, new: [] }
 }
 
-const slotSet = templateSet(slotSetYaml, 'file harness/slot-templates.yaml')
+const builtinSet = templateSet(builtinYaml, 'built-in')
 
 export const templateSets: TemplateSetEntry[] = [
-  templateSet(builtinYaml, 'built-in'),
+  builtinSet,
   templateSet(exampleSetYaml, `package ${exampleSetPackage.name}`),
-  slotSet
+  templateSet(slotSetYaml, 'file harness/slot-templates.yaml')
 ]
 
-/** A rule made from the two-slot alternator template, for the row it covers in the picker. */
+/** A rule made from the built-in alternator template, for the row it covers in the picker. */
 function templatedEntry(): RuleEntry {
-  const template = slotSet.templates.find((t) => t.id === 'alternator-not-charging')
-  if (template === undefined) throw new Error('no two-slot alternator template')
-  const made = instantiate(slotSet, template, { battery: 'start', engine: 'port' })
+  const template = builtinSet.templates.find((t) => t.id === 'alternator-not-charging')
+  if (template === undefined) throw new Error('no built-in alternator template')
+  const made = instantiate(builtinSet, template, { battery: 'start', engine: 'port' })
   const result = made.ok ? validateRule(made.value) : made
   if (!result.ok)
     throw new Error(`the templated rule is not valid: ${JSON.stringify(result.errors)}`)
