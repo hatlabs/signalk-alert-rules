@@ -19,14 +19,19 @@ import {
   hasWildcard,
   isZoneLimited,
   signalShape,
-  toRule,
   withNumbersInUnit,
   type FormError,
   type LimitForm,
   type RuleForm,
   type SignalForm
 } from './formModel'
-import { strayBraces, withGenerated } from './message'
+import {
+  generatedMessage,
+  isEmptyMessage,
+  strayBraces,
+  toSavedRule,
+  withGenerated
+} from './message'
 import { MoreOptions } from './MoreOptions'
 import {
   attachErrors,
@@ -276,6 +281,7 @@ export function RuleFields(props: RuleFieldsProps) {
   const pathErrors = (attached.byField.get('/signal/path') ?? []).map((m) => m.text)
   const defaultCondition = defaultFormCondition(form)
   const stray = strayBraces(form.message)
+  const written = generatedMessage(form, units)
   // The first instance in the order the toggle and the template picker list them, among
   // those the pinned source reports, as only those alert; until one reports, the
   // placeholder shows as written rather than vanishing.
@@ -289,8 +295,8 @@ export function RuleFields(props: RuleFieldsProps) {
     ? (matchedInstances(slot.path, reporting).at(0) ?? '{instance}')
     : undefined
   const preview = (() => {
-    const result = toRule(form, units)
-    if (!result.ok || form.message === '') return undefined
+    const result = toSavedRule(form, units)
+    if (!result.ok) return undefined
     return renderMessage(result.rule, {
       step: 0,
       ...(previewInstance === undefined ? {} : { instance: previewInstance }),
@@ -298,6 +304,10 @@ export function RuleFields(props: RuleFieldsProps) {
       ...(entry?.units === undefined ? {} : { units: entry.units })
     })
   })()
+  const previewText =
+    preview === undefined
+      ? undefined
+      : `${isEmptyMessage(form.message) ? 'While empty, sends' : 'Sends now'}: “${preview}”`
 
   return (
     <FieldErrors.Provider value={attached.byField}>
@@ -437,8 +447,10 @@ export function RuleFields(props: RuleFieldsProps) {
       <TextField
         label="Message"
         pointer="/message"
-        required
+        required={written === ''}
         value={form.message}
+        // Shown, never filled in: a keystroke after a cleared message would extend the written one.
+        placeholder={written === '' ? undefined : written}
         hint={
           <>
             {form.messageFollows && 'Written from the rule until you edit it. '}
@@ -453,11 +465,11 @@ export function RuleFields(props: RuleFieldsProps) {
             )}
             {/* One line, held while there is nothing to preview: a path committed by a click
                 rewrites or empties the preview, which would move the click's target. */}
-            {preview === undefined ? (
+            {previewText === undefined ? (
               <span className="skar-preview-line" aria-hidden="true" />
             ) : (
-              <span className="skar-preview-line" title={`Sends now: “${preview}”`}>
-                {`Sends now: “${preview}”`}
+              <span className="skar-preview-line" title={previewText}>
+                {previewText}
               </span>
             )}
           </>

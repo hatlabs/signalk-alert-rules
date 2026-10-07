@@ -4,6 +4,7 @@ import {
   generatedMessage,
   generatedName,
   strayBraces,
+  toSavedRule,
   withGenerated
 } from '../../../src/panel/editor/message'
 import {
@@ -240,6 +241,37 @@ describe('withGenerated', () => {
       f.slugFollowsName = false
     })
     expect(withGenerated(f, units)).toBe(f)
+  })
+})
+
+describe('toSavedRule', () => {
+  const stored = (message: string) =>
+    form('electrical.batteries.bowthruster.voltage', 'below', (f) => {
+      Object.assign(f, { name: 'n', slug: 's', message, nameFollows: false })
+      f.messageFollows = false
+      f.slugFollowsName = false
+      f.steps = [step({ limit: '12.8' })]
+    })
+
+  it('saves the written message while the message is empty', () => {
+    const result = toSavedRule(stored(''), units)
+    expect(result.ok && result.rule.message).toBe('Bow thruster bank voltage below 12.8 V: {value}')
+  })
+
+  it('saves the written message while the message is only spaces', () => {
+    const result = toSavedRule(stored('   '), units)
+    expect(result.ok && result.rule.message).toBe('Bow thruster bank voltage below 12.8 V: {value}')
+  })
+
+  it('saves a typed message as typed', () => {
+    const result = toSavedRule(stored('Thruster low'), units)
+    expect(result.ok && result.rule.message).toBe('Thruster low')
+  })
+
+  it('asks for a message while none can be written', () => {
+    const f = { ...emptyForm(), name: 'n', slug: 's', messageFollows: false }
+    const result = toSavedRule(f, units)
+    expect(!result.ok && result.errors).toContainEqual({ path: '/message', message: 'is required' })
   })
 })
 

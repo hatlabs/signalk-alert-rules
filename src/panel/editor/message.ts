@@ -11,8 +11,10 @@ import {
   signalShape,
   slugify,
   stepQuantity,
+  toRule,
   type EventForm,
-  type RuleForm
+  type RuleForm,
+  type ToRuleResult
 } from './formModel'
 import { durationText, stepLimitText, subjectOf, valueText } from './words'
 import type { Measure } from '../signalUnits'
@@ -88,6 +90,21 @@ export function generatedMessage(form: RuleForm, units: UnitLookup): string {
     case 'missing':
       return `${subject} has not ${eventVerb(d.event, measure)} for ${limit}`
   }
+}
+
+/** A message Save replaces with the written one: empty, or only spaces, which `toRule` refuses. */
+export function isEmptyMessage(message: string): boolean {
+  return message.trim() === ''
+}
+
+/**
+ * The rule Save stores: as `toRule` reads it, with an empty message as the
+ * one written from the rule, as the Message field's placeholder shows it.
+ * Still asks for a message while none can be written.
+ */
+export function toSavedRule(form: RuleForm, units: UnitLookup): ToRuleResult {
+  const message = isEmptyMessage(form.message) ? generatedMessage(form, units) : form.message
+  return toRule({ ...form, message }, units)
 }
 
 const NAME_WORDS: Readonly<Record<string, string>> = {

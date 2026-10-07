@@ -200,6 +200,17 @@ describe('copySettings', () => {
     expect(read.ok && read.rule.detector.steps).toEqual([{ limit: 368.4567, priority: 'warning' }])
   })
 
+  it('carries the values across units from a tab whose message is cleared', () => {
+    const all = engines()
+    const port = all.at(0)
+    const aux = all.at(1)
+    if (port === undefined || aux === undefined) throw new Error('none')
+    const step = port.steps.at(0)
+    if (step === undefined) throw new Error('no step')
+    const cleared = { ...port, message: '', steps: [{ ...step, limit: '100' }] }
+    expect(copySettings(cleared, aux, units)?.steps.map((s) => s.limit)).toEqual(['373.15'])
+  })
+
   it('copies nothing across units while the shown tab cannot be read', () => {
     const all = engines()
     const port = all.at(0)

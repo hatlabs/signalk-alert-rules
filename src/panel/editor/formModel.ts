@@ -8,6 +8,8 @@
  * and saving reads only those of the detector chosen. The steps are the
  * exception: what a step's limit means depends on the detector, so a change
  * of detector that changes it starts the steps afresh (`withDetector`).
+ * Save paths go through `toSavedRule` (message.ts), which fills in an empty
+ * message before `toRule` reads the form.
  */
 import type {
   CombinatorKind,
@@ -1215,7 +1217,8 @@ export function formAlertPrefix(form: RuleForm): string {
 /**
  * The rule the form describes, in SI units, or the fields that are missing or
  * not numbers. Everything else, such as ranges and combinations, the server
- * checks when the rule is saved.
+ * checks when the rule is saved. An empty message is refused here; Save goes
+ * through `toSavedRule` (message.ts), which sends the written one instead.
  */
 export function toRule(form: RuleForm, units: UnitLookup): ToRuleResult {
   const read = new Reader()
