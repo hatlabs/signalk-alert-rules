@@ -38,11 +38,11 @@ The rules in [`examples/rules`](../examples/rules) are complete, valid rules; [W
 | `signal` | What the rule watches; see [Signals](#signals). |
 | `detector` | The condition, with its steps; see [Detectors](#detectors) and [Steps and escalation](#steps-and-escalation). |
 | `gates` | Optional, at most 8; see [Gates](#gates). |
-| `template` | Optional and informational: the template set (`set`, `version`), the template (`id`) and the `pick` (`instance`, `source`) the rule was made from; see [Templates](templates.md). Nothing reads it to evaluate the rule. |
+| `template` | Optional and informational: the template set (`set`, `version`), the template (`id`) and the `pick` the rule was made from; see [Using a template](templates.md#using-a-template). Nothing reads it to evaluate the rule. |
 
 The slug identifies the rule and is unique among rules. The rule has no `id` or `enabled` field: whether it is disabled is kept apart from it (see [Disable](#disable)).
 
-A rule can be written from scratch or made from a template, a rule whose instance or source is left open for the user to pick. A rule made from a template is an ordinary rule; [Templates](templates.md) describes template sets and how they are used.
+A rule can be written from scratch or made from a template, a rule whose slots, such as a battery bank and an engine, or source are left open for the user to pick. A rule made from a template is an ordinary rule; [Templates](templates.md) describes template sets and how they are used.
 
 ### Quantities
 
@@ -340,6 +340,8 @@ A rule's alert lives in the data model, at a condition name under the parent the
 A [field path](#fields-of-object-values)'s segments are its base path's followed by its pointer's tokens: `navigation.attitude#/roll` has the parent `navigation.attitude` and the leaf `roll`, so an outside rule on it alerts at `alerts.navigation.attitude.rollOutOfRange`. That is the alert path a rule on `navigation.attitude.roll` with the same detector would have, so the two overlap and cannot both exist. `electrical.batteries.*#/voltage` ends in `voltage`, not in the wildcard, so it needs no stored condition name.
 
 Only the condition name is the rule's to choose, in its optional `condition` field. Left out, it is the input's leaf, camel-cased, plus a suffix for the detector: `High` or `Low` for a sustained comparison, `OutOfRange` for an outside rule (`electrical.ac.shore.phase.single.frequencyOutOfRange`), `ProjectedHigh` or `ProjectedLow` for a projection, `Rising` or `Falling` for a slope, `Match`, `Mismatch`, `Changed`, `Decreased` or `TimedOut` for a match, `Accumulated`, `Frequent` and `Missing` for an accumulator, count and absence. That default follows every edit of the input and detector; a stored name is kept through them. A combined signal and an input ending in a wildcard have no leaf to name the condition by, so they need a stored name.
+
+A rule made from a template stores the template's condition name with the user's picks filled in, so the name can carry a slot: the built-in alternator template's `${engine}AlternatorNotCharging` gives the engine `main` the condition name `mainAlternatorNotCharging`, and two engines charging one battery get two alert paths. See [Slots](templates.md#slots).
 
 A wildcard rule's alert path keeps the `*`, and each instance's alert fills it with the instance's segment: `alerts.propulsion.port.coolantTemperatureHigh`. No two rules may have alert paths that could name the same alert, a wildcard overlapping every segment it could take: a create or edit that would is refused (409 on `/condition`), and a stored rule that would does not run. An edit that changes the alert path clears the rule's alerts at the old path and raises at the new one once the condition holds.
 

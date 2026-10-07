@@ -308,6 +308,23 @@ describe('validateTemplateSet with slots', () => {
     }
   })
 
+  it('accepts a slot name of 32 characters and reports one of 33', () => {
+    const named = (name: string) =>
+      withSlots({
+        slots: [slot(name, 'Battery'), slot('engine')],
+        rule: {
+          ...alternator.rule,
+          message: `Battery \${${name}}`,
+          signal: { path: `electrical.batteries.\${${name}}.voltage` }
+        }
+      })
+    expect(errorsOf(named('b'.repeat(32)))).toEqual([])
+    expect(errorsOf(named('b'.repeat(33)))).toContainEqual({
+      path: '/templates/0/slots/0/name',
+      message: 'must not have more than 32 characters'
+    })
+  })
+
   it('reports a slot named source, which names the open source in a pick', () => {
     const slots = [slot('battery'), slot('source')]
     expect(errorsOf(withSlots({ slots }))).toContainEqual({

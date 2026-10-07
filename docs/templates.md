@@ -1,6 +1,6 @@
 # Templates
 
-A template is a [rule](rules.md) whose instance, the path segment that tells one battery bank or engine from another, or whose input's source, or both, are left open. Using a template means picking what is open; the result is an ordinary rule with the picks filled in. Templates come in template sets: one is built into Alert Rules, and other npm packages, or the user, can provide more. A package describing some equipment can ship the alert rules that suit it, and the user adds them to the boat without writing rules.
+A template is a [rule](rules.md) with parts left open: its slots, each a path segment that tells one battery bank or engine from another, or its input's source, or both. Using a template means picking what is open; the result is an ordinary rule with the picks filled in. Templates come in template sets: one is built into Alert Rules, and other npm packages, or the user, can provide more. A package describing some equipment can ship the alert rules that suit it, and the user adds them to the boat without writing rules.
 
 Alert Rules reads a template set as data. It never requires, imports or runs anything in the providing package. [`examples/template-set-example`](../examples/template-set-example) is a complete provider package, and [`templates/builtin.yaml`](../templates/builtin.yaml) is the built-in set.
 
@@ -53,8 +53,9 @@ A template:
 |---|---|
 | `id` | Lowercase letters and digits separated by single hyphens, at most 64 characters, unique in the set. Keep it stable across versions: the notice of new templates goes by it (see [New-template notices](#new-template-notices)). |
 | `description` | Optional, at most 1000 characters; shown when the user picks a template. |
-| `open` | Optional: `instance`, `source` or both. Left out, the template is fully bound and makes one rule as written. |
-| `condition` | Optional: the condition name of the rules it makes, the last segment of their [alert path](rules.md#alert-paths). Required where a rule needs one: for a combined signal, and for an input path ending in a wildcard. |
+| `slots` | Optional: the template's slots, at most 4, each a `name` and a `label`; see [Slots](#slots). |
+| `open` | Optional: `instance`, `source` or both. `instance` declares the one slot `instance` (see [`open: [instance]`](#open-instance)) and cannot be combined with `slots`; `source` leaves the source open (see [Open source](#open-source)). With neither `slots` nor `open`, the template is fully bound and makes one rule as written. |
+| `condition` | Optional: the condition name of the rules it makes, the last segment of their [alert path](rules.md#alert-paths). It may carry slots. Required where a rule needs one: for a combined signal, and for an input path ending in a wildcard. |
 | `rule` | A rule as in [Rules](rules.md#rule), without `slug`, `condition` and `template`: those are set when the template is used. |
 
 ```yaml
@@ -91,42 +92,98 @@ templates:
 
 Every number is in SI units, as in any rule, and every limit is a starting point the user adjusts when using the template.
 
-### `${instance}` and an open instance
+### Slots
 
-With `instance` in `open`, the template's rule writes the instance as `${instance}`. Using the template replaces every `${instance}` in the rule's paths, its name and its message with the picked instance: the signal's path or the paths of a combined signal's inputs, gates' paths and a zone limit's path. A combined signal whose inputs all carry `${instance}` reads one instance, such as the voltage and the current of the same battery bank.
+A slot is a path segment the user picks, written `${<name>}` in the template's rule. A template declares its slots under `slots`, in order. The built-in "alternator not charging" template has two, a battery it watches and an engine whose revolutions gate it:
 
-- An open instance needs `${instance}` in at least one path, and `${instance}` anywhere needs `instance` in `open`.
-- `${instance}` is the only placeholder substituted; any other `${...}` in a path, the name or the message is an error.
-- A template's paths may address a [field of an object value](rules.md#fields-of-object-values), such as `navigation.attitude#/roll`. `${instance}` is a whole path segment and may end the base path, as in `electrical.batteries.${instance}#/voltage`, but cannot appear after `#`, in the pointer: the template names the field.
-- A picked instance is one path segment: no dots, no whitespace, no `*`, no `#`, at most 255 characters.
+```yaml
+  - id: alternator-not-charging
+    slots:
+      - { name: battery, label: Battery }
+      - { name: engine, label: Engine }
+    condition: ${engine}AlternatorNotCharging
+    rule:
+      name: Engine ${engine} alternator not charging
+      # description and message left out
+      signal:
+        path: electrical.batteries.${battery}.voltage
+      detector:
+        type: sustained
+        direction: below
+        steps:
+          - { limit: 13.0, priority: warning }
+        duration: 120
+      gates:
+        - signal:
+            path: propulsion.${engine}.revolutions
+          direction: above
+          limit: { kind: fixed, value: 8 }
+          duration: 30
+```
+
+Picking the battery `start` and the engine `main` makes the rule `Engine main alternator not charging`, which watches `electrical.batteries.start.voltage` while `propulsion.main.revolutions` is above 8 Hz, and alerts at `alerts.electrical.batteries.start.mainAlternatorNotCharging`.
+
+- A slot's `name` is a letter followed by letters and digits, at most 32 characters, unique in the template. `source` is reserved for the open source. The name keys the slot's pick in the rule's [template record](#using-a-template).
+- A slot's `label` names what is picked, such as `Battery`: 1-40 characters, unique in the template. The webapp shows it where the slot is picked.
+- A template declares at most 4 slots.
+- Every slot appears in at least one path. In a path, a slot's placeholder is a whole path segment: `electrical.batteries.${battery}.voltage`, not `electrical.batteries.bank${battery}.voltage`.
+- Placeholders are filled in in the rule's paths, its name and its message, and in the template's `condition`. Any other `${...}`, including `${instance}` when no slot is named `instance`, is an error.
+- A template with `slots` cannot have `instance` in `open`; it can leave the source open as well.
+
+Using the template replaces every placeholder with its slot's pick: in the signal's path or the paths of a combined signal's inputs, gates' paths, a zone limit's path, the name, the message and the condition. In the condition, each character of a pick other than a letter, a digit, `_` or `-` becomes `_`, so the condition name stays one alert path segment.
+
+Each slot must reach the rule's [alert path](rules.md#alert-paths), the condition name under the parent the signal gives, so that two picks make two alert paths. A slot reaches it through the signal path's parent segments or through the condition name: the template's, or the default one taken from the signal path's last segment. Unless the condition name carries it, a slot that only a gate or a zone limit uses, a slot only in a combined signal's inputs below their common parent, or a slot only in the signal path's last segment gives every pick the same alert path. The first rule made from such a template is created; a second one with another pick for that slot is refused, as any rule whose alert path overlaps another's. The alternator template's engine is in a gate only, so its condition carries `${engine}`: two engines charging one battery get two alerts. Validation uses one sample pick (see [Validation](#validation)) and cannot detect a slot that does not reach the alert path.
+
+Alert Rules accepts `slots` from version 0.1.0, its first published version.
+
+### `open: [instance]`
+
+`open: [instance]` declares one slot named `instance`, labelled Instance, a shorter way to write a template with a single slot. The rules for slots apply to it, except that `${instance}` is not checked to be a whole path segment; write it as one. `${instance}` anywhere needs `instance` in `open`, and an open instance needs `${instance}` in at least one path. A combined signal whose inputs all carry `${instance}` reads one instance, such as the voltage and the current of the same battery bank.
+
+### Field paths and picks
+
+- A template's paths may address a [field of an object value](rules.md#fields-of-object-values), such as `navigation.attitude#/roll`. A slot's placeholder may end the base path, as in `electrical.batteries.${instance}#/voltage`, but cannot appear after `#`, in the pointer: the template names the field.
+- A pick is one path segment: no dots, no whitespace, no `*`, no `#`, at most 255 characters.
 
 ### Open source
 
-With `source` in `open`, the user picks which `$source` the rule reads, such as one of two depth sounders, and the rule reads only that source, whatever its rank (see [Signals](rules.md#signals)). The picked source is set on the rule's signal, so an open source needs a signal with a single path, not a combined signal. A template with both open takes an instance and a source of that instance's path.
+With `source` in `open`, the user picks which `$source` the rule reads, such as one of two depth sounders, and the rule reads only that source, whatever its rank (see [Signals](rules.md#signals)). The picked source is set on the rule's signal, so an open source needs a signal with a single path, not a combined signal. A template with both slots and an open source takes a source of the signal path its picks make.
 
 ### Message placeholders
 
 A template's message can carry two kinds of placeholder, filled in at different times:
 
-- `${instance}` is filled in once, when the template is used, and the rule stores the result: `Battery ${instance} discharge` becomes `Battery house discharge`.
-- `{limit}`, `{duration}`, `{value}` and `{instance}` stay in the stored rule and are filled in each time the alert is sent, as [Messages](rules.md#messages) describes. `{instance}` there is a wildcard instance's name, so a rule made from an open instance, which has no wildcard, names its instance with `${instance}`.
+- A slot's placeholder, such as `${instance}`, is filled in once, when the template is used, and the rule stores the result: `Battery ${instance} discharge` becomes `Battery house discharge`.
+- `{limit}`, `{duration}`, `{value}` and `{instance}` stay in the stored rule and are filled in each time the alert is sent, as [Messages](rules.md#messages) describes. `{instance}` there is a wildcard instance's name, not a pick: a template's message names its picks with slot placeholders.
 
 ### Validation
 
 YAML is read with the YAML 1.2 core schema, so `on`, `yes`, `no` and `stopped` stay strings; where a rule needs a boolean, a string is reported as an error rather than read as `true` or `false`. Keys must be unique. Custom tags are rejected. Aliases may be used, but alias expansion is capped at 100, and a file is at most 1 MiB.
 
-Each template is checked on its own, then used with a sample pick for each open part, and the rule it makes is validated as any rule. A set with any error is not loaded; none of its templates is offered.
+Each template is checked on its own, then used with one sample pick, the same for every slot and the source, and the rule it makes is validated as any rule. The template's condition is checked as a condition name once the sample pick fills its slots. A set with any error is not loaded; none of its templates is offered.
 
 ## Using a template
 
-In the webapp, Add rule offers the template sets and their templates. For an open part it lists the instances, or the sources, the server reports now under the template's path. For a template whose only open part is the instance, an instance that does not report yet can be typed. A pick that already has a rule from the same template is marked with that rule's name. Several picks make several rules, edited in a tab each and created with one save.
+In the webapp, Add rule offers the template sets and their templates. How a template is picked depends on its number of slots.
+
+A template with at most one slot is picked from a checkbox list of what reports now. For a slot in the signal path, the list has each instance that reports under that path; for a slot only in gate or zone limit paths, each instance that reports one of those. With the source open, each source of an instance's signal path is its own entry. While the source is not open, an instance that does not report yet can be typed under "Not listed?". Each checked entry makes a rule.
+
+A template with two or more slots is picked in rows, one rule per row, with a select for each slot and, when the template leaves the source open, one for the source:
+
+- A slot's choices are the instances that report any path the slot is in: the signal's path or a combined signal's inputs, gates' paths and a zone limit's path. Each choice shows the value of the first of those paths it reports, the signal's first.
+- When the paths are first read, each slot that exactly one instance reports is filled in, in every row where it is still empty; "Add another" adds a row filled in the same way. Later reads never change a pick already made, and a pick nothing reports any more stays among the choices, marked "not reporting".
+- Under the rows, "<label> not listed?" takes a name for each slot, for an instance that does not report yet. The name joins that slot's choices in every row and fills each row where the slot is empty. While the template leaves the source open, a slot in the signal path has no such entry, since an instance that does not report has no sources to pick.
+- The source select lists the sources of the signal path the row's picks make. It waits until the slots in the signal path are chosen, and clears when one of them changes.
+- Continue needs every slot and the source chosen in every row, and no two rows the same. Until then the line above it names the first slot or source left unchosen in row order, such as "Choose an engine for rule 2", and once none is, the first two rows that are the same, such as "Rules 1 and 2 are the same".
+
+A pick that already has a rule from the same template is marked with that rule's name. For a template with no slot, or whose one slot is in the signal path, that is a rule from the template watching the path the pick makes, from the same source; for any other template, a rule whose stored `pick` record holds the same picks, every slot and the source included. The picks make the rules, edited in a tab each and created with one save; a marked pick's tab is left out of the save unless "Create another rule for it" is chosen there. A row's tab is labelled with its picks joined by " · ", in slot order, the source last.
 
 Each use makes an ordinary rule:
 
-- Its slug is the template's id followed by the picked instance, such as `battery-discharge-high-house`, numbered when another rule has it.
-- It stores the template's condition name, so two rules from one template on one instance have the same alert path, and the second is refused until it is given another condition name (see [Alert paths](rules.md#alert-paths)).
+- Its slug is the template's id followed by each slot's pick in slot order, such as `battery-discharge-high-house` or `alternator-not-charging-start-main`, shortened to 64 characters and numbered when another rule has it.
+- It stores the template's condition name with the picks filled in, so two rules from one template with the same picks have the same alert path, and the second is refused until it is given another condition name (see [Alert paths](rules.md#alert-paths)).
 - A picked source is stored in its canonical form where the device has one, as for any rule.
-- It records where it came from, in its `template` field: the set's `id` and `version`, the template's `id`, and the `pick`. The record is information only. Nothing reads it to evaluate the rule, and a later version of the template, or its removal, never changes a rule already made.
+- It records where it came from, in its `template` field: the set's `id` and `version`, the template's `id`, and the `pick` record, each slot's pick under the slot's name and the picked source under `source`, such as `{ "battery": "start", "engine": "main" }` or, for a template written with `open: [instance]`, `{ "instance": "house" }`. The `pick` record has no `instance` unless a slot is named so. The record is information only. Nothing reads it to evaluate the rule, and a later version of the template, or its removal, never changes a rule already made.
 
 A template set never creates or enables a rule by itself, a fully bound template included: rules are made only when someone uses a template.
 

@@ -45,7 +45,7 @@ Rules are stored in the plugin's data directory, one file per rule as `rules/<sl
 ```
 
 - `slug`: the rule's slug, as in its body.
-- `rule`: the rule as stored. A path addressing a [field of an object value](rules.md#fields-of-object-values) is one string, `navigation.attitude#/roll`, in the body as in the file.
+- `rule`: the rule as stored. A path addressing a [field of an object value](rules.md#fields-of-object-values) is one string, `navigation.attitude#/roll`, in the body as in the file. A rule made from a template has a `template` record with the fields `set`, `id`, `version` and `pick`, described in [Using a template](templates.md#using-a-template).
 - `alertPath`: the rule's alert path without the `alerts.` prefix, its condition name under the parent its input gives, as [Alert paths](rules.md#alert-paths) describes. It is derived, not part of the rule; a wildcard rule's has a `*` where each instance's segment goes, and a field path's pointer tokens are segments of it: an outside rule on `navigation.attitude#/roll` has `navigation.attitude.rollOutOfRange`.
 - `disabled`: present while the rule is disabled: when, by whom and, when given, why; see [Rule controls](#rule-controls).
 - `state`: the rule's state: `ruleState` (`enabled` or `disabled`), its `condition` with a `reason` code and that reason's facts, `changedAt`, the time either last changed since the plugin started (an adopted alert keeps its raise time), `issues` and `errors`, and one row per instance, as described in [State](rules.md#state). While the plugin has not started evaluating, the condition is `noData` with the reason `notEvaluated`, and the rule's accumulator totals are instance rows with `progress`.
@@ -125,7 +125,7 @@ Template sets are described in [Templates](templates.md). They are discovered ea
 
 - `sets`: the sets installed now, in the [set order](templates.md#discovery).
 - `source`: where the set was found: `built-in`, `package <name>`, or `file <name>` for a file in the drop-in directory; `package` and `description` are absent when there is none.
-- `templates`: the set's templates as written, `${instance}` placeholders included.
+- `templates`: the set's templates as written, with their `slots` or `open` and their slot placeholders, such as `${instance}` or `${engine}`. The server never fills in a pick; the webapp does, and the rule it makes is validated on `POST /rules` as any rule.
 - `new`: the ids of the set's templates whose notice nobody has dismissed.
 - `problems`: the sets that could not be loaded, with the reason and, for a YAML error, its `line`. For a set that does not validate, `errors` lists each error as `{ "path", "message" }` with a JSON pointer into the set. A message may name the absolute path of a file on the server.
 
