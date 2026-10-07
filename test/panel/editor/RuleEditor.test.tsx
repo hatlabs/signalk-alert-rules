@@ -134,6 +134,63 @@ describe('RuleEditor, from a path', () => {
     ).toBe(textbox(/^Message/))
   })
 
+  it('keeps a cleared message empty, sending the written one, until one is typed', async () => {
+    const { api, onSaved } = renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    fillBelow('11.8')
+    const message = textbox(/^Message/)
+    type(message, 'Mine')
+    type(message, '')
+    expect(message).toHaveProperty('value', '')
+    expect(message).toHaveProperty('placeholder', 'House battery voltage below 11.8 V: {value}')
+    expect(message.getAttribute('aria-required')).toBeNull()
+    expect(description(message)).toContain(
+      'While empty, sends: “House battery voltage below 11.8 V: 13.31 V”'
+    )
+    type(textbox('Limit for step 1'), '12')
+    expect(message).toHaveProperty('value', '')
+    expect(message).toHaveProperty('placeholder', 'House battery voltage below 12 V: {value}')
+    // A keystroke in the empty field is the user's own message, not the written one extended.
+    type(message, 'H')
+    expect(message).toHaveProperty('value', 'H')
+    type(message, '')
+    create()
+    await saved(onSaved)
+    expect(api.createRule.mock.calls[0]?.[0].message).toBe(
+      'House battery voltage below 12 V: {value}'
+    )
+  })
+
+  it('takes a message of only spaces as empty', async () => {
+    const { api, onSaved } = renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    fillBelow('11.8')
+    const message = textbox(/^Message/)
+    type(message, '  ')
+    expect(message).toHaveProperty('placeholder', 'House battery voltage below 11.8 V: {value}')
+    expect(message.getAttribute('aria-required')).toBeNull()
+    expect(description(message)).toContain(
+      'While empty, sends: “House battery voltage below 11.8 V: 13.31 V”'
+    )
+    create()
+    await saved(onSaved)
+    expect(api.createRule.mock.calls[0]?.[0].message).toBe(
+      'House battery voltage below 11.8 V: {value}'
+    )
+  })
+
+  it('asks for a message while none can be written', async () => {
+    renderEditor()
+    await formShown()
+    const message = textbox(/^Message/)
+    expect(message.getAttribute('placeholder')).toBeNull()
+    expect(message.getAttribute('aria-required')).toBe('true')
+    create()
+    await waitFor(() => {
+      expect(description(textbox(/^Message/))).toContain('is required')
+    })
+  })
+
   it('holds the preview line while the rule cannot be previewed', async () => {
     renderEditor({ start: { path: HOUSE, kind: 'below' } })
     await formShown()
@@ -986,6 +1043,23 @@ describe('RuleEditor, editing', () => {
     type(condition, 'overvoltage')
     choose('Alert when', 'below')
     expect(condition).toHaveProperty('value', 'overvoltage')
+  })
+
+  it('sends the written message once the stored message is cleared, and saves it', async () => {
+    const { api, onSaved } = renderEditor({ editing: { entry: active, rule: stepped } })
+    await formShown()
+    const message = textbox(/^Message/)
+    type(message, '')
+    const written = 'House battery voltage below {limit} for 1 min: {value}'
+    expect(message).toHaveProperty('placeholder', written)
+    expect(message.getAttribute('aria-required')).toBeNull()
+    expect(description(message)).toContain(
+      'While empty, sends: “House battery voltage below 12.2 V for 1 min: 13.31 V”'
+    )
+    click(button('Save'))
+    await saved(onSaved)
+    expect(description(textbox(/^Message/))).not.toContain('is required')
+    expect(api.previewRule).toHaveBeenCalledWith(battery.slug, { ...stepped, message: written })
   })
 
   it('saves an edit applied in place without asking', async () => {

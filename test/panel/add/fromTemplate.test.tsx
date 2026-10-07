@@ -318,6 +318,27 @@ describe('Add rule from a template', () => {
     expect(screen.getByText('All 3 rules have every required field.')).toBeTruthy()
   })
 
+  it('creates a tab whose message is cleared with the message written from its rule', async () => {
+    const api = renderShell(fresh())
+    await openLifepo4()
+    pick(/^House bank/)
+    pick(/^starter/)
+    await continueWith('Continue with 2 rules')
+    fireEvent.click(tab(/starter/))
+    const message = screen.getByRole<HTMLInputElement>('textbox', { name: /^Message/ })
+    change(message, '')
+    const written = message.placeholder
+    expect(written).toMatch(/^Starter .*: \{value\}$/)
+    expect(screen.getByText('Both rules have every required field.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Create 2 rules' }))
+    expect(await screen.findByRole('heading', { name: 'Alert rules' })).toBeTruthy()
+    expect(
+      createdRules(api)
+        .map((r) => r.message)
+        .at(1)
+    ).toBe(written)
+  })
+
   it('charts the shown tab’s battery beside its form, with both steps’ limits', async () => {
     const day: HistoryPoint[] = Array.from({ length: 144 }, (_, i) => ({
       time: Date.now() - 86_400_000 + i * 600_000,

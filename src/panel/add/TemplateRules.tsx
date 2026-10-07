@@ -24,7 +24,6 @@ import {
   marginUnnamed,
   revealed,
   standingRetypes,
-  toRule,
   withoutGate,
   withUnitErrors,
   type FormError,
@@ -32,6 +31,7 @@ import {
 } from '../editor/formModel'
 import { UnattachedErrors, useFocusInvalid, WithPaths } from '../editor/editorFrame'
 import { useLeaveGuard } from '../editor/leaveGuard'
+import { toSavedRule } from '../editor/message'
 import { checkedErrors, RuleFields } from '../editor/RuleFields'
 import { joined, rulesWord } from '../editor/words'
 import { failureMessage } from '../failure'
@@ -295,7 +295,7 @@ function TabsForm(props: FormProps) {
     setNote(undefined)
     const read = tabs.filter(included).map((t) => ({
       tab: t,
-      result: toRule(t.form, units),
+      result: toSavedRule(t.form, units),
       // Kept until each number emptied for a unit is typed again; see standingRetypes.
       retypes: revealed(standingRetypes(t.form, t.errors))
     }))
@@ -395,7 +395,7 @@ function TabsForm(props: FormProps) {
   const ready =
     creating > 1 &&
     hint === undefined &&
-    tabs.filter(included).every((t) => toRule(t.form, units).ok)
+    tabs.filter(included).every((t) => toSavedRule(t.form, units).ok)
   const readyNote = !ready
     ? undefined
     : creating === 2

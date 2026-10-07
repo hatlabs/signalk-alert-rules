@@ -11,9 +11,9 @@ import {
   marginUnnamed,
   signalShape,
   standingRetypes,
-  toRule,
   type RuleForm
 } from '../editor/formModel'
+import { toSavedRule } from '../editor/message'
 import { fieldLabel, marginsHint, whatStops } from '../editor/sections'
 import { joined } from '../editor/words'
 import { capitalised } from '../list/PriorityBadge'
@@ -67,7 +67,7 @@ export function copySettings(
     return { ...to, ...copy, latching: from.latching }
   }
   const slot = to.signal.slots.at(0)
-  const read = toRule(from, units)
+  const read = toSavedRule(from, units)
   if (!read.ok || to.signal.mode !== 'single' || slot === undefined) return undefined
   const signal = { path: slot.path, ...(slot.source === '' ? {} : { source: slot.source }) }
   const moved = fromRule({ ...read.rule, signal }, units)

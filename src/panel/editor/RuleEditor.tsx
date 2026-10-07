@@ -21,13 +21,12 @@ import {
   marginUnnamed,
   revealed,
   standingRetypes,
-  toRule,
   withoutGate,
   withUnitErrors,
   type FormError,
   type RuleForm
 } from './formModel'
-import { withGenerated } from './message'
+import { toSavedRule, withGenerated } from './message'
 import { checkedErrors, RuleFields } from './RuleFields'
 import { fieldPointers, saveHint } from './sections'
 
@@ -166,7 +165,7 @@ function EditorForm(props: FormProps) {
 
   const save = async () => {
     setFailure(undefined)
-    const result = toRule(form, units)
+    const result = toSavedRule(form, units)
     if (!result.ok || marginUnnamed(retypes, named)) {
       showErrors(keepingNotes(result.ok ? [] : result.errors))
       // The footer of this refused Save names every margin still empty.
