@@ -10,7 +10,7 @@ From a data path takes two steps: pick the value, then pick what about it should
 
 ![What should alert? for the house battery voltage](images/examples/kind-picker.png)
 
-The editor then opens with the kind chosen, a name, a message and a condition name written from the value and the kind. The examples replace the name and the message with their own. The condition name, the field just above More options, follows the value and the kind until one is typed. The slug, under More options, follows the name until it is edited.
+The editor then opens with the kind chosen, a name, a message and a condition name written from the value and the kind. The examples replace the name and the message with their own. A Message field left empty, on a new or a stored rule, saves the message written from the rule, shown in the field until a message is typed. The condition name, the field just above More options, follows the value and the kind until one is typed. The slug, under More options, follows the name until it is edited.
 
 Numbers are typed in the display unit the server's unit preferences give the path, and stored in SI. The screenshots come from the webapp's render harness, which gives each path the display unit of Signal K's default nautical-metric preset, where:
 
