@@ -18,7 +18,7 @@ export const OPTIONS = {
    * a stored rule the editor cannot make: a sustained rule with a fixed
    * detector limit, a ratio flagged as angles, a count whose "changes" event
    * carries a value, or a zone-limit rule that also has steps; or the
-   * examples with a rule made from the two-slot alternator template for the
+   * examples with a rule made from the built-in alternator template for the
    * start battery and the port engine; or the examples with a heel rule on
    * the roll field of `navigation.attitude`.
    */
