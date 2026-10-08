@@ -6,14 +6,7 @@ import { PriorityBadge } from '../list/PriorityBadge'
 import { PathPicker } from '../paths/PathPicker'
 import { withoutFields, type PathList } from '../paths/selfPaths'
 import type { Measure, UnitLookup } from '../signalUnits'
-import {
-  CheckField,
-  DurationInput,
-  SelectField,
-  TextField,
-  useFieldErrors,
-  useFieldMessages
-} from './fields'
+import { CheckField, SelectField, TextField, useFieldErrors, useFieldMessages } from './fields'
 import {
   canLatch,
   emptyGate,
@@ -205,32 +198,21 @@ export function MoreOptions({
       <summary className="skar-more-summary">More options</summary>
       <div className="skar-more-body">
         {(d.type === 'sustained' || d.type === 'outside') && (
-          <>
-            <TextField
-              label="Clear margin"
-              extraErrors={marginErrors}
-              value={d.hysteresis}
-              nonNegative
-              unit={unitLabels(measure).interval}
-              hint={
-                d.type === 'outside'
-                  ? 'How far inside the range the value must come back to clear. Empty is none.'
-                  : 'How far back past the limit the value must go to clear. Empty is none.'
-              }
-              onChange={(hysteresis) => {
-                onChange(withDetector(form, { hysteresis }))
-              }}
-            />
-            <DurationInput
-              label="Clear delay"
-              pointer="/detector/clearDuration"
-              value={d.clearDuration}
-              hint="How long the value must stay clear. Empty clears at once."
-              onChange={(clearDuration) => {
-                onChange(withDetector(form, { clearDuration }))
-              }}
-            />
-          </>
+          <TextField
+            label="Clear margin"
+            extraErrors={marginErrors}
+            value={d.hysteresis}
+            nonNegative
+            unit={unitLabels(measure).interval}
+            hint={
+              d.type === 'outside'
+                ? 'How far inside the range the value must come back to clear. Empty is none.'
+                : 'How far back past the limit the value must go to clear. Empty is none.'
+            }
+            onChange={(hysteresis) => {
+              onChange(withDetector(form, { hysteresis }))
+            }}
+          />
         )}
         {canLatch(d) && (
           <CheckField

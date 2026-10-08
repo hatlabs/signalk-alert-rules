@@ -30,7 +30,7 @@ const closed = {
   holds: false,
   input: 'value'
 } as const
-const timer = { kind: 'timer', toward: 'set', elapsed: 3, target: 5 } as const
+const timer = { kind: 'timer', elapsed: 3, target: 5 } as const
 
 const enabled = (facts: InstanceFacts) => instanceState(facts, false, START)
 const disabled = (facts: InstanceFacts) => instanceState(facts, true, START)

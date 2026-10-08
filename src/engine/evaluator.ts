@@ -295,9 +295,9 @@ function canonical(value: unknown): string {
 // active match of a value no longer listed would hold until the next sample.
 // A zone limit's named level is structural too: re-evaluated in place, an
 // active alert would at once report the new level, which the value may never
-// have entered, while its detector waits out the clear duration. The alert
-// path is listed so that the edit preview names it: `RuleRunner.update` moves
-// an alert whose path changes before an evaluator sees the edit.
+// have entered, while its detector stays active inside the clear margin. The
+// alert path is listed so that the edit preview names it: `RuleRunner.update`
+// moves an alert whose path changes before an evaluator sees the edit.
 function structure(rule: Rule): Record<string, unknown> {
   const fields: readonly string[] = ['type', ...STRUCTURAL[rule.detector.type]]
   return {

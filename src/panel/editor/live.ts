@@ -18,16 +18,14 @@ import { signalMeasure, type Measure, type UnitLookup } from '../signalUnits'
 import { fromSI, toSI } from '../units'
 import { kindOf } from './conditionKinds'
 import {
-  DURATION_FACTORS,
   isZoneLimited,
   parsedNumber,
   signalShape,
   stepQuantity,
-  type DurationField,
   type RuleForm,
   type StepForm
 } from './formModel'
-import { durationText, rangeLimitText, stepLimitText, stepWord } from './words'
+import { rangeLimitText, stepLimitText, stepWord } from './words'
 
 /**
  * The priorities as the IMO alert management resolutions behind the Signal
@@ -119,15 +117,9 @@ function passedText(
   return limit === undefined ? undefined : `${side === 'low' ? 'below' : 'above'} ${limit}`
 }
 
-/** A typed duration in seconds; undefined while empty or not a number. */
-function durationSeconds(field: DurationField): number | undefined {
-  const amount = parsedNumber(field.amount)
-  return amount === undefined ? undefined : amount * DURATION_FACTORS[field.unit]
-}
-
 /**
  * Where the value must be back for the alert to clear, as typed for the
- * first step: past it by the clear margin, for the clear delay.
+ * first step: past it by the clear margin.
  */
 function clearsText(form: RuleForm, measure: Measure): string | undefined {
   const first = form.steps.at(0)
@@ -138,16 +130,13 @@ function clearsText(form: RuleForm, measure: Measure): string | undefined {
     typedMargin === undefined
       ? undefined
       : toSI(measure.kind === 'ratio' ? 'ratio' : 'interval', typedMargin, measure.unit)
-  const delay = durationSeconds(form.detector.clearDuration)
   const shown = (si: number) => formatNumber(fromSI(measure.kind, si, measure.unit))
   const worded = (clear: ClearPoint<BackPastLimit | BackInRange>, where: string) =>
-    clear.eased
-      ? `once back ${where}${clear.delay === undefined ? '' : ` for ${durationText(form.detector.clearDuration) ?? ''}`}`
-      : where
+    clear.margin !== undefined ? `once back ${where}` : where
   if (kind === 'outside') {
     const [low, high] = [siValue(first.low, measure), siValue(first.high, measure)]
     if (low === undefined || high === undefined) return undefined
-    const clear = clearPoint({ side: 'between', low, high }, margin, delay)
+    const clear = clearPoint({ side: 'between', low, high }, margin)
     const range = rangeLimitText({ ...first, high: shown(clear.back.high) }, 'high', measure)
     return range === undefined
       ? undefined
@@ -156,7 +145,7 @@ function clearsText(form: RuleForm, measure: Measure): string | undefined {
   const side = OPPOSITE_SIDE[kind ?? '']
   const limit = siValue(first.limit, measure)
   if (side === undefined || limit === undefined) return undefined
-  const clear = clearPoint({ side, limit }, margin, delay)
+  const clear = clearPoint({ side, limit }, margin)
   const text = stepLimitText(
     { ...first, limit: shown(clear.back.limit) },
     stepQuantity(form.detector),

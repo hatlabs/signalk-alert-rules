@@ -44,7 +44,7 @@ const alert = (slug: string, instance?: string) =>
 
 export const exampleScenarios: Record<string, Scenario> = {
   // Zones: warn below 12 V, alarm below 11.5 V. Each level must hold for 60 s,
-  // and clears 30 s after the voltage is 0.2 V back above its threshold.
+  // and clears once the voltage is 0.2 V back above its threshold.
   'house-battery-low': {
     meta: {
       [VOLTAGE]: {
@@ -66,7 +66,7 @@ export const exampleScenarios: Record<string, Scenario> = {
     expected: [
       [70, 'raise', alert('house-battery-low'), 'warning'],
       [160, 'priority', alert('house-battery-low'), 'alarm'],
-      [330, 'clear', alert('house-battery-low')]
+      [300, 'clear', alert('house-battery-low')]
     ]
   },
 
@@ -219,7 +219,7 @@ export const exampleScenarios: Record<string, Scenario> = {
   },
 
   // Warning outside 49-51 Hz, alarm outside 48-52 Hz, each held for 10 s;
-  // clears 30 s after the frequency is 0.2 Hz inside 49-51 Hz. It goes high,
+  // clears once the frequency is 0.2 Hz inside 49-51 Hz. It goes high,
   // past the alarm range, to the low side, back to 50.9 Hz (inside the range
   // but within the hysteresis) and to 50.1 Hz.
   'shore-power-frequency': {
@@ -237,7 +237,7 @@ export const exampleScenarios: Record<string, Scenario> = {
     expected: [
       [20, 'raise', alert('shore-power-frequency'), 'warning'],
       [70, 'priority', alert('shore-power-frequency'), 'alarm'],
-      [270, 'clear', alert('shore-power-frequency')]
+      [240, 'clear', alert('shore-power-frequency')]
     ]
   }
 }

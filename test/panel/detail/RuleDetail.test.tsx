@@ -225,21 +225,11 @@ describe('RuleDetail', () => {
       )
     })
 
-    it('clears past the first step by the clear margin, after the clear delay, stated once', () => {
-      renderDetail({ ...stepped, rule: { ...stepped.rule, hysteresis: 0.2, clearDuration: 30 } })
-      expect(fact(/^clears/i)).toBe('once back above 12.4 V for 30 s')
+    it('clears past the first step by the clear margin, stated once', () => {
+      renderDetail({ ...stepped, rule: { ...stepped.rule, hysteresis: 0.2 } })
+      expect(fact(/^clears/i)).toBe('once back above 12.4 V')
       expect(screen.getByText(/^It stays/).textContent).toBe('It stays an alarm until it clears.')
       expect(screen.queryByText(/^Clears (when|once)/)).toBeNull()
-    })
-
-    it('words a clear delay without a margin, and leaves the ladder without a hint', () => {
-      renderDetail({
-        ...stepped,
-        rule: { ...stepped.rule, clearDuration: 30 },
-        status: { ...stepped.status, ...ruleEntry().status }
-      })
-      expect(fact(/^clears/i)).toBe('once back above 12.2 V for 30 s')
-      expect(screen.queryByText(/^(Clears (when|once)|It stays)/)).toBeNull()
     })
 
     it('clears below the first step less the clear margin, for a rule above it', () => {
@@ -267,11 +257,11 @@ describe('RuleDetail', () => {
   describe('when the alert clears', () => {
     const noClearsRow = () => screen.queryByRole('definition', { name: /^clears/i })
 
-    it('states the clear margin and delay of a one-step rule under Alerts when', () => {
-      renderDetail({ ...houseLow, rule: { ...houseLow.rule, hysteresis: 0.2, clearDuration: 30 } })
+    it('states the clear margin of a one-step rule under Alerts when', () => {
+      renderDetail({ ...houseLow, rule: { ...houseLow.rule, hysteresis: 0.2 } })
       const terms = screen.getAllByRole('term').map((t) => t.textContent)
       expect(terms.indexOf('Clears')).toBe(terms.indexOf('Alerts when') + 1)
-      expect(fact(/^clears/i)).toBe('once back above 12.2 V for 30 s')
+      expect(fact(/^clears/i)).toBe('once back above 12.2 V')
     })
 
     it('narrows a one-step outside rule’s range by the clear margin', () => {
@@ -296,38 +286,22 @@ describe('RuleDetail', () => {
             steps: [],
             duration: 60,
             hysteresis: 0.2,
-            clearDuration: 30,
             detector: { type: 'sustained', direction: 'below', zoneLevel: 'warn' },
             signal: { paths: [HOUSE] }
           }
         })
       )
       expect(fact(/alerts when/i)).toBe('below the warn zone for at least 60 s')
-      expect(fact(/^clears/i)).toBe('once back above the warn zone by 0.2 V for 30 s')
+      expect(fact(/^clears/i)).toBe('once back above the warn zone by 0.2 V')
     })
 
-    it('words a zone limit’s clear delay without a margin', () => {
-      renderDetail(
-        ruleEntry({
-          rule: {
-            name: 'House battery low',
-            steps: [],
-            clearDuration: 30,
-            detector: { type: 'sustained', direction: 'below', zoneLevel: 'warn' },
-            signal: { paths: [HOUSE] }
-          }
-        })
-      )
-      expect(fact(/^clears/i)).toBe('once back above the warn zone for 30 s')
-    })
-
-    it('shows no row for a rule without a clear margin or delay', () => {
+    it('shows no row for a rule without a clear margin', () => {
       renderDetail(houseLow)
       expect(noClearsRow()).toBeNull()
     })
 
-    it('shows no row for a clear margin and delay of zero, which are unset', () => {
-      renderDetail({ ...houseLow, rule: { ...houseLow.rule, hysteresis: 0, clearDuration: 0 } })
+    it('shows no row for a clear margin of zero, which is unset', () => {
+      renderDetail({ ...houseLow, rule: { ...houseLow.rule, hysteresis: 0 } })
       expect(noClearsRow()).toBeNull()
     })
   })
@@ -934,20 +908,6 @@ describe('RuleDetail', () => {
       expect(conditions()).toEqual([`${PORT} above 480 rpm for 10 s`, `${STBD} above 480 rpm`])
     })
 
-    it('words a gate’s clear margin and delay, as the clear hint does', () => {
-      renderDetail(
-        gated([
-          { paths: [PORT], direction: 'above', limit: 8, hysteresis: 0.5, clearDuration: 30 },
-          { paths: [STBD], direction: 'below', limit: 8, clearDuration: 30 }
-        ]),
-        { units: rpmUnits }
-      )
-      expect(conditions()).toEqual([
-        `${PORT} above 480 rpm; stops holding once back below 450 rpm for 30 s`,
-        `${STBD} below 480 rpm; stops holding once back above 480 rpm for 30 s`
-      ])
-    })
-
     it('words a gate on a zone', () => {
       renderDetail(gated([{ paths: [PORT], direction: 'above', zoneLevel: 'warn' }]), {
         units: rpmUnits
@@ -1006,52 +966,6 @@ describe('RuleDetail', () => {
       expect(Array.from(gate.children).map((c) => c.textContent)).toEqual([
         `Difference: first minus second (${PORT}, ${STBD}) above 480 rpm`,
         'Values are angles, wrapping at a full turn'
-      ])
-    })
-
-    it('words a zone gate’s clear margin as a difference', () => {
-      renderDetail(
-        gated([
-          {
-            paths: [PORT],
-            direction: 'above',
-            zoneLevel: 'warn',
-            hysteresis: 0.5,
-            clearDuration: 30
-          }
-        ]),
-        { units: rpmUnits }
-      )
-      expect(conditions()).toEqual([
-        `${PORT} above the warn zone; stops holding once back below the warn zone by 30 rpm for 30 s`
-      ])
-    })
-
-    it('words a below gate’s clear margin without a delay, above its limit', () => {
-      renderDetail(gated([{ paths: [STBD], direction: 'below', limit: 8, hysteresis: 0.5 }]), {
-        units: rpmUnits
-      })
-      expect(conditions()).toEqual([`${STBD} below 480 rpm; stops holding once back above 510 rpm`])
-    })
-
-    it('words a zone gate’s clear delay without a margin', () => {
-      renderDetail(
-        gated([{ paths: [PORT], direction: 'above', zoneLevel: 'warn', clearDuration: 30 }]),
-        { units: rpmUnits }
-      )
-      expect(conditions()).toEqual([
-        `${PORT} above the warn zone; stops holding once back below the warn zone for 30 s`
-      ])
-    })
-
-    it('words a zone gate’s clear margin in an offset unit as a difference', () => {
-      const COOLANT = 'propulsion.port.coolantTemperature'
-      renderDetail(
-        gated([{ paths: [COOLANT], direction: 'above', zoneLevel: 'warn', hysteresis: 2 }]),
-        { units }
-      )
-      expect(conditions()).toEqual([
-        `${COOLANT} above the warn zone; stops holding once back below the warn zone by 2 °C`
       ])
     })
   })

@@ -52,7 +52,7 @@ Every numeric field is tagged in the schema (`x-quantity`) with how it converts 
 |---|---|---|
 | `absolute` | a sustained or projection step's `limit`; an outside step's `low` and `high`; a gate's fixed limit `value`; the numeric `value` of a match step, state condition or event | the display unit's full formula |
 | `interval` | `hysteresis`; a slope step's `limit` (per second) | the linear part only, so 2 °C of hysteresis is 2 K, not 275.15 K |
-| `duration` | `duration`, `clearDuration`, `window`, `horizon`, an absence step's `within` | seconds |
+| `duration` | `duration`, `window`, `horizon`, an absence step's `within` | seconds |
 | `count` | a count step's `limit` | unitless |
 | `accumulated` | an accumulator step's `limit` | seconds for `time`; the signal's unit times seconds for `integral` |
 
@@ -160,13 +160,13 @@ A replayed value only sets the baseline. An unavailable reading leaves the basel
 
 ### sustained
 
-`direction` (`above` or `below`), `steps` (each a `limit`) or a zone `limit`, `duration`, `hysteresis`, `clearDuration`.
+`direction` (`above` or `below`), `steps` (each a `limit`) or a zone `limit`, `duration`, `hysteresis`.
 
-Active once the value has been beyond the limit (strictly above or below it) for `duration`. Ends once it has been back past the limit by `hysteresis`, at or below `limit - hysteresis` for `above`, for `clearDuration`. All three default to 0. The timer restarts whenever the value leaves the side it is timing and pauses while the input is unavailable. The limits are the steps' or come from zones (see [Zone limits](#zone-limits)).
+Active once the value has been beyond the limit (strictly above or below it) for `duration`. Ends as soon as it is back past the limit by `hysteresis`, at or below `limit - hysteresis` for `above`. Both default to 0. The timer restarts whenever the value leaves the side it is timing and pauses while the input is unavailable. The limits are the steps' or come from zones (see [Zone limits](#zone-limits)).
 
 ### outside
 
-`steps` (each a `low` and a `high` limit), `duration`, `hysteresis`, `clearDuration`.
+`steps` (each a `low` and a `high` limit), `duration`, `hysteresis`.
 
 A sustained comparison on both sides of a range, for a value that matters in either direction, such as shore power frequency outside 49-51 Hz:
 
@@ -178,12 +178,11 @@ A sustained comparison on both sides of a range, for a value that matters in eit
     { "low": 48, "high": 52, "priority": "alarm" }
   ],
   "duration": 10,
-  "hysteresis": 0.2,
-  "clearDuration": 30
+  "hysteresis": 0.2
 }
 ```
 
-Active once the value has been beyond the range, strictly below `low` or above `high`, for `duration`. A value that moves from one side to the other within `duration` is still beyond, so the timer keeps running. Ends once the value has been inside the range narrowed by `hysteresis` on both sides, at or above `low + hysteresis` and at or below `high - hysteresis`, for `clearDuration`. A value inside the range but within `hysteresis` of either limit neither raises nor clears. All three default to 0, and the timer pauses while the input is unavailable, as for [sustained](#sustained). `hysteresis` must be less than half the first step's range (`high - low`), or the alert could never clear. Its steps are typed: an outside rule takes no zone limit. The rule raises one alert, whichever side the value goes out on.
+Active once the value has been beyond the range, strictly below `low` or above `high`, for `duration`. A value that moves from one side to the other within `duration` is still beyond, so the timer keeps running. Ends as soon as the value is inside the range narrowed by `hysteresis` on both sides, at or above `low + hysteresis` and at or below `high - hysteresis`. A value inside the range but within `hysteresis` of either limit neither raises nor clears. Both default to 0, and the timer pauses while the input is unavailable, as for [sustained](#sustained). `hysteresis` must be less than half the first step's range (`high - low`), or the alert could never clear. Its steps are typed: an outside rule takes no zone limit. The rule raises one alert, whichever side the value goes out on.
 
 The limit an outside rule reports, in its alert's `data`, its message's `{limit}` and its state, is the one the value last went past: `high` above the range, `low` below it. A move to the other side while the alert lasts changes the message's `{limit}` at the next repeat and sends no event; the alert's `data` keeps the limit sent with the last raise, climb or edit (see [What Alert Rules sends](#what-alert-rules-sends)). The rule state names the side in `passed` (see [State](#conditions-and-reasons)).
 
@@ -219,9 +218,9 @@ Active once no event has arrived for `within` seconds; ends at the next event. T
 
 ## Gates
 
-A gate puts a rule in use only while a condition on another signal holds, such as a coolant rule only while the engine runs. It is a sustained comparison: `signal`, `direction`, `limit`, `duration`, `hysteresis`, `clearDuration`, with the same meaning as for [sustained](#sustained). A rule has at most 8 gates and is in use while every gate holds.
+A gate puts a rule in use only while a condition on another signal holds, such as a coolant rule only while the engine runs. It is a sustained comparison: `signal`, `direction`, `limit` and `duration`, with the same meaning as for [sustained](#sustained). A gate holds once its input has been past the limit for `duration`, and stops holding as soon as it is not: unlike a detector it has no `hysteresis`, and one is refused as `is not a known property`. A gate that stops holding and holds again clears the alert and raises a new one once the condition holds. A rule back in use restarts its detector, so the rule's `duration` counts again from when the gate holds. An accumulator, which keeps accumulating while out of use, and a rule with no `duration` raise again as soon as the gate holds, so only the gate's own `duration` spaces those re-raises. A rule has at most 8 gates and is in use while every gate holds.
 
-- A gate that stops holding takes the rule out of use and clears its alert. The rule's detector is dropped; when the rule comes back into use it starts afresh, given the last reading, so durations count from then. An accumulator is the exception: it keeps accumulating while its rule is out of use, and only its alert is held back.
+- A gate that stops holding takes the rule out of use and clears its alert. The rule's detector is dropped; when the rule comes back into use it starts afresh, given the last reading, so durations count from then. An accumulator is the exception: it keeps accumulating while its rule is out of use, and only its alert is held back, so one past its step raises again as soon as the gate holds.
 - A gate whose input becomes unavailable keeps its last state: an engine that stopped before its controller went silent stays not running, and a tachometer that fails while the engine runs leaves the rule in use.
 - A gate whose input has not been seen since start does not hold, except for an alert adopted at restart (see [Restart](#restart-reconciliation)), which is kept until the gate input reports. For such an alert the gate starts as holding and does not wait out its `duration`.
 - A gate with a wildcard signal is evaluated per instance; a gate without one is shared by every instance.
@@ -309,7 +308,7 @@ A step's limit depends on the detector: a `limit` for sustained, projection, slo
 
 A step's condition holds at that step or beyond it: a value below 11.7 V is beyond both steps, and a match step holds for its own value and every later step's. Each step must hold for the rule's `duration` before the alert climbs to it, so a momentary dip does not escalate, and a value that passes several steps at once raises at the furthest of them. Reaching a further step sends that step's priority and limit at once, with the message filled in from that step's limit (see [Messages](#messages)); a latching rule sends a latching raise at the new priority. A pulse of a `changesTo` match is raised at the furthest step it reaches.
 
-Nothing lowers the priority. Between steps the alert keeps the highest priority it reached, because core never lowers one, while its message and value keep updating. An edit that removes the reached step or lowers its priority does not lower it either: Alert Rules keeps sending and reporting the priority reached until the alert ends. The alert ends only when the condition is back past the first step: for a sustained or outside rule, by its `hysteresis` for its `clearDuration`.
+Nothing lowers the priority. Between steps the alert keeps the highest priority it reached, because core never lowers one, while its message and value keep updating. An edit that removes the reached step or lowers its priority does not lower it either: Alert Rules keeps sending and reporting the priority reached until the alert ends. The alert ends only when the condition is back past the first step: for a sustained or outside rule, by its `hysteresis`.
 
 A zone-limit rule has no steps of its own: its steps come from the path's zones, from its named level upwards (see [Escalation](#escalation)), each at its level's priority:
 
@@ -441,13 +440,13 @@ An edited rule saved through the [REST API](api.md) replaces the running one wit
 | Edit | Effect on an active alert |
 |---|---|
 | signal (paths, sources, combinator, `angular`), gates, `latching`, detector `type`; a match's `op` or step values; `direction`; a zone limit's `level`, or a change between steps and a zone limit; an accumulator's `measure`, `while` or `resetOn`; a count's or absence's `event` | cleared, and the rule restarts from nothing; it raises again once its condition holds |
-| step limits and windows, a step added or removed (other than a match's), a zone limit's `path`, `duration`, `clearDuration`, `hysteresis`, `window`, `horizon` | re-evaluated in place; timers and windows are kept, and the current value is checked against the new limits before any timer counts. An added step starts its own detector at the edit and must hold for the duration before the alert climbs to it: a count step counts only events after the edit, an absence step's window starts at the edit, a slope or projection step decides nothing until it has a full window, and an accumulator step starts from the total reached; an alert whose step was removed stays at the furthest step left, at the priority it reached |
+| step limits and windows, a step added or removed (other than a match's), a zone limit's `path`, `duration`, `hysteresis`, `window`, `horizon` | re-evaluated in place; timers and windows are kept, and the current value is checked against the new limits before any timer counts. An added step starts its own detector at the edit and must hold for the duration before the alert climbs to it: a count step counts only events after the edit, an absence step's window starts at the edit, a slope or projection step decides nothing until it has a full window, and an accumulator step starts from the total reached; an alert whose step was removed stays at the furthest step left, at the priority it reached |
 | `message`, step priorities | sent with the next emission. A lowered priority does not lower an active alert's |
 | delete, disable, accumulator reset | cleared |
 
 A restarted accumulator keeps its total when its `measure` is unchanged. An edit or delete that discards a total saves the totals at once, so a restart cannot give the old total to the new rule. Each saved total records the measure it was built under, and a total whose measure differs from its rule's is dropped at start, so a rule never takes over a total of another measure, even when that save failed on a full disk. A disabled rule keeps its total. A rule file that fails validation keeps it only while it still names the same accumulator measure. A rule file that cannot be read or does not parse keeps it, also once it has been moved aside as `<slug>.json.corrupt-<time>`, for as long as that copy stays in the rules directory, so a repaired file put back takes its total up again. A rule file removed from the rules directory directly, rather than deleted through the API, loses its total at the next start, so a rule later given its slug starts from zero; when no rule file is left at all, every total is kept, since the rules directory may have been lost or not yet restored.
 
-A match's step values and a zone limit's `level` change what the alert means, so they restart the rule. Re-evaluated in place, a match of a value no longer listed would hold until the next sample. For a zone limit, re-evaluated in place, an active alert would report the new level at once, while its detector waits out `clearDuration`, although the value may never have entered that level. After the restart the rule raises at the new level only once the value has been in it for `duration`.
+A match's step values and a zone limit's `level` change what the alert means, so they restart the rule. Re-evaluated in place, a match of a value no longer listed would hold until the next sample. For a zone limit, re-evaluated in place, an active alert would report the new level at once, while its detector stays active inside its `hysteresis`, although the value may never have entered that level. After the restart the rule raises at the new level only once the value has been in it for `duration`.
 
 ## Disable
 
@@ -527,7 +526,7 @@ Each rule in [`examples/rules`](../examples/rules) runs in `test/examples.test.t
 
 | Example | Rule | Scenario | Alerts |
 |---|---|---|---|
-| `house-battery-low` | Sustained below the house battery's `warn` zone for 60 s, clearing 0.2 V above it after 30 s; escalates through `alarm`. | Zones: `warn` 11.5-12 V, `alarm` below 11.5 V. 12.6 V, 11.8 V at 10 s, 11.3 V at 100 s, 12.1 V at 200 s, 12.4 V at 300 s. | 70 s raise warning; 160 s priority alarm; 330 s clear. 12.1 V at 200 s leaves `alarm` but is inside the 0.2 V hysteresis of `warn`; the alert stays at alarm, since nothing lowers a priority. |
+| `house-battery-low` | Sustained below the house battery's `warn` zone for 60 s, clearing once 0.2 V above it; escalates through `alarm`. | Zones: `warn` 11.5-12 V, `alarm` below 11.5 V. 12.6 V, 11.8 V at 10 s, 11.3 V at 100 s, 12.1 V at 200 s, 12.4 V at 300 s. | 70 s raise warning; 160 s priority alarm; 300 s clear. 12.1 V at 200 s leaves `alarm` but is inside the 0.2 V hysteresis of `warn`; the alert stays at alarm, since nothing lowers a priority. |
 | `bilge-pump-cycling` | Count: more than 4 bilge pump starts within an hour, warning. | Pump on for 60 s every 10 min from 0 s, five times. | 2400 s raise warning (fifth start); 3600 s clear (first start ages out). |
 | `engine-service-due` | Accumulator: 250 h of engine running (revolutions above 0), caution. | Revolutions every minute: running for 200 h, stopped for 10 h, running again. | 260 h raise caution. No `resetOn`, so it never clears. |
 | `coolant-temperature-rising` | Slope: each engine's coolant rising faster than 0.02 K/s over 5 min, gated on that engine's revolutions above 5 Hz, warning. | Both engines run; port coolant climbs 0.05 K/s from 300 s; port engine stops at 600 s. | 440 s raise warning on `.port`; 600 s clear on `.port` (gate). Starboard raises nothing. |
@@ -538,7 +537,7 @@ Each rule in [`examples/rules`](../examples/rules) runs in `test/examples.test.t
 | `compasses-disagree` | Sustained angular difference of two named compass sources above 0.1 rad for 60 s, caution. | 358° and 3° (5° apart across north); compass B at 5° from 30 s, at 1° from 150 s. | 90 s raise caution; 150 s clear. |
 | `engine-stopped` | Match: each engine's state changes to `stopped`, warning, latching. | Port reports `started`; starboard first reports `stopped`; port `stopped` at 600 s. | 600 s latching raise warning on `.port`; no clear. Starboard's first report raises nothing. |
 | `depth-sensor-silent` | Timeout: depth timed out for 30 s, warning. | Depth every 10 s; core marks it timed out at 30 s; depth again from 90 s. | 60 s raise warning; 90 s clear. |
-| `shore-power-frequency` | Outside: shore power frequency outside 49-51 Hz for 10 s, warning; outside 48-52 Hz, alarm; clearing 0.2 Hz inside 49-51 Hz after 30 s. | 50 Hz, 51.4 Hz at 10 s, 52.5 Hz at 60 s, 47.6 Hz at 120 s, 50.9 Hz at 180 s, 50.1 Hz at 240 s. | 20 s raise warning; 70 s priority alarm; 270 s clear. The move to 47.6 Hz sends no event: the message's `{limit}` reads 48 Hz from the next repeat. 50.9 Hz is inside 49-51 Hz but within the 0.2 Hz hysteresis, so only 50.1 Hz clears. |
+| `shore-power-frequency` | Outside: shore power frequency outside 49-51 Hz for 10 s, warning; outside 48-52 Hz, alarm; clearing once 0.2 Hz inside 49-51 Hz. | 50 Hz, 51.4 Hz at 10 s, 52.5 Hz at 60 s, 47.6 Hz at 120 s, 50.9 Hz at 180 s, 50.1 Hz at 240 s. | 20 s raise warning; 70 s priority alarm; 240 s clear. The move to 47.6 Hz sends no event: the message's `{limit}` reads 48 Hz from the next repeat. 50.9 Hz is inside 49-51 Hz but within the 0.2 Hz hysteresis, so only 50.1 Hz clears. |
 
 ## Decided, not yet implemented
 

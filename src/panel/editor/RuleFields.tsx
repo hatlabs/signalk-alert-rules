@@ -143,7 +143,6 @@ function hasMoreOptions(form: RuleForm): boolean {
   const d = form.detector
   return (
     d.hysteresis !== '' ||
-    d.clearDuration.amount !== '' ||
     form.latching ||
     form.gates.length > 0 ||
     form.signal.mode === 'combine' ||

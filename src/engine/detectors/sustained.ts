@@ -16,10 +16,10 @@ export type Side = 'low' | 'high'
 
 /**
  * Sets once the value has been beyond the limit for the duration, and clears
- * once it has been back past the limit by the hysteresis margin for the clear
- * duration. An outside detector has two limits: the value is beyond either,
- * and back only inside both by the margin. The timer runs toward whichever
- * transition is next and pauses while the input is unavailable.
+ * as soon as it is back past the limit by the hysteresis margin. An outside
+ * detector has two limits: the value is beyond either, and back only inside
+ * both by the margin. The timer runs toward setting and pauses while the
+ * input is unavailable.
  */
 export class SustainedDetector extends ConditionDetector<SustainedSpec> {
   private readonly timer = new Stopwatch()
@@ -53,9 +53,9 @@ export class SustainedDetector extends ConditionDetector<SustainedSpec> {
     if (beyond !== undefined) this.side = beyond
     // A value inside the recovery margin is no evidence either way.
     if (this.cleared(value)) this.refuted = true
+    if (this.active) return this.cleared(value) ? this.change(false) : undefined
     // A jump from one side to the other is still beyond, so the timer runs on.
-    const toward = this.active ? this.cleared(value) : beyond !== undefined
-    if (!toward) {
+    if (beyond === undefined) {
       this.timer.reset()
       return undefined
     }
@@ -68,9 +68,7 @@ export class SustainedDetector extends ConditionDetector<SustainedSpec> {
   }
 
   override progress(now: number): Progress | undefined {
-    return this.active
-      ? timerProgress(this.timer, 'clear', this.spec.clearDuration, now)
-      : timerProgress(this.timer, 'set', this.spec.duration, now)
+    return this.active ? undefined : timerProgress(this.timer, this.spec.duration, now)
   }
 
   private beyond(value: number): Side | undefined {
@@ -98,9 +96,8 @@ export class SustainedDetector extends ConditionDetector<SustainedSpec> {
   }
 
   private evaluate(now: number): Transition | undefined {
-    const needed = (this.active ? this.spec.clearDuration : this.spec.duration) ?? 0
-    if (this.timer.elapsed(now) < needed) return undefined
+    if (this.timer.elapsed(now) < (this.spec.duration ?? 0)) return undefined
     this.timer.reset()
-    return this.change(!this.active)
+    return this.change(true)
   }
 }

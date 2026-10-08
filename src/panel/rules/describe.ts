@@ -223,24 +223,18 @@ export interface BackInRange {
 export interface ClearPoint<Back extends BackPastLimit | BackInRange> {
   /** The limits moved back by the margin: where the value must be back. */
   back: Back
-  /** The clear margin in SI, when it is set. */
+  /** The clear margin in SI, when it is set; then the wording is "once back …". */
   margin?: number
-  /** The clear delay in seconds, when it is set. */
-  delay?: number
-  /** A margin or a delay is set, so the wording is "once back … for …". */
-  eased: boolean
 }
 
 /**
- * Where a value must be back for a condition to stop holding, and whether
- * the wording is eased, from the side it must be back on, the clear margin
- * in SI and the clear delay in seconds. A margin or delay of zero is unset,
+ * Where a value must be back for a condition to stop holding, from the side
+ * it must be back on and the clear margin in SI. A margin of zero is unset,
  * as the engine treats it.
  */
 export function clearPoint<Back extends BackPastLimit | BackInRange>(
   back: Back,
-  margin = 0,
-  delay = 0
+  margin = 0
 ): ClearPoint<Back> {
   const by = Math.max(margin, 0)
   const given: BackPastLimit | BackInRange = back
@@ -253,9 +247,7 @@ export function clearPoint<Back extends BackPastLimit | BackInRange>(
   return {
     // Only the limits move, so the result has the shape it was given.
     back: moved as Back,
-    ...(by > 0 ? { margin: by } : {}),
-    ...(delay > 0 ? { delay } : {}),
-    eased: by > 0 || delay > 0
+    ...(by > 0 ? { margin: by } : {})
   }
 }
 
@@ -265,29 +257,13 @@ function formatInterval(value: number, measure: Measure): string {
   return withUnit(formatNumber(fromSI('interval', value, measure.unit)), measure.unit.symbol)
 }
 
-/**
- * When a gate holds, after its path: "above 480 rpm for 10 s", and once it
- * stops, by its clear margin and after its clear delay when it sets them.
- */
+/** When a gate holds, after its path: "above 480 rpm for 10 s". */
 export function gateCondition(gate: RuleGate, units: UnitLookup): string {
-  const measure = signalMeasure(gate, units)
   const { direction = '', limit, zoneLevel = '', duration = 0 } = gate
   const held = duration > 0 ? ` for ${formatDuration(duration)}` : ''
-  const condition =
-    limit === undefined
-      ? `${direction} the ${zoneLevel} zone${held}`
-      : `${direction} ${formatValue(limit, measure)}${held}`
-  const side = OPPOSITE_SIDE[direction]
-  if (side === undefined) return condition
-  const clear = clearPoint({ side, limit }, gate.hysteresis, gate.clearDuration)
-  if (!clear.eased) return condition
-  const where = wherePast(
-    clear,
-    zoneLevel,
-    (v) => formatValue(v, measure),
-    (v) => formatInterval(v, measure)
-  )
-  return `${condition}; stops holding ${onceBack(where, clear)}`
+  return limit === undefined
+    ? `${direction} the ${zoneLevel} zone${held}`
+    : `${direction} ${formatValue(limit, signalMeasure(gate, units))}${held}`
 }
 
 /**
@@ -306,10 +282,6 @@ function wherePast(
   return `${side} the ${zoneLevel} zone${clear.margin === undefined ? '' : ` by ${interval(clear.margin)}`}`
 }
 
-function onceBack(where: string, clear: ClearPoint<BackPastLimit | BackInRange>): string {
-  return `once back ${where}${clear.delay === undefined ? '' : ` for ${formatDuration(clear.delay)}`}`
-}
-
 /**
  * Where a rule's value must be back for its alert to clear: past its first
  * step or its zone by the clear margin, or inside its first step's range
@@ -320,30 +292,26 @@ export function ruleClear(
   display: RuleDisplay
 ): { where: string; clear: ClearPoint<BackPastLimit | BackInRange> } | undefined {
   const first = rule.steps.at(0)
-  const { hysteresis, clearDuration, detector } = rule
+  const { hysteresis, detector } = rule
   if (detector.type === 'outside') {
     if (first?.low === undefined || first.high === undefined) return undefined
-    const clear = clearPoint(
-      { side: 'between', low: first.low, high: first.high },
-      hysteresis,
-      clearDuration
-    )
+    const clear = clearPoint({ side: 'between', low: first.low, high: first.high }, hysteresis)
     return { where: `between ${display.range(clear.back.low, clear.back.high, 'and')}`, clear }
   }
   const side = OPPOSITE_SIDE[detector.direction ?? '']
   if (detector.type !== 'sustained' || side === undefined) return undefined
   if (first !== undefined && first.limit === undefined) return undefined
-  const clear = clearPoint({ side, limit: first?.limit }, hysteresis, clearDuration)
+  const clear = clearPoint({ side, limit: first?.limit }, hysteresis)
   return {
     where: wherePast(clear, detector.zoneLevel ?? '', display.value, display.interval),
     clear
   }
 }
 
-/** When a rule's alert clears, for a rule whose clear margin or delay eases it: "once back above 12.4 V for 30 s". */
+/** When a rule's alert clears, for a rule whose clear margin eases it: "once back above 12.4 V". */
 export function clearsWhen(rule: RuleInfo, display: RuleDisplay): string | undefined {
   const back = ruleClear(rule, display)
-  return back?.clear.eased === true ? onceBack(back.where, back.clear) : undefined
+  return back?.clear.margin !== undefined ? `once back ${back.where}` : undefined
 }
 
 /** How a rule's values, limits and accumulated totals are shown. */

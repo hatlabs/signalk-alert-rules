@@ -6,7 +6,7 @@ import { PriorityBadge } from '../list/PriorityBadge'
 
 /**
  * When the alert ends: only once the condition is back past the first step.
- * A clear margin or delay puts that point in the facts' Clears row, so the
+ * A clear margin puts that point in the facts' Clears row, so the
  * ladder then says only that the alert keeps the step it reached.
  */
 function clearHint(

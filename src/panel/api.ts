@@ -153,8 +153,6 @@ export interface RuleInfo {
   duration?: number
   /** How far, in SI, the value must be back past the first step for the alert to clear. */
   hysteresis?: number
-  /** How long, in seconds, the value must stay back before the alert clears. */
-  clearDuration?: number
   /** The message as stored, its placeholders not filled in. */
   message: string
   detector: {
@@ -204,8 +202,6 @@ export interface RuleGate extends SignalPaths {
   limit?: number
   zoneLevel?: string
   duration?: number
-  hysteresis?: number
-  clearDuration?: number
 }
 
 /** The actor the server records for a request without a login, as it is with security off. */
@@ -580,7 +576,6 @@ export function parseListedRule(body: unknown, what: string): ListedRule {
       steps,
       ...optional('duration', num(d.duration)),
       ...optional('hysteresis', num(d.hysteresis)),
-      ...optional('clearDuration', num(d.clearDuration)),
       message: string(v.message),
       detector: {
         type: string(d.type),
@@ -607,9 +602,7 @@ export function parseListedRule(body: unknown, what: string): ListedRule {
           ...optional('direction', text(gate.direction)),
           ...optional('limit', limit.kind === 'fixed' ? num(limit.value) : undefined),
           ...optional('zoneLevel', limit.kind === 'zone' ? text(limit.level) : undefined),
-          ...optional('duration', num(gate.duration)),
-          ...optional('hysteresis', num(gate.hysteresis)),
-          ...optional('clearDuration', num(gate.clearDuration))
+          ...optional('duration', num(gate.duration))
         }
       })
     }

@@ -7,12 +7,11 @@ const lowVoltage: DetectorSpec = {
   direction: 'below',
   limit: 12,
   duration: 60,
-  hysteresis: 0.2,
-  clearDuration: 30
+  hysteresis: 0.2
 }
 
 describe('sustained detector', () => {
-  it('sets after the duration, holds inside the hysteresis band, clears after the clear duration', () => {
+  it('sets after the duration, holds inside the hysteresis band, clears once back past it', () => {
     const { at, detector } = harness(lowVoltage)
     expect(at(0, v(11.9))).toBeUndefined()
     expect(at(59)).toBeUndefined()
@@ -23,9 +22,7 @@ describe('sustained detector', () => {
     expect(at(500)).toBeUndefined()
     expect(detector.active).toBe(true)
 
-    expect(at(501, v(12.3))).toBeUndefined()
-    expect(at(530)).toBeUndefined()
-    expect(at(531)).toBe('clear')
+    expect(at(501, v(12.2))).toBe('clear')
     expect(detector.active).toBe(false)
   })
 
@@ -39,15 +36,6 @@ describe('sustained detector', () => {
     at(169)
     expect(log).toEqual([])
     expect(at(170)).toBe('set')
-  })
-
-  it('a return inside the hysteresis band during the clear duration restarts the clear timer', () => {
-    const { at } = harness(lowVoltage, { active: true })
-    at(0, v(12.3))
-    at(20, v(12.1))
-    at(40, v(12.3))
-    expect(at(69)).toBeUndefined()
-    expect(at(70)).toBe('clear')
   })
 
   it('started condition-active with the value inside the hysteresis band stays active', () => {
@@ -77,6 +65,17 @@ describe('sustained detector', () => {
     expect(detector.active).toBe(true)
   })
 
+  it('an input unavailable while active leaves it active with no progress, until a value is back', () => {
+    const { at, detector } = harness(lowVoltage)
+    at(0, v(11.9))
+    at(60)
+    expect(at(61, UNAVAILABLE)).toBeUndefined()
+    expect(at(10_000)).toBeUndefined()
+    expect(detector.active).toBe(true)
+    expect(detector.progress(10_000)).toBeUndefined()
+    expect(at(10_001, v(12.2))).toBe('clear')
+  })
+
   it('without duration or hysteresis it sets and clears at the limit', () => {
     const { at } = harness({ type: 'sustained', direction: 'above', limit: 3 })
     expect(at(0, v(3))).toBeUndefined()
@@ -84,7 +83,7 @@ describe('sustained detector', () => {
     expect(at(2, v(3))).toBe('clear')
   })
 
-  it('with a duration but no clear duration it clears as soon as the value is back', () => {
+  it('with a duration it still clears as soon as the value is back', () => {
     const { at } = harness({ type: 'sustained', direction: 'above', limit: 3, duration: 30 })
     at(0, v(4))
     expect(at(30)).toBe('set')

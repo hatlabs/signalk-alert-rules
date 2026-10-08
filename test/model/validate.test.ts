@@ -232,6 +232,28 @@ describe('validateRule', () => {
       )
       expect(paths(errors)).toEqual(['/gates/0/signal/path'])
     })
+
+    it('refuses a clear margin or clear delay on a gate', () => {
+      const errors = errorsOf(
+        rule({
+          detector: minimalDetectors.match,
+          gates: [
+            {
+              signal: { path: 'propulsion.main.revolutions' },
+              direction: 'above',
+              limit: { kind: 'fixed', value: 1 },
+              duration: 10,
+              hysteresis: 1,
+              clearDuration: 5
+            }
+          ]
+        })
+      )
+      expect(errors).toEqual([
+        { path: '/gates/0/hysteresis', message: 'is not a known property' },
+        { path: '/gates/0/clearDuration', message: 'is not a known property' }
+      ])
+    })
   })
 
   describe('zone limits', () => {
@@ -688,6 +710,20 @@ describe('validateRule', () => {
       expect(errors).toContainEqual({ path: '/detector/limit', message: 'is not a known property' })
     })
 
+    it('refuses a clear delay, on an outside or a sustained detector', () => {
+      const sustained = {
+        type: 'sustained',
+        direction: 'below',
+        steps: [step({ limit: 12 })],
+        clearDuration: 30
+      }
+      for (const detector of [{ ...outside([-25, 25, 'warning']), clearDuration: 30 }, sustained]) {
+        expect(errorsOf(rule({ detector }))).toEqual([
+          { path: '/detector/clearDuration', message: 'is not a known property' }
+        ])
+      }
+    })
+
     it("needs hysteresis under half the first step's range to clear", () => {
       const detector = (hysteresis: number) => ({
         ...outside([-25, 25, 'warning']),
@@ -708,8 +744,7 @@ describe('validateRule', () => {
       const detector = {
         ...outside([-25, 25, 'warning'], [-25.5, 25.5, 'alarm']),
         hysteresis: 20,
-        duration: 10,
-        clearDuration: 30
+        duration: 10
       }
       expect(errorsOf(rule({ detector }))).toEqual([])
     })

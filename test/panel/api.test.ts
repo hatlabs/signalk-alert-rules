@@ -47,17 +47,14 @@ const ruleEntry = {
       direction: 'below',
       limit: { kind: 'zone', level: 'warn' },
       duration: 60,
-      hysteresis: 0.2,
-      clearDuration: 30
+      hysteresis: 0.2
     },
     gates: [
       {
         signal: { path: 'electrical.chargers.shore.state' },
         direction: 'below',
         limit: { kind: 'fixed', value: 1 },
-        duration: 10,
-        hysteresis: 0.5,
-        clearDuration: 20
+        duration: 10
       },
       {
         signal: {
@@ -353,7 +350,6 @@ describe('httpApi', () => {
           steps: [],
           duration: 60,
           hysteresis: 0.2,
-          clearDuration: 30,
           detector: { type: 'sustained', direction: 'below', zoneLevel: 'warn' },
           signal: { paths: ['electrical.batteries.*.voltage'] },
           gates: [
@@ -361,9 +357,7 @@ describe('httpApi', () => {
               paths: ['electrical.chargers.shore.state'],
               direction: 'below',
               limit: 1,
-              duration: 10,
-              hysteresis: 0.5,
-              clearDuration: 20
+              duration: 10
             },
             {
               paths: ['propulsion.port.revolutions', 'propulsion.stbd.revolutions'],

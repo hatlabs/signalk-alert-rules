@@ -172,24 +172,6 @@ export function GateFields({ index, gate, onChange, onRemove, paths, units }: Ga
           onChange({ ...gate, duration })
         }}
       />
-      <TextField
-        label={`${name} clear margin`}
-        pointer={`${at}/hysteresis`}
-        value={gate.hysteresis}
-        nonNegative
-        unit={unitLabels(measure).interval}
-        onChange={(hysteresis) => {
-          onChange({ ...gate, hysteresis })
-        }}
-      />
-      <DurationInput
-        label={`${name}: stops holding after`}
-        pointer={`${at}/clearDuration`}
-        value={gate.clearDuration}
-        onChange={(clearDuration) => {
-          onChange({ ...gate, clearDuration })
-        }}
-      />
       <div>
         <button type="button" className="skar-btn skar-btn-ghost skar-btn-small" onClick={onRemove}>
           Remove condition {String(index + 1)}

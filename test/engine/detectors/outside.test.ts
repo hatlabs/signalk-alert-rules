@@ -7,8 +7,7 @@ const heel = {
   low: -25,
   high: 25,
   duration: 10,
-  hysteresis: 2,
-  clearDuration: 5
+  hysteresis: 2
 } satisfies DetectorSpec
 
 describe('outside detector', () => {
@@ -35,15 +34,13 @@ describe('outside detector', () => {
     expect(log).toEqual([])
   })
 
-  it('clears only inside the range narrowed by the hysteresis, after the clear duration', () => {
+  it('clears as soon as the value is inside the range narrowed by the hysteresis', () => {
     const { at } = harness(heel)
     at(0, v(27))
     at(10)
     expect(at(11, v(24))).toBeUndefined()
     expect(at(100)).toBeUndefined()
-    expect(at(101, v(22.9))).toBeUndefined()
-    expect(at(105)).toBeUndefined()
-    expect(at(106)).toBe('clear')
+    expect(at(101, v(23))).toBe('clear')
   })
 
   it('clears from the low side at the low limit plus the hysteresis', () => {
@@ -111,7 +108,6 @@ describe('outside detector', () => {
     at(0, v(-27))
     at(10)
     at(11, v(0))
-    at(16)
     expect(detector.active).toBe(false)
     expect(detector.passed).toBe('low')
   })

@@ -452,8 +452,7 @@ describe('an outside rule', () => {
         { low: -0.6108652381980153, high: 0.6108652381980153, priority: 'alarm' }
       ],
       duration: 10,
-      hysteresis: 0.03490658503988659,
-      clearDuration: 30
+      hysteresis: 0.03490658503988659
     }
   }
 
@@ -475,7 +474,6 @@ describe('an outside rule', () => {
     ])
     expect(form.detector.hysteresis).toBe('2')
     expect(form.detector.duration).toEqual({ amount: '10', unit: 's' })
-    expect(form.detector.clearDuration).toEqual({ amount: '30', unit: 's' })
   })
 
   it('round-trips with every step and its timing', () => {
@@ -1135,7 +1133,7 @@ describe('a stored rule that does not validate', () => {
       ])
     })
 
-    it('drops the range and clear margin, keeping the durations', () => {
+    it('drops the range and clear margin, keeping the duration', () => {
       const form = withoutSignal('shore-power-frequency')
       expect(form.steps.map((s) => [s.low, s.high, s.priority])).toEqual([
         ['', '', 'warning'],
@@ -1143,8 +1141,7 @@ describe('a stored rule that does not validate', () => {
       ])
       expect(form.detector).toMatchObject({
         hysteresis: '',
-        duration: { amount: '10', unit: 's' },
-        clearDuration: { amount: '30', unit: 's' }
+        duration: { amount: '10', unit: 's' }
       })
     })
 
@@ -1211,21 +1208,13 @@ describe('a stored rule that does not validate', () => {
       expect(form.steps[0]?.limit).not.toBe('')
     })
 
-    it('drops the limit and clear margin of a gate without a signal, keeping its delays', () => {
+    it('drops the limit of a gate without a signal, keeping its duration', () => {
       const rule = example('engine-rpm-mismatch')
       const [gate, other] = rule.gates ?? []
-      const form = bodyForm(
-        {
-          ...rule,
-          gates: [{ ...gate, signal: undefined, hysteresis: 1, clearDuration: 5 }, other]
-        },
-        displayed
-      )
+      const form = bodyForm({ ...rule, gates: [{ ...gate, signal: undefined }, other] }, displayed)
       expect(form.gates[0]).toMatchObject({
         limit: { value: '' },
-        hysteresis: '',
-        duration: { amount: '10', unit: 's' },
-        clearDuration: { amount: '5', unit: 's' }
+        duration: { amount: '10', unit: 's' }
       })
       expect(form.gates[1]?.limit.value).toBe('480')
     })
@@ -1241,7 +1230,7 @@ describe('a stored rule that does not validate', () => {
         {
           ...body,
           detector: { ...rule.detector, hysteresis: 1 },
-          gates: [{ ...gate, signal: undefined, hysteresis: 1 }, other]
+          gates: [{ ...gate, signal: undefined }, other]
         },
         displayed
       )
@@ -1249,7 +1238,6 @@ describe('a stored rule that does not validate', () => {
       expect(emptied).toEqual([
         { path: '/detector/hysteresis', message: retype },
         { path: '/detector/steps/0/limit', message: 'is required' },
-        { path: '/gates/0/hysteresis', message: retype },
         { path: '/gates/0/limit/value', message: 'is required' }
       ])
     })
@@ -1370,19 +1358,17 @@ describe('a converted value shown rounded', () => {
     expect(saved(form).detector.steps).toEqual([{ limit: 0.2, priority: 'warning' }])
   })
 
-  it('rounds and keeps a clear margin, a slope and a gate limit and margin', () => {
+  it('rounds and keeps a clear margin, a slope and a gate limit', () => {
     const rule = heading({ hysteresis: 0.01 }, [
       {
         signal: { path: 'navigation.headingMagnetic' },
         direction: 'above',
-        limit: { kind: 'fixed', value: 0.3 },
-        hysteresis: 0.02
+        limit: { kind: 'fixed', value: 0.3 }
       }
     ])
     const form = fromRule(rule, displayed)
     expect(form.detector.hysteresis).toBe('0.573')
     expect(form.gates[0].limit.value).toBe('17.19')
-    expect(form.gates[0].hysteresis).toBe('1.146')
     expect(saved(form)).toEqual(rule)
 
     const slope = heading({
@@ -1433,8 +1419,7 @@ describe('a converted value shown rounded', () => {
       {
         signal: { path: 'navigation.headingMagnetic' },
         direction: 'above',
-        limit: { kind: 'fixed', value: 0.1 },
-        hysteresis: 0.1
+        limit: { kind: 'fixed', value: 0.1 }
       }
     ]
     type AccumulatorDetector = Extract<Detector, { type: 'accumulator' }>
@@ -1558,15 +1543,6 @@ describe('a converted value shown rounded', () => {
           f.gates[0].limit.value = t
         },
         stored: (r) => (gate(r).limit as { value: number }).value
-      },
-      {
-        field: 'gate clear margin',
-        rule: heading({}, gated),
-        text: (f) => f.gates[0].hysteresis,
-        type: (f, t) => {
-          f.gates[0].hysteresis = t
-        },
-        stored: (r) => gate(r).hysteresis
       }
     ]
 
@@ -1593,8 +1569,7 @@ describe('withNumbersInUnit', () => {
   const gate = {
     signal: { path: RPM },
     direction: 'above',
-    limit: { kind: 'fixed', value: 10 },
-    hysteresis: 1
+    limit: { kind: 'fixed', value: 10 }
   }
   const priority = 'warning'
   // Every number of each detector typed in its signal's unit, filled; a fixed detector limit is
@@ -1668,8 +1643,8 @@ describe('withNumbersInUnit', () => {
         gates: form.gates.map((g, i) => ({ ...g, signal: moved.gates[i]?.signal ?? g.signal }))
       }
       const { emptied } = withNumbersInUnit(form, changed, displayed)
-      // Beyond the gate's limit and clear margin, the detector's own.
-      expect(emptied.length).toBeGreaterThan(2)
+      // Beyond the gate's limit, the detector's own.
+      expect(emptied.length).toBeGreaterThan(1)
       // A change of unit withholds the text that opening shows.
       expect(emptied.every((e) => e.withheld === true)).toBe(true)
       expect(byPath(revealed(emptied))).toEqual(byPath(opened))
@@ -1703,36 +1678,26 @@ describe('withoutGate', () => {
     const errors = [
       error('/gates/0/limit/value'),
       error('/gates/1/limit/value'),
-      error('/gates/1/hysteresis'),
-      error('/gates/2/hysteresis'),
+      error('/gates/1/duration'),
+      error('/gates/2/duration'),
       error('/gates/3')
     ]
-    expect(paths(withoutGate(errors, new Set(), 1).errors)).toEqual([
+    expect(paths(withoutGate(errors, 1))).toEqual([
       '/gates/0/limit/value',
-      '/gates/1/hysteresis',
+      '/gates/1/duration',
       '/gates/2'
     ])
   })
 
   it('leaves the pointers of the rule’s own fields, and of all conditions together, alone', () => {
     const errors = [error('/detector/hysteresis'), error('/gates'), error('/name')]
-    expect(withoutGate(errors, new Set(['/detector/hysteresis']), 0)).toEqual({
-      errors,
-      named: new Set(['/detector/hysteresis'])
-    })
+    expect(withoutGate(errors, 0)).toEqual(errors)
   })
 
   it('reads a condition’s index whole, condition 10 apart from condition 1', () => {
-    const errors = [error('/gates/1/hysteresis'), error('/gates/10/hysteresis')]
-    expect(paths(withoutGate(errors, new Set(), 1).errors)).toEqual(['/gates/9/hysteresis'])
-    expect(paths(withoutGate(errors, new Set(), 10).errors)).toEqual(['/gates/1/hysteresis'])
-  })
-
-  it('moves the named clear margins as the errors', () => {
-    const named = new Set(['/gates/0/hysteresis', '/gates/1/hysteresis', '/gates/2/hysteresis'])
-    expect(withoutGate([], named, 1).named).toEqual(
-      new Set(['/gates/0/hysteresis', '/gates/1/hysteresis'])
-    )
+    const errors = [error('/gates/1/duration'), error('/gates/10/duration')]
+    expect(paths(withoutGate(errors, 1))).toEqual(['/gates/9/duration'])
+    expect(paths(withoutGate(errors, 10))).toEqual(['/gates/1/duration'])
   })
 
   it('keeps each error’s text withheld or shown as it was', () => {
@@ -1740,16 +1705,16 @@ describe('withoutGate', () => {
       { path: '/gates/1/limit/value', message: 'is required', withheld: true as const },
       { path: '/gates/2/limit/value', message: 'is required' }
     ]
-    expect(withoutGate(errors, new Set(), 0).errors).toEqual([
+    expect(withoutGate(errors, 0)).toEqual([
       { path: '/gates/0/limit/value', message: 'is required', withheld: true },
       { path: '/gates/1/limit/value', message: 'is required' }
     ])
   })
 
   it('keeps each error’s message', () => {
-    const errors = [{ path: '/gates/2/hysteresis', message: 'must be at least 0' }]
-    expect(withoutGate(errors, new Set(), 0).errors).toEqual([
-      { path: '/gates/1/hysteresis', message: 'must be at least 0' }
+    const errors = [{ path: '/gates/2/duration', message: 'must be at least 0' }]
+    expect(withoutGate(errors, 0)).toEqual([
+      { path: '/gates/1/duration', message: 'must be at least 0' }
     ])
   })
 })

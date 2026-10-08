@@ -52,7 +52,7 @@ export class AbsenceDetector extends ConditionDetector<AbsenceSpec> {
   }
 
   override progress(now: number): Progress | undefined {
-    return this.active ? undefined : timerProgress(this.timer, 'set', this.spec.within, now)
+    return this.active ? undefined : timerProgress(this.timer, this.spec.within, now)
   }
 
   private evaluate(now: number): Transition | undefined {

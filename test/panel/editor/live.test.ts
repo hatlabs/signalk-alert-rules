@@ -112,20 +112,11 @@ describe('nowText', () => {
 })
 
 describe('ladderText', () => {
-  it('clears past the first step by the clear margin, after the clear delay', () => {
+  it('clears past the first step by the clear margin', () => {
     const f = below('12.2', '11.8')
     f.detector.hysteresis = '0.2'
-    f.detector.clearDuration = { amount: '30', unit: 's' }
     expect(ladderText(f, units)).toBe(
-      'The alert is raised as a warning below 12.2 V and becomes an alarm below 11.8 V. It clears only once back above 12.4 V for 30 s.'
-    )
-  })
-
-  it('words a clear delay without a margin', () => {
-    const f = below('12.2', '11.8')
-    f.detector.clearDuration = { amount: '30', unit: 's' }
-    expect(ladderText(f, units)).toBe(
-      'The alert is raised as a warning below 12.2 V and becomes an alarm below 11.8 V. It clears only once back above 12.2 V for 30 s.'
+      'The alert is raised as a warning below 12.2 V and becomes an alarm below 11.8 V. It clears only once back above 12.4 V.'
     )
   })
 
