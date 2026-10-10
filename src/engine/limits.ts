@@ -1,4 +1,5 @@
-import { ZONE_LEVELS, type Limit, type ZoneLevel, type ZoneLimit } from '../model/rule.js'
+import type { Limit, ZoneLimit } from '../model/rule.js'
+import { ZONE_LEVELS, type ZoneLevel } from '../model/zoneLevels.js'
 
 /** A `meta.zones` entry. JSON meta may carry a missing bound as null. */
 export interface Zone {
