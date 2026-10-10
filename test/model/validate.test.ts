@@ -724,7 +724,7 @@ describe('validateRule', () => {
       }
     })
 
-    it("needs hysteresis under half the first step's range to clear", () => {
+    it("needs hysteresis under half the first step's range to end", () => {
       const detector = (hysteresis: number) => ({
         ...outside([-25, 25, 'warning']),
         hysteresis
