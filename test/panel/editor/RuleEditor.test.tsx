@@ -3464,6 +3464,31 @@ describe('RuleEditor, the preview of {limit}', () => {
     expect(await previewOf(rule, houseAt(11.2))).toContain('“Past 12 V: 11.2 V”')
   })
 
+  it('fills a state rule’s limit with the value of the step the live value matches', async () => {
+    const rule: Rule = {
+      name: 'Port engine state',
+      slug: 'port-engine-state',
+      message: 'Mine',
+      signal: { path: 'propulsion.port.state' },
+      detector: {
+        type: 'match',
+        op: 'equals',
+        steps: [
+          { value: 'stopped', priority: 'warning' },
+          { value: 'started', priority: 'alarm' }
+        ]
+      }
+    }
+    renderEditor({ editing: { entry: ruleEntry({ slug: rule.slug }), rule } })
+    await formShown()
+    type(textbox(/^Message/), '')
+    await waitFor(() => {
+      expect(description(textbox(/^Message/))).toContain(
+        'While empty, sends: “Port state is started”'
+      )
+    })
+  })
+
   it('keeps the dash for a detector whose step has no limit', async () => {
     const rule: Rule = {
       ...zoneLimited(HOUSE),

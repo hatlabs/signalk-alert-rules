@@ -25,6 +25,7 @@ import {
   type RuleForm,
   type SignalForm
 } from './formModel'
+import { reachedStep } from './live'
 import {
   generatedMessage,
   isEmptyMessage,
@@ -299,10 +300,12 @@ export function RuleFields(props: RuleFieldsProps) {
     const result = toSavedRule(form, units)
     if (!result.ok) return undefined
     const limit = previewLimit(form, result.rule, liveValue, measure, live)
+    // Kinds whose step the live value cannot decide preview their first step.
+    const reached = liveValue === undefined ? undefined : reachedStep(form, liveValue, measure)
     return renderMessage(
       result.rule,
       {
-        step: 0,
+        step: Math.max(reached ?? 0, 0),
         ...(limit === undefined ? {} : { limit }),
         ...(previewInstance === undefined ? {} : { instance: previewInstance }),
         ...(liveValue === undefined ? {} : { value: liveValue }),

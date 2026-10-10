@@ -111,21 +111,26 @@ export function toSavedRule(form: RuleForm, units: UnitLookup): ToRuleResult {
   return toRule({ ...form, message }, units)
 }
 
-/** The detectors whose limit the preview resolves, so an unfilled `{limit}` stays as written. */
+/**
+ * Whether {@link previewLimit} resolves the rule's limit, so an unfilled
+ * `{limit}` stays as written: a sustained or projection zone limit, or a
+ * range's bound.
+ */
 export function previewResolvesLimit(rule: Rule): boolean {
-  const { type } = rule.detector
-  return type === 'sustained' || type === 'projection' || type === 'outside'
+  const d = rule.detector
+  if (d.type === 'outside') return true
+  return (d.type === 'sustained' || d.type === 'projection') && d.limit?.kind === 'zone'
 }
 
 /**
  * The SI limit the server would fill `{limit}` in with were the rule to alert
- * now: for a zone limit, the bound of the severest level the value is past
- * among those the evaluator builds from the zone path's zones, else the named
- * level's; for a range the bound of the step the value reaches, else the
- * nearer bound of the first (the high one midway, by SI distance); for typed
- * steps the limit of the step the value reaches, else the first's. Undefined
- * where the editor cannot know it: zones not known, no single zone path, or
- * for a range no value now.
+ * now, where the reached step does not hold it: for a zone limit, the bound
+ * of the severest level the value is past among those the evaluator builds
+ * from the zone path's zones, else the named level's; for a range the bound
+ * of the step the value reaches, else the nearer bound of the first (the high
+ * one midway, by SI distance). Undefined for a typed limit, which the reached
+ * step holds, and where the editor cannot know it: zones not known, no single
+ * zone path, or for a range no value now.
  */
 export function previewLimit(
   form: RuleForm,
@@ -150,17 +155,13 @@ export function previewLimit(
     const past = (bound: number) => (direction === 'below' ? value < bound : value > bound)
     return [named.value, ...severer].filter(past).at(-1) ?? named.value
   }
-  const reached = typeof value === 'number' ? reachedStep(form, value, measure) : undefined
-  if (d.type === 'outside') {
-    if (typeof value !== 'number' || reached === undefined) return undefined
-    const step = d.steps.at(Math.max(reached, 0))
-    if (step === undefined) return undefined
-    if (reached >= 0) return value > step.high ? step.high : step.low
-    return value - step.low < step.high - value ? step.low : step.high
-  }
-  if (d.type === 'match' || d.type === 'absence') return undefined
-  const step = (d.steps ?? []).at(Math.max(reached ?? 0, 0))
-  return step !== undefined && 'limit' in step ? step.limit : undefined
+  if (d.type !== 'outside' || typeof value !== 'number') return undefined
+  const reached = reachedStep(form, value, measure)
+  if (reached === undefined) return undefined
+  const step = d.steps.at(Math.max(reached, 0))
+  if (step === undefined) return undefined
+  if (reached >= 0) return value > step.high ? step.high : step.low
+  return value - step.low < step.high - value ? step.low : step.high
 }
 
 const NAME_WORDS: Readonly<Record<string, string>> = {
