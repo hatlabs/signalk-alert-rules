@@ -3369,6 +3369,53 @@ describe('RuleEditor, the preview of {limit}', () => {
     expect(await previewOf(rule)).toContain('“Frequency beyond 353 K: 355 K”')
   })
 
+  /** Two shore power sources disagreeing about the range, the preferred one inside it. */
+  const twoSources = withPaths({
+    path: FREQUENCY,
+    units: 'Hz',
+    unit: hertz,
+    sources: ['shore.a', 'shore.b'],
+    preferredSource: 'shore.a',
+    value: 50.4,
+    readings: { 'shore.a': 50.4, 'shore.b': 51.6 }
+  })
+  const pinned = (source: string): Rule => {
+    const rule = outside([[49, 51]])
+    return { ...rule, signal: { ...rule.signal, source } }
+  }
+
+  it('reads the live value of the source a rule is pinned to, as the server evaluates it', async () => {
+    expect(await previewOf(pinned('shore.b'), twoSources)).toContain(
+      '“Frequency beyond 51 Hz: 51.6 Hz”'
+    )
+    expect(screen.getByText(/Now 51\.6 Hz: would alert as a warning/)).toBeTruthy()
+  })
+
+  it('has no live value for a pinned source that has not reported', async () => {
+    expect(await previewOf(pinned('shore.c'), twoSources)).toContain(
+      '“Frequency beyond {limit}: –”'
+    )
+    expect(screen.queryByText(/Now 50\.4 Hz/)).toBeNull()
+  })
+
+  it('offers the value the pinned source reports, its preferred source quiet', async () => {
+    const bilge = example('bilge-pump-cycling')
+    const path = 'electrical.switches.bilgePump.state'
+    const paths = withPaths({
+      path,
+      unit: displayUnit({}),
+      sources: ['pump.a', 'pump.b'],
+      preferredSource: 'pump.a',
+      readings: { 'pump.b': true }
+    })
+    const rule: Rule = { ...bilge, signal: { path, source: 'pump.b' } }
+    renderEditor({ paths, editing: { entry: ruleEntry({ slug: rule.slug }), rule } })
+    await formShown()
+    await waitFor(() => {
+      expect(select('Count each time the value: value').tagName).toBe('SELECT')
+    })
+  })
+
   it('leaves {limit} as written for an outside rule with no value now', async () => {
     expect(await previewOf(outside([[49, 51]]), frequencyAt(undefined))).toContain(
       '“Frequency beyond {limit}: –”'
