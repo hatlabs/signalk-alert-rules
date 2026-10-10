@@ -198,6 +198,17 @@ describe('render harness', () => {
     }
   })
 
+  it('puts the house voltage inside its alarm zone for paths=houseAlarm', async () => {
+    const { paths } = fakes('?paths=houseAlarm')
+    const house = (await paths.selfPaths()).find(
+      (p) => p.path === 'electrical.batteries.house.voltage'
+    )
+    const alarm = house?.zones?.find((z) => z.state === 'alarm')
+    expect(typeof house?.value).toBe('number')
+    expect(alarm?.lower ?? -Infinity).toBeLessThan(Number(house?.value))
+    expect(Number(house?.value)).toBeLessThan(alarm?.upper ?? Infinity)
+  })
+
   it.each([
     ['unreachable', 'rejects'],
     ['session', 'sessionExpired'],

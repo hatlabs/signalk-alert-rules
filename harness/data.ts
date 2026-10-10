@@ -61,6 +61,11 @@ export const paths: PathEntry[] = [...reported, ...extraPaths].map((entry) =>
     : { ...entry, sources: [SOURCE], preferredSource: SOURCE }
 )
 
+/** The paths with the house bank's voltage inside its alarm zone, below 11.5 V. */
+export const houseAlarmPaths: PathEntry[] = paths.map((entry) =>
+  entry.path === 'electrical.batteries.house.voltage' ? { ...entry, value: 11.2 } : entry
+)
+
 function currentValue(path: string): number | undefined {
   const value = paths.find((p) => p.path === path)?.value
   return typeof value === 'number' ? value : undefined

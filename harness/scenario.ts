@@ -37,8 +37,12 @@ export const OPTIONS = {
   states: ['mixed', 'docs'],
   access: ['admin', 'readwrite', 'readonly'],
   security: ['on', 'off'],
-  /** The server's paths: the test fixtures' paths, none, never answering, or failing. */
-  paths: ['ready', 'empty', 'loading', 'error'],
+  /**
+   * The server's paths: the test fixtures' paths, the same with the house
+   * bank's voltage at 11.2 V inside its alarm zone, none, never answering, or
+   * failing.
+   */
+  paths: ['ready', 'houseAlarm', 'empty', 'loading', 'error'],
   /** The history provider: a day of data, data with a gap, nothing recorded, never answering, failing, or no provider. */
   history: ['data', 'gaps', 'empty', 'loading', 'error', 'none'],
   /** The stored rule an existing rule's editor reads. */
