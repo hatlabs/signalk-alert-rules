@@ -316,7 +316,7 @@ describe('RuleDetail', () => {
         })
       )
       expect(fact(/alerts when/i)).toBe('below the warn zone for at least 60 s')
-      expect(fact(/^ends/i)).toBe('once back above the warn zone by 0.2 V')
+      expect(fact(/^ends/i)).toBe('once back 0.2 V above the warn zone')
     })
 
     it('shows no row for a rule without a hysteresis', () => {

@@ -269,7 +269,7 @@ export function gateCondition(gate: RuleGate, units: UnitLookup): string {
 /**
  * Where a value past a limit must be back: "above 12.4 V". A zone's
  * threshold is the server's to resolve, so a zone limit's margin is told
- * from the zone: "above the warn zone by 0.2 V".
+ * from the zone: "0.2 V above the warn zone".
  */
 function wherePast(
   clear: ClearPoint<BackPastLimit>,
@@ -279,7 +279,7 @@ function wherePast(
 ): string {
   const { side, limit } = clear.back
   if (limit !== undefined) return `${side} ${value(limit)}`
-  return `${side} the ${zoneLevel} zone${clear.margin === undefined ? '' : ` by ${interval(clear.margin)}`}`
+  return `${clear.margin === undefined ? '' : `${interval(clear.margin)} `}${side} the ${zoneLevel} zone`
 }
 
 /**

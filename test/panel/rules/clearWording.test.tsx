@@ -119,4 +119,29 @@ describe('where an alert ends, as the detail and the editor word it', () => {
     )
     expect(hysteresisHint(editorForm(row), units)).toBe(`Alert ends ${hintLevel(row.where)}.`)
   })
+
+  it.each(['below', 'above'] as const)(
+    'a %s rule limited by a zone, where the summary has no steps to word',
+    (kind) => {
+      const entry = ruleEntry({
+        rule: {
+          steps: [],
+          detector: { type: 'sustained', direction: kind, zoneLevel: 'warn' },
+          signal: { paths: [HOUSE] },
+          hysteresis: 0.2
+        }
+      })
+      render(<RuleDetail entry={entry} backHref="#/list" units={units} now={0} />)
+      const where = `0.2 V ${kind === 'below' ? 'above' : 'below'} the warn zone`
+      expect(screen.getByRole('definition', { name: /^ends/i }).textContent).toBe(
+        `once back ${where}`
+      )
+      const f = withKind(emptyForm(), kind)
+      f.signal.slots[0].path = HOUSE
+      f.detector.limit = { ...f.detector.limit, kind: 'zone', level: 'warn' }
+      f.detector.hysteresis = '0.2'
+      f.steps = []
+      expect(hysteresisHint(f, units)).toBe(`Alert ends ${where}.`)
+    }
+  )
 })
