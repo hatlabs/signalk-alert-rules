@@ -133,3 +133,31 @@ export function severerLevels(
     return resolved.ok && beyond(resolved.value) ? [{ level, value: resolved.value }] : []
   })
 }
+
+export type ZoneLevelsResolution =
+  { ok: true; levels: { level: ZoneLevel; value: number }[] } | { ok: false; missing: MissingZone }
+
+/**
+ * The zone levels a zone-limit detector alerts at, least severe first: the
+ * named level, then for a sustained detector every more severe one. Only a
+ * sustained detector escalates through levels: a projection's detectors for
+ * more severe levels would share its horizon, so a steady trend would set
+ * them all at once and the first alert would name a level the value is
+ * nowhere near.
+ */
+export function zoneLimitLevels(
+  detector: Extract<Detector, { type: 'sustained' | 'projection' }>,
+  limit: ZoneLimit,
+  zones: readonly Zone[] | null | undefined
+): ZoneLevelsResolution {
+  const direction = limitDirection(detector)
+  const named = resolveLimit(limit, direction, zones)
+  if (!named.ok) return named
+  return {
+    ok: true,
+    levels: [
+      { level: limit.level, value: named.value },
+      ...(detector.type === 'sustained' ? severerLevels(limit, direction, zones) : [])
+    ]
+  }
+}

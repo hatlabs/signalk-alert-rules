@@ -4,7 +4,7 @@
  * One limit is written as typed, in the display unit; several are written as
  * `{limit}`, which the server fills in with the limit of the step reached.
  */
-import { limitDirection, resolveLimit, severerLevels, zonePath } from '../../engine/limits'
+import { limitDirection, zoneLimitLevels, zonePath } from '../../engine/limits'
 import type { Rule } from '../../model/rule'
 import type { SignalValue } from '../api'
 import { isWildcardPath, signalMeasure, type UnitLookup } from '../signalUnits'
@@ -145,15 +145,14 @@ export function previewLimit(
     if ('combinator' in rule.signal) return undefined
     const path = zonePath(d.limit, rule.signal)
     if (path === undefined || isWildcardPath(path)) return undefined
+    const resolved = zoneLimitLevels(d, d.limit, live.entry(path)?.zones)
+    if (!resolved.ok) return undefined
+    const bounds = resolved.levels.map((l) => l.value)
+    const named = bounds[0]
+    if (typeof value !== 'number') return named
     const direction = limitDirection(d)
-    const zones = live.entry(path)?.zones
-    const named = resolveLimit(d.limit, direction, zones)
-    if (!named.ok) return undefined
-    const severer =
-      d.type === 'sustained' ? severerLevels(d.limit, direction, zones).map((l) => l.value) : []
-    if (typeof value !== 'number') return named.value
     const past = (bound: number) => (direction === 'below' ? value < bound : value > bound)
-    return [named.value, ...severer].filter(past).at(-1) ?? named.value
+    return bounds.filter(past).at(-1) ?? named
   }
   if (d.type !== 'outside' || typeof value !== 'number') return undefined
   const reached = reachedStep(form, value, measure)

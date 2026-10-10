@@ -3,6 +3,7 @@ import {
   limitDirection,
   resolveLimit,
   severerLevels,
+  zoneLimitLevels,
   zonePath,
   type Zone
 } from '../../src/engine/limits.js'
@@ -420,5 +421,53 @@ describe('limitDirection', () => {
   it('compares a rising projection above its limit and a falling one below', () => {
     expect(limitDirection({ ...projection, direction: 'rising' })).toBe('above')
     expect(limitDirection({ ...projection, direction: 'falling' })).toBe('below')
+  })
+})
+
+describe('zoneLimitLevels', () => {
+  const warn = { kind: 'zone', level: 'warn' } as const
+  const sustained = (direction: 'above' | 'below') =>
+    ({ type: 'sustained', direction, limit: warn }) as const
+  const projection = (direction: 'rising' | 'falling') =>
+    ({ type: 'projection', direction, limit: warn, window: 300, horizon: 600 }) as const
+
+  it('gives a sustained detector the named level and every more severe one', () => {
+    expect(zoneLimitLevels(sustained('below'), warn, battery)).toEqual({
+      ok: true,
+      levels: [
+        { level: 'warn', value: 12 },
+        { level: 'alarm', value: 11.5 }
+      ]
+    })
+    expect(zoneLimitLevels(sustained('above'), warn, coolant)).toEqual({
+      ok: true,
+      levels: [
+        { level: 'warn', value: 358 },
+        { level: 'alarm', value: 368 }
+      ]
+    })
+  })
+
+  it('gives a projection the named level only, on the side its trend heads', () => {
+    expect(zoneLimitLevels(projection('falling'), warn, battery)).toEqual({
+      ok: true,
+      levels: [{ level: 'warn', value: 12 }]
+    })
+    expect(zoneLimitLevels(projection('rising'), warn, coolant)).toEqual({
+      ok: true,
+      levels: [{ level: 'warn', value: 358 }]
+    })
+  })
+
+  it('fails as the named level fails to resolve', () => {
+    const emergency = { kind: 'zone', level: 'emergency' } as const
+    expect(zoneLimitLevels(sustained('below'), emergency, battery)).toEqual({
+      ok: false,
+      missing: { level: 'emergency' }
+    })
+    expect(zoneLimitLevels(sustained('above'), warn, battery)).toEqual({
+      ok: false,
+      missing: { level: 'warn', side: 'high' }
+    })
   })
 })
