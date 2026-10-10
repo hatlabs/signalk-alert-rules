@@ -3365,6 +3365,12 @@ describe('RuleEditor, the preview of {limit}', () => {
     )
   })
 
+  it('previews the shore power example at the harness’s 50.4 Hz as its docs image shows it', async () => {
+    expect(await previewOf(example('shore-power-frequency'), frequencyAt(50.4))).toContain(
+      'Sends now: “Shore power frequency beyond 51 Hz: 50.4 Hz”'
+    )
+  })
+
   it('shows an outside rule’s limit in SI, as {value} and the server show it', async () => {
     const rule = outside([[353, 363]], 'propulsion.port.coolantTemperature')
     expect(await previewOf(rule)).toContain('“Frequency beyond 353 K: 355 K”')
@@ -3391,5 +3397,96 @@ describe('RuleEditor, the preview of {limit}', () => {
       }
     }
     expect(await previewOf(rule)).toContain('“Past 12.2 V: 13.31 V”')
+  })
+
+  const houseAt = (value: number) => {
+    const house = reported.find((p) => p.path === HOUSE)
+    if (house === undefined) throw new Error('no house voltage fixture')
+    return withPaths({ ...house, value })
+  }
+  const twoSteps: Rule = {
+    ...zoneLimited(HOUSE),
+    detector: {
+      type: 'sustained',
+      direction: 'below',
+      steps: [
+        { limit: 12.2, priority: 'warning' },
+        { limit: 11.8, priority: 'alarm' }
+      ]
+    }
+  }
+
+  it.each([
+    [11.5, '11.8 V'],
+    [12, '12.2 V'],
+    [12.6, '12.2 V']
+  ])('fills a two-step rule’s limit for a live %s V with %s', async (value, limit) => {
+    expect(await previewOf(twoSteps, houseAt(value))).toContain(
+      `“Past ${limit}: ${String(value)} V”`
+    )
+  })
+
+  it.each([
+    [11.2, '11.5 V'],
+    [11.5, '12 V'],
+    [11.8, '12 V'],
+    [13.31, '12 V']
+  ])(
+    'fills a zone-limited rule’s limit for a live %s V with the severest level passed, %s',
+    async (value, limit) => {
+      expect(await previewOf(zoneLimited(HOUSE), houseAt(value))).toContain(
+        `“Past ${limit}: ${String(value)} V”`
+      )
+    }
+  )
+
+  it('fills an above zone limit with the severer level the value is past', async () => {
+    const coolant = withPaths({
+      path: 'propulsion.port.coolantTemperature',
+      units: 'K',
+      unit: displayUnit({ units: 'K' }),
+      value: 380,
+      zones: [
+        { lower: 363, upper: 373, state: 'warn' },
+        { lower: 373, state: 'alarm' }
+      ]
+    })
+    const rule = zoneLimited('propulsion.port.coolantTemperature', { direction: 'above' })
+    expect(await previewOf(rule, coolant)).toContain('“Past 373 K: 380 K”')
+  })
+
+  it('fills a falling projection’s zone limit as below, at the named level only', async () => {
+    const rule: Rule = {
+      ...zoneLimited(HOUSE),
+      detector: {
+        type: 'projection',
+        direction: 'falling',
+        limit: { kind: 'zone', level: 'warn' },
+        window: 300,
+        horizon: 600
+      }
+    }
+    expect(await previewOf(rule)).toContain('“Past 12 V: 13.31 V”')
+    cleanup()
+    expect(await previewOf(rule, houseAt(11.2))).toContain('“Past 12 V: 11.2 V”')
+  })
+
+  it('keeps the dash for a detector whose step has no limit', async () => {
+    const rule: Rule = {
+      ...zoneLimited(HOUSE),
+      detector: { type: 'match', op: 'decreases', steps: [{ priority: 'warning' }] }
+    }
+    expect(await previewOf(rule)).toContain('“Past –: 13.31 V”')
+  })
+
+  it('leaves {limit} as written for a combined signal, even with a zone path', async () => {
+    const rule: Rule = {
+      ...zoneLimited(HOUSE, { limit: { kind: 'zone', level: 'warn', path: HOUSE } }),
+      signal: {
+        combinator: 'mean',
+        inputs: [{ path: HOUSE }, { path: 'electrical.batteries.start.voltage' }]
+      }
+    }
+    expect(await previewOf(rule)).toContain('“Past {limit}: –”')
   })
 })

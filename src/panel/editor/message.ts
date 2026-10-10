@@ -4,7 +4,7 @@
  * One limit is written as typed, in the display unit; several are written as
  * `{limit}`, which the server fills in with the limit of the step reached.
  */
-import { resolveLimit } from '../../engine/limits'
+import { limitDirection, resolveLimit, severerLevels, zonePath } from '../../engine/limits'
 import type { Rule } from '../../model/rule'
 import type { SignalValue } from '../api'
 import { isWildcardPath, signalMeasure, type UnitLookup } from '../signalUnits'
@@ -111,13 +111,21 @@ export function toSavedRule(form: RuleForm, units: UnitLookup): ToRuleResult {
   return toRule({ ...form, message }, units)
 }
 
+/** The detectors whose limit the preview resolves, so an unfilled `{limit}` stays as written. */
+export function previewResolvesLimit(rule: Rule): boolean {
+  const { type } = rule.detector
+  return type === 'sustained' || type === 'projection' || type === 'outside'
+}
+
 /**
  * The SI limit the server would fill `{limit}` in with were the rule to alert
- * now: a zone limit's bound from the zone path's zones, resolved as the
- * evaluator resolves it, or for a range the bound of the step the value
- * reaches, else the nearer bound of the first (the high one midway, by SI
- * distance). Undefined where the editor cannot know it: zones not known, no
- * single zone path, or no value now.
+ * now: for a zone limit, the bound of the severest level the value is past
+ * among those the evaluator builds from the zone path's zones, else the named
+ * level's; for a range the bound of the step the value reaches, else the
+ * nearer bound of the first (the high one midway, by SI distance); for typed
+ * steps the limit of the step the value reaches, else the first's. Undefined
+ * where the editor cannot know it: zones not known, no single zone path, or
+ * for a range no value now.
  */
 export function previewLimit(
   form: RuleForm,
@@ -128,20 +136,31 @@ export function previewLimit(
 ): number | undefined {
   const d = rule.detector
   if ((d.type === 'sustained' || d.type === 'projection') && d.limit?.kind === 'zone') {
-    const path = d.limit.path ?? ('combinator' in rule.signal ? undefined : rule.signal.path)
+    // Units come only with a single signal, so a combined one's bound would read bare.
+    if ('combinator' in rule.signal) return undefined
+    const path = zonePath(d.limit, rule.signal)
     if (path === undefined || isWildcardPath(path)) return undefined
-    const direction =
-      d.type === 'sustained' ? d.direction : d.direction === 'rising' ? 'above' : 'below'
-    const resolved = resolveLimit(d.limit, direction, live.entry(path)?.zones)
-    return resolved.ok ? resolved.value : undefined
+    const direction = limitDirection(d)
+    const zones = live.entry(path)?.zones
+    const named = resolveLimit(d.limit, direction, zones)
+    if (!named.ok) return undefined
+    const severer =
+      d.type === 'sustained' ? severerLevels(d.limit, direction, zones).map((l) => l.value) : []
+    if (typeof value !== 'number') return named.value
+    const past = (bound: number) => (direction === 'below' ? value < bound : value > bound)
+    return [named.value, ...severer].filter(past).at(-1) ?? named.value
   }
-  if (d.type !== 'outside' || typeof value !== 'number') return undefined
-  const reached = reachedStep(form, value, measure)
-  if (reached === undefined) return undefined
-  const step = d.steps.at(Math.max(reached, 0))
-  if (step === undefined) return undefined
-  if (reached >= 0) return value > step.high ? step.high : step.low
-  return value - step.low < step.high - value ? step.low : step.high
+  const reached = typeof value === 'number' ? reachedStep(form, value, measure) : undefined
+  if (d.type === 'outside') {
+    if (typeof value !== 'number' || reached === undefined) return undefined
+    const step = d.steps.at(Math.max(reached, 0))
+    if (step === undefined) return undefined
+    if (reached >= 0) return value > step.high ? step.high : step.low
+    return value - step.low < step.high - value ? step.low : step.high
+  }
+  if (d.type === 'match' || d.type === 'absence') return undefined
+  const step = (d.steps ?? []).at(Math.max(reached ?? 0, 0))
+  return step !== undefined && 'limit' in step ? step.limit : undefined
 }
 
 const NAME_WORDS: Readonly<Record<string, string>> = {

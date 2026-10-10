@@ -29,6 +29,7 @@ import {
   generatedMessage,
   isEmptyMessage,
   previewLimit,
+  previewResolvesLimit,
   strayBraces,
   toSavedRule,
   withGenerated
@@ -307,7 +308,7 @@ export function RuleFields(props: RuleFieldsProps) {
         ...(liveValue === undefined ? {} : { value: liveValue }),
         ...(entry?.units === undefined ? {} : { units: entry.units })
       },
-      { keepUnfilledLimit: true }
+      { keepUnfilledLimit: previewResolvesLimit(result.rule) }
     )
   })()
   const previewText =
