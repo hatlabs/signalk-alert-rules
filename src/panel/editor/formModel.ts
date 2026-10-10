@@ -25,6 +25,7 @@ import type {
   TemplateRecord,
   ZoneLevel
 } from '../../model/rule'
+import { ZONE_LEVELS } from '../../model/zoneLevels'
 import { alertParent, defaultCondition } from '../../alerts/paths'
 import { isRecord, type FieldError } from '../api'
 import {
@@ -63,12 +64,6 @@ export const PRIORITY_LEVELS = every<Priority>({
   alarm: true,
   warning: true,
   caution: true
-})
-export const ZONE_LEVEL_NAMES = every<ZoneLevel>({
-  alert: true,
-  warn: true,
-  alarm: true,
-  emergency: true
 })
 export const MAX_INPUTS = 16
 export const MAX_GATES = 8
@@ -656,7 +651,7 @@ function limitFrom(limit: Limit, stored: StoredNumbers, at: string): LimitForm {
     return {
       kind: 'zone',
       value: '',
-      level: choiceFrom(limit.level, ZONE_LEVEL_NAMES),
+      level: choiceFrom(limit.level, ZONE_LEVELS),
       path: limit.path ?? ''
     }
   }

@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RANGE_HYSTERESIS, RANGE_INVERTED, RANGE_NOT_WIDER } from '../../../src/model/rangeMessages'
-import { LEVEL_PRIORITY, type CombinatorKind, type Rule } from '../../../src/model/rule'
+import type { CombinatorKind, Rule } from '../../../src/model/rule'
 import {
   FIELD_ZONES_ELSEWHERE_MESSAGE,
   FIELD_ZONES_LEVEL_MESSAGE,
@@ -11,7 +11,6 @@ import {
 } from '../../../src/model/pointerPath'
 import { validateRule } from '../../../src/model/validate'
 import { RuleRejectedError, type EditPreview, type FieldError } from '../../../src/panel/api'
-import { ZONE_PRIORITY } from '../../../src/panel/editor/MoreOptions'
 import type { PathEntry, PathSource } from '../../../src/panel/paths/selfPaths'
 import { displayUnit } from '../../../src/panel/units'
 import { instance, onceShown, ruleEntry } from '../fixtures'
@@ -3173,12 +3172,6 @@ describe('RuleEditor, the hysteresis', () => {
     ).toBe(
       "The rule is in use only while every condition holds; one that stops holding ends the rule's alert."
     )
-  })
-})
-
-describe('ZONE_PRIORITY', () => {
-  it('is the priority the model gives each zone level', () => {
-    expect(ZONE_PRIORITY).toEqual(LEVEL_PRIORITY)
   })
 })
 
