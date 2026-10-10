@@ -252,41 +252,40 @@ function EditorForm(props: FormProps) {
           />
         </form>
         <FormHistory history={history} form={form} units={units} />
-      </div>
-
-      <div className="skar-editor-actions">
-        <div className="skar-editor-status">
-          <UnattachedErrors errors={checked.attached.unattached} />
-          {failure !== undefined && (
-            <p className="skar-error" role="alert">
-              {failure}
-            </p>
-          )}
-          {hint !== undefined && (
-            <p className="skar-hint" role="status">
-              {hint}
-            </p>
-          )}
-        </div>
-        <div className="skar-editor-buttons">
-          <button
-            type="button"
-            className="skar-btn skar-btn-ghost"
-            disabled={busy}
-            onClick={() => {
-              guard.leave()
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="skar-btn skar-btn-primary"
-            disabled={busy}
-            onClick={() => void save()}
-          >
-            {isNew ? 'Create rule' : 'Save'}
-          </button>
+        <div className="skar-editor-actions">
+          <div className="skar-editor-status">
+            <UnattachedErrors errors={checked.attached.unattached} />
+            {failure !== undefined && (
+              <p className="skar-error" role="alert">
+                {failure}
+              </p>
+            )}
+            {hint !== undefined && (
+              <p className="skar-hint" role="status">
+                {hint}
+              </p>
+            )}
+          </div>
+          <div className="skar-editor-buttons">
+            <button
+              type="button"
+              className="skar-btn skar-btn-ghost"
+              disabled={busy}
+              onClick={() => {
+                guard.leave()
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="skar-btn skar-btn-primary"
+              disabled={busy}
+              onClick={() => void save()}
+            >
+              {isNew ? 'Create rule' : 'Save'}
+            </button>
+          </div>
         </div>
       </div>
 

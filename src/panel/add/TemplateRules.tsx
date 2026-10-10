@@ -476,89 +476,90 @@ function TabsForm(props: FormProps) {
           </button>
         </div>
       )}
-      {active !== undefined && checked !== undefined && (
-        <div className="skar-editor-grid">
-          <form
-            ref={formRef}
-            id={`${id}-panel`}
-            className="skar-card skar-editor-form"
-            {...(tabs.length > 1
-              ? { role: 'tabpanel', 'aria-labelledby': `${id}-tab-${active.key}` }
-              : { 'aria-label': heading })}
-            noValidate
-            onSubmit={(event) => {
-              event.preventDefault()
-            }}
-          >
-            {/* Save creates each rule from the settings it read, so they cannot change meanwhile. */}
-            <fieldset className="skar-editor-fields" disabled={busy}>
-              <RuleFields
-                key={active.key}
-                form={active.form}
-                onChange={(form) => {
-                  replaceTab(active.key, { form })
-                }}
-                paths={paths}
-                onStepsShifted={() => {
-                  replaceTab(active.key, {
-                    errors: active.errors.filter((e) => !e.path.startsWith('/detector/steps/'))
-                  })
-                }}
-                onGateRemoved={(index) => {
-                  replaceTab(active.key, { errors: withoutGate(active.errors, index) })
-                }}
-                onUnitChange={(emptied) => {
-                  replaceTab(active.key, {
-                    errors: withUnitErrors(active.errors, emptied),
-                    named: forgetNamed(active.named, emptied)
-                  })
-                }}
-                units={units}
-                live={live}
-                isNew
-                checked={checked}
-                ruleName={ruleName}
-                {...(props.editHref === undefined ? {} : { editHref: props.editHref })}
-              />
-            </fieldset>
-          </form>
-          <FormHistory history={props.history} form={active.form} units={units} />
-        </div>
-      )}
-
-      <div className="skar-editor-actions">
-        <div className="skar-editor-status">
-          {checked !== undefined && <UnattachedErrors errors={checked.attached.unattached} />}
-          {failure !== undefined && (
-            <p className="skar-error" role="alert">
-              {failure}
-            </p>
-          )}
-          {[createdNote, hint, readyNote, note].some((s) => s !== undefined) && (
-            <p className="skar-hint" role="status">
-              {[createdNote, hint, readyNote, note].filter((s) => s !== undefined).join(' ')}
-            </p>
-          )}
-        </div>
-        <div className="skar-editor-buttons">
-          <button
-            type="button"
-            className="skar-btn skar-btn-ghost"
-            disabled={busy}
-            onClick={() => {
-              guard.leave()
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="skar-btn skar-btn-primary"
-            disabled={busy || creating === 0}
-            onClick={() => void save()}
-          >
-            {creating <= 1 ? 'Create rule' : `Create ${String(creating)} rules`}
-          </button>
+      <div className="skar-editor-grid">
+        {active !== undefined && checked !== undefined && (
+          <>
+            <form
+              ref={formRef}
+              id={`${id}-panel`}
+              className="skar-card skar-editor-form"
+              {...(tabs.length > 1
+                ? { role: 'tabpanel', 'aria-labelledby': `${id}-tab-${active.key}` }
+                : { 'aria-label': heading })}
+              noValidate
+              onSubmit={(event) => {
+                event.preventDefault()
+              }}
+            >
+              {/* Save creates each rule from the settings it read, so they cannot change meanwhile. */}
+              <fieldset className="skar-editor-fields" disabled={busy}>
+                <RuleFields
+                  key={active.key}
+                  form={active.form}
+                  onChange={(form) => {
+                    replaceTab(active.key, { form })
+                  }}
+                  paths={paths}
+                  onStepsShifted={() => {
+                    replaceTab(active.key, {
+                      errors: active.errors.filter((e) => !e.path.startsWith('/detector/steps/'))
+                    })
+                  }}
+                  onGateRemoved={(index) => {
+                    replaceTab(active.key, { errors: withoutGate(active.errors, index) })
+                  }}
+                  onUnitChange={(emptied) => {
+                    replaceTab(active.key, {
+                      errors: withUnitErrors(active.errors, emptied),
+                      named: forgetNamed(active.named, emptied)
+                    })
+                  }}
+                  units={units}
+                  live={live}
+                  isNew
+                  checked={checked}
+                  ruleName={ruleName}
+                  {...(props.editHref === undefined ? {} : { editHref: props.editHref })}
+                />
+              </fieldset>
+            </form>
+            <FormHistory history={props.history} form={active.form} units={units} />
+          </>
+        )}
+        <div className="skar-editor-actions">
+          <div className="skar-editor-status">
+            {checked !== undefined && <UnattachedErrors errors={checked.attached.unattached} />}
+            {failure !== undefined && (
+              <p className="skar-error" role="alert">
+                {failure}
+              </p>
+            )}
+            {[createdNote, hint, readyNote, note].some((s) => s !== undefined) && (
+              <p className="skar-hint" role="status">
+                {[createdNote, hint, readyNote, note].filter((s) => s !== undefined).join(' ')}
+              </p>
+            )}
+          </div>
+          <div className="skar-editor-buttons">
+            <button
+              type="button"
+              className="skar-btn skar-btn-ghost"
+              disabled={busy}
+              onClick={() => {
+                guard.leave()
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="skar-btn skar-btn-primary"
+              disabled={busy || creating === 0}
+              onClick={() => void save()}
+            >
+              {creating <= 1 ? 'Create rule' : `Create ${String(creating)} rules`}
+            </button>
+          </div>
         </div>
       </div>
 
