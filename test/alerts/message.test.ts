@@ -70,7 +70,7 @@ describe('renderMessage', () => {
 
   it('shows a value without a known unit as a bare number, and rounds noise away', () => {
     const rule = battery('{value} {limit}')
-    expect(renderMessage(rule, { value: 12.345678, step: 0, limit: 368.15 })).toBe('12.35 368.1')
+    expect(renderMessage(rule, { value: 12.345678, step: 0, limit: 368.15 })).toBe('12.35 368.2')
   })
 
   it('shows a ratio as a percentage', () => {

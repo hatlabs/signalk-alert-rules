@@ -3,9 +3,24 @@
  * shared by the webapp and the alert messages the plugin renders.
  */
 
+const LARGE = 100
+const DECIMALS_FROM_LARGE = 1
+const SIGNIFICANT_BELOW_LARGE = 4
+
+// Float noise sits far below the kept digit (368.15, 95 °C in K, is the double
+// 368.149999…), so cutting it there lets a half the user wrote round as written.
+const NOISE_DECIMALS = 6
+
 export function formatNumber(value: number): string {
-  const rounded = Math.abs(value) >= 100 ? value.toFixed(1) : value.toPrecision(4)
-  return Number.isInteger(value) ? String(value) : String(Number(rounded))
+  if (Number.isInteger(value)) return String(value)
+  const magnitude = Math.abs(value)
+  const decimals =
+    magnitude >= LARGE
+      ? DECIMALS_FROM_LARGE
+      : SIGNIFICANT_BELOW_LARGE - 1 - Math.floor(Math.log10(magnitude))
+  const scale = 10 ** decimals
+  const kept = Math.round(Number((magnitude * scale).toFixed(NOISE_DECIMALS)))
+  return String((Math.sign(value) * kept) / scale)
 }
 
 const MINUTE = 60
