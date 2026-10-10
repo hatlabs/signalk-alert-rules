@@ -938,6 +938,11 @@
   .skar-editor-grid {
     grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
   }
+
+  /* The actions belong to the form, so they keep to its column, under it. */
+  .skar-editor-grid > .skar-editor-actions {
+    grid-column: 1;
+  }
 }
 
 .skar-editor-form {

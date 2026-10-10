@@ -403,6 +403,44 @@ function TabsForm(props: FormProps) {
       : `All ${String(creating)} rules have every required field.`
   const otherLabel = tabs.length === 2 ? tabs.find((t) => t.key !== active?.key)?.label : undefined
 
+  const actions = (
+    <div className="skar-editor-actions">
+      <div className="skar-editor-status">
+        {checked !== undefined && <UnattachedErrors errors={checked.attached.unattached} />}
+        {failure !== undefined && (
+          <p className="skar-error" role="alert">
+            {failure}
+          </p>
+        )}
+        {[createdNote, hint, readyNote, note].some((s) => s !== undefined) && (
+          <p className="skar-hint" role="status">
+            {[createdNote, hint, readyNote, note].filter((s) => s !== undefined).join(' ')}
+          </p>
+        )}
+      </div>
+      <div className="skar-editor-buttons">
+        <button
+          type="button"
+          className="skar-btn skar-btn-ghost"
+          disabled={busy}
+          onClick={() => {
+            guard.leave()
+          }}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="skar-btn skar-btn-primary"
+          disabled={busy || creating === 0}
+          onClick={() => void save()}
+        >
+          {creating <= 1 ? 'Create rule' : `Create ${String(creating)} rules`}
+        </button>
+      </div>
+    </div>
+  )
+
   return (
     <div className="skar-editor">
       <a className="skar-back" href={back.href}>
@@ -523,44 +561,11 @@ function TabsForm(props: FormProps) {
             </fieldset>
           </form>
           <FormHistory history={props.history} form={active.form} units={units} />
+          {actions}
         </div>
       )}
 
-      <div className="skar-editor-actions">
-        <div className="skar-editor-status">
-          {checked !== undefined && <UnattachedErrors errors={checked.attached.unattached} />}
-          {failure !== undefined && (
-            <p className="skar-error" role="alert">
-              {failure}
-            </p>
-          )}
-          {[createdNote, hint, readyNote, note].some((s) => s !== undefined) && (
-            <p className="skar-hint" role="status">
-              {[createdNote, hint, readyNote, note].filter((s) => s !== undefined).join(' ')}
-            </p>
-          )}
-        </div>
-        <div className="skar-editor-buttons">
-          <button
-            type="button"
-            className="skar-btn skar-btn-ghost"
-            disabled={busy}
-            onClick={() => {
-              guard.leave()
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="skar-btn skar-btn-primary"
-            disabled={busy || creating === 0}
-            onClick={() => void save()}
-          >
-            {creating <= 1 ? 'Create rule' : `Create ${String(creating)} rules`}
-          </button>
-        </div>
-      </div>
+      {(active === undefined || checked === undefined) && actions}
 
       {guard.prompt}
     </div>
