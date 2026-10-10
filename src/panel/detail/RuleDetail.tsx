@@ -160,7 +160,7 @@ function Facts({
       </Fact>
       {!combined && <Fact term="Source">{rule.source ?? 'Preferred source'}</Fact>}
       <Fact term="Alerts when">{alertsWhen(rule, display)}</Fact>
-      {clears !== undefined && <Fact term="Clears">{clears}</Fact>}
+      {clears !== undefined && <Fact term="Ends">{clears}</Fact>}
       {rule.steps.length < 2 && (
         <Fact term="Priority">
           {rule.priority === undefined ? "From the path's zones" : capitalised(rule.priority)}

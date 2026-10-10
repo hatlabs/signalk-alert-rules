@@ -4,14 +4,15 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { RuleDetail } from '../../../src/panel/detail/RuleDetail'
 import { withKind } from '../../../src/panel/editor/conditionKinds'
 import { emptyForm, emptyStep } from '../../../src/panel/editor/formModel'
-import { ladderText } from '../../../src/panel/editor/live'
+import { hysteresisHint, ladderText } from '../../../src/panel/editor/live'
 import { unitLookup } from '../../../src/panel/signalUnits'
 import { displayUnit } from '../../../src/panel/units'
 import { ruleEntry } from '../fixtures'
 
 /**
- * The rule detail and the editor word when an alert clears from the same
- * clear margin; one table runs through both so they cannot disagree.
+ * The rule detail, the editor's steps summary and its hysteresis hint word
+ * where an alert ends from the same hysteresis; one table runs through all
+ * three so they cannot disagree.
  */
 
 const HOUSE = 'electrical.batteries.house.voltage'
@@ -63,8 +64,8 @@ const rows: Row[] = [
 
 const PRIORITIES = ['warning', 'alarm'] as const
 
-/** The detail's Clears row for an eased rule, else the ladder's clear hint. */
-function detailClears(row: Row): string {
+/** The detail's Ends row for an eased rule, else the ladder's end hint. */
+function detailEnds(row: Row): string {
   const steps = row.steps.map((s, i) =>
     typeof s === 'number'
       ? { limit: s, priority: PRIORITIES[i] }
@@ -81,11 +82,11 @@ function detailClears(row: Row): string {
   })
   render(<RuleDetail entry={entry} backHref="#/list" units={units} now={0} />)
   return row.eased
-    ? screen.getByRole('definition', { name: /^clears/i }).textContent
-    : screen.getByText(/^Clears when/).textContent
+    ? screen.getByRole('definition', { name: /^ends/i }).textContent
+    : screen.getByText(/^Ends once/).textContent
 }
 
-function editorClause(row: Row): string {
+function editorForm(row: Row) {
   const f = withKind(emptyForm(), row.kind)
   f.signal.slots[0].path = HOUSE
   f.steps = row.steps.map((s, i) =>
@@ -94,16 +95,28 @@ function editorClause(row: Row): string {
       : { ...emptyStep(PRIORITIES[i]), low: String(s[0]), high: String(s[1]) }
   )
   f.detector.hysteresis = row.margin === undefined ? '' : String(row.margin)
-  return /It clears only (.*)\.$/.exec(ladderText(f, units) ?? '')?.[1] ?? ''
+  return f
 }
 
-describe('when an alert clears, as the detail and the editor word it', () => {
+/** The summary's last sentence, telling where the alert ends. */
+function editorEnds(row: Row): string {
+  return /It ends .*$/.exec(ladderText(editorForm(row), units) ?? '')?.[0] ?? ''
+}
+
+/** The hint's level is the same point, worded as a place: "at 12.4 V", "inside 11.7–14.6 V". */
+const hintLevel = (where: string) =>
+  where.replace(/^(above|below) /, 'at ').replace(/^between (\S+) and /, 'inside $1–')
+
+describe('where an alert ends, as the detail and the editor word it', () => {
   afterEach(cleanup)
 
-  it.each(rows)('$kind $steps, margin $margin: $where', (row) => {
-    expect(detailClears(row)).toBe(
-      row.eased ? `once back ${row.where}` : `Clears when the value is back ${row.where}.`
+  it.each(rows)('$kind $steps, hysteresis $margin: $where', (row) => {
+    expect(detailEnds(row)).toBe(
+      row.eased ? `once back ${row.where}` : `Ends once the value is back ${row.where}.`
     )
-    expect(editorClause(row)).toBe(row.eased ? `once back ${row.where}` : row.where)
+    expect(editorEnds(row)).toBe(
+      row.eased ? `It ends only once back ${row.where}.` : `It ends once back ${row.where}.`
+    )
+    expect(hysteresisHint(editorForm(row), units)).toBe(`Alert ends ${hintLevel(row.where)}.`)
   })
 })

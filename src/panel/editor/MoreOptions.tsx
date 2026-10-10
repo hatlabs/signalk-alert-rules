@@ -18,6 +18,7 @@ import {
   type RuleForm
 } from './formModel'
 import { GateFields, zoneText } from './GateFields'
+import { hysteresisHint } from './live'
 import { ZONES } from './sections'
 import { SignalFields, useAllInstances } from './SignalFields'
 import { clearMarginText, unitLabels } from './words'
@@ -180,7 +181,7 @@ export function MoreOptions({
   // Each condition keeps what it remembers only while its key stays with it through a removal.
   const gateCount = useRef(form.gates.length)
   const [gateKeys, setGateKeys] = useState(() => form.gates.map((_, i) => i))
-  // The validator's "half the first step's range" says neither the range nor the margin it allows.
+  // The validator's "half the first step's range" says neither the range nor the hysteresis it allows.
   const first = form.steps.at(0)
   const marginErrors = useFieldMessages('/detector/hysteresis').map((message) =>
     d.type === 'outside' && message.text === RANGE_HYSTERESIS && first !== undefined
@@ -199,16 +200,12 @@ export function MoreOptions({
       <div className="skar-more-body">
         {(d.type === 'sustained' || d.type === 'outside') && (
           <TextField
-            label="Clear margin"
+            label="Hysteresis"
             extraErrors={marginErrors}
             value={d.hysteresis}
             nonNegative
             unit={unitLabels(measure).interval}
-            hint={
-              d.type === 'outside'
-                ? 'How far inside the range the value must come back to clear. Empty is none.'
-                : 'How far back past the limit the value must go to clear. Empty is none.'
-            }
+            hint={hysteresisHint(form, units)}
             onChange={(hysteresis) => {
               onChange(withDetector(form, { hysteresis }))
             }}
@@ -227,7 +224,7 @@ export function MoreOptions({
         <div className="skar-subsection">
           <span className="skar-label">Only while…</span>
           <p className="skar-hint">
-            The rule is in use only while every condition holds; one that stops holding clears the
+            The rule is in use only while every condition holds; one that stops holding ends the
             rule&apos;s alert.
           </p>
           {form.gates.map((gate, i) => (

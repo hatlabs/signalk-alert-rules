@@ -120,7 +120,7 @@ export function summaryLaidOut() {
   ) {
     const height = !this.textContent.startsWith('The alert is raised')
       ? 0
-      : this.textContent.includes('It clears only')
+      : this.textContent.includes('It ends')
         ? SUMMARY_CLEARING
         : SUMMARY_CLIMBING
     return DOMRect.fromRect({ width: height === 0 ? 0 : 300, height })

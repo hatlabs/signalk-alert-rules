@@ -202,8 +202,8 @@ describe('RuleDetail', () => {
       ])
       expect(rungs[1].getAttribute('aria-current')).toBe('step')
       expect(rungs[0].getAttribute('aria-current')).toBeNull()
-      expect(screen.getByText(/^Clears when/).textContent).toBe(
-        'Clears when the value is back above 12.2 V. It stays an alarm until then.'
+      expect(screen.getByText(/^Ends once/).textContent).toBe(
+        'Ends once the value is back above 12.2 V. It stays an alarm until then.'
       )
     })
 
@@ -220,16 +220,16 @@ describe('RuleDetail', () => {
       renderDetail({ ...stepped, status: { ...stepped.status, ...ruleEntry().status } })
       const rungs = within(screen.getByRole('list', { name: 'Steps' })).getAllByRole('listitem')
       expect(rungs.map((r) => r.textContent)).toEqual(['Warningbelow 12.2 V', 'Alarmbelow 11.8 V'])
-      expect(screen.getByText(/^Clears when/).textContent).toBe(
-        'Clears when the value is back above 12.2 V.'
+      expect(screen.getByText(/^Ends once/).textContent).toBe(
+        'Ends once the value is back above 12.2 V.'
       )
     })
 
     it('clears past the first step by the clear margin, stated once', () => {
       renderDetail({ ...stepped, rule: { ...stepped.rule, hysteresis: 0.2 } })
-      expect(fact(/^clears/i)).toBe('once back above 12.4 V')
-      expect(screen.getByText(/^It stays/).textContent).toBe('It stays an alarm until it clears.')
-      expect(screen.queryByText(/^Clears (when|once)/)).toBeNull()
+      expect(fact(/^ends/i)).toBe('once back above 12.4 V')
+      expect(screen.getByText(/^It stays/).textContent).toBe('It stays an alarm until it ends.')
+      expect(screen.queryByText(/^Ends once/)).toBeNull()
     })
 
     it('clears below the first step less the clear margin, for a rule above it', () => {
@@ -245,7 +245,7 @@ describe('RuleDetail', () => {
           hysteresis: 0.1
         }
       })
-      expect(fact(/^clears/i)).toBe('once back below 14.9 V')
+      expect(fact(/^ends/i)).toBe('once back below 14.9 V')
     })
 
     it('shows no ladder for a rule with one step', () => {
@@ -254,14 +254,38 @@ describe('RuleDetail', () => {
     })
   })
 
-  describe('when the alert clears', () => {
-    const noClearsRow = () => screen.queryByRole('definition', { name: /^clears/i })
+  describe('when the alert ends', () => {
+    const noEndsRow = () => screen.queryByRole('definition', { name: /^ends/i })
 
-    it('states the clear margin of a one-step rule under Alerts when', () => {
+    it('states the hysteresis of a one-step rule under Alerts when', () => {
       renderDetail({ ...houseLow, rule: { ...houseLow.rule, hysteresis: 0.2 } })
       const terms = screen.getAllByRole('term').map((t) => t.textContent)
-      expect(terms.indexOf('Clears')).toBe(terms.indexOf('Alerts when') + 1)
-      expect(fact(/^clears/i)).toBe('once back above 12.2 V')
+      expect(terms.indexOf('Ends')).toBe(terms.indexOf('Alerts when') + 1)
+      expect(terms).not.toContain('Clears')
+      expect(fact(/^ends/i)).toBe('once back above 12.2 V')
+    })
+
+    it('narrows the shore-power-frequency example’s range by its hysteresis', () => {
+      const SHORE = 'electrical.ac.shore.phase.single.frequency'
+      const hz = unitLookup(
+        [{ path: SHORE, units: 'Hz', unit: displayUnit({ units: 'Hz' }) }],
+        displayUnit({ units: 'm' })
+      )
+      renderDetail(
+        ruleEntry({
+          rule: {
+            steps: [
+              { low: 49, high: 51, priority: 'warning' },
+              { low: 48, high: 52, priority: 'alarm' }
+            ],
+            detector: { type: 'outside' },
+            signal: { paths: [SHORE] },
+            hysteresis: 0.2
+          }
+        }),
+        { units: hz }
+      )
+      expect(fact(/^ends/i)).toBe('once back between 49.2 and 50.8 Hz')
     })
 
     it('narrows a one-step outside rule’s range by the clear margin', () => {
@@ -275,7 +299,7 @@ describe('RuleDetail', () => {
           }
         })
       )
-      expect(fact(/^clears/i)).toBe('once back between 11.7 and 14.6 V')
+      expect(fact(/^ends/i)).toBe('once back between 11.7 and 14.6 V')
     })
 
     it('words a zone limit’s clear margin from the zone, as the house-battery-low example', () => {
@@ -292,17 +316,17 @@ describe('RuleDetail', () => {
         })
       )
       expect(fact(/alerts when/i)).toBe('below the warn zone for at least 60 s')
-      expect(fact(/^clears/i)).toBe('once back above the warn zone by 0.2 V')
+      expect(fact(/^ends/i)).toBe('once back above the warn zone by 0.2 V')
     })
 
     it('shows no row for a rule without a clear margin', () => {
       renderDetail(houseLow)
-      expect(noClearsRow()).toBeNull()
+      expect(noEndsRow()).toBeNull()
     })
 
     it('shows no row for a clear margin of zero, which is unset', () => {
       renderDetail({ ...houseLow, rule: { ...houseLow.rule, hysteresis: 0 } })
-      expect(noClearsRow()).toBeNull()
+      expect(noEndsRow()).toBeNull()
     })
   })
 
@@ -353,8 +377,8 @@ describe('RuleDetail', () => {
       expect(fact(/alerts when/i)).toBe(
         'outside -25 to 25 ° (warning), outside -35 to 35 ° (alarm), each for at least 10 s'
       )
-      expect(screen.getByText(/^Clears when/).textContent).toBe(
-        'Clears when the value is back between -25 and 25 °. It stays a warning until then.'
+      expect(screen.getByText(/^Ends once/).textContent).toBe(
+        'Ends once the value is back between -25 and 25 °. It stays a warning until then.'
       )
     })
 
@@ -365,15 +389,15 @@ describe('RuleDetail', () => {
         { units: heelUnits }
       )
       expect(screen.getByText(/^Within limits/).textContent).toBe('Within limits. Now 3 °.')
-      expect(screen.getByText(/^Clears when/).textContent).toBe(
-        'Clears when the value is back between -25 and 25 °.'
+      expect(screen.getByText(/^Ends once/).textContent).toBe(
+        'Ends once the value is back between -25 and 25 °.'
       )
     })
 
     it('narrows the range it clears in by the clear margin on both sides', () => {
       renderDetail({ ...heel, rule: { ...heel.rule, hysteresis: 2 } }, { units: heelUnits })
-      expect(fact(/^clears/i)).toBe('once back between -23 and 23 °')
-      expect(screen.getByText(/^It stays/).textContent).toBe('It stays a warning until it clears.')
+      expect(fact(/^ends/i)).toBe('once back between -23 and 23 °')
+      expect(screen.getByText(/^It stays/).textContent).toBe('It stays a warning until it ends.')
     })
 
     it('says when it clears without a range, for a first step that has none', () => {
@@ -382,8 +406,8 @@ describe('RuleDetail', () => {
         rule: { ...heel.rule, steps: [{ priority: 'warning' }, ...heel.rule.steps.slice(1)] }
       }
       renderDetail(unranged, { units: heelUnits })
-      expect(screen.getByText(/^Clears when/).textContent).toBe(
-        'Clears when the first step no longer holds. It stays a warning until then.'
+      expect(screen.getByText(/^Ends once/).textContent).toBe(
+        'Ends once the first step no longer holds. It stays a warning until then.'
       )
     })
 

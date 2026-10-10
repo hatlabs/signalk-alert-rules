@@ -214,7 +214,7 @@ const LABELS: Readonly<Record<string, string>> = {
   '/detector/window': 'the window',
   '/detector/horizon': 'the time ahead',
   '/detector/duration': 'how long it must hold',
-  '/detector/hysteresis': 'the clear margin',
+  '/detector/hysteresis': 'the hysteresis',
   [ZONES]: "Use the value's zones",
   '/detector/limit/level': 'the zone to start at',
   '/detector/limit/path': 'the path of the zones',

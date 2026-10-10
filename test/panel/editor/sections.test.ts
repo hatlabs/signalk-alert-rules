@@ -283,16 +283,16 @@ describe('saveHint', () => {
 
     it('names it after what else stops the save', () => {
       expect(saveHint([{ path: '/name', message: 'is required' }, ...notes], sustained)).toBe(
-        'Fill in the name to save. The clear margin was emptied: type it again or leave it empty.'
+        'Fill in the name to save. The hysteresis was emptied: type it again or leave it empty.'
       )
     })
 
     it('says the next Save leaves it empty once a footer named it and nothing else stops it', () => {
       expect(saveHint(notes, sustained, new Set(['/detector/hysteresis']))).toBe(
-        'The clear margin was emptied: type it again, or Save leaves it empty.'
+        'The hysteresis was emptied: type it again, or Save leaves it empty.'
       )
       expect(saveHint(notes, sustained)).toBe(
-        'The clear margin was emptied: type it again or leave it empty.'
+        'The hysteresis was emptied: type it again or leave it empty.'
       )
     })
 

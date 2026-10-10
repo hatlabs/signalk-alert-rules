@@ -44,6 +44,10 @@ const ZONES_INVALID =
   'The stored zone setting is not valid: choose a zone, or turn this off and type the steps.'
 
 const HOUSE = 'electrical.batteries.house.voltage'
+const STATIC_HINT = 'How far past the limit the value must return before the alert ends.'
+/** The hysteresis field's hint, without its errors. */
+const hysteresisHint = () =>
+  textbox('Hysteresis').closest('.skar-field')?.querySelector(':scope > .skar-hint')?.textContent
 
 const create = () => {
   click(button('Create rule'))
@@ -511,7 +515,7 @@ describe('RuleEditor, from a path', () => {
     await waitFor(() => {
       expect(more?.open).toBe(true)
     })
-    expect(description(textbox('Clear margin'))).toContain('must be at most 5')
+    expect(description(textbox('Hysteresis'))).toContain('must be at most 5')
   })
 
   it('focuses a refused field inside More options while it is closed', async () => {
@@ -526,7 +530,7 @@ describe('RuleEditor, from a path', () => {
     button('Create rule').focus()
     create()
     await waitFor(() => {
-      expect(document.activeElement).toBe(textbox('Clear margin'))
+      expect(document.activeElement).toBe(textbox('Hysteresis'))
     })
 
     const summary = screen.getByText('More options')
@@ -776,7 +780,7 @@ describe('RuleEditor, editing', () => {
     await formShown()
     expect(screen.getByRole('heading', { name: 'Edit “House battery low”' })).toBeTruthy()
     expect(screen.getByText('More options').closest('details')?.open).toBe(true)
-    expect(textbox('Clear margin')).toHaveProperty('value', '0.2')
+    expect(textbox('Hysteresis')).toHaveProperty('value', '0.2')
     expect(textbox('For at least')).toHaveProperty('value', '1')
     expect(screen.queryByRole('textbox', { name: 'Slug' })).toBeNull()
     expect(button('Save')).toBeTruthy()
@@ -1065,7 +1069,7 @@ describe('RuleEditor, editing', () => {
   it('saves an edit applied in place without asking', async () => {
     const { api, onSaved } = renderEditor({ editing: { entry: active, rule: battery } })
     await formShown()
-    type(textbox('Clear margin'), '0.3')
+    type(textbox('Hysteresis'), '0.3')
     click(button('Save'))
     await saved(onSaved)
     expect(screen.queryByRole('alertdialog')).toBeNull()
@@ -1078,7 +1082,7 @@ describe('RuleEditor, editing', () => {
   it('saves nothing on Enter in a field; only the Save button saves', async () => {
     const { api, onSaved } = renderEditor({ editing: { entry: active, rule: battery } })
     await formShown()
-    type(textbox('Clear margin'), '0.3')
+    type(textbox('Hysteresis'), '0.3')
     // What a browser does on Enter, or a tablet keyboard's Go, in a text field.
     fireEvent.submit(screen.getByRole('form'))
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -1709,13 +1713,13 @@ describe('RuleEditor, an invalid stored rule', () => {
     })
     await formShown()
     expect(description(textbox('Limit for step 1'))).toContain('Fill in the limit')
-    expect(description(textbox('Clear margin'))).toContain(
+    expect(description(textbox('Hysteresis'))).toContain(
       'must be typed again in the unit of the chosen path'
     )
     // The footer names the clear margin from the start, so Save need not stop for it.
     expect(
       screen.getByText(
-        'Fill in the value to watch and the limit to save. The clear margin was emptied: type it again or leave it empty.'
+        'Fill in the value to watch and the limit to save. The hysteresis was emptied: type it again or leave it empty.'
       )
     ).toBeTruthy()
     type(select('Search by name or path'), HOUSE)
@@ -1932,8 +1936,8 @@ describe('RuleEditor, outside a range', () => {
     await formShown()
     expect(textbox('For at least')).toBeTruthy()
     openMoreOptions()
-    expect(description(textbox('Clear margin'))).toContain(
-      'How far inside the range the value must come back to clear.'
+    expect(description(textbox('Hysteresis'))).toContain(
+      'How far past the limit the value must return before the alert ends.'
     )
     expect(screen.queryByRole('textbox', { name: 'Clear delay' })).toBeNull()
   })
@@ -2083,10 +2087,12 @@ describe('RuleEditor, outside a range', () => {
     await waitFor(() => {
       expect(more?.open).toBe(true)
     })
-    expect(description(textbox('Clear margin'))).toContain(
-      "The clear margin must be less than 1.65 V, half the warning's range 11.5 to 14.8 V."
+    expect(description(textbox('Hysteresis'))).toContain(
+      "The hysteresis must be less than 1.65 V, half the warning's range 11.5 to 14.8 V."
     )
-    expect(description(textbox('Clear margin'))).not.toContain(RANGE_HYSTERESIS)
+    expect(description(textbox('Hysteresis'))).not.toContain(RANGE_HYSTERESIS)
+    type(textbox('Hysteresis'), '2')
+    expect(hysteresisHint()).toBe(STATIC_HINT)
   })
 
   it('says whether the value now would alert, and past which limit', async () => {
@@ -2132,7 +2138,7 @@ describe('RuleEditor, the keyboard a number brings up', () => {
     click(button('Add a condition'))
     const condition = within(screen.getByRole('group', { name: 'Only while, condition 1' }))
     expect(condition.getByLabelText('Condition 1: for at least')).toBeTruthy()
-    expect(condition.queryByLabelText(/clear margin/i)).toBeNull()
+    expect(condition.queryByLabelText(/hysteresis/i)).toBeNull()
     expect(condition.queryByLabelText(/stops holding/i)).toBeNull()
   })
 
@@ -2145,7 +2151,7 @@ describe('RuleEditor, the keyboard a number brings up', () => {
     await formShown()
     expect(inputMode('For at least')).toBe('decimal')
     openMoreOptions()
-    expect(inputMode('Clear margin')).toBe('decimal')
+    expect(inputMode('Hysteresis')).toBe('decimal')
   })
 })
 
@@ -2194,11 +2200,11 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     // Read out as the field's reason, shown only once Save is pressed: nothing below it moves.
     expect(description(textbox('Limit for step 1'))).toContain('Fill in the limit')
     expect(shownDescription(textbox('Limit for step 1'))).not.toContain('Fill in the limit')
-    expect(textbox('Clear margin')).toHaveProperty('value', '')
+    expect(textbox('Hysteresis')).toHaveProperty('value', '')
     expect(textbox('For at least')).toHaveProperty('value', '1')
     expect(
       screen.getByText(
-        'Fill in the limit to save. The clear margin was emptied: type it again or leave it empty.'
+        'Fill in the limit to save. The hysteresis was emptied: type it again or leave it empty.'
       )
     ).toBeTruthy()
     click(button('Save'))
@@ -2207,8 +2213,8 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
   })
 
   const RETYPE = 'must be typed again in the unit of the chosen path'
-  const MARGIN = 'The clear margin was emptied: type it again or leave it empty.'
-  const MARGIN_ALONE = 'The clear margin was emptied: type it again, or Save leaves it empty.'
+  const MARGIN = 'The hysteresis was emptied: type it again or leave it empty.'
+  const MARGIN_ALONE = 'The hysteresis was emptied: type it again, or Save leaves it empty.'
   /** What the footer says stops Save. */
   const footer = () => document.querySelector('.skar-editor-status')?.textContent ?? ''
   const savedDetector = (api: FakeApi) =>
@@ -2235,10 +2241,10 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     renderEditor({ editing })
     await formShown()
     const more = () => screen.getByText('More options').closest('details')
-    type(textbox('Clear margin'), 'abc')
+    type(textbox('Hysteresis'), 'abc')
     click(button('Save'))
     expect(more()?.open).toBe(true)
-    expect(shownDescription(textbox('Clear margin'))).not.toBe('')
+    expect(shownDescription(textbox('Hysteresis'))).not.toBe('')
     click(screen.getByText('More options'))
     // A details element tells of its toggle in a task of its own.
     await waitFor(() => {
@@ -2251,7 +2257,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
   it('keeps More options collapsed over a shown error when a commit changes the errors', async () => {
     const more = await marginErrorCollapsed()
     changePath(SPEED)
-    expect(shownDescription(textbox('Clear margin'))).toContain(RETYPE)
+    expect(shownDescription(textbox('Hysteresis'))).toContain(RETYPE)
     expect(more()?.open).toBe(false)
   })
 
@@ -2266,7 +2272,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     const more = await marginErrorCollapsed()
     click(button('Escalate at…'))
     expect(screen.getByRole('button', { name: 'Remove step 2' })).toBeTruthy()
-    expect(shownDescription(textbox('Clear margin'))).not.toBe('')
+    expect(shownDescription(textbox('Hysteresis'))).not.toBe('')
     expect(more()?.open).toBe(false)
   })
 
@@ -2281,17 +2287,17 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     renderEditor({ editing })
     await formShown()
     changePath(SPEED)
-    expect(textbox('Clear margin').getAttribute('aria-invalid')).toBe('true')
-    expect(description(textbox('Clear margin'))).toContain(RETYPE)
-    expect(shownDescription(textbox('Clear margin'))).not.toContain(RETYPE)
+    expect(textbox('Hysteresis').getAttribute('aria-invalid')).toBe('true')
+    expect(description(textbox('Hysteresis'))).toContain(RETYPE)
+    expect(shownDescription(textbox('Hysteresis'))).not.toContain(RETYPE)
     // Hidden whole, not just its text: an empty element in the field would still take a gap.
-    const holder = (textbox('Clear margin').getAttribute('aria-describedby') ?? '')
+    const holder = (textbox('Hysteresis').getAttribute('aria-describedby') ?? '')
       .split(' ')
       .map((id) => document.getElementById(id))
       .find((e) => e?.textContent.includes(RETYPE) === true)
     expect(holder?.classList).toContain('skar-visually-hidden')
     click(button('Save'))
-    expect(shownDescription(textbox('Clear margin'))).toContain(RETYPE)
+    expect(shownDescription(textbox('Hysteresis'))).toContain(RETYPE)
   })
 
   it('keeps a shown error shown when another change of unit empties its field again', async () => {
@@ -2312,7 +2318,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     click(button('Save'))
     expect(api.previewRule).not.toHaveBeenCalled()
     expect(footer()).toBe(`Fill in the limit to save. ${MARGIN}`)
-    expect(description(textbox('Clear margin'))).toContain(RETYPE)
+    expect(description(textbox('Hysteresis'))).toContain(RETYPE)
     type(textbox('Limit for step 1'), '5')
     click(button('Save'))
     await saved(onSaved)
@@ -2333,7 +2339,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     expect(api.previewRule).not.toHaveBeenCalled()
     expect(footer()).toBe(MARGIN_ALONE)
     await waitFor(() => {
-      expect(document.activeElement).toBe(textbox('Clear margin'))
+      expect(document.activeElement).toBe(textbox('Hysteresis'))
     })
     click(button('Save'))
     await saved(onSaved)
@@ -2363,7 +2369,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     changePath(SPEED)
     click(button('Save'))
     type(textbox('Limit for step 1'), '5')
-    type(textbox('Clear margin'), '0.5')
+    type(textbox('Hysteresis'), '0.5')
     click(button('Save'))
     await saved(onSaved)
     expect(savedDetector(api).hysteresis).toBeCloseTo(0.5 * KNOT)
@@ -2375,9 +2381,9 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     changePath(SPEED)
     click(button('Save'))
     type(textbox('Limit for step 1'), '5')
-    type(textbox('Clear margin'), '0.5')
+    type(textbox('Hysteresis'), '0.5')
     changePath(HOUSE)
-    expect(textbox('Clear margin')).toHaveProperty('value', '')
+    expect(textbox('Hysteresis')).toHaveProperty('value', '')
     type(textbox('Limit for step 1'), '12')
     click(button('Save'))
     expect(api.previewRule).not.toHaveBeenCalled()
@@ -2395,8 +2401,8 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
       button('Save').focus()
     })
     click(button('Save'))
-    expect(textbox('Clear margin')).toHaveProperty('value', '')
-    expect(shownDescription(textbox('Clear margin'))).toContain(RETYPE)
+    expect(textbox('Hysteresis')).toHaveProperty('value', '')
+    expect(shownDescription(textbox('Hysteresis'))).toContain(RETYPE)
     expect(footer()).toBe(MARGIN_ALONE)
     expect(api.previewRule).not.toHaveBeenCalled()
     click(button('Save'))
@@ -2450,7 +2456,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
       expect(description(textbox(name))).toMatch(/fill in the low limit/i)
       expect(shownDescription(textbox(name))).not.toMatch(/fill in/i)
     }
-    expect(textbox('Clear margin')).toHaveProperty('value', '')
+    expect(textbox('Hysteresis')).toHaveProperty('value', '')
     expect(textbox('Each step must hold for at least')).toHaveProperty('value', '10')
     click(button('Save'))
     expect(api.previewRule).not.toHaveBeenCalled()
@@ -2512,7 +2518,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     summaryLaidOut()
     const rendered = renderEditor({ editing: clearingEdit() })
     await formShown()
-    expect(stepsSummary().textContent).toContain('It clears only')
+    expect(stepsSummary().textContent).toContain('It ends')
     expect(stepsSummary().style.minHeight).toBe('')
     changePath(SPEED)
     return rendered
@@ -2521,7 +2527,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
   it('keeps the steps summary’s height while the emptied limits’ errors are withheld', async () => {
     await summaryEmptied()
     expect(stepsSummary().textContent).toContain('…')
-    expect(stepsSummary().textContent).not.toContain('It clears only')
+    expect(stepsSummary().textContent).not.toContain('It ends')
     // Set in the render that shortens the text, so nothing below moves under a click.
     expect(stepsSummary().style.minHeight).toBe(`${String(SUMMARY_CLEARING)}px`)
   })
@@ -2552,7 +2558,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     await formShown()
     // Without step 1's limit there is no clear point to tell.
     type(textbox('Limit for step 1'), '')
-    expect(stepsSummary().textContent).not.toContain('It clears only')
+    expect(stepsSummary().textContent).not.toContain('It ends')
     changePath(SPEED)
     expect(stepsSummary().style.minHeight).toBe(`${String(SUMMARY_CLIMBING)}px`)
   })
@@ -2653,7 +2659,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     await waitFor(() => {
       expect(shownDescription(textbox(/^Name/))).toContain('is taken')
     })
-    expect(shownDescription(textbox('Clear margin'))).toContain(RETYPE)
+    expect(shownDescription(textbox('Hysteresis'))).toContain(RETYPE)
   })
 
   const battery = example('house-battery-low')
@@ -2678,7 +2684,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     changePath('electrical.batteries.start.voltage')
     expect(textbox('Limit for step 1')).toHaveProperty('value', '12.2')
     expect(textbox('Limit for step 2')).toHaveProperty('value', '11.8')
-    expect(textbox('Clear margin')).toHaveProperty('value', '0.2')
+    expect(textbox('Hysteresis')).toHaveProperty('value', '0.2')
     click(button('Save'))
     await saved(onSaved)
     expect(api.updateRule.mock.calls[0]?.[1].detector).toEqual(stepped.detector)
@@ -2693,7 +2699,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     changePath('electrical.batteries.start.voltage')
     expect(textbox('Limit for step 1')).toHaveProperty('value', '12.2')
     expect(textbox('Limit for step 2')).toHaveProperty('value', '11.8')
-    expect(textbox('Clear margin')).toHaveProperty('value', '0.2')
+    expect(textbox('Hysteresis')).toHaveProperty('value', '0.2')
     expect(document.querySelectorAll('[aria-invalid="true"]')).toHaveLength(0)
     expect(screen.queryByText(/to save\.$/)).toBeNull()
   })
@@ -3076,6 +3082,96 @@ describe('RuleEditor, a field path', () => {
     type(input, ROLL)
     fireEvent.blur(input)
     expect(screen.queryByRole('radio', { name: /zone level/ })).toBeNull()
+  })
+})
+
+describe('RuleEditor, the hysteresis', () => {
+  afterEach(cleanup)
+
+  const belowWithSteps = async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    choose('Priority for step 1', 'warning')
+    type(textbox('Limit for step 1'), '12.2')
+    click(button('Escalate at…'))
+    choose('Priority for step 2', 'alarm')
+    type(textbox('Limit for step 2'), '11.8')
+    openMoreOptions()
+  }
+
+  it('labels the field Hysteresis and tells where the alert ends, as the summary does', async () => {
+    await belowWithSteps()
+    type(textbox('Hysteresis'), '0.2')
+    expect(hysteresisHint()).toBe('Alert ends at 12.4 V.')
+    expect(stepsSummary().textContent).toContain(
+      'The alert is raised as a warning below 12.2 V and becomes an alarm below 11.8 V. It ends only once back above 12.4 V.'
+    )
+    expect(screen.queryByRole('textbox', { name: 'Clear margin' })).toBeNull()
+  })
+
+  it.each(['', '0'])('ends at the first limit for a hysteresis of %j', async (typed) => {
+    await belowWithSteps()
+    type(textbox('Hysteresis'), '0.2')
+    type(textbox('Hysteresis'), typed)
+    expect(hysteresisHint()).toBe('Alert ends at 12.2 V.')
+    expect(stepsSummary().textContent).toContain('It ends once back above 12.2 V.')
+  })
+
+  it('moves the level with a limit typed anew', async () => {
+    await belowWithSteps()
+    type(textbox('Hysteresis'), '0.2')
+    type(textbox('Limit for step 1'), '12.4')
+    expect(hysteresisHint()).toBe('Alert ends at 12.6 V.')
+  })
+
+  it('defines the term, with the number error, for a hysteresis that is not a number', async () => {
+    await belowWithSteps()
+    type(textbox('Hysteresis'), 'abc')
+    expect(hysteresisHint()).toBe(STATIC_HINT)
+    create()
+    expect(textbox('Hysteresis').getAttribute('aria-invalid')).toBe('true')
+    expect(shownDescription(textbox('Hysteresis'))).toContain('must be a number')
+    expect(hysteresisHint()).toBe(STATIC_HINT)
+  })
+
+  it('defines the term while the first limit is not typed', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    openMoreOptions()
+    type(textbox('Hysteresis'), '0.2')
+    expect(hysteresisHint()).toBe(STATIC_HINT)
+  })
+
+  it('narrows a range by the hysteresis', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'outside' } })
+    await formShown()
+    type(textbox('Low limit for step 1'), '11.5')
+    type(textbox('High limit for step 1'), '14.8')
+    openMoreOptions()
+    expect(hysteresisHint()).toBe('Alert ends inside 11.5–14.8 V.')
+    type(textbox('Hysteresis'), '0.2')
+    expect(hysteresisHint()).toBe('Alert ends inside 11.7–14.6 V.')
+  })
+
+  it('tells a zone limit’s level from the zone', async () => {
+    const zoned = example('house-battery-low')
+    renderEditor({ editing: { entry: ruleEntry({ slug: zoned.slug }), rule: zoned } })
+    await formShown()
+    openMoreOptions()
+    expect(hysteresisHint()).toBe('Alert ends 0.2 V above the warn zone.')
+    type(textbox('Hysteresis'), '')
+    expect(hysteresisHint()).toBe('Alert ends above the warn zone.')
+  })
+
+  it('says how a condition that stops holding ends the alert', async () => {
+    renderEditor({ start: { path: HOUSE, kind: 'below' } })
+    await formShown()
+    openMoreOptions()
+    expect(
+      screen.getByText(/^The rule is in use only while every condition holds/).textContent
+    ).toBe(
+      "The rule is in use only while every condition holds; one that stops holding ends the rule's alert."
+    )
   })
 })
 
