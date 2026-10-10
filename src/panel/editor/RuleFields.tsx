@@ -8,7 +8,7 @@ import {
   fieldZonesError
 } from '../../model/pointerPath'
 import { PathPicker } from '../paths/PathPicker'
-import type { PathList } from '../paths/selfPaths'
+import { readingFrom, type PathList } from '../paths/selfPaths'
 import { matchedInstances, signalMeasure, type UnitLookup } from '../signalUnits'
 import { ConditionFields, HoldField, KindField } from './ConditionFields'
 import { FieldErrors, Required, SelectField, TextField, valueKindOf } from './fields'
@@ -277,9 +277,15 @@ export function RuleFields(props: RuleFieldsProps) {
   const slot = form.signal.slots[0] ?? { path: '', source: '' }
   const entry = single ? live.entry(slot.path) : undefined
   const wildcard = hasWildcard(form.signal)
-  // A wildcard's first instance is not the rule's value, nor one input a combination's.
-  const liveValue = single && !wildcard ? entry?.value : undefined
-  const valueKind = single ? valueKindOf(entry?.value) : 'number'
+  // A wildcard's first instance is not the rule's value, nor one input a combination's;
+  // a pinned source's reading is, as the server evaluates only that source.
+  const liveValue =
+    !single || wildcard
+      ? undefined
+      : slot.source === ''
+        ? entry?.value
+        : readingFrom(entry, slot.source)
+  const valueKind = single ? valueKindOf(liveValue ?? entry?.value) : 'number'
   const pathErrors = (attached.byField.get('/signal/path') ?? []).map((m) => m.text)
   const defaultCondition = defaultFormCondition(form)
   const stray = strayBraces(form.message)

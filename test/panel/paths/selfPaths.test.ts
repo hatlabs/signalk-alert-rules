@@ -5,6 +5,7 @@ import { SessionExpiredError } from '../../../src/panel/api'
 import {
   httpPathSource,
   parseSelfPaths,
+  readingFrom,
   useSelfPaths,
   type PathEntry,
   type PathSource
@@ -205,6 +206,34 @@ describe('parseSelfPaths', () => {
     expect(voltage.preferredSource).toBe('can0.c0ffee')
   })
 
+  it("keeps each source's reading, by canonical name, leaving out unavailable ones", () => {
+    const sources = {
+      can0: { label: 'can0', type: 'NMEA2000', '10': { n2k: { canName: 'c0ffee' } } }
+    }
+    const [frequency, voltage] = parseSelfPaths(
+      {
+        f: {
+          value: 50.4,
+          $source: 'can0.10',
+          values: {
+            'can0.10': { value: 50.4 },
+            'shore.b': { value: 51.6 },
+            'shore.c': { value: null },
+            'shore.d': {}
+          }
+        },
+        v: { value: 12.4, $source: 'gnss.a' }
+      },
+      sources
+    )
+    expect(frequency.readings).toEqual({ 'can0.c0ffee': 50.4, 'shore.b': 51.6 })
+    expect(readingFrom(frequency, 'shore.b')).toBe(51.6)
+    expect(readingFrom(frequency, 'shore.c')).toBeUndefined()
+    expect(readingFrom(frequency, 'toString')).toBeUndefined()
+    // A path with one source and no `values` keeps that source's reading.
+    expect(voltage.readings).toEqual({ 'gnss.a': 12.4 })
+  })
+
   it('rejects a body that is not a tree', () => {
     expect(() => parseSelfPaths([])).toThrow(/unexpected response/)
   })
@@ -246,6 +275,24 @@ describe('parseSelfPaths, fields of an object path', () => {
       value: 0.1
     })
     expect(paths[2].displayName).toBe('Heading (yaw)')
+  })
+
+  it("keeps each source's reading of a field, of the field's type", () => {
+    const paths = parseSelfPaths({
+      navigation: {
+        attitude: {
+          ...attitude,
+          values: {
+            'imu.1': { value: { roll: 0.1, pitch: -0.05, yaw: 1.2 } },
+            'imu.2': { value: { roll: 0.3, pitch: 'level' } }
+          }
+        }
+      }
+    })
+    const field = (path: string) => paths.find((p) => p.path === path)
+    expect(field('navigation.attitude#/roll')?.readings).toEqual({ 'imu.1': 0.1, 'imu.2': 0.3 })
+    expect(field('navigation.attitude#/pitch')?.readings).toEqual({ 'imu.1': -0.05 })
+    expect(field('navigation.attitude#/yaw')?.readings).toEqual({ 'imu.1': 1.2 })
   })
 
   it('lists the fields of a position, as numbers, after the position itself', () => {

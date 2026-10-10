@@ -91,7 +91,8 @@ export const reported: PathEntry[] = [
     unit: amperes,
     value: -2.1,
     sources: ['can0.226', 'n2k.2'],
-    preferredSource: 'can0.226'
+    preferredSource: 'can0.226',
+    readings: { 'can0.226': -2.1, 'n2k.2': -2.2 }
   },
   { path: 'electrical.batteries.start.current', units: 'A', unit: amperes, value: 0.3 },
   { path: 'electrical.chargers.shore.current', units: 'A', unit: amperes, value: 18.2 },
@@ -101,7 +102,8 @@ export const reported: PathEntry[] = [
     units: 'rad',
     unit: degrees,
     value: 1.2,
-    sources: ['compass.a', 'compass.b']
+    sources: ['compass.a', 'compass.b'],
+    readings: { 'compass.a': 1.2, 'compass.b': 1.21 }
   },
   { path: 'propulsion.port.coolantTemperature', units: 'K', unit: celsius, value: 355 },
   { path: 'propulsion.starboard.coolantTemperature', units: 'K', unit: celsius, value: 356 },
@@ -124,7 +126,8 @@ export const reported: PathEntry[] = [
     unit: knots,
     value: 2.5,
     sources: ['gnss.bow', 'gnss.stern'],
-    preferredSource: 'gnss.stern'
+    preferredSource: 'gnss.stern',
+    readings: { 'gnss.bow': 2.4, 'gnss.stern': 2.5 }
   },
   ...attitude
 ]
