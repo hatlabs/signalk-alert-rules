@@ -943,6 +943,14 @@
   .skar-editor-grid > .skar-editor-actions {
     grid-column: 1;
   }
+
+  /*
+   * The form's column is narrow at tablet widths; a smaller basis keeps the
+   * status beside the buttons there, rather than on a row of its own.
+   */
+  .skar-editor-grid > .skar-editor-actions > .skar-editor-status {
+    flex-basis: 6rem;
+  }
 }
 
 .skar-editor-form {
