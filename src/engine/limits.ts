@@ -1,4 +1,5 @@
-import { ZONE_LEVELS, type Limit, type ZoneLevel, type ZoneLimit } from '../model/rule.js'
+import type { Detector, Limit, Signal, ZoneLimit } from '../model/rule.js'
+import { ZONE_LEVELS, type ZoneLevel } from '../model/zoneLevels.js'
 
 /** A `meta.zones` entry. JSON meta may carry a missing bound as null. */
 export interface Zone {
@@ -15,6 +16,19 @@ export interface MissingZone {
 }
 
 export type LimitResolution = { ok: true; value: number } | { ok: false; missing: MissingZone }
+
+/** The path whose zones a zone limit reads: its own, else the signal's, which a combined signal lacks. */
+export function zonePath(limit: ZoneLimit, signal: Signal): string | undefined {
+  return limit.path ?? ('combinator' in signal ? undefined : signal.path)
+}
+
+/** The side of its limit a detector alerts past: a rising projection's is above. */
+export function limitDirection(
+  detector: Extract<Detector, { type: 'sustained' | 'projection' }>
+): 'above' | 'below' {
+  if (detector.type === 'sustained') return detector.direction
+  return detector.direction === 'rising' ? 'above' : 'below'
+}
 
 /** A zone level's rank; a more severe level ranks higher. */
 function severity(level: ZoneLevel): number {
@@ -118,4 +132,32 @@ export function severerLevels(
     const resolved = resolveLimit({ ...limit, level }, direction, zones)
     return resolved.ok && beyond(resolved.value) ? [{ level, value: resolved.value }] : []
   })
+}
+
+export type ZoneLevelsResolution =
+  { ok: true; levels: { level: ZoneLevel; value: number }[] } | { ok: false; missing: MissingZone }
+
+/**
+ * The zone levels a zone-limit detector alerts at, least severe first: the
+ * named level, then for a sustained detector every more severe one. Only a
+ * sustained detector escalates through levels: a projection's detectors for
+ * more severe levels would share its horizon, so a steady trend would set
+ * them all at once and the first alert would name a level the value is
+ * nowhere near.
+ */
+export function zoneLimitLevels(
+  detector: Extract<Detector, { type: 'sustained' | 'projection' }>,
+  limit: ZoneLimit,
+  zones: readonly Zone[] | null | undefined
+): ZoneLevelsResolution {
+  const direction = limitDirection(detector)
+  const named = resolveLimit(limit, direction, zones)
+  if (!named.ok) return named
+  return {
+    ok: true,
+    levels: [
+      { level: limit.level, value: named.value },
+      ...(detector.type === 'sustained' ? severerLevels(limit, direction, zones) : [])
+    ]
+  }
 }

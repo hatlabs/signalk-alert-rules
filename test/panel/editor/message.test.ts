@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { renderMessage } from '../../../src/alerts/message'
+import { RuleEvaluator } from '../../../src/engine/evaluator'
+import type { Rule } from '../../../src/model/rule'
 import { withKind, type ConditionKind } from '../../../src/panel/editor/conditionKinds'
 import {
   generatedMessage,
   generatedName,
+  previewLimit,
   strayBraces,
   toSavedRule,
   withGenerated
@@ -10,14 +14,18 @@ import {
 import {
   emptyForm,
   emptyStep,
+  fromRule,
   setCombinator,
   setMode,
+  signalShape,
   type RuleForm,
   type StepForm,
   type ValueField
 } from '../../../src/panel/editor/formModel'
-import type { PathEntry } from '../../../src/panel/paths/selfPaths'
-import { unitLookup } from '../../../src/panel/signalUnits'
+import { reachedStep } from '../../../src/panel/editor/live'
+import type { PathEntry, Zone } from '../../../src/panel/paths/selfPaths'
+import { signalMeasure, unitLookup } from '../../../src/panel/signalUnits'
+import { FakeSubscriptionManager } from '../../helpers/FakeSubscriptionManager'
 import { displayUnit } from '../../../src/panel/units'
 
 const volts = displayUnit({ units: 'V', displayUnits: { formula: 'value', symbol: 'V' } })
@@ -283,5 +291,135 @@ describe('strayBraces', () => {
       '${value}'
     ])
     expect(strayBraces('Voltage {value}')).toEqual([])
+  })
+})
+
+describe('the preview limit and the evaluator', () => {
+  const HOUSE = 'electrical.batteries.house.voltage'
+  const START = 'electrical.batteries.start.voltage'
+  const COOLANT = 'propulsion.port.coolantTemperature'
+  const ZONES: Readonly<Record<string, Zone[]>> = {
+    [HOUSE]: [
+      { upper: 11.5, state: 'alarm' },
+      { lower: 11.5, upper: 12, state: 'warn' }
+    ],
+    [COOLANT]: [
+      { lower: 363, upper: 373, state: 'warn' },
+      { lower: 373, state: 'alarm' }
+    ]
+  }
+  const UNITS: Readonly<Record<string, string>> = { [HOUSE]: 'V', [START]: 'V', [COOLANT]: 'K' }
+  type ZoneDetector = Extract<Rule['detector'], { type: 'sustained' | 'projection' }>
+
+  const zoneRule = (path: string, detector: ZoneDetector): Rule => ({
+    name: 'Zoned',
+    slug: 'zoned',
+    message: 'Past {limit}',
+    signal: { path },
+    detector
+  })
+  const sustained = (direction: 'above' | 'below', path?: string): ZoneDetector => ({
+    type: 'sustained',
+    direction,
+    limit: { kind: 'zone', level: 'warn', ...(path === undefined ? {} : { path }) },
+    duration: 10
+  })
+  const projection = (direction: 'rising' | 'falling'): ZoneDetector => ({
+    type: 'projection',
+    direction,
+    limit: { kind: 'zone', level: 'warn' },
+    window: 300,
+    horizon: 600
+  })
+  const signalPath = (rule: Rule) => ('combinator' in rule.signal ? '' : rule.signal.path)
+
+  /** The limit the evaluator reports once the value has held for the rule's duration. */
+  function evaluated(rule: Rule, value: number): number | undefined {
+    const sm = new FakeSubscriptionManager()
+    let now = 0
+    const evaluator = new RuleEvaluator(
+      rule,
+      {
+        subscriptions: sm,
+        meta: (path) => (path in ZONES ? { zones: ZONES[path], units: UNITS[path] } : undefined),
+        timeoutSettings: () => ({ enforce: true, useDefaults: true }),
+        clock: () => now
+      },
+      () => undefined
+    )
+    evaluator.start()
+    sm.publish(signalPath(rule), 'src', value)
+    now = 10
+    evaluator.tick()
+    return evaluator.status().instances[0]?.limit
+  }
+
+  function previewed(rule: Rule, value: number): number | undefined {
+    const entries: PathEntry[] = Object.keys(UNITS).map((path) => ({
+      path,
+      units: UNITS[path],
+      unit: displayUnit({ units: UNITS[path] }),
+      ...(path in ZONES ? { zones: ZONES[path] } : {}),
+      ...(path === signalPath(rule) ? { value } : {})
+    }))
+    const live = unitLookup(entries, displayUnit({ units: 'm' }))
+    const f = fromRule(rule, live)
+    return previewLimit(f, rule, value, signalMeasure(signalShape(f.signal), live), live)
+  }
+
+  it.each<[string, Rule, number]>([
+    ['below, above the zones', zoneRule(HOUSE, sustained('below')), 13.31],
+    ['below, in the named level', zoneRule(HOUSE, sustained('below')), 11.8],
+    ['below, past a severer level', zoneRule(HOUSE, sustained('below')), 11.2],
+    ['above, short of the zones', zoneRule(COOLANT, sustained('above')), 355],
+    ['above, in the named level', zoneRule(COOLANT, sustained('above')), 365],
+    ['above, past a severer level', zoneRule(COOLANT, sustained('above')), 380],
+    ['below, on the severer bound', zoneRule(HOUSE, sustained('below')), 11.5],
+    ['below, on the named bound', zoneRule(HOUSE, sustained('below')), 12],
+    ['own zone path, past a severer level', zoneRule(START, sustained('below', HOUSE)), 11.2],
+    ['rising projection', zoneRule(COOLANT, projection('rising')), 380],
+    ['falling projection', zoneRule(HOUSE, projection('falling')), 11.2]
+  ])('agree on a zone limit: %s', (_, rule, value) => {
+    const limit = evaluated(rule, value)
+    expect(limit).toBeDefined()
+    expect(previewed(rule, value)).toBe(limit)
+  })
+
+  const typedSteps: Rule = {
+    name: 'Typed',
+    slug: 'typed',
+    message: 'Past {limit}',
+    signal: { path: HOUSE },
+    detector: {
+      type: 'sustained',
+      direction: 'below',
+      duration: 10,
+      steps: [
+        { limit: 12.2, priority: 'warning' },
+        { limit: 11.8, priority: 'alarm' }
+      ]
+    }
+  }
+
+  /** The message as the editor previews it: the reached step, else step 0, with the preview's limit. */
+  function previewedMessage(rule: Rule, value: number): string {
+    const entries: PathEntry[] = [{ path: HOUSE, units: 'V', unit: volts, value }]
+    const live = unitLookup(entries, displayUnit({ units: 'm' }))
+    const f = fromRule(rule, live)
+    const measure = signalMeasure(signalShape(f.signal), live)
+    const limit = previewLimit(f, rule, value, measure, live)
+    const step = Math.max(reachedStep(f, value, measure) ?? 0, 0)
+    return renderMessage(rule, { step, units: 'V', ...(limit === undefined ? {} : { limit }) })
+  }
+
+  it.each([
+    ['between the steps', 12, 12.2],
+    ['past both steps', 11.5, 11.8]
+  ])('agree on typed steps: %s', (_, value, expected) => {
+    const limit = evaluated(typedSteps, value)
+    expect(limit).toBe(expected)
+    expect(previewedMessage(typedSteps, value)).toBe(
+      renderMessage(typedSteps, { units: 'V', limit })
+    )
   })
 })

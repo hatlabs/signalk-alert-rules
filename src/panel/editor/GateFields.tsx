@@ -1,10 +1,11 @@
 import { isPointerPath } from '../../model/pointerPath'
+import { ZONE_LEVELS } from '../../model/zoneLevels'
 import { PathPicker } from '../paths/PathPicker'
 import { withoutFields, type PathList, type Zone } from '../paths/selfPaths'
 import { formatValue } from '../rules/describe'
 import { signalMeasure, type Measure, type UnitLookup } from '../signalUnits'
 import { DurationInput, RadioGroup, SelectField, TextField, useFieldErrors } from './fields'
-import { signalShape, ZONE_LEVEL_NAMES, type GateForm, type LimitForm } from './formModel'
+import { signalShape, type GateForm, type LimitForm } from './formModel'
 import { SignalFields } from './SignalFields'
 import { unitLabels } from './words'
 
@@ -18,7 +19,7 @@ const LIMIT_KINDS = [
   { value: 'zone', label: "A zone level of the path's zones" }
 ] as const
 
-const LEVELS = ZONE_LEVEL_NAMES.map((value) => ({ value, label: value }))
+const LEVELS = ZONE_LEVELS.map((value) => ({ value, label: value }))
 
 /** A zone as the editor lists it: its state and range, in the display unit. */
 export function zoneText(zone: Zone, measure: Measure): string {

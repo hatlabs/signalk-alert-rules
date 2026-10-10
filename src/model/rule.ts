@@ -1,5 +1,6 @@
 import Type, { type Static, type TNumberOptions, type TProperties } from 'typebox'
 import { MAX_ALERT_PATH_LENGTH, SEGMENT_CHARS } from '../alerts/paths.js'
+import { LEVEL_PRIORITY, ZONE_LEVELS } from './zoneLevels.js'
 
 export const MAX_DURATION_S = 24 * 3600
 export const MAX_RULES = 500
@@ -75,17 +76,7 @@ export function severityOf(priority: Priority): number {
   return PRIORITIES.length - PRIORITIES.indexOf(priority)
 }
 
-/** The `meta.zones` states that raise an alert; normal and nominal raise nothing. */
-export const ZONE_LEVELS = ['alert', 'warn', 'alarm', 'emergency'] as const
-export type ZoneLevel = (typeof ZONE_LEVELS)[number]
-
-/** The priority a zone-limit rule raises at while a zone level is the most severe it holds. */
-export const LEVEL_PRIORITY: Readonly<Record<ZoneLevel, Priority>> = {
-  alert: 'caution',
-  warn: 'warning',
-  alarm: 'alarm',
-  emergency: 'emergency'
-}
+export { LEVEL_PRIORITY, ZONE_LEVELS, type ZoneLevel } from './zoneLevels.js'
 
 const num = (quantity: Quantity, options?: TNumberOptions) =>
   Type.Number({ ...options, [QUANTITY_KEY]: quantity })

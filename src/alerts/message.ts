@@ -28,6 +28,15 @@ export interface MessageFacts {
   units?: string
 }
 
+export interface RenderOptions {
+  /**
+   * `{limit}` with no limit to fill it in stays as written rather than a
+   * dash: for the editor's preview, which cannot always know the limit the
+   * server will resolve, and should not suggest there is none.
+   */
+  keepUnfilledLimit?: boolean
+}
+
 /**
  * A number in its SI unit. A plugin cannot read the display-unit
  * preferences: the server resolves them per user, only when it answers a
@@ -97,7 +106,11 @@ const MISSING = '–'
  * a rule without a wildcard, so a message shared by both kinds of rule reads
  * cleanly.
  */
-export function renderMessage(rule: Rule, facts: MessageFacts): string {
+export function renderMessage(
+  rule: Rule,
+  facts: MessageFacts,
+  options: RenderOptions = {}
+): string {
   return rule.message.replace(PLACEHOLDER, (_, name: string) => {
     let text: string | undefined
     switch (name) {
@@ -105,7 +118,8 @@ export function renderMessage(rule: Rule, facts: MessageFacts): string {
         text = facts.instance ?? ''
         break
       case 'limit':
-        text = limitText(rule, facts)
+        text =
+          limitText(rule, facts) ?? (options.keepUnfilledLimit === true ? '{limit}' : undefined)
         break
       case 'duration': {
         const duration = 'duration' in rule.detector ? rule.detector.duration : undefined

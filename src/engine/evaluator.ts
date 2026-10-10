@@ -26,7 +26,7 @@ import {
   type Side
 } from './detectors/index.js'
 import { Gate } from './gates.js'
-import { resolveLimit, severerLevels, type MissingZone, type Zone } from './limits.js'
+import { zoneLimitLevels, zonePath, type MissingZone, type Zone } from './limits.js'
 import {
   bindPath,
   inputState,
@@ -720,7 +720,7 @@ export class RuleEvaluator {
 
   private zones(limit: Limit, signal: Signal, instance: Instance | undefined) {
     if (limit.kind !== 'zone') return undefined
-    const path = limit.path ?? ('combinator' in signal ? undefined : signal.path)
+    const path = zonePath(limit, signal)
     return path === undefined ? undefined : this.ctx.meta(bindPath(path, instance))?.zones
   }
 
@@ -738,20 +738,10 @@ export class RuleEvaluator {
       return { ok: true, steps }
     }
     const { steps: _steps, limit: _zone, ...rest } = d
-    const direction =
-      d.type === 'sustained' ? d.direction : d.direction === 'rising' ? 'above' : 'below'
     const zones = this.zones(zone, this.rule.signal, unit.instance)
-    const resolved = resolveLimit(zone, direction, zones)
+    const resolved = zoneLimitLevels(d, zone, zones)
     if (!resolved.ok) return resolved
-    // Only a sustained zone-limit rule escalates through levels: a
-    // projection's detectors for more severe levels would share its horizon,
-    // so a steady trend would set them all at once and the first alert would
-    // name a level the value is nowhere near.
-    const levels = [
-      { level: zone.level, value: resolved.value },
-      ...(rest.type === 'sustained' ? severerLevels(zone, direction, zones) : [])
-    ]
-    const steps = levels.map(({ level, value }) => ({
+    const steps = resolved.levels.map(({ level, value }) => ({
       priority: LEVEL_PRIORITY[level],
       spec: { ...rest, limit: value },
       limit: value,

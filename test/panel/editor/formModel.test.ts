@@ -7,7 +7,6 @@ import {
   MAX_GATES as MODEL_MAX_GATES,
   MAX_SLUG_LENGTH,
   PRIORITIES,
-  ZONE_LEVELS,
   type Detector,
   type Event,
   type Rule
@@ -46,7 +45,6 @@ import {
   withNumbersInUnit,
   withoutGate,
   withUnitErrors,
-  ZONE_LEVEL_NAMES,
   type RuleForm
 } from '../../../src/panel/editor/formModel'
 import type { PathEntry } from '../../../src/panel/paths/selfPaths'
@@ -132,10 +130,9 @@ function saved(form: RuleForm, units = displayed): Rule {
 }
 
 describe('the form model mirrors the rule model', () => {
-  it('offers exactly the combinators, priorities and zone levels the model has', () => {
+  it('offers exactly the combinators and priorities the model has', () => {
     expect([...COMBINATOR_KINDS]).toEqual([...COMBINATORS])
     expect([...PRIORITY_LEVELS]).toEqual([...PRIORITIES])
-    expect([...ZONE_LEVEL_NAMES]).toEqual([...ZONE_LEVELS])
   })
 
   it('bounds inputs, slugs and gates as the model does', () => {

@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react'
 import { RANGE_HYSTERESIS } from '../../model/rangeMessages'
-import type { Priority, ZoneLevel } from '../../model/rule'
+import type { ZoneLevel } from '../../model/rule'
 import { FIELD_ZONES_MESSAGE, isPointerPath } from '../../model/pointerPath'
+import { LEVEL_PRIORITY, ZONE_LEVELS } from '../../model/zoneLevels'
 import { PriorityBadge } from '../list/PriorityBadge'
 import { PathPicker } from '../paths/PathPicker'
 import { withoutFields, type PathList } from '../paths/selfPaths'
@@ -14,7 +15,6 @@ import {
   MAX_GATES,
   setMode,
   withDetector,
-  ZONE_LEVEL_NAMES,
   type RuleForm
 } from './formModel'
 import { GateFields, zoneText } from './GateFields'
@@ -23,15 +23,7 @@ import { ZONES } from './sections'
 import { SignalFields, useAllInstances } from './SignalFields'
 import { clearMarginText, unitLabels } from './words'
 
-/** The priority each zone level alerts at; a test keeps it equal to the model's LEVEL_PRIORITY. */
-export const ZONE_PRIORITY: Readonly<Record<ZoneLevel, Priority>> = {
-  alert: 'caution',
-  warn: 'warning',
-  alarm: 'alarm',
-  emergency: 'emergency'
-}
-
-const LEVELS = ZONE_LEVEL_NAMES.map((value) => ({ value, label: value }))
+const LEVELS = ZONE_LEVELS.map((value) => ({ value, label: value }))
 
 interface ZonesProps {
   form: RuleForm
@@ -49,7 +41,7 @@ function Zones({ form, onChange, measure, paths, units }: ZonesProps) {
   const zonePath = limit.path === '' ? single : limit.path
   const entry = zonePath === undefined ? undefined : units.entry(zonePath)
   const climbed = new Set(
-    limit.level === '' ? [] : ZONE_LEVEL_NAMES.slice(ZONE_LEVEL_NAMES.indexOf(limit.level))
+    limit.level === '' ? [] : ZONE_LEVELS.slice(ZONE_LEVELS.indexOf(limit.level))
   )
   const zones = (entry?.zones ?? []).filter((z) => climbed.has(z.state as ZoneLevel))
   const zoneMeasure = { ...measure, unit: entry?.unit ?? measure.unit }
@@ -128,7 +120,7 @@ function Zones({ form, onChange, measure, paths, units }: ZonesProps) {
                           key={`${z.state} ${String(z.lower)} ${String(z.upper)}`}
                           className="skar-rung"
                         >
-                          <PriorityBadge priority={ZONE_PRIORITY[z.state as ZoneLevel]} />
+                          <PriorityBadge priority={LEVEL_PRIORITY[z.state as ZoneLevel]} />
                           <span className="skar-rung-condition">
                             {zoneText(z, zoneMeasure).replace(/^(\w+):/, '$1 zone:')}
                           </span>

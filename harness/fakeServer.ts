@@ -22,6 +22,7 @@ import {
   extraRules,
   freshState,
   historySeries,
+  houseAlarmPaths,
   invalidRuleEntry,
   LOAD_ISSUE,
   paths,
@@ -264,6 +265,8 @@ export function fakePaths(scenario: Scenario): PathSource {
       switch (scenario.paths) {
         case 'ready':
           return Promise.resolve(paths)
+        case 'houseAlarm':
+          return Promise.resolve(houseAlarmPaths)
         case 'empty':
           return Promise.resolve([])
         case 'loading':
