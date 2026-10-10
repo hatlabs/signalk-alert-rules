@@ -230,7 +230,7 @@ describe('parseSelfPaths', () => {
     expect(readingFrom(frequency, 'shore.b')).toBe(51.6)
     expect(readingFrom(frequency, 'shore.c')).toBeUndefined()
     expect(readingFrom(frequency, 'toString')).toBeUndefined()
-    // A path with one source carries its reading as the path's value only.
+    // A path with one source and no `values` keeps that source's reading.
     expect(voltage.readings).toEqual({ 'gnss.a': 12.4 })
   })
 

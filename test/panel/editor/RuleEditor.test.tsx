@@ -3395,7 +3395,14 @@ describe('RuleEditor, the preview of {limit}', () => {
     expect(await previewOf(pinned('shore.c'), twoSources)).toContain(
       '“Frequency beyond {limit}: –”'
     )
-    expect(screen.queryByText(/Now 50\.4 Hz/)).toBeNull()
+    expect(screen.queryByText(/^Now /)).toBeNull()
+  })
+
+  it('reads the preferred source with no source pinned', async () => {
+    expect(await previewOf(outside([[49, 51]]), twoSources)).toContain(
+      '“Frequency beyond 51 Hz: 50.4 Hz”'
+    )
+    expect(screen.getByText(/Now 50\.4 Hz: would not alert/)).toBeTruthy()
   })
 
   it('offers the value the pinned source reports, its preferred source quiet', async () => {
