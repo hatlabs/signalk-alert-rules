@@ -4,7 +4,10 @@
  * One limit is written as typed, in the display unit; several are written as
  * `{limit}`, which the server fills in with the limit of the step reached.
  */
-import { signalMeasure, type UnitLookup } from '../signalUnits'
+import { resolveLimit } from '../../engine/limits'
+import type { Rule } from '../../model/rule'
+import type { SignalValue } from '../api'
+import { isWildcardPath, signalMeasure, type UnitLookup } from '../signalUnits'
 import { kindOf } from './conditionKinds'
 import {
   isZoneLimited,
@@ -16,6 +19,7 @@ import {
   type RuleForm,
   type ToRuleResult
 } from './formModel'
+import { reachedStep } from './live'
 import { durationText, stepLimitText, subjectOf, valueText } from './words'
 import type { Measure } from '../signalUnits'
 
@@ -105,6 +109,39 @@ export function isEmptyMessage(message: string): boolean {
 export function toSavedRule(form: RuleForm, units: UnitLookup): ToRuleResult {
   const message = isEmptyMessage(form.message) ? generatedMessage(form, units) : form.message
   return toRule({ ...form, message }, units)
+}
+
+/**
+ * The SI limit the server would fill `{limit}` in with were the rule to alert
+ * now: a zone limit's bound from the zone path's zones, resolved as the
+ * evaluator resolves it, or for a range the bound of the step the value
+ * reaches, else the nearer bound of the first (the high one midway, by SI
+ * distance). Undefined where the editor cannot know it: zones not known, no
+ * single zone path, or no value now.
+ */
+export function previewLimit(
+  form: RuleForm,
+  rule: Rule,
+  value: SignalValue | undefined,
+  measure: Measure,
+  live: UnitLookup
+): number | undefined {
+  const d = rule.detector
+  if ((d.type === 'sustained' || d.type === 'projection') && d.limit?.kind === 'zone') {
+    const path = d.limit.path ?? ('combinator' in rule.signal ? undefined : rule.signal.path)
+    if (path === undefined || isWildcardPath(path)) return undefined
+    const direction =
+      d.type === 'sustained' ? d.direction : d.direction === 'rising' ? 'above' : 'below'
+    const resolved = resolveLimit(d.limit, direction, live.entry(path)?.zones)
+    return resolved.ok ? resolved.value : undefined
+  }
+  if (d.type !== 'outside' || typeof value !== 'number') return undefined
+  const reached = reachedStep(form, value, measure)
+  if (reached === undefined) return undefined
+  const step = d.steps.at(Math.max(reached, 0))
+  if (step === undefined) return undefined
+  if (reached >= 0) return value > step.high ? step.high : step.low
+  return value - step.low < step.high - value ? step.low : step.high
 }
 
 const NAME_WORDS: Readonly<Record<string, string>> = {

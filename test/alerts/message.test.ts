@@ -111,6 +111,20 @@ describe('renderMessage', () => {
     )
   })
 
+  it('leaves an unfilled {limit} as written when asked, other placeholders still dashed', () => {
+    const zone = valid({
+      ...battery('below {limit}: {value}'),
+      detector: { type: 'sustained', direction: 'below', limit: { kind: 'zone', level: 'warn' } }
+    })
+    expect(renderMessage(zone, { step: 0, limitAsWritten: true })).toBe('below {limit}: –')
+  })
+
+  it('fills in a limit the facts carry even when an unfilled one would stay as written', () => {
+    expect(
+      renderMessage(battery('{limit}'), { step: 0, limit: 12, units: 'V', limitAsWritten: true })
+    ).toBe('12 V')
+  })
+
   it("renders each detector's limit in its own quantity", () => {
     const pump = 'electrical.switches.bilge.state'
     const count = valid({

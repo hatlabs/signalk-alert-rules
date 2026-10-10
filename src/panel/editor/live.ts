@@ -46,7 +46,11 @@ function siValue(text: string, measure: Measure): number | undefined {
  * The furthest step the value holds at: -1 for none, undefined where the
  * editor cannot tell, as for a trend, which needs history.
  */
-function reachedStep(form: RuleForm, value: SignalValue, measure: Measure): number | undefined {
+export function reachedStep(
+  form: RuleForm,
+  value: SignalValue,
+  measure: Measure
+): number | undefined {
   const kind = kindOf(form.detector)
   const holds = (step: StepForm): boolean | undefined => {
     if (kind === 'below' || kind === 'above') {

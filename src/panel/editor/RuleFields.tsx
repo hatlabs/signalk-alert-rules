@@ -28,6 +28,7 @@ import {
 import {
   generatedMessage,
   isEmptyMessage,
+  previewLimit,
   strayBraces,
   toSavedRule,
   withGenerated
@@ -296,8 +297,11 @@ export function RuleFields(props: RuleFieldsProps) {
   const preview = (() => {
     const result = toSavedRule(form, units)
     if (!result.ok) return undefined
+    const limit = previewLimit(form, result.rule, liveValue, measure, live)
     return renderMessage(result.rule, {
       step: 0,
+      limitAsWritten: true,
+      ...(limit === undefined ? {} : { limit }),
       ...(previewInstance === undefined ? {} : { instance: previewInstance }),
       ...(liveValue === undefined ? {} : { value: liveValue }),
       ...(entry?.units === undefined ? {} : { units: entry.units })

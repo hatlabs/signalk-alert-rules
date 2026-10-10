@@ -26,6 +26,12 @@ export interface MessageFacts {
   limit?: number
   /** The signal's SI unit, as the path's `meta.units` names it. */
   units?: string
+  /**
+   * Whether `{limit}` with no limit to fill it in stays as written rather
+   * than a dash: for the editor's preview, which cannot always know the limit
+   * the server will resolve, and should not suggest there is none.
+   */
+  limitAsWritten?: boolean
 }
 
 /**
@@ -105,7 +111,7 @@ export function renderMessage(rule: Rule, facts: MessageFacts): string {
         text = facts.instance ?? ''
         break
       case 'limit':
-        text = limitText(rule, facts)
+        text = limitText(rule, facts) ?? (facts.limitAsWritten === true ? '{limit}' : undefined)
         break
       case 'duration': {
         const duration = 'duration' in rule.detector ? rule.detector.duration : undefined

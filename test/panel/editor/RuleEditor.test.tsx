@@ -12,7 +12,8 @@ import {
 import { validateRule } from '../../../src/model/validate'
 import { RuleRejectedError, type EditPreview, type FieldError } from '../../../src/panel/api'
 import { ZONE_PRIORITY } from '../../../src/panel/editor/MoreOptions'
-import type { PathSource } from '../../../src/panel/paths/selfPaths'
+import type { PathEntry, PathSource } from '../../../src/panel/paths/selfPaths'
+import { displayUnit } from '../../../src/panel/units'
 import { instance, onceShown, ruleEntry } from '../fixtures'
 import {
   button,
@@ -3178,5 +3179,217 @@ describe('RuleEditor, the hysteresis', () => {
 describe('ZONE_PRIORITY', () => {
   it('is the priority the model gives each zone level', () => {
     expect(ZONE_PRIORITY).toEqual(LEVEL_PRIORITY)
+  })
+})
+
+describe('RuleEditor, the preview of {limit}', () => {
+  afterEach(() => {
+    cleanup()
+    window.history.replaceState(null, '', '/')
+  })
+
+  const FREQUENCY = 'electrical.ac.shore.phase.single.frequency'
+  const hertz = displayUnit({
+    units: 'Hz',
+    displayUnits: { formula: 'value * 1', symbol: 'Hz' }
+  })
+
+  /** The fixture paths with these added or replacing theirs. */
+  const withPaths = (...entries: PathEntry[]): PathSource => ({
+    ...pathSource,
+    selfPaths: () =>
+      Promise.resolve([
+        ...reported.filter((p) => !entries.some((e) => e.path === p.path)),
+        ...entries
+      ])
+  })
+  const frequencyAt = (value: number | undefined) =>
+    withPaths({
+      path: FREQUENCY,
+      units: 'Hz',
+      unit: hertz,
+      ...(value === undefined ? {} : { value })
+    })
+
+  const outside = (ranges: [number, number][], path = FREQUENCY): Rule => ({
+    name: 'Shore power frequency',
+    slug: 'shore-power-frequency',
+    message: 'Frequency beyond {limit}: {value}',
+    signal: { path },
+    detector: {
+      type: 'outside',
+      steps: ranges.map(([low, high], i) => ({
+        low,
+        high,
+        priority: i === 0 ? 'warning' : 'alarm'
+      }))
+    }
+  })
+  const zoneLimited = (
+    path: string,
+    detector: Partial<Extract<Rule['detector'], { type: 'sustained' }>> = {}
+  ): Rule => ({
+    name: 'Zoned',
+    slug: 'zoned',
+    message: 'Past {limit}: {value}',
+    signal: { path },
+    detector: {
+      type: 'sustained',
+      direction: 'below',
+      limit: { kind: 'zone', level: 'warn' },
+      ...detector
+    }
+  })
+
+  async function previewOf(rule: Rule, paths: PathSource = pathSource): Promise<string> {
+    renderEditor({ paths, editing: { entry: ruleEntry({ slug: rule.slug }), rule } })
+    await formShown()
+    let text = ''
+    await waitFor(() => {
+      text = description(textbox(/^Message/))
+      expect(text).toMatch(/Sends now|While empty, sends/)
+    })
+    return text
+  }
+
+  it("fills a zone-limited rule's limit from the path's zones, as the server resolves it", async () => {
+    const rule = example('house-battery-low')
+    renderEditor({ editing: { entry: ruleEntry({ slug: rule.slug }), rule } })
+    await formShown()
+    type(textbox(/^Message/), '')
+    await waitFor(() => {
+      expect(description(textbox(/^Message/))).toContain(
+        'While empty, sends: “House battery voltage below 12 V for 1 min: 13.31 V”'
+      )
+    })
+  })
+
+  it('fills an above zone limit with the lower edge of the highest run at the level or severer', async () => {
+    const coolant = withPaths({
+      path: 'propulsion.port.coolantTemperature',
+      units: 'K',
+      unit: displayUnit({
+        units: 'K',
+        displayUnits: { formula: 'value - 273.15', symbol: '°C' }
+      }),
+      value: 355,
+      zones: [
+        { upper: 273.15, state: 'warn' },
+        { lower: 363, upper: 373, state: 'warn' },
+        { lower: 373, state: 'alarm' }
+      ]
+    })
+    const rule = zoneLimited('propulsion.port.coolantTemperature', { direction: 'above' })
+    expect(await previewOf(rule, coolant)).toContain('“Past 363 K: 355 K”')
+  })
+
+  it('reads the zones from the limit’s own path when it names one', async () => {
+    const rule = zoneLimited('electrical.batteries.start.voltage', {
+      limit: { kind: 'zone', level: 'warn', path: HOUSE }
+    })
+    expect(await previewOf(rule)).toContain('“Past 12 V: 12.6 V”')
+  })
+
+  it('fills a rising projection’s zone limit as above', async () => {
+    const coolant = withPaths({
+      path: 'propulsion.port.coolantTemperature',
+      units: 'K',
+      unit: displayUnit({ units: 'K' }),
+      value: 355,
+      zones: [
+        { upper: 280, state: 'warn' },
+        { lower: 363, state: 'warn' }
+      ]
+    })
+    const rule: Rule = {
+      ...zoneLimited('propulsion.port.coolantTemperature'),
+      detector: {
+        type: 'projection',
+        direction: 'rising',
+        limit: { kind: 'zone', level: 'warn' },
+        window: 300,
+        horizon: 600
+      }
+    }
+    expect(await previewOf(rule, coolant)).toContain('“Past 363 K: 355 K”')
+  })
+
+  it('leaves {limit} as written while the zone level is not among the path’s zones', async () => {
+    const rule = zoneLimited(HOUSE, { limit: { kind: 'zone', level: 'emergency' } })
+    expect(await previewOf(rule)).toContain('“Past {limit}: 13.31 V”')
+  })
+
+  it('leaves {limit} as written while the path reports no zones', async () => {
+    expect(await previewOf(zoneLimited('electrical.batteries.start.voltage'))).toContain(
+      '“Past {limit}: 12.6 V”'
+    )
+  })
+
+  it('leaves {limit} as written when the paths fail to load', async () => {
+    const failing = { ...pathSource, selfPaths: () => Promise.reject(new Error('unreachable')) }
+    expect(await previewOf(zoneLimited(HOUSE), failing)).toContain('“Past {limit}: –”')
+  })
+
+  it('leaves {limit} as written for a zone-limited rule on a wildcard path', async () => {
+    expect(await previewOf(zoneLimited('electrical.batteries.*.voltage'))).toContain(
+      '“Past {limit}: –”'
+    )
+  })
+
+  it.each([
+    [52.4, '51 Hz'],
+    [47, '49 Hz'],
+    [50.4, '51 Hz'],
+    [49.3, '49 Hz'],
+    [50, '51 Hz'],
+    [49, '49 Hz'],
+    [51, '51 Hz']
+  ])('fills an outside rule’s limit for a live %s Hz with %s', async (value, limit) => {
+    expect(await previewOf(outside([[49, 51]]), frequencyAt(value))).toContain(
+      `“Frequency beyond ${limit}: ${String(value)} Hz”`
+    )
+  })
+
+  it.each([
+    [52.4, '52 Hz'],
+    [47.5, '48 Hz'],
+    [51.5, '51 Hz'],
+    [50.4, '51 Hz']
+  ])('fills a two-step outside rule’s limit for a live %s Hz with %s', async (value, limit) => {
+    const rule = outside([
+      [49, 51],
+      [48, 52]
+    ])
+    expect(await previewOf(rule, frequencyAt(value))).toContain(
+      `“Frequency beyond ${limit}: ${String(value)} Hz”`
+    )
+  })
+
+  it('shows an outside rule’s limit in SI, as {value} and the server show it', async () => {
+    const rule = outside([[353, 363]], 'propulsion.port.coolantTemperature')
+    expect(await previewOf(rule)).toContain('“Frequency beyond 353 K: 355 K”')
+  })
+
+  it('leaves {limit} as written for an outside rule with no value now', async () => {
+    expect(await previewOf(outside([[49, 51]]), frequencyAt(undefined))).toContain(
+      '“Frequency beyond {limit}: –”'
+    )
+  })
+
+  it('leaves {limit} as written for a wildcard outside rule', async () => {
+    const rule = outside([[353, 363]], 'propulsion.*.coolantTemperature')
+    expect(await previewOf(rule)).toContain('“Frequency beyond {limit}: –”')
+  })
+
+  it('keeps a typed step’s limit for a rule with steps', async () => {
+    const rule: Rule = {
+      ...zoneLimited(HOUSE),
+      detector: {
+        type: 'sustained',
+        direction: 'below',
+        steps: [{ limit: 12.2, priority: 'warning' }]
+      }
+    }
+    expect(await previewOf(rule)).toContain('“Past 12.2 V: 13.31 V”')
   })
 })
