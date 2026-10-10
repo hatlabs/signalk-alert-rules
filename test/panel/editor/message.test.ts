@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { renderMessage } from '../../../src/alerts/message'
 import { RuleEvaluator } from '../../../src/engine/evaluator'
 import type { Rule } from '../../../src/model/rule'
 import { withKind, type ConditionKind } from '../../../src/panel/editor/conditionKinds'
@@ -21,6 +22,7 @@ import {
   type StepForm,
   type ValueField
 } from '../../../src/panel/editor/formModel'
+import { reachedStep } from '../../../src/panel/editor/live'
 import type { PathEntry, Zone } from '../../../src/panel/paths/selfPaths'
 import { signalMeasure, unitLookup } from '../../../src/panel/signalUnits'
 import { FakeSubscriptionManager } from '../../helpers/FakeSubscriptionManager'
@@ -372,6 +374,8 @@ describe('the preview limit and the evaluator', () => {
     ['above, short of the zones', zoneRule(COOLANT, sustained('above')), 355],
     ['above, in the named level', zoneRule(COOLANT, sustained('above')), 365],
     ['above, past a severer level', zoneRule(COOLANT, sustained('above')), 380],
+    ['below, on the severer bound', zoneRule(HOUSE, sustained('below')), 11.5],
+    ['below, on the named bound', zoneRule(HOUSE, sustained('below')), 12],
     ['own zone path, past a severer level', zoneRule(START, sustained('below', HOUSE)), 11.2],
     ['rising projection', zoneRule(COOLANT, projection('rising')), 380],
     ['falling projection', zoneRule(HOUSE, projection('falling')), 11.2]
@@ -379,5 +383,43 @@ describe('the preview limit and the evaluator', () => {
     const limit = evaluated(rule, value)
     expect(limit).toBeDefined()
     expect(previewed(rule, value)).toBe(limit)
+  })
+
+  const typedSteps: Rule = {
+    name: 'Typed',
+    slug: 'typed',
+    message: 'Past {limit}',
+    signal: { path: HOUSE },
+    detector: {
+      type: 'sustained',
+      direction: 'below',
+      duration: 10,
+      steps: [
+        { limit: 12.2, priority: 'warning' },
+        { limit: 11.8, priority: 'alarm' }
+      ]
+    }
+  }
+
+  /** The message as the editor previews it: the reached step, else step 0, with the preview's limit. */
+  function previewedMessage(rule: Rule, value: number): string {
+    const entries: PathEntry[] = [{ path: HOUSE, units: 'V', unit: volts, value }]
+    const live = unitLookup(entries, displayUnit({ units: 'm' }))
+    const f = fromRule(rule, live)
+    const measure = signalMeasure(signalShape(f.signal), live)
+    const limit = previewLimit(f, rule, value, measure, live)
+    const step = Math.max(reachedStep(f, value, measure) ?? 0, 0)
+    return renderMessage(rule, { step, units: 'V', ...(limit === undefined ? {} : { limit }) })
+  }
+
+  it.each([
+    ['between the steps', 12, 12.2],
+    ['past both steps', 11.5, 11.8]
+  ])('agree on typed steps: %s', (_, value, expected) => {
+    const limit = evaluated(typedSteps, value)
+    expect(limit).toBe(expected)
+    expect(previewedMessage(typedSteps, value)).toBe(
+      renderMessage(typedSteps, { units: 'V', limit })
+    )
   })
 })
