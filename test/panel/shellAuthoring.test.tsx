@@ -149,7 +149,7 @@ describe('Shell rule authoring', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
     await screen.findByRole('form', { name: /edit/i })
     expect(api.ruleDefinition).toHaveBeenCalledWith('house-battery-low')
-    expect(screen.getByRole('textbox', { name: 'Clear margin' })).toHaveProperty('value', '0.2')
+    expect(screen.getByRole('textbox', { name: 'Hysteresis' })).toHaveProperty('value', '0.2')
     change(screen.getByRole('textbox', { name: /^Message/ }), 'Battery low')
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => {

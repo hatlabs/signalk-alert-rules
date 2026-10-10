@@ -9,4 +9,4 @@ export const RANGE_INVERTED = 'must be above the low limit'
 export const RANGE_NOT_WIDER = "must not be inside the previous step's range"
 /** An outside rule's hysteresis of half its first step's width or more. */
 export const RANGE_HYSTERESIS =
-  "must be less than half the first step's range, or the alert could never clear"
+  "must be less than half the first step's range, or the alert could never end"

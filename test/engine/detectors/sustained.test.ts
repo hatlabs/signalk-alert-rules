@@ -90,7 +90,7 @@ describe('sustained detector', () => {
     expect(at(31, v(3))).toBe('clear')
   })
 
-  it('above with hysteresis clears only below the limit minus the margin', () => {
+  it('above with hysteresis does not clear until below the limit minus the hysteresis', () => {
     const { at } = harness({ type: 'sustained', direction: 'above', limit: 3, hysteresis: 0.5 })
     expect(at(0, v(3.1))).toBe('set')
     expect(at(1, v(2.6))).toBeUndefined()

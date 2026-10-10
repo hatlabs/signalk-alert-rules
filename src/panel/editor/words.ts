@@ -215,21 +215,23 @@ export function rangeLimitText(
   return stepLimitText({ ...step, limit: step[side] }, 'value', measure)
 }
 
+/** A difference of values in display units, as a hysteresis is, with its unit: `0.2 V`. */
+export function intervalText(value: number, measure: Measure): string {
+  return withUnit(formatNumber(value), unitLabels(measure).interval.replace(/ \(SI\)$/, ''))
+}
+
 /**
- * The clear margin an outside rule's first step allows, as a sentence:
- * `The clear margin must be less than 25 °, half the warning's range -25 to 25 °.`
+ * The hysteresis an outside rule's first step allows, as a sentence:
+ * `The hysteresis must be less than 25 °, half the warning's range -25 to 25 °.`
  * Undefined while the range is not filled in.
  */
 export function clearMarginText(first: StepForm, measure: Measure): string | undefined {
   const range = stepLimitText(first, 'range', measure)
   const [low, high] = [parsedNumber(first.low), parsedNumber(first.high)]
   if (range === undefined || low === undefined || high === undefined) return undefined
-  const half = withUnit(
-    formatNumber((high - low) / 2),
-    unitLabels(measure).interval.replace(/ \(SI\)$/, '')
-  )
+  const half = intervalText((high - low) / 2, measure)
   const whose = first.priority === '' ? 'the first step' : `the ${first.priority}`
-  return `The clear margin must be less than ${half}, half ${whose}'s range ${range}.`
+  return `The hysteresis must be less than ${half}, half ${whose}'s range ${range}.`
 }
 
 /**

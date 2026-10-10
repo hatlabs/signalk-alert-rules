@@ -3,17 +3,9 @@
  * how the steps climb, and whether the value now would alert.
  */
 import { formatNumber } from '../../format'
-import type { Priority } from '../../model/rule'
+import type { Priority, ZoneLevel } from '../../model/rule'
 import type { SignalValue } from '../api'
-import {
-  article,
-  clearPoint,
-  formatValue,
-  OPPOSITE_SIDE,
-  type BackInRange,
-  type BackPastLimit,
-  type ClearPoint
-} from '../rules/describe'
+import { article, clearPoint, formatValue, OPPOSITE_SIDE } from '../rules/describe'
 import { signalMeasure, type Measure, type UnitLookup } from '../signalUnits'
 import { fromSI, toSI } from '../units'
 import { kindOf } from './conditionKinds'
@@ -25,7 +17,7 @@ import {
   type RuleForm,
   type StepForm
 } from './formModel'
-import { rangeLimitText, stepLimitText, stepWord } from './words'
+import { intervalText, rangeLimitText, stepLimitText, stepWord } from './words'
 
 /**
  * The priorities as the IMO alert management resolutions behind the Signal
@@ -117,44 +109,84 @@ function passedText(
   return limit === undefined ? undefined : `${side === 'low' ? 'below' : 'above'} ${limit}`
 }
 
+/** Where the alert ends, each part as shown; `eased` when a hysteresis moves it. */
+type EndLevel = { eased: boolean } & (
+  | { at: 'limit'; side: 'above' | 'below'; limit: string }
+  | { at: 'range'; low: string; high: string }
+  | { at: 'zone'; side: 'above' | 'below'; zone: ZoneLevel; margin: string }
+)
+
 /**
- * Where the value must be back for the alert to clear, as typed for the
- * first step: past it by the clear margin.
+ * Where the alert ends for the limits typed now: past the first step by the
+ * hysteresis, inside its range narrowed by it, or past the zone it starts
+ * at. Undefined where nothing typed gives a level: no first limit, a
+ * hysteresis that is not a number, or one that closes the range.
  */
-function clearsText(form: RuleForm, measure: Measure): string | undefined {
+function endLevel(form: RuleForm, measure: Measure): EndLevel | undefined {
+  const { detector } = form
+  const typed = parsedNumber(detector.hysteresis)
+  if (typed === undefined && detector.hysteresis.trim() !== '') return undefined
+  const margin =
+    typed === undefined
+      ? undefined
+      : toSI(measure.kind === 'ratio' ? 'ratio' : 'interval', typed, measure.unit)
+  const shown = (si: number) => formatNumber(fromSI(measure.kind, si, measure.unit))
+  const kind = kindOf(detector)
+  const side = OPPOSITE_SIDE[kind ?? '']
+  if (isZoneLimited(detector)) {
+    if (side === undefined || detector.limit.level === '') return undefined
+    const eased = clearPoint({ side }, margin).margin !== undefined
+    return {
+      at: 'zone',
+      side,
+      zone: detector.limit.level,
+      eased,
+      margin: intervalText(typed ?? 0, measure)
+    }
+  }
   const first = form.steps.at(0)
   if (first === undefined) return undefined
-  const kind = kindOf(form.detector)
-  const typedMargin = parsedNumber(form.detector.hysteresis)
-  const margin =
-    typedMargin === undefined
-      ? undefined
-      : toSI(measure.kind === 'ratio' ? 'ratio' : 'interval', typedMargin, measure.unit)
-  const shown = (si: number) => formatNumber(fromSI(measure.kind, si, measure.unit))
-  const worded = (clear: ClearPoint<BackPastLimit | BackInRange>, where: string) =>
-    clear.margin !== undefined ? `once back ${where}` : where
   if (kind === 'outside') {
     const [low, high] = [siValue(first.low, measure), siValue(first.high, measure)]
     if (low === undefined || high === undefined) return undefined
-    const clear = clearPoint({ side: 'between', low, high }, margin)
-    const range = rangeLimitText({ ...first, high: shown(clear.back.high) }, 'high', measure)
-    return range === undefined
+    const { back, margin: by } = clearPoint({ side: 'between', low, high }, margin)
+    if (back.low >= back.high) return undefined
+    const shownHigh = rangeLimitText({ ...first, high: shown(back.high) }, 'high', measure)
+    return shownHigh === undefined
       ? undefined
-      : worded(clear, `between ${shown(clear.back.low)} and ${range}`)
+      : { at: 'range', low: shown(back.low), high: shownHigh, eased: by !== undefined }
   }
-  const side = OPPOSITE_SIDE[kind ?? '']
   const limit = siValue(first.limit, measure)
   if (side === undefined || limit === undefined) return undefined
-  const clear = clearPoint({ side, limit }, margin)
+  const { back, margin: by } = clearPoint({ side, limit }, margin)
   const text = stepLimitText(
-    { ...first, limit: shown(clear.back.limit) },
-    stepQuantity(form.detector),
+    { ...first, limit: shown(back.limit) },
+    stepQuantity(detector),
     measure
   )
-  return text === undefined ? undefined : worded(clear, `${side} ${text}`)
+  return text === undefined
+    ? undefined
+    : { at: 'limit', side, limit: text, eased: by !== undefined }
 }
 
-/** How the alert climbs through several steps, and when a comparison clears. */
+/** The hysteresis field's hint where no level follows from what is typed. */
+const HYSTERESIS_DEFINED = 'How far past the limit the value must return before the alert ends.'
+
+/** The hysteresis field's hint: where the alert ends for the limits typed now. */
+export function hysteresisHint(form: RuleForm, units: UnitLookup): string {
+  const end = endLevel(form, signalMeasure(signalShape(form.signal), units))
+  if (end === undefined) return HYSTERESIS_DEFINED
+  switch (end.at) {
+    case 'limit':
+      return `Alert ends at ${end.limit}.`
+    case 'range':
+      return `Alert ends inside ${end.low}–${end.high}.`
+    case 'zone':
+      return `Alert ends ${end.eased ? `${end.margin} ` : ''}${end.side} the ${end.zone} zone.`
+  }
+}
+
+/** How the alert climbs through several steps, and where a comparison ends. */
 export function ladderText(form: RuleForm, units: UnitLookup): string | undefined {
   if (form.steps.length < 2 || isZoneLimited(form.detector)) return undefined
   const measure = signalMeasure(signalShape(form.signal), units)
@@ -167,6 +199,9 @@ export function ladderText(form: RuleForm, units: UnitLookup): string | undefine
   })
   const [first, ...later] = parts
   const climb = `The alert is raised as ${first} and becomes ${later.join(', then ')}.`
-  const clears = clearsText(form, measure)
-  return clears === undefined ? climb : `${climb} It clears only ${clears}.`
+  const end = endLevel(form, measure)
+  if (end === undefined || end.at === 'zone') return climb
+  const where =
+    end.at === 'range' ? `between ${end.low} and ${end.high}` : `${end.side} ${end.limit}`
+  return `${climb} It ends ${end.eased ? 'only ' : ''}once back ${where}.`
 }

@@ -381,9 +381,9 @@ function detectorErrors(rule: Rule, wildcard: string | undefined): ValidationErr
   }
 }
 
-// The alert clears only inside the first step's range narrowed by hysteresis
-// on both sides, so hysteresis of half its width or more never clears. Later
-// steps are wider and clear whenever the first can.
+// The alert ends only inside the first step's range narrowed by hysteresis
+// on both sides, so with hysteresis of half its width or more it never ends.
+// Later steps are wider and end whenever the first can.
 function rangeErrors(d: Extract<Rule['detector'], { type: 'outside' }>): ValidationError[] {
   const errors: ValidationError[] = d.steps.flatMap((step, i) =>
     step.low < step.high

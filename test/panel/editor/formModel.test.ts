@@ -1133,7 +1133,7 @@ describe('a stored rule that does not validate', () => {
       ])
     })
 
-    it('drops the range and clear margin, keeping the duration', () => {
+    it('drops the range and hysteresis, keeping the duration', () => {
       const form = withoutSignal('shore-power-frequency')
       expect(form.steps.map((s) => [s.low, s.high, s.priority])).toEqual([
         ['', '', 'warning'],
@@ -1224,7 +1224,7 @@ describe('a stored rule that does not validate', () => {
     const rule = example('engine-rpm-mismatch')
     const [gate, other] = rule.gates ?? []
 
-    it('names each at its field, a clear margin as one to type again', () => {
+    it('names each at its field, a hysteresis as one to type again', () => {
       const { signal: _signal, ...body } = rule
       const { emptied } = fromBody(
         {
@@ -1358,7 +1358,7 @@ describe('a converted value shown rounded', () => {
     expect(saved(form).detector.steps).toEqual([{ limit: 0.2, priority: 'warning' }])
   })
 
-  it('rounds and keeps a clear margin, a slope and a gate limit', () => {
+  it('rounds and keeps a hysteresis, a slope and a gate limit', () => {
     const rule = heading({ hysteresis: 0.01 }, [
       {
         signal: { path: 'navigation.headingMagnetic' },
@@ -1500,7 +1500,7 @@ describe('a converted value shown rounded', () => {
         stored: (r) => step(r).value
       },
       {
-        field: 'clear margin',
+        field: 'hysteresis',
         rule: heading({ hysteresis: 0.1 }),
         text: (f) => f.detector.hysteresis,
         type: (f, t) => {

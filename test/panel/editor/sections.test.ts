@@ -241,13 +241,13 @@ describe('underMoreOptions', () => {
     f.gates = [emptyGate()]
   })
 
-  it('places the clear margin, gates and a new slug under More options', () => {
+  it('places the hysteresis, gates and a new slug under More options', () => {
     for (const p of ['/detector/hysteresis', '/gates/0/limit/value', '/slug']) {
       expect(underMoreOptions(f, true, p)).toBe(true)
     }
   })
 
-  it('places the clear margin of an outside rule under More options', () => {
+  it('places the hysteresis of an outside rule under More options', () => {
     const outside = form((f) => {
       f.detector.type = 'outside'
     })
@@ -277,22 +277,22 @@ describe('saveHint', () => {
     expect(saveHint([], sustained)).toBeUndefined()
   })
 
-  describe('clear margins a change of unit emptied', () => {
+  describe('hysteresis fields a change of unit emptied', () => {
     const retype = 'must be typed again in the unit of the chosen path'
     const notes = [{ path: '/detector/hysteresis', message: retype }]
 
     it('names it after what else stops the save', () => {
       expect(saveHint([{ path: '/name', message: 'is required' }, ...notes], sustained)).toBe(
-        'Fill in the name to save. The clear margin was emptied: type it again or leave it empty.'
+        'Fill in the name to save. The hysteresis was emptied: type it again or leave it empty.'
       )
     })
 
     it('says the next Save leaves it empty once a footer named it and nothing else stops it', () => {
       expect(saveHint(notes, sustained, new Set(['/detector/hysteresis']))).toBe(
-        'The clear margin was emptied: type it again, or Save leaves it empty.'
+        'The hysteresis was emptied: type it again, or Save leaves it empty.'
       )
       expect(saveHint(notes, sustained)).toBe(
-        'The clear margin was emptied: type it again or leave it empty.'
+        'The hysteresis was emptied: type it again or leave it empty.'
       )
     })
 

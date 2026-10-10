@@ -233,7 +233,7 @@ describe('validateRule', () => {
       expect(paths(errors)).toEqual(['/gates/0/signal/path'])
     })
 
-    it('refuses a clear margin or clear delay on a gate', () => {
+    it('refuses a hysteresis or clear delay on a gate', () => {
       const errors = errorsOf(
         rule({
           detector: minimalDetectors.match,
@@ -724,7 +724,7 @@ describe('validateRule', () => {
       }
     })
 
-    it("needs hysteresis under half the first step's range to clear", () => {
+    it("needs hysteresis under half the first step's range to end", () => {
       const detector = (hysteresis: number) => ({
         ...outside([-25, 25, 'warning']),
         hysteresis

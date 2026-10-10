@@ -84,13 +84,13 @@ export interface TabErrors {
   label: string
   form: RuleForm
   errors: readonly FieldError[]
-  /** The clear margins whose note a footer has named; see `saveHint`. */
+  /** The hysteresis fields whose note a footer has named; see `saveHint`. */
   named?: ReadonlySet<string>
 }
 
 /**
  * What stops Save, naming each tab: "Fill in the limit on windlass to save.",
- * then each tab's clear margins a change of unit emptied, as `saveHint` does.
+ * then each tab's hysteresis fields a change of unit emptied, as `saveHint` does.
  */
 export function tabsHint(tabs: readonly TabErrors[]): string | undefined {
   const parts = tabs.flatMap((tab) => {

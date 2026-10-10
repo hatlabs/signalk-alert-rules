@@ -1620,7 +1620,7 @@ describe('adopted alerts', () => {
   })
 
   it('an adopted alert cleared by its gate does not raise again when the rule returns to use', () => {
-    // The cached pressure is above the limit but inside the clear margin, so
+    // The cached pressure is above the limit but inside the hysteresis, so
     // only the gate can clear the alert at start.
     const rule = { ...oilPressure, detector: { ...oilPressure.detector, hysteresis: 50000 } }
     const { at, log } = setup(rule, {

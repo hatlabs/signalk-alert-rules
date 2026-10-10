@@ -107,7 +107,7 @@ function EditorForm(props: FormProps) {
   const initial = opened.form
   const [form, setForm] = useState<RuleForm>(initial)
   const [errors, setErrors] = useState<FormError[]>(opened.errors)
-  // The emptied clear margins a footer has named: on opening, and at each refused Save.
+  // The emptied hysteresis fields a footer has named: on opening, and at each refused Save.
   const [named, setNamed] = useState<ReadonlySet<string>>(
     () => new Set(standingRetypes(initial, opened.errors).map((e) => e.path))
   )
@@ -168,7 +168,7 @@ function EditorForm(props: FormProps) {
     const result = toSavedRule(form, units)
     if (!result.ok || marginUnnamed(retypes, named)) {
       showErrors(keepingNotes(result.ok ? [] : result.errors))
-      // The footer of this refused Save names every margin still empty.
+      // The footer of this refused Save names every hysteresis still empty.
       setNamed(new Set([...named, ...retypes.map((e) => e.path)]))
       return
     }

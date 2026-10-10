@@ -73,13 +73,13 @@ const range = (low: string, high: string, patch: Partial<StepForm> = {}): StepFo
 describe('clearMarginText', () => {
   it('names half the first range and the range, in display units', () => {
     expect(clearMarginText(range('-25', '25'), DEGREES)).toBe(
-      "The clear margin must be less than 25 °, half the warning's range -25 to 25 °."
+      "The hysteresis must be less than 25 °, half the warning's range -25 to 25 °."
     )
   })
 
   it('reads a decimal comma, and names a step with no priority by its place', () => {
     expect(clearMarginText(range('10,5', '12', { priority: '' }), DEGREES)).toBe(
-      "The clear margin must be less than 0.75 °, half the first step's range 10,5 to 12 °."
+      "The hysteresis must be less than 0.75 °, half the first step's range 10,5 to 12 °."
     )
   })
 

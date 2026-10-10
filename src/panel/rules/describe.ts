@@ -223,13 +223,13 @@ export interface BackInRange {
 export interface ClearPoint<Back extends BackPastLimit | BackInRange> {
   /** The limits moved back by the margin: where the value must be back. */
   back: Back
-  /** The clear margin in SI, when it is set; then the wording is "once back …". */
+  /** The hysteresis in SI, when it is set; then the wording is "once back …". */
   margin?: number
 }
 
 /**
  * Where a value must be back for a condition to stop holding, from the side
- * it must be back on and the clear margin in SI. A margin of zero is unset,
+ * it must be back on and the hysteresis in SI. A margin of zero is unset,
  * as the engine treats it.
  */
 export function clearPoint<Back extends BackPastLimit | BackInRange>(
@@ -251,7 +251,7 @@ export function clearPoint<Back extends BackPastLimit | BackInRange>(
   }
 }
 
-/** A difference in the signal's unit: the linear part only, as a clear margin is. */
+/** A difference in the signal's unit: the linear part only, as a hysteresis is. */
 function formatInterval(value: number, measure: Measure): string {
   if (measure.kind === 'ratio') return formatNumber(value)
   return withUnit(formatNumber(fromSI('interval', value, measure.unit)), measure.unit.symbol)
@@ -269,7 +269,7 @@ export function gateCondition(gate: RuleGate, units: UnitLookup): string {
 /**
  * Where a value past a limit must be back: "above 12.4 V". A zone's
  * threshold is the server's to resolve, so a zone limit's margin is told
- * from the zone: "above the warn zone by 0.2 V".
+ * from the zone: "0.2 V above the warn zone".
  */
 function wherePast(
   clear: ClearPoint<BackPastLimit>,
@@ -279,13 +279,13 @@ function wherePast(
 ): string {
   const { side, limit } = clear.back
   if (limit !== undefined) return `${side} ${value(limit)}`
-  return `${side} the ${zoneLevel} zone${clear.margin === undefined ? '' : ` by ${interval(clear.margin)}`}`
+  return `${clear.margin === undefined ? '' : `${interval(clear.margin)} `}${side} the ${zoneLevel} zone`
 }
 
 /**
- * Where a rule's value must be back for its alert to clear: past its first
- * step or its zone by the clear margin, or inside its first step's range
- * narrowed by it. Undefined for a rule that clears otherwise.
+ * Where a rule's value must be back for its alert to end: past its first
+ * step or its zone by the hysteresis, or inside its first step's range
+ * narrowed by it. Undefined for a rule that ends otherwise.
  */
 export function ruleClear(
   rule: RuleInfo,
@@ -308,7 +308,7 @@ export function ruleClear(
   }
 }
 
-/** When a rule's alert clears, for a rule whose clear margin eases it: "once back above 12.4 V". */
+/** When a rule's alert ends, for a rule whose hysteresis eases it: "once back above 12.4 V". */
 export function clearsWhen(rule: RuleInfo, display: RuleDisplay): string | undefined {
   const back = ruleClear(rule, display)
   return back?.clear.margin !== undefined ? `once back ${back.where}` : undefined
@@ -322,7 +322,7 @@ export interface RuleDisplay {
   total: (total: number) => string
   /** A rate of change, stored per second, shown per minute as the editor enters it. */
   rate: (perSecond: number) => string
-  /** A difference of values, as a clear margin is: the linear part of the unit only. */
+  /** A difference of values, as a hysteresis is: the linear part of the unit only. */
   interval: (difference: number) => string
   /** The rule's values are numbers no display unit applies to, so they are shown in SI. */
   si: boolean

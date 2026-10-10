@@ -6,7 +6,7 @@ import { PriorityBadge } from '../list/PriorityBadge'
 
 /**
  * When the alert ends: only once the condition is back past the first step.
- * A clear margin puts that point in the facts' Clears row, so the
+ * A hysteresis puts that point in the facts' Ends row, so the
  * ladder then says only that the alert keeps the step it reached.
  */
 function clearHint(
@@ -18,13 +18,13 @@ function clearHint(
   if (clearsWhen(entry.rule, display) !== undefined) {
     return reached === undefined
       ? undefined
-      : `It stays ${article(reached)} ${reached} until it clears.`
+      : `It stays ${article(reached)} ${reached} until it ends.`
   }
   const back = ruleClear(entry.rule, display)
   const clears =
     back === undefined
-      ? 'Clears when the first step no longer holds.'
-      : `Clears when the value is back ${back.where}.`
+      ? 'Ends once the first step no longer holds.'
+      : `Ends once the value is back ${back.where}.`
   return reached === undefined
     ? clears
     : `${clears} It stays ${article(reached)} ${reached} until then.`

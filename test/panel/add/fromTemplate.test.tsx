@@ -430,7 +430,7 @@ describe('Add rule from a template', () => {
       fireEvent.blur(search)
       return api
     }
-    const margin = () => screen.getByRole<HTMLInputElement>('textbox', { name: 'Clear margin' })
+    const margin = () => screen.getByRole<HTMLInputElement>('textbox', { name: 'Hysteresis' })
     const footer = () => document.querySelector('.skar-editor-status')?.textContent ?? ''
     /** Settles the shown tab's path on one in another unit, as leaving the search does. */
     const changeShownPath = (path: string) => {
@@ -452,11 +452,11 @@ describe('Add rule from a template', () => {
     it('keeps the steps summary’s height while the emptied limits’ errors are withheld, until Create', async () => {
       const api = await houseOnUnreportedPath(() => {
         summaryLaidOut()
-        expect(stepsSummary().textContent).toContain('It clears only')
+        expect(stepsSummary().textContent).toContain('It ends')
         expect(stepsSummary().style.minHeight).toBe('')
       })
       expect(stepsSummary().textContent).toContain('…')
-      expect(stepsSummary().textContent).not.toContain('It clears only')
+      expect(stepsSummary().textContent).not.toContain('It ends')
       expect(stepsSummary().style.minHeight).toBe(`${String(SUMMARY_CLEARING)}px`)
       fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
       expect(api.createRule).not.toHaveBeenCalled()
@@ -487,7 +487,7 @@ describe('Add rule from a template', () => {
       expect(shownDescription(limit())).toMatch(/fill in the limit/i)
     })
 
-    it('keeps the emptied clear margin’s note through Create, until the rule is created without it', async () => {
+    it('keeps the emptied hysteresis’s note through Create, until the rule is created without it', async () => {
       const api = await houseOnUnreportedPath()
       expect(margin().value).toBe('')
       fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
@@ -496,7 +496,7 @@ describe('Add rule from a template', () => {
         'must be typed again in the unit of the chosen path'
       )
       expect(footer()).toBe(
-        'Fill in step 1 and step 2 on House bank to save. The clear margin on House bank was emptied: type it again or leave it empty.'
+        'Fill in step 1 and step 2 on House bank to save. The hysteresis on House bank was emptied: type it again or leave it empty.'
       )
       change(limit(), '5')
       change(screen.getByRole('textbox', { name: 'Limit for step 2' }), '4')
@@ -534,7 +534,7 @@ describe('Add rule from a template', () => {
       expect(more()?.open).toBe(true)
     })
 
-    it('withholds the emptied clear margin’s note until Create', async () => {
+    it('withholds the emptied hysteresis’s note until Create', async () => {
       await houseOnUnreportedPath()
       expect(margin().getAttribute('aria-invalid')).toBe('true')
       expect(describedBy(margin())).toContain('must be typed again in the unit of the chosen path')
@@ -559,7 +559,7 @@ describe('Add rule from a template', () => {
       expect(tab(/House bank/).textContent).toContain('needs fixing')
     })
 
-    it('shows a later tab’s emptied clear margin note when the server refuses that tab', async () => {
+    it('shows a later tab’s emptied hysteresis note when the server refuses that tab', async () => {
       const server = fresh()
       server.refuse = (rule) =>
         rule.slug.endsWith('starter')
@@ -581,7 +581,7 @@ describe('Add rule from a template', () => {
       )
     })
 
-    it('names every tab’s emptied clear margin at the Create that stops for the limits, then creates both', async () => {
+    it('names every tab’s emptied hysteresis at the Create that stops for the limits, then creates both', async () => {
       const api = renderShell(fresh())
       await openLifepo4()
       pick(/^House bank/)
@@ -593,7 +593,7 @@ describe('Add rule from a template', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Create 2 rules' }))
       expect(api.createRule).not.toHaveBeenCalled()
       expect(footer()).toBe(
-        'Fill in step 1 and step 2 on House bank and fill in step 1 and step 2 on starter to save. The clear margin on House bank and the clear margin on starter were emptied: type them again or leave them empty.'
+        'Fill in step 1 and step 2 on House bank and fill in step 1 and step 2 on starter to save. The hysteresis on House bank and the hysteresis on starter were emptied: type them again or leave them empty.'
       )
       fireEvent.click(tab(/House bank/))
       fillLimits()

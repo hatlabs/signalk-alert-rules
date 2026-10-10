@@ -155,7 +155,7 @@ function moreOptions(form: RuleForm) {
   const d = form.detector
   if (d.hysteresis !== '') {
     openMoreOptions()
-    type(textbox('Clear margin'), d.hysteresis)
+    type(textbox('Hysteresis'), d.hysteresis)
   }
   if (form.latching) {
     openMoreOptions()

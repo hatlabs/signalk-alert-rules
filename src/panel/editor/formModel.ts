@@ -566,7 +566,7 @@ export function revealed(errors: readonly FormError[]): FieldError[] {
   return errors.map(shown)
 }
 
-/** The error on a clear margin left empty for want of a unit: not "is required", as it may stay empty. */
+/** The error on a hysteresis left empty for want of a unit: not "is required", as it may stay empty. */
 export const RETYPE_IN_UNIT = 'must be typed again in the unit of the chosen path'
 
 /** How a stored signal's numbers read, and where each number left empty is noted. */
@@ -1404,8 +1404,8 @@ export function withUnitErrors(
 }
 
 /**
- * The notes on clear margins emptied for want of their unit whose fields are
- * still empty: the only sign a margin was emptied, which a Save keeps.
+ * The notes on hysteresis fields emptied for want of their unit and still
+ * empty: the only sign a hysteresis was emptied, which a Save keeps.
  */
 export function standingRetypes(form: RuleForm, errors: readonly FormError[]): FormError[] {
   const empty = new Set(
@@ -1417,8 +1417,8 @@ export function standingRetypes(form: RuleForm, errors: readonly FormError[]): F
 }
 
 /**
- * Whether Save stops for an emptied clear margin: one whose note no footer
- * has named yet, at a refused Save or on opening (`named`). A margin emptied
+ * Whether Save stops for an emptied hysteresis: one whose note no footer
+ * has named yet, at a refused Save or on opening (`named`). A hysteresis emptied
  * as focus leaves a path search for Save would otherwise be dropped unseen.
  */
 export function marginUnnamed(retypes: readonly FieldError[], named: ReadonlySet<string>): boolean {
