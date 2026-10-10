@@ -21,6 +21,8 @@ export interface PathEntry {
   preferredSource?: string
   /** The value when the paths were read, in SI; absent while it is unavailable. */
   value?: SignalValue
+  /** Each source's value when the paths were read, by canonical source, as `value` is. */
+  readings?: Record<string, SignalValue>
   /** `meta.zones`, in SI; an absent bound is open. */
   zones?: Zone[]
   /** A field's type as its metadata declares it, which holds while it has no value. */
@@ -119,6 +121,30 @@ function sourcedBy(node: Record<string, unknown>, canonical: (ref: string) => st
   }
 }
 
+/** What each source reports, by canonical source, before it is read as a value. */
+type Reported = [source: string, value: unknown][]
+
+function reportedBy(node: Record<string, unknown>, canonical: (ref: string) => string): Reported {
+  if (isRecord(node.values)) {
+    return Object.entries(node.values).flatMap(([ref, reading]): Reported =>
+      isRecord(reading) && 'value' in reading ? [[canonical(ref), reading.value]] : []
+    )
+  }
+  const only = optionalString(node.$source)
+  return only === undefined ? [] : [[canonical(only), node.value]]
+}
+
+function readingsOf(reported: Reported, readable: (value: unknown) => value is SignalValue) {
+  const kept = reported.filter((r): r is [string, SignalValue] => readable(r[1]))
+  return kept.length === 0 ? {} : { readings: Object.fromEntries(kept) }
+}
+
+/** The value `source` reported for the path, as `readings` holds it. */
+export function readingFrom(entry: PathEntry | undefined, source: string): SignalValue | undefined {
+  const readings = entry?.readings
+  return readings !== undefined && Object.hasOwn(readings, source) ? readings[source] : undefined
+}
+
 function entry(
   path: string,
   node: Record<string, unknown>,
@@ -131,6 +157,7 @@ function entry(
     ...describedBy(meta),
     ...sourcedBy(node, canonical),
     ...(isSignalValue(node.value) ? { value: node.value } : {}),
+    ...readingsOf(reportedBy(node, canonical), isSignalValue),
     ...(zones.length === 0 ? {} : { zones })
   }
 }
@@ -177,13 +204,22 @@ function fieldEntries(
   const meta = isRecord(node.meta) ? node.meta : {}
   const sourced = sourcedBy(node, canonical)
   const fields: PathEntry[] = []
-  const walk = (properties: Record<string, unknown>, value: unknown, pointer: string) => {
+  const walk = (
+    properties: Record<string, unknown>,
+    value: unknown,
+    reported: Reported,
+    pointer: string
+  ) => {
     for (const [key, property] of Object.entries(properties)) {
       if (!isRecord(property)) continue
       const fieldPointer = `${pointer}/${escapeToken(key)}`
       const fieldValue = ownField(value, key)
+      const fieldReported = reported.map(([source, v]): Reported[number] => [
+        source,
+        ownField(v, key)
+      ])
       const nested = propertiesOf(property)
-      if (nested !== undefined) walk(nested, fieldValue, fieldPointer)
+      if (nested !== undefined) walk(nested, fieldValue, fieldReported, fieldPointer)
       const type = fieldType(property)
       const fieldPath = `${path}#${fieldPointer}`
       if (type === undefined || !splitPointerPath(fieldPath).valid) continue
@@ -192,12 +228,13 @@ function fieldEntries(
         ...describedBy(property, displayUnitsFor),
         valueType: type,
         ...sourced,
-        ...(typeof fieldValue === type ? { value: fieldValue as SignalValue } : {})
+        ...(typeof fieldValue === type ? { value: fieldValue as SignalValue } : {}),
+        ...readingsOf(fieldReported, (v): v is SignalValue => typeof v === type)
       })
     }
   }
   const properties = propertiesOf(meta)
-  if (properties !== undefined) walk(properties, node.value, '')
+  if (properties !== undefined) walk(properties, node.value, reportedBy(node, canonical), '')
   return fields
 }
 
