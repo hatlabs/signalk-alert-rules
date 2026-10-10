@@ -487,7 +487,7 @@ describe('Add rule from a template', () => {
       expect(shownDescription(limit())).toMatch(/fill in the limit/i)
     })
 
-    it('keeps the emptied clear margin’s note through Create, until the rule is created without it', async () => {
+    it('keeps the emptied hysteresis’s note through Create, until the rule is created without it', async () => {
       const api = await houseOnUnreportedPath()
       expect(margin().value).toBe('')
       fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
@@ -534,7 +534,7 @@ describe('Add rule from a template', () => {
       expect(more()?.open).toBe(true)
     })
 
-    it('withholds the emptied clear margin’s note until Create', async () => {
+    it('withholds the emptied hysteresis’s note until Create', async () => {
       await houseOnUnreportedPath()
       expect(margin().getAttribute('aria-invalid')).toBe('true')
       expect(describedBy(margin())).toContain('must be typed again in the unit of the chosen path')
@@ -559,7 +559,7 @@ describe('Add rule from a template', () => {
       expect(tab(/House bank/).textContent).toContain('needs fixing')
     })
 
-    it('shows a later tab’s emptied clear margin note when the server refuses that tab', async () => {
+    it('shows a later tab’s emptied hysteresis note when the server refuses that tab', async () => {
       const server = fresh()
       server.refuse = (rule) =>
         rule.slug.endsWith('starter')
@@ -581,7 +581,7 @@ describe('Add rule from a template', () => {
       )
     })
 
-    it('names every tab’s emptied clear margin at the Create that stops for the limits, then creates both', async () => {
+    it('names every tab’s emptied hysteresis at the Create that stops for the limits, then creates both', async () => {
       const api = renderShell(fresh())
       await openLifepo4()
       pick(/^House bank/)

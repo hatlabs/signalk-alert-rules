@@ -100,7 +100,7 @@ interface Tab {
   /** The slug the template proposed; a slug the user typed is not changed on a conflict. */
   proposed: string
   errors: FormError[]
-  /** The emptied clear margins a footer has named, at a refused Save. */
+  /** The emptied hysteresis fields a footer has named, at a refused Save. */
   named: ReadonlySet<string>
   /**
    * The name of a rule from this template that already watches what the pick
@@ -311,7 +311,7 @@ function TabsForm(props: FormProps) {
     setTabs(tabs.map((t) => ({ ...t, errors: errorsOf.get(t.key) ?? [] })))
     const firstRefused = refused.at(0)
     if (firstRefused !== undefined) {
-      // The footer of this refused Save names every tab's margins still empty.
+      // The footer of this refused Save names every tab's hysteresis still empty.
       const shown = new Map(read.map(({ tab, retypes }) => [tab.key, retypes]))
       setTabs((last) =>
         last.map((t) => ({

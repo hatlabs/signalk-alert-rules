@@ -233,7 +233,7 @@ describe('validateRule', () => {
       expect(paths(errors)).toEqual(['/gates/0/signal/path'])
     })
 
-    it('refuses a clear margin or clear delay on a gate', () => {
+    it('refuses a hysteresis or clear delay on a gate', () => {
       const errors = errorsOf(
         rule({
           detector: minimalDetectors.match,

@@ -151,7 +151,7 @@ export interface RuleInfo {
   steps: RuleStep[]
   /** How long, in seconds, a step's condition must hold before the alert reaches it. */
   duration?: number
-  /** How far, in SI, the value must be back past the first step for the alert to clear. */
+  /** How far, in SI, the value must be back past the first step for the alert to end. */
   hysteresis?: number
   /** The message as stored, its placeholders not filled in. */
   message: string

@@ -241,13 +241,13 @@ describe('underMoreOptions', () => {
     f.gates = [emptyGate()]
   })
 
-  it('places the clear margin, gates and a new slug under More options', () => {
+  it('places the hysteresis, gates and a new slug under More options', () => {
     for (const p of ['/detector/hysteresis', '/gates/0/limit/value', '/slug']) {
       expect(underMoreOptions(f, true, p)).toBe(true)
     }
   })
 
-  it('places the clear margin of an outside rule under More options', () => {
+  it('places the hysteresis of an outside rule under More options', () => {
     const outside = form((f) => {
       f.detector.type = 'outside'
     })
@@ -277,7 +277,7 @@ describe('saveHint', () => {
     expect(saveHint([], sustained)).toBeUndefined()
   })
 
-  describe('clear margins a change of unit emptied', () => {
+  describe('hysteresis fields a change of unit emptied', () => {
     const retype = 'must be typed again in the unit of the chosen path'
     const notes = [{ path: '/detector/hysteresis', message: retype }]
 

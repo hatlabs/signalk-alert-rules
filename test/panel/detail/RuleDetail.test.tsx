@@ -225,14 +225,14 @@ describe('RuleDetail', () => {
       )
     })
 
-    it('clears past the first step by the clear margin, stated once', () => {
+    it('ends past the first step by the hysteresis, stated once', () => {
       renderDetail({ ...stepped, rule: { ...stepped.rule, hysteresis: 0.2 } })
       expect(fact(/^ends/i)).toBe('once back above 12.4 V')
       expect(screen.getByText(/^It stays/).textContent).toBe('It stays an alarm until it ends.')
       expect(screen.queryByText(/^Ends once/)).toBeNull()
     })
 
-    it('clears below the first step less the clear margin, for a rule above it', () => {
+    it('ends below the first step less the hysteresis, for a rule above it', () => {
       renderDetail({
         ...stepped,
         rule: {
@@ -288,7 +288,7 @@ describe('RuleDetail', () => {
       expect(fact(/^ends/i)).toBe('once back between 49.2 and 50.8 Hz')
     })
 
-    it('narrows a one-step outside rule’s range by the clear margin', () => {
+    it('narrows a one-step outside rule’s range by the hysteresis', () => {
       renderDetail(
         ruleEntry({
           rule: {
@@ -302,7 +302,7 @@ describe('RuleDetail', () => {
       expect(fact(/^ends/i)).toBe('once back between 11.7 and 14.6 V')
     })
 
-    it('words a zone limit’s clear margin from the zone, as the house-battery-low example', () => {
+    it('words a zone limit’s hysteresis from the zone, as the house-battery-low example', () => {
       renderDetail(
         ruleEntry({
           rule: {
@@ -319,12 +319,12 @@ describe('RuleDetail', () => {
       expect(fact(/^ends/i)).toBe('once back above the warn zone by 0.2 V')
     })
 
-    it('shows no row for a rule without a clear margin', () => {
+    it('shows no row for a rule without a hysteresis', () => {
       renderDetail(houseLow)
       expect(noEndsRow()).toBeNull()
     })
 
-    it('shows no row for a clear margin of zero, which is unset', () => {
+    it('shows no row for a hysteresis of zero, which is unset', () => {
       renderDetail({ ...houseLow, rule: { ...houseLow.rule, hysteresis: 0 } })
       expect(noEndsRow()).toBeNull()
     })
@@ -394,7 +394,7 @@ describe('RuleDetail', () => {
       )
     })
 
-    it('narrows the range it clears in by the clear margin on both sides', () => {
+    it('narrows the range it ends in by the hysteresis on both sides', () => {
       renderDetail({ ...heel, rule: { ...heel.rule, hysteresis: 2 } }, { units: heelUnits })
       expect(fact(/^ends/i)).toBe('once back between -23 and 23 °')
       expect(screen.getByText(/^It stays/).textContent).toBe('It stays a warning until it ends.')

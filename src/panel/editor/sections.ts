@@ -273,8 +273,8 @@ export function fieldLabel(pointer: string, form: RuleForm): string {
 
 /**
  * What Save says stops it: the fields to fill in, and those to fix, then the
- * clear margins a change of unit emptied (`marginsHint`). `named` holds the
- * margins whose note a footer has already named; `unattached` the errors
+ * hysteresis fields a change of unit emptied (`marginsHint`). `named` holds the
+ * hysteresis fields whose note a footer has already named; `unattached` the errors
  * listed above Save (`attachErrors`).
  */
 export function saveHint(
@@ -294,7 +294,7 @@ export function saveHint(
 }
 
 /**
- * The sentence naming the clear margins a change of unit emptied, which may
+ * The sentence naming the hysteresis fields a change of unit emptied, which may
  * be typed again or left empty; `last` when the next Save leaves them empty.
  */
 export function marginsHint(margins: readonly string[], last: boolean): string[] {
@@ -316,7 +316,7 @@ export function whatStops(
   form: RuleForm,
   unattached: readonly FieldError[] = []
 ): string | undefined {
-  // A clear margin to retype may stay empty, so it does not stop Save; `marginsHint` names it.
+  // A hysteresis to retype may stay empty, so it does not stop Save; `marginsHint` names it.
   const stopping = errors.filter((e) => e.message !== RETYPE_IN_UNIT)
   if (stopping.length === 0) return undefined
   const isListed = (e: FieldError) =>

@@ -1694,7 +1694,7 @@ describe('RuleEditor, an invalid stored rule', () => {
     expect(document.body.textContent).not.toContain('/detector/steps/0/limit')
   })
 
-  it('opens a body without a signal naming the numbers to type again, saving without the clear margin', async () => {
+  it('opens a body without a signal naming the numbers to type again, saving without the hysteresis', async () => {
     const { signal: _signal, ...rest } = battery
     const detector = {
       type: 'sustained',
@@ -1716,7 +1716,7 @@ describe('RuleEditor, an invalid stored rule', () => {
     expect(description(textbox('Hysteresis'))).toContain(
       'must be typed again in the unit of the chosen path'
     )
-    // The footer names the clear margin from the start, so Save need not stop for it.
+    // The footer names the hysteresis from the start, so Save need not stop for it.
     expect(
       screen.getByText(
         'Fill in the value to watch and the limit to save. The hysteresis was emptied: type it again or leave it empty.'
@@ -1931,7 +1931,7 @@ describe('RuleEditor, outside a range', () => {
     expect(rule.detector).not.toHaveProperty('limit')
   })
 
-  it('offers how long it must hold and the clear margin, and no clear delay', async () => {
+  it('offers how long it must hold and the hysteresis, and no clear delay', async () => {
     renderEditor({ start: { path: HOUSE, kind: 'outside' } })
     await formShown()
     expect(textbox('For at least')).toBeTruthy()
@@ -2075,7 +2075,7 @@ describe('RuleEditor, outside a range', () => {
     })
   })
 
-  it('opens More options for a clear margin too wide for the range', async () => {
+  it('opens More options for a hysteresis too wide for the range', async () => {
     const { api } = renderEditor({ start: { path: HOUSE, kind: 'outside' } })
     rejectWith(api, '/detector/hysteresis', RANGE_HYSTERESIS)
     await formShown()
@@ -2131,7 +2131,7 @@ describe('RuleEditor, the keyboard a number brings up', () => {
     expect(inputMode('Condition 1 limit')).toBeNull()
   })
 
-  it('asks a condition for no clear margin and no stops-holding delay', async () => {
+  it('asks a condition for no hysteresis and no stops-holding delay', async () => {
     renderEditor({ start: { path: HOUSE, kind: 'below' } })
     await formShown()
     openMoreOptions()
@@ -2142,7 +2142,7 @@ describe('RuleEditor, the keyboard a number brings up', () => {
     expect(condition.queryByLabelText(/stops holding/i)).toBeNull()
   })
 
-  it('offers the keypad for a count, a duration and the clear margin', async () => {
+  it('offers the keypad for a count, a duration and the hysteresis', async () => {
     renderEditor({ start: { path: HOUSE, kind: 'often' } })
     await formShown()
     expect(inputMode('Limit for step 1')).toBe('decimal')
@@ -2188,7 +2188,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     fireEvent.blur(select('Search by name or path'))
   }
 
-  it('empties the limit and the clear margin once the path is settled, keeping the duration', async () => {
+  it('empties the limit and the hysteresis once the path is settled, keeping the duration', async () => {
     const { api } = renderEditor({ editing })
     await formShown()
     expect(textbox('Limit for step 1')).toHaveProperty('value', '2.57')
@@ -2220,7 +2220,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
   const savedDetector = (api: FakeApi) =>
     api.updateRule.mock.calls[0]?.[1].detector as Extract<Rule['detector'], { type: 'sustained' }>
 
-  it('opens More options for an emptied clear margin at Save, not on the commit', async () => {
+  it('opens More options for an emptied hysteresis at Save, not on the commit', async () => {
     renderEditor({ editing })
     await formShown()
     const more = () => screen.getByText('More options').closest('details')
@@ -2236,7 +2236,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     expect(more()?.open).toBe(true)
   })
 
-  /** The editor with a refused Save's error shown on the clear margin, More options then collapsed. */
+  /** The editor with a refused Save's error shown on the hysteresis, More options then collapsed. */
   const marginErrorCollapsed = async () => {
     renderEditor({ editing })
     await formShown()
@@ -2276,14 +2276,14 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     expect(more()?.open).toBe(false)
   })
 
-  it('names the emptied clear margin in the footer, beside the limit', async () => {
+  it('names the emptied hysteresis in the footer, beside the limit', async () => {
     renderEditor({ editing })
     await formShown()
     changePath(SPEED)
     expect(footer()).toBe(`Fill in the limit to save. ${MARGIN}`)
   })
 
-  it('marks the emptied clear margin invalid, its note shown only once Save is pressed', async () => {
+  it('marks the emptied hysteresis invalid, its note shown only once Save is pressed', async () => {
     renderEditor({ editing })
     await formShown()
     changePath(SPEED)
@@ -2311,7 +2311,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     expect(shownDescription(textbox('Limit for step 1'))).toContain('Fill in the limit')
   })
 
-  it('saves without the clear margin once a refused Save’s footer named it, limits retyped', async () => {
+  it('saves without the hysteresis once a refused Save’s footer named it, limits retyped', async () => {
     const { api, onSaved } = renderEditor({ editing })
     await formShown()
     changePath(SPEED)
@@ -2330,7 +2330,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     expect(detector.duration).toBe(60)
   })
 
-  it('refuses once for a clear margin no refused Save named, the limit retyped first', async () => {
+  it('refuses once for a hysteresis no refused Save named, the limit retyped first', async () => {
     const { api, onSaved } = renderEditor({ editing })
     await formShown()
     changePath(SPEED)
@@ -2363,7 +2363,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     expect(api.updateRule).not.toHaveBeenCalled()
   })
 
-  it('saves a clear margin retyped after Save named it', async () => {
+  it('saves a hysteresis retyped after Save named it', async () => {
     const { api, onSaved } = renderEditor({ editing })
     await formShown()
     changePath(SPEED)
@@ -2375,7 +2375,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     expect(savedDetector(api).hysteresis).toBeCloseTo(0.5 * KNOT)
   })
 
-  it('names a clear margin again once another change of unit empties it again', async () => {
+  it('names a hysteresis again once another change of unit empties it again', async () => {
     const { api } = renderEditor({ editing })
     await formShown()
     changePath(SPEED)
@@ -2390,7 +2390,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     expect(footer()).toBe(MARGIN_ALONE)
   })
 
-  it('refuses a zone rule’s Save once, its footer naming the emptied clear margin, then saves', async () => {
+  it('refuses a zone rule’s Save once, its footer naming the emptied hysteresis, then saves', async () => {
     const zoned = example('house-battery-low')
     const { api, onSaved } = renderEditor({
       editing: { entry: ruleEntry({ slug: zoned.slug }), rule: zoned }
@@ -2438,7 +2438,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     expect(detector.steps?.[0]?.limit).toBeCloseTo(5 * KNOT)
   })
 
-  it('empties a range’s low and high limits and its clear margin', async () => {
+  it('empties a range’s low and high limits and its hysteresis', async () => {
     const shore = example('shore-power-frequency')
     const { api } = renderEditor({
       editing: { entry: ruleEntry({ slug: shore.slug }), rule: shore }
@@ -2496,7 +2496,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     expect(stepAlert('Limit for step 1')?.textContent).toContain('Step 2: fill in the limit')
   })
 
-  /** Two steps and a clear margin, so the summary also tells how the alert clears. */
+  /** Two steps and a hysteresis, so the summary also tells where the alert ends. */
   const clearingEdit = () => {
     const rule: Rule = {
       ...logSpeed,
@@ -2629,7 +2629,7 @@ describe('RuleEditor, a path changed to one shown in another unit', () => {
     expect(shownDescription(value())).toContain('is required')
   })
 
-  it('shows the clear margin note when the server rejects a Save confirmed in the sheet', async () => {
+  it('shows the hysteresis note when the server rejects a Save confirmed in the sheet', async () => {
     const alerting = ruleEntry({
       slug: logSpeed.slug,
       status: {
@@ -2940,7 +2940,7 @@ describe('RuleEditor, a field path', () => {
     expect(screen.queryByText(/Empty uses the zones of/)).toBeNull()
     expect(screen.queryByText(/^From the zones of/)).toBeNull()
     expect(screen.getByText(/Fix Use the value's zones/)).toBeTruthy()
-    // The first Save names the clear margin the change of unit emptied; the second sends.
+    // The first Save names the hysteresis the change of unit emptied; the second sends.
     click(button('Save'))
     click(button('Save'))
     await waitFor(() => {
@@ -2986,7 +2986,7 @@ describe('RuleEditor, a field path', () => {
     expect(screen.getByText(/^From the zones of/).textContent).toBe(
       `From the zones of ${HOUSE_VOLTAGE}`
     )
-    // The first Save names the clear margin the change of unit emptied; the second sends.
+    // The first Save names the hysteresis the change of unit emptied; the second sends.
     click(button('Save'))
     click(button('Save'))
     await waitFor(() => {

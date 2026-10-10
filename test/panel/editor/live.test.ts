@@ -117,7 +117,7 @@ describe('nowText', () => {
 })
 
 describe('ladderText', () => {
-  it('clears past the first step by the clear margin', () => {
+  it('ends past the first step by the hysteresis', () => {
     const f = below('12.2', '11.8')
     f.detector.hysteresis = '0.2'
     expect(ladderText(f, units)).toBe(
@@ -125,7 +125,7 @@ describe('ladderText', () => {
     )
   })
 
-  it('narrows the range it clears in by the clear margin', () => {
+  it('narrows the range it ends in by the hysteresis', () => {
     const f = outside(['-25', '25'], ['-35', '35'])
     f.detector.hysteresis = '2'
     expect(ladderText(f, units)).toBe(
