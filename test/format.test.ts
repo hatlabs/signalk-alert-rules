@@ -26,9 +26,21 @@ describe('formatNumber', () => {
     expect(formatNumber(0.1 + 0.2)).toBe('0.3')
   })
 
+  it('keeps one decimal and every integer digit of a large value', () => {
+    expect(formatNumber(1449683426.1487)).toBe('1449683426.1')
+    expect(formatNumber(123456789012.34)).toBe('123456789012.3')
+    expect(formatNumber(71298421701168.58)).toBe('71298421701168.6')
+  })
+
   it('keeps very small and very large values readable', () => {
     expect(formatNumber(1.23456e-9)).toBe('1.235e-9')
     expect(formatNumber(2.5e21)).toBe('2.5e+21')
+  })
+
+  it('shows a value that is not a number as it is', () => {
+    expect(formatNumber(NaN)).toBe('NaN')
+    expect(formatNumber(Infinity)).toBe('Infinity')
+    expect(formatNumber(-Infinity)).toBe('-Infinity')
   })
 })
 
