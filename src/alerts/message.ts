@@ -26,12 +26,15 @@ export interface MessageFacts {
   limit?: number
   /** The signal's SI unit, as the path's `meta.units` names it. */
   units?: string
+}
+
+export interface RenderOptions {
   /**
-   * Whether `{limit}` with no limit to fill it in stays as written rather
-   * than a dash: for the editor's preview, which cannot always know the limit
-   * the server will resolve, and should not suggest there is none.
+   * `{limit}` with no limit to fill it in stays as written rather than a
+   * dash: for the editor's preview, which cannot always know the limit the
+   * server will resolve, and should not suggest there is none.
    */
-  limitAsWritten?: boolean
+  keepUnfilledLimit?: boolean
 }
 
 /**
@@ -103,7 +106,11 @@ const MISSING = '–'
  * a rule without a wildcard, so a message shared by both kinds of rule reads
  * cleanly.
  */
-export function renderMessage(rule: Rule, facts: MessageFacts): string {
+export function renderMessage(
+  rule: Rule,
+  facts: MessageFacts,
+  options: RenderOptions = {}
+): string {
   return rule.message.replace(PLACEHOLDER, (_, name: string) => {
     let text: string | undefined
     switch (name) {
@@ -111,7 +118,8 @@ export function renderMessage(rule: Rule, facts: MessageFacts): string {
         text = facts.instance ?? ''
         break
       case 'limit':
-        text = limitText(rule, facts) ?? (facts.limitAsWritten === true ? '{limit}' : undefined)
+        text =
+          limitText(rule, facts) ?? (options.keepUnfilledLimit === true ? '{limit}' : undefined)
         break
       case 'duration': {
         const duration = 'duration' in rule.detector ? rule.detector.duration : undefined

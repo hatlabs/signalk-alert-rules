@@ -116,12 +116,16 @@ describe('renderMessage', () => {
       ...battery('below {limit}: {value}'),
       detector: { type: 'sustained', direction: 'below', limit: { kind: 'zone', level: 'warn' } }
     })
-    expect(renderMessage(zone, { step: 0, limitAsWritten: true })).toBe('below {limit}: –')
+    expect(renderMessage(zone, { step: 0 }, { keepUnfilledLimit: true })).toBe('below {limit}: –')
   })
 
   it('fills in a limit the facts carry even when an unfilled one would stay as written', () => {
     expect(
-      renderMessage(battery('{limit}'), { step: 0, limit: 12, units: 'V', limitAsWritten: true })
+      renderMessage(
+        battery('{limit}'),
+        { step: 0, limit: 12, units: 'V' },
+        { keepUnfilledLimit: true }
+      )
     ).toBe('12 V')
   })
 
