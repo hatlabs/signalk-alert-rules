@@ -26,7 +26,14 @@ import {
   type Side
 } from './detectors/index.js'
 import { Gate } from './gates.js'
-import { resolveLimit, severerLevels, type MissingZone, type Zone } from './limits.js'
+import {
+  limitDirection,
+  resolveLimit,
+  severerLevels,
+  zonePath,
+  type MissingZone,
+  type Zone
+} from './limits.js'
 import {
   bindPath,
   inputState,
@@ -720,7 +727,7 @@ export class RuleEvaluator {
 
   private zones(limit: Limit, signal: Signal, instance: Instance | undefined) {
     if (limit.kind !== 'zone') return undefined
-    const path = limit.path ?? ('combinator' in signal ? undefined : signal.path)
+    const path = zonePath(limit, signal)
     return path === undefined ? undefined : this.ctx.meta(bindPath(path, instance))?.zones
   }
 
@@ -738,8 +745,7 @@ export class RuleEvaluator {
       return { ok: true, steps }
     }
     const { steps: _steps, limit: _zone, ...rest } = d
-    const direction =
-      d.type === 'sustained' ? d.direction : d.direction === 'rising' ? 'above' : 'below'
+    const direction = limitDirection(d)
     const zones = this.zones(zone, this.rule.signal, unit.instance)
     const resolved = resolveLimit(zone, direction, zones)
     if (!resolved.ok) return resolved

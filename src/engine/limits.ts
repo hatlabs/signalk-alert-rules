@@ -1,4 +1,4 @@
-import type { Limit, ZoneLimit } from '../model/rule.js'
+import type { Detector, Limit, Signal, ZoneLimit } from '../model/rule.js'
 import { ZONE_LEVELS, type ZoneLevel } from '../model/zoneLevels.js'
 
 /** A `meta.zones` entry. JSON meta may carry a missing bound as null. */
@@ -16,6 +16,19 @@ export interface MissingZone {
 }
 
 export type LimitResolution = { ok: true; value: number } | { ok: false; missing: MissingZone }
+
+/** The path whose zones a zone limit reads: its own, else the signal's, which a combined signal lacks. */
+export function zonePath(limit: ZoneLimit, signal: Signal): string | undefined {
+  return limit.path ?? ('combinator' in signal ? undefined : signal.path)
+}
+
+/** The side of its limit a detector alerts past: a rising projection's is above. */
+export function limitDirection(
+  detector: Extract<Detector, { type: 'sustained' | 'projection' }>
+): 'above' | 'below' {
+  if (detector.type === 'sustained') return detector.direction
+  return detector.direction === 'rising' ? 'above' : 'below'
+}
 
 /** A zone level's rank; a more severe level ranks higher. */
 function severity(level: ZoneLevel): number {

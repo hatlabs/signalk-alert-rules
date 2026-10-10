@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { resolveLimit, severerLevels, type Zone } from '../../src/engine/limits.js'
+import {
+  limitDirection,
+  resolveLimit,
+  severerLevels,
+  zonePath,
+  type Zone
+} from '../../src/engine/limits.js'
+import type { Signal } from '../../src/model/rule.js'
 
 const battery: Zone[] = [
   { upper: 11.5, state: 'alarm' },
@@ -378,5 +385,40 @@ describe('severerLevels', () => {
       { upper: 11.5, state: 'alarm' }
     ]
     expect(severerLevels({ kind: 'zone', level: 'warn' }, 'below', zones)).toEqual([])
+  })
+})
+
+describe('zonePath', () => {
+  const warn = { kind: 'zone', level: 'warn' } as const
+  const mean: Signal = {
+    combinator: 'mean',
+    inputs: [{ path: 'a.voltage' }, { path: 'b.voltage' }]
+  }
+
+  it("reads the signal path's zones when the limit names no path", () => {
+    expect(zonePath(warn, { path: 'a.voltage' })).toBe('a.voltage')
+  })
+
+  it("reads the limit's own path over the signal's", () => {
+    expect(zonePath({ ...warn, path: 'b.voltage' }, { path: 'a.voltage' })).toBe('b.voltage')
+  })
+
+  it('has no path for a combined signal unless the limit names one', () => {
+    expect(zonePath(warn, mean)).toBeUndefined()
+    expect(zonePath({ ...warn, path: 'b.voltage' }, mean)).toBe('b.voltage')
+  })
+})
+
+describe('limitDirection', () => {
+  const limit = { kind: 'zone', level: 'warn' } as const
+  const projection = { type: 'projection', limit, window: 300, horizon: 600 } as const
+
+  it.each(['above', 'below'] as const)('takes a sustained %s as it is', (direction) => {
+    expect(limitDirection({ type: 'sustained', direction, limit })).toBe(direction)
+  })
+
+  it('compares a rising projection above its limit and a falling one below', () => {
+    expect(limitDirection({ ...projection, direction: 'rising' })).toBe('above')
+    expect(limitDirection({ ...projection, direction: 'falling' })).toBe('below')
   })
 })
