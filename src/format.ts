@@ -3,9 +3,18 @@
  * shared by the webapp and the alert messages the plugin renders.
  */
 
+// Below the float noise of a unit conversion (95 °C is 368.15 K, stored as
+// 368.149999…), so a half the user wrote rounds as written.
+const SIGNIFICANT = 12
+
+const denoise = (value: number): number => Number(value.toPrecision(SIGNIFICANT))
+
 export function formatNumber(value: number): string {
-  const rounded = Math.abs(value) >= 100 ? value.toFixed(1) : value.toPrecision(4)
-  return Number.isInteger(value) ? String(value) : String(Number(rounded))
+  if (Number.isInteger(value)) return String(value)
+  const magnitude = Math.abs(value)
+  const decimals = magnitude >= 100 ? 1 : 3 - Math.floor(Math.log10(magnitude))
+  const scale = 10 ** decimals
+  return String((Math.sign(value) * Math.round(denoise(denoise(magnitude) * scale))) / scale)
 }
 
 const MINUTE = 60
