@@ -186,6 +186,8 @@ export function Combobox<O extends ComboboxOption>({
         else move(-1)
         break
       case 'Enter': {
+        // An input method's Enter confirms the composed text, not the field.
+        if (event.nativeEvent.isComposing) return
         const option = open && active !== null ? options[active] : undefined
         if (option !== undefined) {
           event.preventDefault()

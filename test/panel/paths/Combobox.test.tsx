@@ -146,6 +146,20 @@ describe('Combobox with the opener', () => {
     expect(input().getAttribute('aria-expanded')).toBe('false')
   })
 
+  it('ignores the Enter that confirms an input method’s composition', () => {
+    const onCommit = vi.fn()
+    render(<Harness onCommit={onCommit} />)
+    fireEvent.click(input())
+    fireEvent.keyDown(input(), { key: 'ArrowDown' })
+    fireEvent.keyDown(input(), { key: 'Enter', isComposing: true })
+    expect(input()).toHaveProperty('value', '')
+    expect(onCommit).not.toHaveBeenCalled()
+    expect(input().getAttribute('aria-expanded')).toBe('true')
+    fireEvent.change(input(), { target: { value: 'ma' } })
+    fireEvent.keyDown(input(), { key: 'Enter', isComposing: true })
+    expect(onCommit).not.toHaveBeenCalled()
+  })
+
   it('commits a clicked option', () => {
     const onCommit = vi.fn()
     render(<Harness onCommit={onCommit} />)
