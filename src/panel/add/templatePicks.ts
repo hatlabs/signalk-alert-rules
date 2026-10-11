@@ -330,6 +330,40 @@ export function restoredPick(template: Template, pick: TemplatePick): TemplatePi
   return restored
 }
 
+/**
+ * The choice a field's text settles to: the text trimmed, spelled as a
+ * reporting instance is when it differs only in case, as paths are
+ * case-sensitive; no choice once emptied.
+ */
+export function settledName(text: string, reporting: readonly SlotCandidate[]): string | undefined {
+  const typed = text.trim()
+  if (typed === '') return undefined
+  const instance =
+    reporting.find((c) => c.instance === typed) ??
+    reporting.find((c) => c.instance.toLowerCase() === typed.toLowerCase())
+  return instance?.instance ?? typed
+}
+
+function without(pick: TemplatePick, key: string): TemplatePick {
+  return Object.fromEntries(Object.entries(pick).filter(([k]) => k !== key))
+}
+
+/**
+ * The pick with one slot's or the source's choice made, the same pick when
+ * it is unchanged. A changed signal slot drops the source, as the sources
+ * offered are those of the path the signal's slots make.
+ */
+export function withChoice(
+  template: Template,
+  pick: TemplatePick,
+  name: string,
+  value: string | undefined
+): TemplatePick {
+  if (picked(pick, name) === value) return pick
+  const chosen = value === undefined ? without(pick, name) : { ...pick, [name]: value }
+  return watchedSlots(template).some((s) => s.name === name) ? without(chosen, SOURCE_PICK) : chosen
+}
+
 /** Why a typed instance cannot be picked, if it cannot. */
 export function instanceError(text: string): string | undefined {
   if (text === '') return 'Type the name used in the path.'

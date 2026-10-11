@@ -29,7 +29,9 @@ import {
   SUMMARY_CLEARING,
   summaryLaidOut
 } from '../editor/editorFixtures'
+import { templateSets } from '../../../harness/data'
 import { noControls, onceShown, ruleEntry } from '../fixtures'
+import { reported as harnessPaths } from '../reportedPaths'
 
 const LIFEPO4 = 'battery-voltage-low-lifepo4'
 const volts = displayUnit({ units: 'V', displayUnits: { formula: 'value * 1', symbol: 'V' } })
@@ -1693,6 +1695,52 @@ describe('rules from a template with two slots', () => {
       )
       expect(status().textContent).toBe('Fix the battery name for rule 1')
       expect(continueButton().disabled).toBe(true)
+    })
+  })
+
+  describe('the harness’s two-slot set', () => {
+    const slotListing: TemplateListing = {
+      sets: templateSets.filter((set) => set.id === 'two-slot'),
+      problems: []
+    }
+
+    async function openSlotPicker(template: string, picks: Record<string, string>[]) {
+      const href = hashWithRoute('', {
+        kind: 'add',
+        from: 'template',
+        set: 'two-slot',
+        template,
+        picks
+      })
+      window.history.replaceState(null, '', `/${href}`)
+      await screen.findByRole('group', { name: 'Rule 1' })
+    }
+
+    it('continues with a name typed into the last empty slot before the field is left', async () => {
+      const api = renderShell({ rules: [], listing: slotListing }, { reported: harnessPaths })
+      await openSlotPicker('solar-not-charging', [{ battery: 'start' }])
+      expect(continueButton().disabled).toBe(true)
+      type(1, 'Solar array', 'aft')
+      expect(continueButton().disabled).toBe(false)
+      // The status speaks of the rows as committed, so it changes only once the field is left.
+      expect(status().textContent).toBe('Choose a solar array for rule 1')
+      await continueWith('Continue with 1 rule')
+      fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+      await screen.findByRole('heading', { name: 'Solar aft not charging battery start' })
+      expect(createdRules(api).map((r) => r.template?.pick)).toEqual([
+        { battery: 'start', array: 'aft' }
+      ])
+    })
+
+    it('keeps Continue disabled while the typed name is refused or empty', async () => {
+      renderShell({ rules: [], listing: slotListing }, { reported: harnessPaths })
+      await openSlotPicker('solar-not-charging', [{ battery: 'start' }])
+      type(1, 'Solar array', 'a.b')
+      expect(continueButton().disabled).toBe(true)
+      type(1, 'Solar array', '  ')
+      expect(continueButton().disabled).toBe(true)
+      type(1, 'Solar array', ' aft ')
+      expect(continueButton().disabled).toBe(false)
     })
   })
 

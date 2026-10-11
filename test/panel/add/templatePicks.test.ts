@@ -10,6 +10,7 @@ import {
   restoredPick,
   rowsProblem,
   ruleWatching,
+  settledName,
   slotCandidates,
   slotError,
   slotPath,
@@ -18,6 +19,7 @@ import {
   watchedPath,
   watchedSlots,
   withArticle,
+  withChoice,
   type SlotCandidate
 } from '../../../src/panel/add/templatePicks'
 import type { PathEntry } from '../../../src/panel/paths/selfPaths'
@@ -729,6 +731,28 @@ describe('a template with two slots', () => {
 
   it('lists for no slot the picks of a single-slot template', () => {
     expect(candidates('builtin', alternator, boat, [])).toEqual([])
+  })
+
+  describe('a field’s text taken as the row’s choice', () => {
+    const bySource: Template = { ...alternator, open: ['source'] }
+    const reporting = slotCandidates(alternator, 'battery', [voltage('start', 12.6)])
+
+    it('settles text trimmed, spelled as the reporting instance it matches but for case', () => {
+      expect(settledName(' Start ', reporting)).toBe('start')
+      expect(settledName(' aft ', reporting)).toBe('aft')
+      expect(settledName('  ', reporting)).toBeUndefined()
+    })
+
+    it('drops the source when a signal slot changes, and keeps an unchanged pick as is', () => {
+      const pick = { battery: 'start', engine: 'main', source: 'n2k.1' }
+      expect(withChoice(bySource, pick, 'battery', 'house')).toEqual({
+        battery: 'house',
+        engine: 'main'
+      })
+      expect(withChoice(bySource, pick, 'battery', undefined)).toEqual({ engine: 'main' })
+      expect(withChoice(bySource, pick, 'engine', 'port')).toEqual({ ...pick, engine: 'port' })
+      expect(withChoice(bySource, pick, 'battery', 'start')).toBe(pick)
+    })
   })
 
   describe('candidates per slot', () => {

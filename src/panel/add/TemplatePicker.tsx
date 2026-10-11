@@ -27,6 +27,7 @@ import {
   placeholder,
   restoredPick,
   rowsProblem,
+  settledName,
   ruleWatching,
   slotCandidates,
   slotError,
@@ -36,6 +37,7 @@ import {
   watchedPath,
   watchedSlots,
   withArticle,
+  withChoice,
   type Candidate,
   type SlotCandidate
 } from './templatePicks'
@@ -304,10 +306,6 @@ interface FocusTarget {
   firstEmpty: boolean
 }
 
-function without(pick: TemplatePick, key: string): TemplatePick {
-  return Object.fromEntries(Object.entries(pick).filter(([k]) => k !== key))
-}
-
 interface Choice {
   value: string
   text: string
@@ -459,27 +457,25 @@ function SlotRows(props: TemplatePickerProps) {
     // From the latest rows: a commit on blur lands just before the click that caused it.
     setRows((last) =>
       last.map((r) => {
-        if (r.key !== key || picked(r.pick, name) === value) return r
-        const pick = value === undefined ? without(r.pick, name) : { ...r.pick, [name]: value }
-        // The sources offered are those of the path the signal's slots make.
-        const moved = signalSlots.some((s) => s.name === name)
-        return { ...r, pick: moved ? without(pick, SOURCE_PICK) : pick }
+        if (r.key !== key) return r
+        const pick = withChoice(template, r.pick, name, value)
+        return pick === r.pick ? r : { ...r, pick }
       })
     )
   }
-  /**
-   * The text is settled: the row takes it trimmed, spelled as a reporting
-   * instance is when it differs only in case, as paths are case-sensitive.
-   */
+  /** The text is settled: the row takes it as its choice. */
   const commit = (key: number, name: string, text: string) => {
     setDraft(fieldKey(key, name), undefined)
-    const typed = text.trim()
-    const reporting = choices.get(name) ?? []
-    const instance =
-      reporting.find((c) => c.instance === typed) ??
-      reporting.find((c) => c.instance.toLowerCase() === typed.toLowerCase())
-    choose(key, name, typed === '' ? undefined : (instance?.instance ?? typed))
+    choose(key, name, settledName(text, choices.get(name) ?? []))
   }
+  /** The row's pick with each field's text taken as a commit would take it. */
+  const pendingPick = (r: SlotRow): TemplatePick =>
+    slots.reduce((pick, slot) => {
+      const draft = drafts[fieldKey(r.key, slot.name)]
+      return draft === undefined
+        ? pick
+        : withChoice(template, pick, slot.name, settledName(draft, choices.get(slot.name) ?? []))
+    }, r.pick)
   const addRow = () => {
     const added = newRow(prefill({}))
     focusNext.current = { key: added.key, firstEmpty: true }
@@ -496,6 +492,11 @@ function SlotRows(props: TemplatePickerProps) {
 
   const picks = rows.map((r) => r.pick)
   const problem = paths.status === 'loading' ? undefined : rowsProblem(template, picks, reported)
+  // A name typed into the last empty slot commits on the blur that the click on Continue
+  // causes, after the button decided whether it is enabled; so it reads the texts as typed.
+  const pending = rows.map(pendingPick)
+  const pendingProblem =
+    paths.status === 'loading' ? undefined : rowsProblem(template, pending, reported)
   const status = [removed === undefined ? undefined : `Rule ${String(removed)} removed.`, problem]
     .filter((s) => s !== undefined)
     .join(' ')
@@ -680,9 +681,9 @@ function SlotRows(props: TemplatePickerProps) {
       <button
         type="button"
         className="skar-btn skar-btn-primary skar-btn-wide"
-        disabled={paths.status === 'loading' || problem !== undefined}
+        disabled={paths.status === 'loading' || pendingProblem !== undefined}
         onClick={() => {
-          props.onContinue(picks)
+          props.onContinue(pending)
         }}
       >
         {`Continue with ${rulesWord(rows.length)}`}
