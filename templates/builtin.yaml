@@ -208,8 +208,8 @@ templates:
       - { name: engine, label: Engine }
     condition: ${engine}AlternatorNotCharging
     rule:
-      name: Engine ${engine} alternator not charging
-      message: 'Engine ${engine} alternator not charging battery ${battery}: {value}'
+      name: Alternator ${engine} not charging
+      message: 'Alternator ${engine} not charging battery ${battery}: {value}'
       signal:
         path: electrical.batteries.${battery}.voltage
       detector:

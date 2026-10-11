@@ -103,7 +103,7 @@ A slot is a path segment the user picks, written `${<name>}` in the template's r
       - { name: engine, label: Engine }
     condition: ${engine}AlternatorNotCharging
     rule:
-      name: Engine ${engine} alternator not charging
+      name: Alternator ${engine} not charging
       # description and message left out
       signal:
         path: electrical.batteries.${battery}.voltage
@@ -121,7 +121,7 @@ A slot is a path segment the user picks, written `${<name>}` in the template's r
           duration: 30
 ```
 
-Picking the battery `start` and the engine `main` makes the rule `Engine main alternator not charging`, which watches `electrical.batteries.start.voltage` while `propulsion.main.revolutions` is above 8 Hz, and alerts at `alerts.electrical.batteries.start.mainAlternatorNotCharging`.
+Picking the battery `start` and the engine `main` makes the rule `Alternator main not charging`, which watches `electrical.batteries.start.voltage` while `propulsion.main.revolutions` is above 8 Hz, and alerts at `alerts.electrical.batteries.start.mainAlternatorNotCharging`.
 
 - A slot's `name` is a letter followed by letters and digits, at most 32 characters, unique in the template. `source` is reserved for the open source. The name keys the slot's pick in the rule's [template record](#using-a-template).
 - A slot's `label` names what is picked, such as `Battery`: 1-40 characters, unique in the template. The webapp shows it where the slot is picked.

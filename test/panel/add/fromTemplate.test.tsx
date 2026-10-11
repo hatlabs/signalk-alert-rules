@@ -1212,6 +1212,25 @@ describe('rules from a template with two slots', () => {
     ])
   })
 
+  it('titles the built-in alternator template without its engine, naming each rule by it', async () => {
+    const api = renderShell(fresh(), {
+      reported: [voltage('start', 12.6), revolutions('main', 30)]
+    })
+    window.history.replaceState(null, '', '/#add')
+    await screen.findByText('Built in')
+    fireEvent.click(screen.getByRole('link', { name: /^Built in/ }))
+    fireEvent.click(await screen.findByRole('link', { name: /^Alternator not charging/ }))
+    await screen.findByRole('group', { name: 'Rule 1' })
+    expect(cell(1, 'Battery').value).toBe('start')
+    expect(cell(1, 'Engine').value).toBe('main')
+    await continueWith('Continue with 1 rule')
+    fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+    await screen.findByRole('heading', { name: 'Alternator main not charging' })
+    expect(createdRules(api).map((r) => [r.name, ruleAlertPath(r)])).toEqual([
+      ['Alternator main not charging', 'electrical.batteries.start.mainAlternatorNotCharging']
+    ])
+  })
+
   const twin = [voltage('start', 12.6), revolutions('port', 30), revolutions('starboard', 0)]
   const status = () => screen.getByRole('status')
   const continueButton = () => screen.getByRole<HTMLButtonElement>('button', { name: /^Continue/ })
