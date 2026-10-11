@@ -85,6 +85,8 @@
 
 .skar-path-picker-control > .skar-input {
   padding-right: 2.25rem;
+  /* A narrow cell clips the placeholder; the ellipsis says there is more. */
+  text-overflow: ellipsis;
 }
 
 /* Spans the input's height at its end, so it reads as part of the input. */
