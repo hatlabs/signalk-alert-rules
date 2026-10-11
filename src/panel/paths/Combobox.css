@@ -107,3 +107,30 @@
 .skar-path-picker-chevron:hover {
   color: var(--skar-text);
 }
+
+.skar-combo-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.skar-path-picker-option.skar-combo-option-stacked {
+  flex-wrap: nowrap;
+}
+
+.skar-combo-option-main {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.skar-combo-option-name {
+  font-weight: 500;
+}
+
+/* The texts beside it wrap instead, so a value never splits from its unit. */
+.skar-combo-option-stacked .skar-path-picker-unit {
+  white-space: nowrap;
+}

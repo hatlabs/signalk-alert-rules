@@ -196,6 +196,110 @@ describe('Combobox with the opener', () => {
   })
 })
 
+describe('Combobox texts', () => {
+  const statusOf = (n: number, filtered: boolean) =>
+    filtered ? `${String(n)} match` : `${String(n)} listed`
+
+  it('shows its placeholder in the empty input', () => {
+    render(
+      <Combobox
+        label="Engine"
+        value=""
+        source={ready}
+        filter={startsWith}
+        matchStatus={statusOf}
+        onChange={vi.fn()}
+        placeholder="Choose or type an engine"
+      />
+    )
+    expect(input().getAttribute('placeholder')).toBe('Choose or type an engine')
+  })
+
+  it('tells the status whether the list is filtered', () => {
+    render(<Harness />)
+    fireEvent.click(input())
+    expect(screen.getByRole('status').textContent).toBe('3 engines')
+    cleanup()
+    function Counting() {
+      const [value, setValue] = useState('')
+      return (
+        <Combobox
+          label="Engine"
+          value={value}
+          source={ready}
+          filter={startsWith}
+          matchStatus={statusOf}
+          onChange={setValue}
+          opener
+        />
+      )
+    }
+    render(<Counting />)
+    fireEvent.click(input())
+    expect(screen.getByRole('status').textContent).toBe('3 listed')
+    fireEvent.change(input(), { target: { value: 'p' } })
+    expect(screen.getByRole('status').textContent).toBe('1 match')
+  })
+
+  it('shows its context between the label and the input, as part of the description', () => {
+    render(
+      <Combobox
+        label="Engine"
+        value=""
+        source={ready}
+        filter={startsWith}
+        matchStatus={statusOf}
+        onChange={vi.fn()}
+        context="propulsion.<engine>.revolutions"
+        hint="Not reporting"
+      />
+    )
+    const described = (input().getAttribute('aria-describedby') ?? '')
+      .split(' ')
+      .map((id) => document.getElementById(id)?.textContent)
+    expect(described).toEqual(['propulsion.<engine>.revolutions', 'Not reporting', ''])
+    const label = screen.getByText('Engine', { selector: 'label' })
+    const context = screen.getByText('propulsion.<engine>.revolutions')
+    expect(label.compareDocumentPosition(context) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(context.compareDocumentPosition(input()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('stacks an option’s primary above its secondary, the trailing text on one line', () => {
+    const stacked: ComboboxOption[] = [
+      {
+        value: 'house',
+        primary: 'House battery',
+        secondary: 'electrical.batteries.house',
+        trailing: '13.3 V'
+      },
+      { value: 'start', primary: '', secondary: 'electrical.batteries.start', trailing: '12.6 V' }
+    ]
+    render(
+      <Combobox
+        label="Battery"
+        value=""
+        source={{ status: 'ready', options: stacked }}
+        filter={startsWith}
+        matchStatus={statusOf}
+        onChange={vi.fn()}
+        optionLayout="stacked"
+        opener
+      />
+    )
+    fireEvent.click(screen.getByRole('combobox', { name: 'Battery' }))
+    const [house, start] = screen.getAllByRole('option')
+    expect(house.classList).toContain('skar-combo-option-stacked')
+    const main = house.querySelector('.skar-combo-option-main')
+    expect([...(main?.children ?? [])].map((c) => [c.className, c.textContent])).toEqual([
+      ['skar-combo-option-name', 'House battery'],
+      ['skar-combo-option-detail', 'electrical.batteries.house']
+    ])
+    expect(house.lastElementChild?.textContent).toBe('13.3 V')
+    expect(start.querySelector('.skar-combo-option-name')).toBeNull()
+    expect(start.textContent).toBe('electrical.batteries.start12.6 V')
+  })
+})
+
 describe('Combobox without the opener', () => {
   it('has no chevron and does not open on a click', () => {
     render(<Harness opener={false} initial="port" />)

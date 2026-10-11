@@ -32,8 +32,11 @@ export interface ComboboxProps<O extends ComboboxOption> {
   source: ComboboxSource<O>
   /** Whether an option stays listed for the text typed. */
   filter: (option: O, query: string) => boolean
-  /** The status while the list is open, given how many options it lists. */
-  matchStatus: (matching: number) => string
+  /**
+   * The status while the list is open, given how many options it lists and
+   * whether the text typed narrowed them.
+   */
+  matchStatus: (matching: number, filtered: boolean) => string
   onChange: (value: string) => void
   /**
    * The text is settled: an option was picked, Enter was pressed or focus
@@ -41,11 +44,20 @@ export interface ComboboxProps<O extends ComboboxOption> {
    * as a value typed passes through partial values on its way.
    */
   onCommit?: (value: string) => void
+  /** What the value goes into, shown between the label and the input and announced with it. */
+  context?: ReactNode
   /** What the value means, announced with the input. */
   hint?: ReactNode
   /** Why the value is not accepted, announced with the input. */
   errors?: readonly string[]
   inputRef?: Ref<HTMLInputElement>
+  placeholder?: string
+  /**
+   * `inline` runs an option's texts on one line, wrapping as they must;
+   * `stacked` puts the primary above the secondary, an empty primary leaving
+   * the secondary alone, and keeps the trailing text on one line at the end.
+   */
+  optionLayout?: 'inline' | 'stacked'
   /**
    * Makes the field read as a picker: a click in it or on its chevron opens
    * the list with every option, the current one active.
@@ -59,7 +71,8 @@ function statusText<O extends ComboboxOption>(
   source: ComboboxSource<O>,
   open: boolean,
   matching: number,
-  matchStatus: (matching: number) => string,
+  filtered: boolean,
+  matchStatus: (matching: number, filtered: boolean) => string,
   progressStatus: boolean
 ): string {
   switch (source.status) {
@@ -67,7 +80,7 @@ function statusText<O extends ComboboxOption>(
     case 'failed':
       return progressStatus ? source.message : ''
     case 'ready':
-      return open ? matchStatus(matching) : ''
+      return open ? matchStatus(matching, filtered) : ''
   }
 }
 
@@ -87,9 +100,12 @@ export function Combobox<O extends ComboboxOption>({
   matchStatus,
   onChange,
   onCommit,
+  context,
   hint,
   errors = [],
   inputRef,
+  placeholder,
+  optionLayout = 'inline',
   opener = false,
   progressStatus = true
 }: ComboboxProps<O>) {
@@ -97,6 +113,7 @@ export function Combobox<O extends ComboboxOption>({
   const inputId = `${id}-input`
   const listboxId = `${id}-listbox`
   const statusId = `${id}-status`
+  const contextId = `${id}-context`
   const hintId = `${id}-hint`
   const errorId = `${id}-error`
   const optionId = (index: number) => `${id}-option-${String(index)}`
@@ -191,7 +208,7 @@ export function Combobox<O extends ComboboxOption>({
   }
 
   const expanded = open && options.length > 0
-  const status = statusText(source, open, options.length, matchStatus, progressStatus)
+  const status = statusText(source, open, options.length, !browsing, matchStatus, progressStatus)
   // Once the options are known the status speaks only while the list is open, so it floats with
   // the list: closing on blur then moves nothing below, and the click that blurred the input
   // lands where it was aimed. Loading or failed, its text is the same open or closed.
@@ -220,6 +237,7 @@ export function Combobox<O extends ComboboxOption>({
       aria-controls={expanded ? listboxId : undefined}
       aria-activedescendant={expanded && active !== null ? optionId(active) : undefined}
       aria-describedby={[
+        context === undefined ? undefined : contextId,
         hint === undefined ? undefined : hintId,
         statusId,
         errors.length === 0 ? undefined : errorId
@@ -227,6 +245,7 @@ export function Combobox<O extends ComboboxOption>({
         .filter((d) => d !== undefined)
         .join(' ')}
       aria-invalid={errors.length === 0 ? undefined : true}
+      placeholder={placeholder}
       value={value}
       onChange={(event) => {
         onChange(event.target.value)
@@ -283,11 +302,22 @@ export function Combobox<O extends ComboboxOption>({
     </button>
   )
 
+  const labelElement = (
+    <label htmlFor={inputId} className="skar-label">
+      {label}
+    </label>
+  )
+
   return (
     <div className="skar-path-picker">
-      <label htmlFor={inputId} className="skar-label">
-        {label}
-      </label>
+      {context === undefined ? (
+        labelElement
+      ) : (
+        <div className="skar-combo-head">
+          {labelElement}
+          <div id={contextId}>{context}</div>
+        </div>
+      )}
       <div className="skar-path-picker-field">
         {opener ? (
           <div className="skar-path-picker-control">
@@ -311,7 +341,13 @@ export function Combobox<O extends ComboboxOption>({
                   role="option"
                   aria-selected={index === active}
                   {...option.attributes}
-                  className={`skar-path-picker-option${index === active ? ' skar-path-picker-active' : ''}`}
+                  className={[
+                    'skar-path-picker-option',
+                    optionLayout === 'stacked' ? 'skar-combo-option-stacked' : '',
+                    index === active ? 'skar-path-picker-active' : ''
+                  ]
+                    .filter((c) => c !== '')
+                    .join(' ')}
                   // Keeps focus in the input, which would otherwise blur and close the list first.
                   onMouseDown={(event) => {
                     event.preventDefault()
@@ -320,9 +356,22 @@ export function Combobox<O extends ComboboxOption>({
                     pick(option)
                   }}
                 >
-                  <span className="skar-path-picker-path">{option.primary}</span>
-                  {option.secondary !== undefined && (
-                    <span className="skar-path-picker-name">{option.secondary}</span>
+                  {optionLayout === 'stacked' ? (
+                    <span className="skar-combo-option-main">
+                      {option.primary !== '' && (
+                        <span className="skar-combo-option-name">{option.primary}</span>
+                      )}
+                      {option.secondary !== undefined && (
+                        <span className="skar-combo-option-detail">{option.secondary}</span>
+                      )}
+                    </span>
+                  ) : (
+                    <>
+                      <span className="skar-path-picker-path">{option.primary}</span>
+                      {option.secondary !== undefined && (
+                        <span className="skar-path-picker-name">{option.secondary}</span>
+                      )}
+                    </>
                   )}
                   <span className="skar-path-picker-unit">{option.trailing}</span>
                 </li>
