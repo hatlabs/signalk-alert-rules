@@ -32,7 +32,7 @@ export interface Candidate {
   typed?: true
 }
 
-const placeholder = (slot: string) => `\${${slot}}`
+export const placeholder = (slot: string) => `\${${slot}}`
 
 /** A template as the user reads it: its rule's name without the slots in it. */
 export function templateTitle(template: Template): string {

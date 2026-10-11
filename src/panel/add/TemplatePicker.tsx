@@ -24,6 +24,7 @@ import {
   onlySlot,
   openPattern,
   pickKey,
+  placeholder,
   restoredPick,
   rowsProblem,
   ruleWatching,
@@ -321,8 +322,6 @@ function keepingChosen(listed: Choice[], chosen: string | undefined): Choice[] {
 
 const NOT_REPORTING = 'Not reporting. Its rule shows No data until it does.'
 
-const slotPlaceholder = (name: string) => `\${${name}}`
-
 /** `<battery>`, `<solararray>`: one segment, so the path still breaks only at its dots. */
 const slotHole = (label: string) => `<${label.toLowerCase().replace(/\s+/g, '')}>`
 
@@ -523,12 +522,10 @@ function SlotRows(props: TemplatePickerProps) {
     const segments = segmentsOf(pattern).map((part) =>
       slots.reduce((filled, s) => {
         const value = s.name === slot.name ? name : (picked(r.pick, s.name) ?? '')
-        return filled.replaceAll(slotPlaceholder(s.name), value === '' ? slotHole(s.label) : value)
+        return filled.replaceAll(placeholder(s.name), value === '' ? slotHole(s.label) : value)
       }, part)
     )
-    const marked = segmentsOf(pattern).findIndex((part) =>
-      part.includes(slotPlaceholder(slot.name))
-    )
+    const marked = segmentsOf(pattern).findIndex((part) => part.includes(placeholder(slot.name)))
     return (
       <Combobox
         key={slot.name}
