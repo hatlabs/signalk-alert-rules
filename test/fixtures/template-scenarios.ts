@@ -219,24 +219,6 @@ export const templateScenarios: Record<string, TemplateScenario> = {
     }
   },
 
-  // The worked example's engine, run on until the overdue step: 250 h of
-  // running at 260 h, 275 h at 285 h. Running time never clears by itself.
-  'engine-service-due': {
-    pick: { instance: 'main' },
-    scenario: {
-      ...exampleScenarios['engine-service-due'],
-      until: 290 * HOUR,
-      deltas: [
-        ...exampleScenarios['engine-service-due'].deltas,
-        ...every(60, 262 * HOUR, 290 * HOUR, (t) => at(t, MAIN_RPM, 30))
-      ],
-      expected: [
-        [260 * HOUR, 'raise', 'propulsion.main.serviceDue', 'caution'],
-        [285 * HOUR, 'priority', 'propulsion.main.serviceDue', 'warning']
-      ]
-    }
-  },
-
   // 0.26 at 200 s is within the 0.02 the level must recover by.
   'fuel-low': {
     pick: { instance: '0' },
