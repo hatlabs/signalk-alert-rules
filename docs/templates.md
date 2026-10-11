@@ -103,7 +103,7 @@ A slot is a path segment the user picks, written `${<name>}` in the template's r
       - { name: engine, label: Engine }
     condition: ${engine}AlternatorNotCharging
     rule:
-      name: Engine ${engine} alternator not charging
+      name: Alternator ${engine} not charging
       # description and message left out
       signal:
         path: electrical.batteries.${battery}.voltage
@@ -121,7 +121,7 @@ A slot is a path segment the user picks, written `${<name>}` in the template's r
           duration: 30
 ```
 
-Picking the battery `start` and the engine `main` makes the rule `Engine main alternator not charging`, which watches `electrical.batteries.start.voltage` while `propulsion.main.revolutions` is above 8 Hz, and alerts at `alerts.electrical.batteries.start.mainAlternatorNotCharging`.
+Picking the battery `start` and the engine `main` makes the rule `Alternator main not charging`, which watches `electrical.batteries.start.voltage` while `propulsion.main.revolutions` is above 8 Hz, and alerts at `alerts.electrical.batteries.start.mainAlternatorNotCharging`.
 
 - A slot's `name` is a letter followed by letters and digits, at most 32 characters, unique in the template. `source` is reserved for the open source. The name keys the slot's pick in the rule's [template record](#using-a-template).
 - A slot's `label` names what is picked, such as `Battery`: 1-40 characters, unique in the template. The webapp shows it where the slot is picked.
@@ -168,13 +168,14 @@ In the webapp, Add rule offers the template sets and their templates. How a temp
 
 A template with at most one slot is picked from a checkbox list of what reports now. For a slot in the signal path, the list has each instance that reports under that path; for a slot only in gate or zone limit paths, each instance that reports one of those. With the source open, each source of an instance's signal path is its own entry. While the source is not open, an instance that does not report yet can be typed under "Not listed?". Each checked entry makes a rule.
 
-A template with two or more slots is picked in rows, one rule per row, with a select for each slot and, when the template leaves the source open, one for the source:
+A template with two or more slots is picked in rows, one rule per row, with a field for each slot and, when the template leaves the source open, a select for the source:
 
-- A slot's choices are the instances that report any path the slot is in: the signal's path or a combined signal's inputs, gates' paths and a zone limit's path. Each choice shows the value of the first of those paths it reports, the signal's first.
-- When the paths are first read, each slot that exactly one instance reports is filled in, in every row where it is still empty; "Add another" adds a row filled in the same way. Later reads never change a pick already made, and a pick nothing reports any more stays among the choices, marked "not reporting".
-- Under the rows, "<label> not listed?" takes a name for each slot, for an instance that does not report yet. The name joins that slot's choices in every row and fills each row where the slot is empty. While the template leaves the source open, a slot in the signal path has no such entry, since an instance that does not report has no sources to pick.
-- The source select lists the sources of the signal path the row's picks make. It waits until the slots in the signal path are chosen, and clears when one of them changes.
-- Continue needs every slot and the source chosen in every row, and no two rows the same. Until then the line above it names the first slot or source left unchosen in row order, such as "Choose an engine for rule 2", and once none is, the first two rows that are the same, such as "Rules 1 and 2 are the same".
+- A slot's field lists the instances that report any path the slot is in: the signal's path or a combined signal's inputs, gates' paths and a zone limit's path. Each is listed with its name or display name, the first of those paths it reports, the signal's first, and that path's value. A click in the field, its arrow or ArrowDown lists them all; typing narrows the list to those whose name or display name matches.
+- The field also takes any name typed, for an instance that does not report yet; the name belongs to its row alone. The row takes the field's text, trimmed, once it is settled: an instance picked from the list, Enter, or focus leaving the field. A name that differs from a reporting instance's only in case becomes that instance, since paths are case-sensitive. A name that is not one path segment is refused, and while the template leaves the source open, so is a name nothing reports in a slot of the signal path, since it has no sources to pick.
+- Above the field, the slot's path shows the part the field fills, such as `electrical.batteries.<battery>.voltage`, filled in as a name is typed. Under it, a reporting instance shows its name and live value; any other name, typed or picked earlier and since gone quiet, reads "Not reporting. Its rule shows No data until it does."
+- When the paths are first read, each slot that exactly one instance reports is filled in, in every row where it is still empty; "Add another" adds a row filled in the same way. Later reads never change a pick already made, and a typed instance that starts reporting shows its value at the next read.
+- The source select lists the sources of the signal path the row's picks make. It waits until the slots in the signal path are chosen, and clears when one of them is settled on another instance.
+- Continue needs every slot and the source chosen in every row, every name accepted, and no two rows the same. Until then the line above it names the first problem in row order: a slot or source left unchosen, such as "Choose an engine for rule 2", or a refused name, such as "Fix the engine name for rule 2"; once there is none, the first two rows that are the same, such as "Rules 1 and 2 are the same".
 
 A pick that already has a rule from the same template is marked with that rule's name. For a template with no slot, or whose one slot is in the signal path, that is a rule from the template watching the path the pick makes, from the same source; for any other template, a rule whose stored `pick` record holds the same picks, every slot and the source included. The picks make the rules, edited in a tab each and created with one save; a marked pick's tab is left out of the save unless "Create another rule for it" is chosen there. A row's tab is labelled with its picks joined by " · ", in slot order, the source last.
 

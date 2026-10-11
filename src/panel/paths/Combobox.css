@@ -78,3 +78,61 @@
   margin-left: auto;
   color: var(--skar-muted);
 }
+
+.skar-path-picker-control {
+  position: relative;
+}
+
+.skar-path-picker-control > .skar-input {
+  padding-right: 2.25rem;
+  /* A narrow cell clips the placeholder; the ellipsis says there is more. */
+  text-overflow: ellipsis;
+}
+
+/* Spans the input's height at its end, so it reads as part of the input. */
+.skar-path-picker-chevron {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--skar-muted);
+  cursor: pointer;
+}
+
+.skar-path-picker-chevron:hover {
+  color: var(--skar-text);
+}
+
+.skar-combo-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.skar-path-picker-option.skar-combo-option-stacked {
+  flex-wrap: nowrap;
+}
+
+.skar-combo-option-main {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.skar-combo-option-name {
+  font-weight: 500;
+}
+
+/* The texts beside it wrap instead, so a value never splits from its unit. */
+.skar-combo-option-stacked .skar-path-picker-unit {
+  white-space: nowrap;
+}

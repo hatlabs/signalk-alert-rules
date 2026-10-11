@@ -99,7 +99,8 @@ describe('alternator-not-charging', () => {
   it('watches a battery while an engine runs, naming the alert after the engine', () => {
     const rule = made(ALTERNATOR, { battery: 'house', engine: 'port' })
     expect(rule).toMatchObject({
-      name: 'Engine port alternator not charging',
+      name: 'Alternator port not charging',
+      message: 'Alternator port not charging battery house: {value}',
       signal: { path: 'electrical.batteries.house.voltage' },
       gates: [{ signal: { path: 'propulsion.port.revolutions' } }]
     })

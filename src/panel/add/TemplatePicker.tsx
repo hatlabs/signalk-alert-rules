@@ -1,31 +1,47 @@
-import { useId, useLayoutEffect, useRef, useState, type CSSProperties, type Ref } from 'react'
+import {
+  Fragment,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type Ref
+} from 'react'
 import type { TemplatePick } from '../../model/rule'
-import type { Template } from '../../model/template'
+import type { Slot, Template } from '../../model/template'
 import { SOURCE_PICK, picked, slotsOf } from '../../templates/instantiate'
 import type { ListedRule } from '../api'
 import { BackIcon } from '../detail/icons'
+import { Combobox, hasWords, type ComboboxOption } from '../paths/Combobox'
 import { LIVE_POLL_MS, type PathEntry, type PathSource } from '../paths/selfPaths'
 import { rulesWord } from '../editor/words'
 import { formatValue } from '../rules/describe'
-import { useUnits } from '../signalUnits'
+import { pathParts, useUnits } from '../signalUnits'
 import {
   candidates,
   instanceError,
   labelsJoined,
+  needsSources,
+  noSources,
   onlySlot,
   openPattern,
   pickKey,
+  placeholder,
   restoredPick,
   rowsProblem,
+  settledName,
   ruleWatching,
   slotCandidates,
-  slotPattern,
+  slotError,
+  slotPath,
   templateTitle,
   typedCandidate,
   watchedPath,
   watchedSlots,
   withArticle,
-  type Candidate
+  withChoice,
+  type Candidate,
+  type SlotCandidate
 } from './templatePicks'
 
 export interface TemplatePickerProps {
@@ -286,14 +302,10 @@ interface SlotRow {
   pick: TemplatePick
 }
 
-/** The select to focus once rendered: a row's first unchosen slot, or its first select. */
+/** The field to focus once rendered: a row's first unchosen slot, or its first field. */
 interface FocusTarget {
   key: number
   firstEmpty: boolean
-}
-
-function without(pick: TemplatePick, key: string): TemplatePick {
-  return Object.fromEntries(Object.entries(pick).filter(([k]) => k !== key))
 }
 
 interface Choice {
@@ -308,10 +320,75 @@ function keepingChosen(listed: Choice[], chosen: string | undefined): Choice[] {
     : [...listed, { value: chosen, text: `${chosen} · not reporting` }]
 }
 
+const NOT_REPORTING = 'Not reporting. Its rule shows No data until it does.'
+
+/** `<battery>`, `<solararray>`: one segment, so the path still breaks only at its dots. */
+const slotHole = (label: string) => `<${label.toLowerCase().replace(/\s+/g, '')}>`
+
+const plural = (word: string) => `${word.replace(/([^aeiou])y$/, '$1ie')}s`
+
+interface SlotOption extends ComboboxOption {
+  candidate: SlotCandidate
+}
+
+/** Every whitespace-separated word occurs in the instance's name or its label. */
+function slotFilter(option: SlotOption, query: string): boolean {
+  const { instance, label } = option.candidate
+  return hasWords(`${instance} ${label}`, query)
+}
+
+/** A path broken only at its dots, the segment a slot fills marked. */
+function MarkedPath({ segments, marked }: { segments: readonly string[]; marked: number }) {
+  return (
+    <span className="skar-mono skar-combo-path">
+      {segments.map((segment, i) => (
+        <Fragment key={i}>
+          {i === marked ? <span className="skar-combo-seg">{segment}</span> : segment}
+          {i < segments.length - 1 && (
+            <>
+              .<wbr />
+            </>
+          )}
+        </Fragment>
+      ))}
+    </span>
+  )
+}
+
+/** A path's segments, its pointer kept on the last. */
+function segmentsOf(path: string): string[] {
+  const { base, pointer } = pathParts(path)
+  return base.map((part, i) => (i === base.length - 1 ? `${part}${pointer}` : part))
+}
+
+function slotOption(c: SlotCandidate): SlotOption {
+  return {
+    value: c.instance,
+    primary: c.label === c.instance ? '' : c.label,
+    secondary: <MarkedPath segments={segmentsOf(c.entry.path)} marked={c.segment} />,
+    trailing: shownValue(c.entry),
+    candidate: c
+  }
+}
+
+/** What a slot's name is: a reporting instance's label and live value, or that it does not report. */
+function slotLine(name: string, choices: readonly SlotCandidate[]): string | undefined {
+  if (name === '') return undefined
+  const c = choices.find((choice) => choice.instance === name)
+  if (c === undefined) return NOT_REPORTING
+  const value =
+    c.entry.value === undefined
+      ? 'no value yet'
+      : `${formatValue(c.entry.value, { kind: 'absolute', unit: c.entry.unit })} now`
+  if (c.label !== c.instance) return `${c.label} · ${value}`
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
 /**
- * The row picker of a template with two or more slots: one select per slot
- * in each row, and a source when the template leaves it open; each row
- * becomes its own rule.
+ * The row picker of a template with two or more slots: in each row, one
+ * field per slot that lists the instances reporting and takes any name
+ * typed, and a source when the template leaves it open; each row becomes
+ * its own rule.
  */
 function SlotRows(props: TemplatePickerProps) {
   const { paths: source, template, back, headingRef } = props
@@ -320,11 +397,6 @@ function SlotRows(props: TemplatePickerProps) {
   const slots = slotsOf(template)
   const sourceOpen = template.open?.includes(SOURCE_PICK) === true
   const signalSlots = watchedSlots(template)
-  // A typed instance has no sources to offer, so a slot in the signal path is
-  // only typed while the source is fixed.
-  const typedSlots = sourceOpen
-    ? slots.filter((slot) => !signalSlots.some((s) => s.name === slot.name))
-    : slots
   const reported = paths.status === 'ready' ? paths.paths : []
   const byPath = new Map(reported.map((p) => [p.path, p]))
   const nextKey = useRef(0)
@@ -334,23 +406,21 @@ function SlotRows(props: TemplatePickerProps) {
       ? props.picked.map((p) => newRow(restoredPick(template, p)))
       : [newRow({})]
   )
-  const [typed, setTyped] = useState<Partial<Record<string, string[]>>>({})
+  // A field's text while it differs from the row's pick: the row takes it once committed.
+  const [drafts, setDrafts] = useState<Partial<Record<string, string>>>({})
   const [removed, setRemoved] = useState<number | undefined>(undefined)
   const [prefilled, setPrefilled] = useState(false)
-  const selects = useRef(new Map<string, HTMLSelectElement>())
+  const fields = useRef(new Map<string, HTMLInputElement>())
   const focusNext = useRef<FocusTarget | undefined>(undefined)
 
   const choices = new Map(
-    slots.map((slot) => [
-      slot.name,
-      slotCandidates(template, slot.name, reported, typed[slot.name])
-    ])
+    slots.map((slot) => [slot.name, slotCandidates(template, slot.name, reported)])
   )
   /** The pick with each unchosen slot that exactly one instance reports filled in. */
   const prefill = (pick: TemplatePick): TemplatePick => {
     const filled = { ...pick }
     for (const slot of slots) {
-      const reporting = (choices.get(slot.name) ?? []).filter((c) => c.typed !== true)
+      const reporting = choices.get(slot.name) ?? []
       const only = reporting.at(0)
       if (reporting.length === 1 && only !== undefined && picked(pick, slot.name) === undefined)
         filled[slot.name] = only.instance
@@ -363,6 +433,8 @@ function SlotRows(props: TemplatePickerProps) {
     setRows(rows.map((r) => ({ ...r, pick: prefill(r.pick) })))
   }
 
+  const fieldKey = (key: number, name: string) => `${String(key)}:${name}`
+
   useLayoutEffect(() => {
     const target = focusNext.current
     if (target === undefined) return
@@ -373,28 +445,44 @@ function SlotRows(props: TemplatePickerProps) {
       ? slots.find((slot) => picked(at.pick, slot.name) === undefined)
       : undefined
     const slot = empty ?? slots.at(0)
-    if (slot !== undefined) selects.current.get(`${String(at.key)}:${slot.name}`)?.focus()
+    if (slot !== undefined) fields.current.get(fieldKey(at.key, slot.name))?.focus()
   })
 
-  const edit = (next: SlotRow[]) => {
-    setRemoved(undefined)
-    setRows(next)
+  const setDraft = (at: string, text: string | undefined) => {
+    setDrafts((last) => {
+      const { [at]: _, ...rest } = last
+      return text === undefined ? rest : { ...rest, [at]: text }
+    })
   }
-  const choose = (key: number, name: string, value: string) => {
-    edit(
-      rows.map((r) => {
+  const choose = (key: number, name: string, value: string | undefined) => {
+    setRemoved(undefined)
+    // From the latest rows: a commit on blur lands just before the click that caused it.
+    setRows((last) =>
+      last.map((r) => {
         if (r.key !== key) return r
-        const pick = { ...r.pick, [name]: value }
-        // The sources offered are those of the path the signal's slots make.
-        const moved = signalSlots.some((s) => s.name === name) && picked(r.pick, name) !== value
-        return { ...r, pick: moved ? without(pick, SOURCE_PICK) : pick }
+        const pick = withChoice(template, r.pick, name, value)
+        return pick === r.pick ? r : { ...r, pick }
       })
     )
   }
+  /** The text is settled: the row takes it as its choice. */
+  const commit = (key: number, name: string, text: string) => {
+    setDraft(fieldKey(key, name), undefined)
+    choose(key, name, settledName(text, choices.get(name) ?? []))
+  }
+  /** The row's pick with each field's text taken as a commit would take it. */
+  const pendingPick = (r: SlotRow): TemplatePick =>
+    slots.reduce((pick, slot) => {
+      const draft = drafts[fieldKey(r.key, slot.name)]
+      return draft === undefined
+        ? pick
+        : withChoice(template, pick, slot.name, settledName(draft, choices.get(slot.name) ?? []))
+    }, r.pick)
   const addRow = () => {
     const added = newRow(prefill({}))
     focusNext.current = { key: added.key, firstEmpty: true }
-    edit([...rows, added])
+    setRemoved(undefined)
+    setRows([...rows, added])
   }
   const removeRow = (index: number) => {
     const next = rows.filter((_, i) => i !== index)
@@ -403,32 +491,94 @@ function SlotRows(props: TemplatePickerProps) {
     setRows(next)
     setRemoved(index + 1)
   }
-  const addTyped = (name: string, instance: string) => {
-    setTyped((last) => {
-      const names = last[name] ?? []
-      return names.includes(instance) ? last : { ...last, [name]: [...names, instance] }
-    })
-    edit(
-      rows.map((r) =>
-        picked(r.pick, name) === undefined ? { ...r, pick: { ...r.pick, [name]: instance } } : r
-      )
-    )
-  }
-
-  const slotChoices = (name: string, chosen: string | undefined): Choice[] =>
-    keepingChosen(
-      (choices.get(name) ?? []).map((c) => ({
-        value: c.instance,
-        text: `${c.label} · ${c.typed === true ? 'not reporting yet' : shownValue(c.entry)}`
-      })),
-      chosen
-    )
 
   const picks = rows.map((r) => r.pick)
-  const problem = paths.status === 'loading' ? undefined : rowsProblem(template, sourceOpen, picks)
-  const status = [removed === undefined ? undefined : `Rule ${String(removed)} removed.`, problem]
+  const problem = paths.status === 'loading' ? undefined : rowsProblem(template, picks, reported)
+  // A name typed into the last empty slot commits on the blur that the click on Continue
+  // causes, after the button decided whether it is enabled; so it reads the texts as typed.
+  const pending = rows.map(pendingPick)
+  const pendingProblem =
+    paths.status === 'loading' ? undefined : rowsProblem(template, pending, reported)
+  // The committed problem, so messages change on commit; none once Continue is enabled.
+  const shown = pendingProblem === undefined ? undefined : problem
+  const status = [removed === undefined ? undefined : `Rule ${String(removed)} removed.`, shown]
     .filter((s) => s !== undefined)
     .join(' ')
+
+  const slotField = (r: SlotRow, slot: Slot) => {
+    const at = fieldKey(r.key, slot.name)
+    const committed = picked(r.pick, slot.name) ?? ''
+    const draft = drafts[at]
+    const text = draft ?? committed
+    const name = text.trim()
+    const listed = choices.get(slot.name) ?? []
+    const word = slot.label.toLowerCase()
+    const sourceless = listed.length === 0 && needsSources(template, slot)
+    // Shown once committed, then checked again as the text changes until it is fixed.
+    const refused = committed === '' ? undefined : slotError(template, slot, r.pick, reported)
+    const error =
+      refused === undefined || name === ''
+        ? undefined
+        : draft === undefined
+          ? refused
+          : slotError(template, slot, pendingPick(r), reported)
+    const line = paths.status === 'ready' ? slotLine(name, listed) : undefined
+    const pattern = slotPath(template, slot.name)
+    const segments = segmentsOf(pattern).map((part) =>
+      slots.reduce((filled, s) => {
+        const value = s.name === slot.name ? name : (picked(r.pick, s.name) ?? '')
+        return filled.replaceAll(placeholder(s.name), value === '' ? slotHole(s.label) : value)
+      }, part)
+    )
+    const marked = segmentsOf(pattern).findIndex((part) => part.includes(placeholder(slot.name)))
+    return (
+      <Combobox
+        key={slot.name}
+        label={slot.label}
+        value={text}
+        source={
+          paths.status === 'failed'
+            ? { status: 'failed', message: paths.error }
+            : { status: 'ready', options: listed.map(slotOption) }
+        }
+        filter={slotFilter}
+        matchStatus={(matching, filtered) => {
+          if (sourceless) return noSources(withArticle(word))
+          if (listed.length === 0)
+            return `Nothing reports ${withArticle(word)} yet. Type the name it will have.`
+          if (!filtered) return `${String(matching)} ${plural(word)}`
+          if (matching === 0) return `No ${word} matches; the typed name is used as is.`
+          return matching === 1 ? `1 ${word} matches` : `${String(matching)} ${plural(word)} match`
+        }}
+        onChange={(value) => {
+          setDraft(at, value)
+        }}
+        onCommit={(value) => {
+          commit(r.key, slot.name, value)
+        }}
+        context={<MarkedPath segments={segments} marked={marked} />}
+        {...(error !== undefined
+          ? { errors: [error] }
+          : line === undefined
+            ? {}
+            : { hint: <span className="skar-combo-line">{line}</span> })}
+        inputRef={(el) => {
+          if (el === null) fields.current.delete(at)
+          else fields.current.set(at, el)
+        }}
+        placeholder={
+          paths.status !== 'ready' || listed.length > 0
+            ? `Choose or type ${withArticle(word)}`
+            : sourceless
+              ? `No ${word} reports yet`
+              : `Type ${withArticle(word)} name`
+        }
+        optionLayout="stacked"
+        opener
+        progressStatus={false}
+      />
+    )
+  }
 
   return (
     <div className="skar-page">
@@ -479,32 +629,7 @@ function SlotRows(props: TemplatePickerProps) {
                     className="skar-slot-cells"
                     style={{ '--skar-cells': slots.length + (sourceOpen ? 1 : 0) } as CSSProperties}
                   >
-                    {slots.map((slot) => {
-                      const chosen = picked(r.pick, slot.name)
-                      const listed = slotChoices(slot.name, chosen)
-                      const at = `${String(r.key)}:${slot.name}`
-                      return (
-                        <ChoiceSelect
-                          key={slot.name}
-                          id={`${id}-${String(r.key)}-${slot.name}`}
-                          label={slot.label}
-                          prompt={
-                            listed.length === 0
-                              ? 'Nothing reports yet'
-                              : `Choose ${withArticle(slot.label.toLowerCase())}`
-                          }
-                          choices={listed}
-                          value={chosen}
-                          selectRef={(el) => {
-                            if (el === null) selects.current.delete(at)
-                            else selects.current.set(at, el)
-                          }}
-                          onChange={(value) => {
-                            choose(r.key, slot.name, value)
-                          }}
-                        />
-                      )
-                    })}
+                    {slots.map((slot) => slotField(r, slot))}
                     {sourceOpen && (
                       <ChoiceSelect
                         id={`${id}-${String(r.key)}-source`}
@@ -547,19 +672,6 @@ function SlotRows(props: TemplatePickerProps) {
               )
             })}
           </div>
-          <div className="skar-slot-typed">
-            {typedSlots.map((slot) => (
-              <TypedInstance
-                key={slot.name}
-                label={`${slot.label} not listed?`}
-                placeholder="The name in the path"
-                pattern={slotPattern(template, slot.name)}
-                onAdd={(instance) => {
-                  addTyped(slot.name, instance)
-                }}
-              />
-            ))}
-          </div>
           <div>
             <button
               type="button"
@@ -577,9 +689,9 @@ function SlotRows(props: TemplatePickerProps) {
       <button
         type="button"
         className="skar-btn skar-btn-primary skar-btn-wide"
-        disabled={paths.status === 'loading' || problem !== undefined}
+        disabled={paths.status === 'loading' || pendingProblem !== undefined}
         onClick={() => {
-          props.onContinue(picks)
+          props.onContinue(pending)
         }}
       >
         {`Continue with ${rulesWord(rows.length)}`}
@@ -595,7 +707,6 @@ function ChoiceSelect({
   choices,
   value,
   disabled = false,
-  selectRef,
   onChange
 }: {
   id: string
@@ -605,7 +716,6 @@ function ChoiceSelect({
   choices: readonly Choice[]
   value: string | undefined
   disabled?: boolean
-  selectRef?: Ref<HTMLSelectElement>
   onChange: (value: string) => void
 }) {
   return (
@@ -614,7 +724,6 @@ function ChoiceSelect({
         {label}
       </label>
       <select
-        ref={selectRef}
         id={id}
         className={value === undefined ? 'skar-input skar-select-empty' : 'skar-input'}
         disabled={disabled}

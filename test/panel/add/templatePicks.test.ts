@@ -4,19 +4,23 @@ import {
   candidates,
   instanceError,
   labelsJoined,
+  needsSources,
   openPattern,
   pickKey,
   pickReports,
   restoredPick,
   rowsProblem,
   ruleWatching,
+  settledName,
   slotCandidates,
-  slotPattern,
+  slotError,
+  slotPath,
   templateTitle,
   typedCandidate,
   watchedPath,
   watchedSlots,
   withArticle,
+  withChoice,
   type SlotCandidate
 } from '../../../src/panel/add/templatePicks'
 import type { PathEntry } from '../../../src/panel/paths/selfPaths'
@@ -640,42 +644,95 @@ describe('a template with two slots', () => {
     expect(watchedSlots(nested).map((s) => s.name)).toEqual(['battery', 'engine'])
   })
 
-  it('shows each slot’s first path with every slot as <name>', () => {
-    expect(slotPattern(alternator, 'battery')).toBe('electrical.batteries.<name>.voltage')
-    expect(slotPattern(alternator, 'engine')).toBe('propulsion.<name>.revolutions')
+  it('finds each slot’s first path, its slots unfilled', () => {
+    expect(slotPath(alternator, 'battery')).toBe('electrical.batteries.${battery}.voltage')
+    expect(slotPath(alternator, 'engine')).toBe('propulsion.${engine}.revolutions')
+  })
+
+  describe('why a slot’s name is refused', () => {
+    const bySource: Template = { ...alternator, open: ['source'] }
+    const reported = [voltage('start', 12.6)]
+    const battery = { name: 'battery', label: 'Battery' }
+    const engine = { name: 'engine', label: 'Engine' }
+
+    it('refuses what is not one path segment', () => {
+      expect(slotError(alternator, engine, { engine: 'aft.2' }, reported)).toMatch(
+        /one path segment/
+      )
+      expect(slotError(alternator, engine, { engine: 'aft' }, reported)).toBeUndefined()
+    })
+
+    it('refuses a signal slot’s name nothing reports while the source is open', () => {
+      expect(slotError(bySource, battery, { battery: 'windlass' }, reported)).toBe(
+        'Nothing reports this battery yet, so it has no sources to pick.'
+      )
+      expect(slotError(bySource, battery, { battery: 'start' }, reported)).toBeUndefined()
+      expect(slotError(bySource, engine, { engine: 'aft' }, reported)).toBeUndefined()
+      expect(slotError(alternator, battery, { battery: 'windlass' }, reported)).toBeUndefined()
+    })
+
+    it('needs sources for a slot in the signal path while the source is open', () => {
+      expect(needsSources(bySource, battery)).toBe(true)
+      expect(needsSources(bySource, engine)).toBe(false)
+      expect(needsSources(alternator, battery)).toBe(false)
+    })
+
+    it('takes a name that stopped reporting while its row keeps the source chosen for it', () => {
+      const stale = { battery: 'windlass', engine: 'main', source: 'n2k.1' }
+      expect(slotError(bySource, battery, stale, reported)).toBeUndefined()
+      expect(slotError(bySource, battery, { ...stale, battery: 'a.b' }, reported)).toMatch(
+        /one path segment/
+      )
+      expect(rowsProblem(bySource, [stale], reported)).toBeUndefined()
+    })
   })
 
   describe('why the rows cannot continue', () => {
+    const bySource: Template = { ...alternator, open: ['source'] }
+    const start = [voltage('start', 12.6)]
+
     it('names the first row missing a choice, a slot before the source, in rule order', () => {
-      expect(rowsProblem(alternator, true, [{ engine: 'main' }])).toBe(
-        'Choose a battery for rule 1'
-      )
+      expect(rowsProblem(bySource, [{ engine: 'main' }], start)).toBe('Choose a battery for rule 1')
       expect(
-        rowsProblem(alternator, true, [{ battery: 'start', engine: 'main' }, { engine: 'main' }])
+        rowsProblem(bySource, [{ battery: 'start', engine: 'main' }, { engine: 'main' }], start)
       ).toBe('Choose a source for rule 1')
     })
 
     it('names a missing choice before rows that are the same', () => {
       const same = { battery: 'start', engine: 'main' }
-      expect(rowsProblem(alternator, false, [same, same, { battery: 'start' }])).toBe(
+      expect(rowsProblem(alternator, [same, same, { battery: 'start' }], [])).toBe(
         'Choose an engine for rule 3'
       )
       expect(
-        rowsProblem(alternator, true, [
-          { ...same, source: 'n2k.1' },
-          { ...same, source: 'n2k.1' },
-          same
-        ])
+        rowsProblem(
+          bySource,
+          [{ ...same, source: 'n2k.1' }, { ...same, source: 'n2k.1' }, same],
+          start
+        )
       ).toBe('Choose a source for rule 3')
+    })
+
+    it('names a refused name, after a missing choice in its row and before the source', () => {
+      expect(rowsProblem(bySource, [{ battery: 'start', engine: 'aft.2' }], start)).toBe(
+        'Fix the engine name for rule 1'
+      )
+      expect(rowsProblem(alternator, [{ battery: 'a b' }], [])).toBe('Choose an engine for rule 1')
+      expect(rowsProblem(bySource, [{ battery: 'windlass', engine: 'main' }], start)).toBe(
+        'Fix the battery name for rule 1'
+      )
+    })
+
+    it('asks for no source while the template fixes it', () => {
+      expect(rowsProblem(alternator, [{ battery: 'start', engine: 'main' }], [])).toBeUndefined()
     })
 
     it('names the first two rows that are the same, else nothing', () => {
       const port = { battery: 'start', engine: 'port' }
       const starboard = { battery: 'start', engine: 'starboard' }
-      expect(rowsProblem(alternator, false, [port, starboard, port])).toBe(
+      expect(rowsProblem(alternator, [port, starboard, port], [])).toBe(
         'Rules 1 and 3 are the same'
       )
-      expect(rowsProblem(alternator, false, [port, starboard])).toBeUndefined()
+      expect(rowsProblem(alternator, [port, starboard], [])).toBeUndefined()
     })
   })
 
@@ -694,6 +751,28 @@ describe('a template with two slots', () => {
     expect(candidates('builtin', alternator, boat, [])).toEqual([])
   })
 
+  describe('a field’s text taken as the row’s choice', () => {
+    const bySource: Template = { ...alternator, open: ['source'] }
+    const reporting = slotCandidates(alternator, 'battery', [voltage('start', 12.6)])
+
+    it('settles text trimmed, spelled as the reporting instance it matches but for case', () => {
+      expect(settledName(' Start ', reporting)).toBe('start')
+      expect(settledName(' aft ', reporting)).toBe('aft')
+      expect(settledName('  ', reporting)).toBeUndefined()
+    })
+
+    it('drops the source when a signal slot changes, and keeps an unchanged pick as is', () => {
+      const pick = { battery: 'start', engine: 'main', source: 'n2k.1' }
+      expect(withChoice(bySource, pick, 'battery', 'house')).toEqual({
+        battery: 'house',
+        engine: 'main'
+      })
+      expect(withChoice(bySource, pick, 'battery', undefined)).toEqual({ engine: 'main' })
+      expect(withChoice(bySource, pick, 'engine', 'port')).toEqual({ ...pick, engine: 'port' })
+      expect(withChoice(bySource, pick, 'battery', 'start')).toBe(pick)
+    })
+  })
+
   describe('candidates per slot', () => {
     const rpm = displayUnit({ units: 'Hz' })
     const revolutions = (engine: string, value: number): PathEntry => ({
@@ -703,36 +782,30 @@ describe('a template with two slots', () => {
       value
     })
     const listed = (found: SlotCandidate[]) =>
-      found.map((c) => [c.instance, c.label, c.entry?.path, c.entry?.value, c.typed])
+      found.map((c) => [c.instance, c.label, c.entry.path, c.entry.value, c.segment])
 
     it('lists each slot’s instances from the paths using it, each with its value', () => {
       const reported = [revolutions('main', 30), voltage('start', 12.6)]
       expect(listed(slotCandidates(alternator, 'engine', reported))).toEqual([
-        ['main', 'main', 'propulsion.main.revolutions', 30, undefined]
+        ['main', 'main', 'propulsion.main.revolutions', 30, 1]
       ])
       expect(listed(slotCandidates(alternator, 'battery', reported))).toEqual([
-        ['start', 'start', 'electrical.batteries.start.voltage', 12.6, undefined]
+        ['start', 'start', 'electrical.batteries.start.voltage', 12.6, 2]
       ])
     })
 
     it('names an instance by the name its group reports, else the path’s display name', () => {
       expect(listed(slotCandidates(alternator, 'battery', boat))).toEqual([
-        ['house', 'House bank', 'electrical.batteries.house.voltage', 13.28, undefined],
-        [
-          'ruuvi-cockpit',
-          'ruuvi-cockpit',
-          'electrical.batteries.ruuvi-cockpit.voltage',
-          2.98,
-          undefined
-        ],
+        ['house', 'House bank', 'electrical.batteries.house.voltage', 13.28, 2],
+        ['ruuvi-cockpit', 'ruuvi-cockpit', 'electrical.batteries.ruuvi-cockpit.voltage', 2.98, 2],
         [
           'ruuvi-saloon',
           'Saloon RuuviTag battery',
           'electrical.batteries.ruuvi-saloon.voltage',
           3.01,
-          undefined
+          2
         ],
-        ['starter', 'starter', 'electrical.batteries.starter.voltage', 12.71, undefined]
+        ['starter', 'starter', 'electrical.batteries.starter.voltage', 12.71, 2]
       ])
     })
 
@@ -759,11 +832,11 @@ describe('a template with two slots', () => {
         }
       }
       expect(listed(slotCandidates(gatedOnCurrent, 'battery', boat)).slice(0, 1)).toEqual([
-        ['house', 'House bank', 'electrical.batteries.house.voltage', 13.28, undefined]
+        ['house', 'House bank', 'electrical.batteries.house.voltage', 13.28, 2]
       ])
       const currentOnly = boat.filter((p) => p.path.endsWith('.current'))
       expect(listed(slotCandidates(gatedOnCurrent, 'battery', currentOnly))).toEqual([
-        ['house', 'house', 'electrical.batteries.house.current', 4, undefined]
+        ['house', 'house', 'electrical.batteries.house.current', 4, 2]
       ])
     })
 
@@ -808,18 +881,10 @@ describe('a template with two slots', () => {
       const reported: PathEntry[] = [
         { path: 'propulsion.main.alternators.start.voltage', unit: volts, value: 14 }
       ]
-      expect(slotCandidates(nested, 'battery', reported).map((c) => c.instance)).toEqual(['start'])
-      expect(slotCandidates(nested, 'engine', reported).map((c) => c.instance)).toEqual(['main'])
-    })
-
-    it('adds each typed name nothing reports after the reporting ones, once', () => {
-      const reported = [voltage('start', 12.6)]
-      expect(
-        listed(slotCandidates(alternator, 'battery', reported, ['windlass', 'start', 'windlass']))
-      ).toEqual([
-        ['start', 'start', 'electrical.batteries.start.voltage', 12.6, undefined],
-        ['windlass', 'windlass', undefined, undefined, true]
-      ])
+      const at = (slot: string) =>
+        slotCandidates(nested, slot, reported).map((c) => [c.instance, c.segment])
+      expect(at('battery')).toEqual([['start', 3]])
+      expect(at('engine')).toEqual([['main', 1]])
     })
   })
 
