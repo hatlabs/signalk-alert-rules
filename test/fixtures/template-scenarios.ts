@@ -21,6 +21,11 @@ const MAIN_RPM = 'propulsion.main.revolutions'
 const PUMP = 'electrical.switches.bilgePump.state'
 const DEPTH = 'environment.depth.belowTransducer'
 const POSITION = 'navigation.position'
+const SOG = 'navigation.speedOverGround'
+
+/** 10 m, down to 4 m from 20 s to 80 s, then to 2 m from 120 s to 140 s. */
+const shoaling = (t: number) =>
+  Math.max(10 - 0.1 * Math.max(t - 20, 0), 4) - 0.1 * Math.min(Math.max(t - 120, 0), 20)
 
 /** A value per sample time, all on one path, at one-second ticks. */
 function series(path: string, until: number, samples: [t: number, value: number][]): Scenario {
@@ -316,22 +321,22 @@ export const templateScenarios: Record<string, TemplateScenario> = {
     }
   },
 
-  // 3.2 m at 40 s is within the 0.3 m the depth must recover by.
+  // The bottom shoals at 0.1 m/s under way at 3 kn: the 30 s projection
+  // passes 3 m once the depth is 6 m and 2 m at 5 m, and the alert ends as
+  // the trend flattens with the depth level at 4 m. The second shoaling, below 2 kn, raises nothing.
   'depth-shallow': {
     pick: {},
     scenario: {
-      ...series(DEPTH, 100, [
-        [0, 8],
-        [10, 2.5],
-        [20, 1.8],
-        [30, 2.2],
-        [40, 3.2],
-        [50, 5]
-      ]),
+      tick: 1,
+      until: 200,
+      deltas: [
+        ...every(1, 0, 200, (t) => at(t, SOG, t < 110 ? 1.543 : 0.5)),
+        ...every(1, 0, 200, (t) => at(t, DEPTH, shoaling(t)))
+      ],
       expected: [
-        [15, 'raise', 'environment.depth.belowTransducerLow', 'warning'],
-        [25, 'priority', 'environment.depth.belowTransducerLow', 'alarm'],
-        [50, 'clear', 'environment.depth.belowTransducerLow']
+        [61, 'raise', 'environment.depth.belowTransducerProjectedLow', 'warning'],
+        [71, 'priority', 'environment.depth.belowTransducerProjectedLow', 'alarm'],
+        [87, 'clear', 'environment.depth.belowTransducerProjectedLow']
       ]
     }
   },
