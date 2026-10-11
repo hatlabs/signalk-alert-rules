@@ -1384,9 +1384,11 @@ describe('rules from a template with two slots', () => {
 
   it('takes a typed name for its own row only', async () => {
     renderShell({ rules: [], listing }, { reported: twin })
-    await openPicker([{ battery: 'start', engine: 'port' }, { battery: 'start' }])
-    typeAndLeave(2, 'Engine', 'aft')
-    expect([cell(1, 'Engine').value, cell(2, 'Engine').value]).toEqual(['port', 'aft'])
+    await openPicker([{ battery: 'start' }, { battery: 'start' }])
+    type(2, 'Engine', 'aft')
+    expect([cell(1, 'Engine').value, cell(2, 'Engine').value]).toEqual(['', 'aft'])
+    fireEvent.blur(cell(2, 'Engine'))
+    expect([cell(1, 'Engine').value, cell(2, 'Engine').value]).toEqual(['', 'aft'])
     fireEvent.click(screen.getByRole('button', { name: 'Add another' }))
     expect(cell(3, 'Engine').value).toBe('')
     fireEvent.click(cell(3, 'Engine'))
