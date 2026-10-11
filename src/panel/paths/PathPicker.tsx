@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode, type Ref } from 'react'
 import { unitLabel } from '../units'
-import { Combobox, type ComboboxOption, type ComboboxSource } from './Combobox'
+import { Combobox, hasWords, type ComboboxOption, type ComboboxSource } from './Combobox'
 import type { PathEntry, PathList } from './selfPaths'
 
 export interface PathPickerProps {
@@ -28,11 +28,7 @@ interface PathOption extends ComboboxOption {
 
 /** Every whitespace-separated word occurs in the path or the display name. */
 export function matches(entry: PathEntry, query: string): boolean {
-  const haystack = `${entry.path} ${entry.displayName ?? ''}`.toLowerCase()
-  return query
-    .toLowerCase()
-    .split(/\s+/)
-    .every((word) => haystack.includes(word))
+  return hasWords(`${entry.path} ${entry.displayName ?? ''}`, query)
 }
 
 /** A unit is worth showing when meta declares one or a display preference applies. */

@@ -12,7 +12,7 @@ import type { Slot, Template } from '../../model/template'
 import { SOURCE_PICK, picked, slotsOf } from '../../templates/instantiate'
 import type { ListedRule } from '../api'
 import { BackIcon } from '../detail/icons'
-import { Combobox, type ComboboxOption } from '../paths/Combobox'
+import { Combobox, hasWords, type ComboboxOption } from '../paths/Combobox'
 import { LIVE_POLL_MS, type PathEntry, type PathSource } from '../paths/selfPaths'
 import { rulesWord } from '../editor/words'
 import { formatValue } from '../rules/describe'
@@ -335,12 +335,7 @@ interface SlotOption extends ComboboxOption {
 /** Every whitespace-separated word occurs in the instance's name or its label. */
 function slotFilter(option: SlotOption, query: string): boolean {
   const { instance, label } = option.candidate
-  const haystack = `${instance} ${label}`.toLowerCase()
-  return query
-    .trim()
-    .toLowerCase()
-    .split(/\s+/)
-    .every((word) => haystack.includes(word))
+  return hasWords(`${instance} ${label}`, query)
 }
 
 /** A path broken only at its dots, the segment a slot fills marked. */

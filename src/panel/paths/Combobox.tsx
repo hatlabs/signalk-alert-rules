@@ -19,6 +19,15 @@ export interface ComboboxOption {
   attributes?: Readonly<Record<`data-${string}`, string>>
 }
 
+/** Every whitespace-separated word of the query occurs in the haystack, ignoring case. */
+export function hasWords(haystack: string, query: string): boolean {
+  const text = haystack.toLowerCase()
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .every((word) => text.includes(word))
+}
+
 /** The options once they are known; until then, why there are none. */
 export type ComboboxSource<O extends ComboboxOption> =
   | { status: 'loading'; message: string }
