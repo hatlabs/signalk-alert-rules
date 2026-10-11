@@ -371,22 +371,26 @@ export function instanceError(text: string): string | undefined {
 }
 
 /**
- * Why a name cannot fill a slot, if it cannot. While the template leaves the
- * source open, a slot in the signal path takes only an instance that
- * reports, since the sources offered are those of the path it makes.
+ * Why the pick's name for a slot cannot fill it, if it cannot. While the
+ * template leaves the source open, a slot in the signal path takes only an
+ * instance that reports, since the sources offered are those of the path it
+ * makes. A pick that has its source keeps a name that stopped reporting:
+ * changing the name drops the source, so the source was chosen for this name.
  */
 export function slotError(
   template: Template,
   slot: Slot,
-  instance: string,
+  pick: TemplatePick,
   paths: readonly PathEntry[]
 ): string | undefined {
+  const instance = picked(pick, slot.name) ?? ''
   const refused = instanceError(instance)
   if (refused !== undefined) return refused
   const needsSources =
     template.open?.includes(SOURCE_PICK) === true && inWatchedPath(template, slot)
   if (
     needsSources &&
+    picked(pick, SOURCE_PICK) === undefined &&
     !slotCandidates(template, slot.name, paths).some((c) => c.instance === instance)
   )
     return `Nothing reports this ${slot.label.toLowerCase()} yet, so it has no sources to pick.`
@@ -446,9 +450,7 @@ export function rowsProblem(
     const missing = slots.find((slot) => picked(pick, slot.name) === undefined)
     if (missing !== undefined)
       return `Choose ${withArticle(missing.label.toLowerCase())} for rule ${rule}`
-    const refused = slots.find(
-      (slot) => slotError(template, slot, picked(pick, slot.name) ?? '', paths) !== undefined
-    )
+    const refused = slots.find((slot) => slotError(template, slot, pick, paths) !== undefined)
     if (refused !== undefined) return `Fix the ${refused.label.toLowerCase()} name for rule ${rule}`
     if (sourceOpen && picked(pick, SOURCE_PICK) === undefined)
       return `Choose a source for rule ${rule}`

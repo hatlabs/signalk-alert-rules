@@ -655,17 +655,28 @@ describe('a template with two slots', () => {
     const engine = { name: 'engine', label: 'Engine' }
 
     it('refuses what is not one path segment', () => {
-      expect(slotError(alternator, engine, 'aft.2', reported)).toMatch(/one path segment/)
-      expect(slotError(alternator, engine, 'aft', reported)).toBeUndefined()
+      expect(slotError(alternator, engine, { engine: 'aft.2' }, reported)).toMatch(
+        /one path segment/
+      )
+      expect(slotError(alternator, engine, { engine: 'aft' }, reported)).toBeUndefined()
     })
 
     it('refuses a signal slot’s name nothing reports while the source is open', () => {
-      expect(slotError(bySource, battery, 'windlass', reported)).toBe(
+      expect(slotError(bySource, battery, { battery: 'windlass' }, reported)).toBe(
         'Nothing reports this battery yet, so it has no sources to pick.'
       )
-      expect(slotError(bySource, battery, 'start', reported)).toBeUndefined()
-      expect(slotError(bySource, engine, 'aft', reported)).toBeUndefined()
-      expect(slotError(alternator, battery, 'windlass', reported)).toBeUndefined()
+      expect(slotError(bySource, battery, { battery: 'start' }, reported)).toBeUndefined()
+      expect(slotError(bySource, engine, { engine: 'aft' }, reported)).toBeUndefined()
+      expect(slotError(alternator, battery, { battery: 'windlass' }, reported)).toBeUndefined()
+    })
+
+    it('takes a name that stopped reporting while its row keeps the source chosen for it', () => {
+      const stale = { battery: 'windlass', engine: 'main', source: 'n2k.1' }
+      expect(slotError(bySource, battery, stale, reported)).toBeUndefined()
+      expect(slotError(bySource, battery, { ...stale, battery: 'a.b' }, reported)).toMatch(
+        /one path segment/
+      )
+      expect(rowsProblem(bySource, [stale], reported)).toBeUndefined()
     })
   })
 

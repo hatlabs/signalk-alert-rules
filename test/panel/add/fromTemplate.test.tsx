@@ -1732,6 +1732,23 @@ describe('rules from a template with two slots', () => {
       ])
     })
 
+    it('keeps a restored battery that stopped reporting while its source is chosen', async () => {
+      renderShell({ rules: [], listing: slotListing }, { reported: harnessPaths })
+      await openSlotPicker('charger-not-charging', [
+        { battery: 'service', charger: 'shore', source: 'can0.226' }
+      ])
+      expect(cell(1, 'Battery').value).toBe('service')
+      expect(sourceCell(1).value).toBe('can0.226')
+      expect(cell(1, 'Battery').getAttribute('aria-invalid')).toBeNull()
+      expect(status().textContent).toBe('')
+      expect(continueButton().disabled).toBe(false)
+      // Changing the name drops the source, so the name must report again.
+      typeAndLeave(1, 'Battery', 'windlass')
+      expect(sourceCell(1).value).toBe('')
+      expect(cell(1, 'Battery').getAttribute('aria-invalid')).toBe('true')
+      expect(continueButton().disabled).toBe(true)
+    })
+
     it('keeps Continue disabled while the typed name is refused or empty', async () => {
       renderShell({ rules: [], listing: slotListing }, { reported: harnessPaths })
       await openSlotPicker('solar-not-charging', [{ battery: 'start' }])

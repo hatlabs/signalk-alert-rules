@@ -510,13 +510,13 @@ function SlotRows(props: TemplatePickerProps) {
     const listed = choices.get(slot.name) ?? []
     const word = slot.label.toLowerCase()
     // Shown once committed, then checked again as the text changes until it is fixed.
-    const refused = committed === '' ? undefined : slotError(template, slot, committed, reported)
+    const refused = committed === '' ? undefined : slotError(template, slot, r.pick, reported)
     const error =
       refused === undefined || name === ''
         ? undefined
         : draft === undefined
           ? refused
-          : slotError(template, slot, name, reported)
+          : slotError(template, slot, pendingPick(r), reported)
     const line = paths.status === 'ready' ? slotLine(name, listed) : undefined
     const pattern = slotPath(template, slot.name)
     const segments = segmentsOf(pattern).map((part) =>
