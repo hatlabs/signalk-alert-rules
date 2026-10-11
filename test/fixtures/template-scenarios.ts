@@ -325,20 +325,22 @@ export const templateScenarios: Record<string, TemplateScenario> = {
   // 30 s projection passes 3 m at 140 s, when the depth is 6 m, and 2 m at
   // 150 s. The boat is at 1.8 kn from 100 s and at 2.2 kn from 125 s, so
   // the warning waits for the 10 s speed gate and a fresh 10 s window. The
-  // alert ends as the trend flattens with the depth level at 4 m.
+  // boat slows to 1.8 kn again at 155 s, which ends the alert at once.
   'depth-shallow': {
     pick: {},
     scenario: {
       tick: 1,
       until: 200,
       deltas: [
-        ...every(1, 0, 200, (t) => at(t, SOG, t < 100 ? 1.543 : t < 125 ? 0.926 : 1.132)),
+        ...every(1, 0, 200, (t) =>
+          at(t, SOG, t < 100 ? 1.543 : t < 125 || t >= 155 ? 0.926 : 1.132)
+        ),
         ...every(1, 0, 200, (t) => at(t, DEPTH, shoaling(t)))
       ],
       expected: [
         [145, 'raise', 'environment.depth.belowTransducerProjectedLow', 'warning'],
         [151, 'priority', 'environment.depth.belowTransducerProjectedLow', 'alarm'],
-        [167, 'clear', 'environment.depth.belowTransducerProjectedLow']
+        [155, 'clear', 'environment.depth.belowTransducerProjectedLow']
       ]
     }
   },
