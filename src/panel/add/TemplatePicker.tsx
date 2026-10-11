@@ -495,8 +495,7 @@ function SlotRows(props: TemplatePickerProps) {
   }
 
   const picks = rows.map((r) => r.pick)
-  const problem =
-    paths.status === 'loading' ? undefined : rowsProblem(template, sourceOpen, picks, reported)
+  const problem = paths.status === 'loading' ? undefined : rowsProblem(template, picks, reported)
   const status = [removed === undefined ? undefined : `Rule ${String(removed)} removed.`, problem]
     .filter((s) => s !== undefined)
     .join(' ')

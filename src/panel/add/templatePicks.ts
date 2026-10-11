@@ -402,11 +402,11 @@ export function labelsJoined(slots: readonly Slot[]): string {
  */
 export function rowsProblem(
   template: Template,
-  sourceOpen: boolean,
   picks: readonly TemplatePick[],
-  paths: readonly PathEntry[] = []
+  paths: readonly PathEntry[]
 ): string | undefined {
   const slots = slotsOf(template)
+  const sourceOpen = template.open?.includes(SOURCE_PICK) === true
   for (const [i, pick] of picks.entries()) {
     const rule = String(i + 1)
     const missing = slots.find((slot) => picked(pick, slot.name) === undefined)

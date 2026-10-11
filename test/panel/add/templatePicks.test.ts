@@ -668,54 +668,51 @@ describe('a template with two slots', () => {
   })
 
   describe('why the rows cannot continue', () => {
+    const bySource: Template = { ...alternator, open: ['source'] }
+    const start = [voltage('start', 12.6)]
+
     it('names the first row missing a choice, a slot before the source, in rule order', () => {
-      expect(rowsProblem(alternator, true, [{ engine: 'main' }])).toBe(
-        'Choose a battery for rule 1'
-      )
+      expect(rowsProblem(bySource, [{ engine: 'main' }], start)).toBe('Choose a battery for rule 1')
       expect(
-        rowsProblem(alternator, true, [{ battery: 'start', engine: 'main' }, { engine: 'main' }])
+        rowsProblem(bySource, [{ battery: 'start', engine: 'main' }, { engine: 'main' }], start)
       ).toBe('Choose a source for rule 1')
     })
 
     it('names a missing choice before rows that are the same', () => {
       const same = { battery: 'start', engine: 'main' }
-      expect(rowsProblem(alternator, false, [same, same, { battery: 'start' }])).toBe(
+      expect(rowsProblem(alternator, [same, same, { battery: 'start' }], [])).toBe(
         'Choose an engine for rule 3'
       )
       expect(
-        rowsProblem(alternator, true, [
-          { ...same, source: 'n2k.1' },
-          { ...same, source: 'n2k.1' },
-          same
-        ])
+        rowsProblem(
+          bySource,
+          [{ ...same, source: 'n2k.1' }, { ...same, source: 'n2k.1' }, same],
+          start
+        )
       ).toBe('Choose a source for rule 3')
     })
 
     it('names a refused name, after a missing choice in its row and before the source', () => {
-      expect(rowsProblem(alternator, true, [{ battery: 'start', engine: 'aft.2' }])).toBe(
+      expect(rowsProblem(bySource, [{ battery: 'start', engine: 'aft.2' }], start)).toBe(
         'Fix the engine name for rule 1'
       )
-      expect(rowsProblem(alternator, false, [{ battery: 'a b' }])).toBe(
-        'Choose an engine for rule 1'
+      expect(rowsProblem(alternator, [{ battery: 'a b' }], [])).toBe('Choose an engine for rule 1')
+      expect(rowsProblem(bySource, [{ battery: 'windlass', engine: 'main' }], start)).toBe(
+        'Fix the battery name for rule 1'
       )
-      const bySource: Template = { ...alternator, open: ['source'] }
-      expect(
-        rowsProblem(
-          bySource,
-          true,
-          [{ battery: 'windlass', engine: 'main' }],
-          [voltage('start', 1)]
-        )
-      ).toBe('Fix the battery name for rule 1')
+    })
+
+    it('asks for no source while the template fixes it', () => {
+      expect(rowsProblem(alternator, [{ battery: 'start', engine: 'main' }], [])).toBeUndefined()
     })
 
     it('names the first two rows that are the same, else nothing', () => {
       const port = { battery: 'start', engine: 'port' }
       const starboard = { battery: 'start', engine: 'starboard' }
-      expect(rowsProblem(alternator, false, [port, starboard, port])).toBe(
+      expect(rowsProblem(alternator, [port, starboard, port], [])).toBe(
         'Rules 1 and 3 are the same'
       )
-      expect(rowsProblem(alternator, false, [port, starboard])).toBeUndefined()
+      expect(rowsProblem(alternator, [port, starboard], [])).toBeUndefined()
     })
   })
 
