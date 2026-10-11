@@ -1680,6 +1680,29 @@ describe('rules from a template with two slots', () => {
       expect(status().textContent).toBe('')
     })
 
+    it('says a signal slot nothing reports has no sources, asking a gate slot for its name', async () => {
+      renderShell({ rules: [], listing }, { reported: [] })
+      await openPicker([{}], bySource.id)
+      expect(cell(1, 'Battery').getAttribute('placeholder')).toBe('No battery reports yet')
+      fireEvent.click(cell(1, 'Battery'))
+      expect(described(cell(1, 'Battery'))).toContain(
+        'Nothing reports a battery yet, so it has no sources to pick.'
+      )
+      expect(cell(1, 'Engine').getAttribute('placeholder')).toBe('Type an engine name')
+      fireEvent.click(cell(1, 'Engine'))
+      expect(described(cell(1, 'Engine'))).toContain(
+        'Nothing reports an engine yet. Type the name it will have.'
+      )
+    })
+
+    it('asks for a battery as usual once one reports', async () => {
+      renderShell({ rules: [], listing }, { reported: sourced.slice(0, 2) })
+      await openPicker([{}], bySource.id)
+      expect(cell(1, 'Battery').getAttribute('placeholder')).toBe('Choose or type a battery')
+      fireEvent.click(cell(1, 'Battery'))
+      expect(described(cell(1, 'Battery'))).toContain('2 batteries')
+    })
+
     it('refuses a battery nothing reports, which has no sources, but takes a typed engine', async () => {
       renderShell({ rules: [], listing }, { reported: sourced.slice(0, 2) })
       await openPicker([{ battery: 'start' }], bySource.id)

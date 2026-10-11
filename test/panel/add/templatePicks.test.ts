@@ -4,6 +4,7 @@ import {
   candidates,
   instanceError,
   labelsJoined,
+  needsSources,
   openPattern,
   pickKey,
   pickReports,
@@ -668,6 +669,12 @@ describe('a template with two slots', () => {
       expect(slotError(bySource, battery, { battery: 'start' }, reported)).toBeUndefined()
       expect(slotError(bySource, engine, { engine: 'aft' }, reported)).toBeUndefined()
       expect(slotError(alternator, battery, { battery: 'windlass' }, reported)).toBeUndefined()
+    })
+
+    it('needs sources for a slot in the signal path while the source is open', () => {
+      expect(needsSources(bySource, battery)).toBe(true)
+      expect(needsSources(bySource, engine)).toBe(false)
+      expect(needsSources(alternator, battery)).toBe(false)
     })
 
     it('takes a name that stopped reporting while its row keeps the source chosen for it', () => {

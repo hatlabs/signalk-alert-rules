@@ -371,6 +371,19 @@ export function instanceError(text: string): string | undefined {
 }
 
 /**
+ * Whether a slot takes only an instance that reports: one in the signal path
+ * while the template leaves the source open, as the sources offered are
+ * those of the path it makes.
+ */
+export function needsSources(template: Template, slot: Slot): boolean {
+  return template.open?.includes(SOURCE_PICK) === true && inWatchedPath(template, slot)
+}
+
+/** That a slot's instance has no sources to pick: `this battery`, `a battery`. */
+export const noSources = (instance: string) =>
+  `Nothing reports ${instance} yet, so it has no sources to pick.`
+
+/**
  * Why the pick's name for a slot cannot fill it, if it cannot. While the
  * template leaves the source open, a slot in the signal path takes only an
  * instance that reports, since the sources offered are those of the path it
@@ -386,14 +399,12 @@ export function slotError(
   const instance = picked(pick, slot.name) ?? ''
   const refused = instanceError(instance)
   if (refused !== undefined) return refused
-  const needsSources =
-    template.open?.includes(SOURCE_PICK) === true && inWatchedPath(template, slot)
   if (
-    needsSources &&
+    needsSources(template, slot) &&
     picked(pick, SOURCE_PICK) === undefined &&
     !slotCandidates(template, slot.name, paths).some((c) => c.instance === instance)
   )
-    return `Nothing reports this ${slot.label.toLowerCase()} yet, so it has no sources to pick.`
+    return noSources(`this ${slot.label.toLowerCase()}`)
   return undefined
 }
 

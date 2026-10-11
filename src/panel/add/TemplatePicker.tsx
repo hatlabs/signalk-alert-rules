@@ -21,6 +21,8 @@ import {
   candidates,
   instanceError,
   labelsJoined,
+  needsSources,
+  noSources,
   onlySlot,
   openPattern,
   pickKey,
@@ -509,6 +511,7 @@ function SlotRows(props: TemplatePickerProps) {
     const name = text.trim()
     const listed = choices.get(slot.name) ?? []
     const word = slot.label.toLowerCase()
+    const sourceless = listed.length === 0 && needsSources(template, slot)
     // Shown once committed, then checked again as the text changes until it is fixed.
     const refused = committed === '' ? undefined : slotError(template, slot, r.pick, reported)
     const error =
@@ -538,6 +541,7 @@ function SlotRows(props: TemplatePickerProps) {
         }
         filter={slotFilter}
         matchStatus={(matching, filtered) => {
+          if (sourceless) return noSources(withArticle(word))
           if (listed.length === 0)
             return `Nothing reports ${withArticle(word)} yet. Type the name it will have.`
           if (!filtered) return `${String(matching)} ${plural(word)}`
@@ -561,9 +565,11 @@ function SlotRows(props: TemplatePickerProps) {
           else fields.current.set(at, el)
         }}
         placeholder={
-          paths.status === 'ready' && listed.length === 0
-            ? `Type ${withArticle(word)} name`
-            : `Choose or type ${withArticle(word)}`
+          paths.status !== 'ready' || listed.length > 0
+            ? `Choose or type ${withArticle(word)}`
+            : sourceless
+              ? `No ${word} reports yet`
+              : `Type ${withArticle(word)} name`
         }
         optionLayout="stacked"
         opener
