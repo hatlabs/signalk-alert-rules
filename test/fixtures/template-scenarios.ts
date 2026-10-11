@@ -21,6 +21,10 @@ const MAIN_RPM = 'propulsion.main.revolutions'
 const PUMP = 'electrical.switches.bilgePump.state'
 const DEPTH = 'environment.depth.belowTransducer'
 const POSITION = 'navigation.position'
+const SOG = 'navigation.speedOverGround'
+
+/** 90 m, a step to 60 m at 20 s and to 16 m at 40 s, then down to 4 m from 40 s to 160 s. */
+const shoaling = (t: number) => (t < 20 ? 90 : t < 40 ? 60 : Math.max(16 - 0.1 * (t - 40), 4))
 
 /** A value per sample time, all on one path, at one-second ticks. */
 function series(path: string, until: number, samples: [t: number, value: number][]): Scenario {
@@ -316,22 +320,27 @@ export const templateScenarios: Record<string, TemplateScenario> = {
     }
   },
 
-  // 3.2 m at 40 s is within the 0.3 m the depth must recover by.
+  // Under way at 3 kn, the steps in deep water would project far below 3 m,
+  // but the depth is above 15 m. The bottom then shoals at 0.1 m/s, and the
+  // 30 s projection passes 3 m at 140 s, when the depth is 6 m, and 2 m at
+  // 150 s. The boat is at 1.8 kn from 100 s and at 2.2 kn from 125 s, so
+  // the warning waits for the 10 s speed gate and a fresh 10 s window. The
+  // boat slows to 1.8 kn again at 155 s, which ends the alert at once.
   'depth-shallow': {
     pick: {},
     scenario: {
-      ...series(DEPTH, 100, [
-        [0, 8],
-        [10, 2.5],
-        [20, 1.8],
-        [30, 2.2],
-        [40, 3.2],
-        [50, 5]
-      ]),
+      tick: 1,
+      until: 200,
+      deltas: [
+        ...every(1, 0, 200, (t) =>
+          at(t, SOG, t < 100 ? 1.543 : t < 125 || t >= 155 ? 0.926 : 1.132)
+        ),
+        ...every(1, 0, 200, (t) => at(t, DEPTH, shoaling(t)))
+      ],
       expected: [
-        [15, 'raise', 'environment.depth.belowTransducerLow', 'warning'],
-        [25, 'priority', 'environment.depth.belowTransducerLow', 'alarm'],
-        [50, 'clear', 'environment.depth.belowTransducerLow']
+        [145, 'raise', 'environment.depth.belowTransducerProjectedLow', 'warning'],
+        [151, 'priority', 'environment.depth.belowTransducerProjectedLow', 'alarm'],
+        [155, 'clear', 'environment.depth.belowTransducerProjectedLow']
       ]
     }
   },
