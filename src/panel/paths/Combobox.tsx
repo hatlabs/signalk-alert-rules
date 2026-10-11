@@ -128,7 +128,8 @@ export function Combobox<O extends ComboboxOption>({
   const optionId = (index: number) => `${id}-option-${String(index)}`
 
   const [open, setOpen] = useState(false)
-  const [active, setActive] = useState<number | null>(null)
+  // By value: the options are rebuilt on every poll, and an option added above would move an index.
+  const [activeValue, setActiveValue] = useState<string | null>(null)
   // Opened without typing, the list offers every option rather than those the text matches.
   const [browsing, setBrowsing] = useState(false)
 
@@ -137,6 +138,8 @@ export function Combobox<O extends ComboboxOption>({
     () => (browsing ? all : all.filter((option) => filter(option, value))),
     [all, browsing, filter, value]
   )
+  const activeIndex = options.findIndex((option) => option.value === activeValue)
+  const active = activeIndex === -1 ? null : activeIndex
 
   useEffect(() => {
     if (open && active !== null) {
@@ -148,7 +151,7 @@ export function Combobox<O extends ComboboxOption>({
 
   const close = () => {
     setOpen(false)
-    setActive(null)
+    setActiveValue(null)
     setBrowsing(false)
   }
 
@@ -157,7 +160,8 @@ export function Combobox<O extends ComboboxOption>({
     const first = step === 1 ? 0 : all.length - 1
     setOpen(true)
     setBrowsing(true)
-    setActive(current !== -1 ? current : step === undefined || all.length === 0 ? null : first)
+    const target = current !== -1 ? current : step === undefined ? -1 : first
+    setActiveValue(all[target]?.value ?? null)
   }
 
   const pick = (option: O) => {
@@ -178,7 +182,7 @@ export function Combobox<O extends ComboboxOption>({
     const start = step === 1 ? -1 : options.length
     const from = open && active !== null ? active : start
     setOpen(true)
-    setActive((from + step + options.length) % options.length)
+    setActiveValue(options[(from + step + options.length) % options.length]?.value ?? null)
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -261,7 +265,7 @@ export function Combobox<O extends ComboboxOption>({
       onChange={(event) => {
         onChange(event.target.value)
         setOpen(true)
-        setActive(null)
+        setActiveValue(null)
         setBrowsing(false)
       }}
       onClick={() => {

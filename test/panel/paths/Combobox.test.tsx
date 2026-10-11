@@ -146,6 +146,41 @@ describe('Combobox with the opener', () => {
     expect(input().getAttribute('aria-expanded')).toBe('false')
   })
 
+  it('keeps the active option when the options change under it', () => {
+    const onCommit = vi.fn()
+    const { rerender } = render(<Harness onCommit={onCommit} />)
+    fireEvent.click(input())
+    fireEvent.keyDown(input(), { key: 'ArrowDown' })
+    fireEvent.keyDown(input(), { key: 'ArrowDown' })
+    expect(active()?.textContent).toBe('port1200 rpm')
+    const aft: ComboboxOption = { value: 'aft', primary: 'aft', trailing: '900 rpm' }
+    rerender(
+      <Harness onCommit={onCommit} source={{ status: 'ready', options: [aft, ...engines] }} />
+    )
+    expect(active()?.textContent).toBe('port1200 rpm')
+    fireEvent.keyDown(input(), { key: 'ArrowDown' })
+    expect(active()?.textContent).toBe('starboard1200 rpm')
+    fireEvent.keyDown(input(), { key: 'Enter' })
+    expect(onCommit).toHaveBeenLastCalledWith('starboard')
+  })
+
+  it('has no active option once the active one leaves the options', () => {
+    const onCommit = vi.fn()
+    const { rerender } = render(<Harness onCommit={onCommit} />)
+    fireEvent.click(input())
+    fireEvent.keyDown(input(), { key: 'ArrowDown' })
+    fireEvent.keyDown(input(), { key: 'ArrowDown' })
+    rerender(
+      <Harness
+        onCommit={onCommit}
+        source={{ status: 'ready', options: engines.filter((e) => e.value !== 'port') }}
+      />
+    )
+    expect(input().hasAttribute('aria-activedescendant')).toBe(false)
+    fireEvent.keyDown(input(), { key: 'Enter' })
+    expect(onCommit).toHaveBeenLastCalledWith('')
+  })
+
   it('ignores the Enter that confirms an input method’s composition', () => {
     const onCommit = vi.fn()
     render(<Harness onCommit={onCommit} />)
