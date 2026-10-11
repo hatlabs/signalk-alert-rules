@@ -1417,9 +1417,30 @@ select.skar-input {
   gap: 10px;
 }
 
+/*
+ * Side by side, each cell's label and path, field and line take one shared
+ * row each, so every field of a row sits on one line however its path wraps;
+ * Source's label alone fills the first. Spacing is margins, not gaps, so a
+ * line row empty in every cell takes no height.
+ */
 @media (min-width: 768px) {
   .skar-slot-cells {
     grid-template-columns: repeat(var(--skar-cells, 2), minmax(0, 1fr));
+    grid-template-rows: auto auto auto;
+    row-gap: 0;
+  }
+
+  .skar-slot-cells > .skar-path-picker,
+  .skar-slot-cells > .skar-field {
+    display: grid;
+    grid-row: span 3;
+    grid-template-rows: subgrid;
+    gap: 0;
+  }
+
+  .skar-slot-cells > .skar-path-picker > * + *,
+  .skar-slot-cells > .skar-field > * + * {
+    margin-top: 6px;
   }
 }
 
