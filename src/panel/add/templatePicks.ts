@@ -208,16 +208,16 @@ export function candidates(
   return found
 }
 
-/** One instance a slot can be filled with, as a row of the picker lists it. */
+/** One instance reporting for a slot, as a row of the picker lists it. */
 export interface SlotCandidate {
   /** The slot's pick: the path segment. */
   instance: string
   /** The instance's name, as the user knows it. */
   label: string
-  /** The first path using the slot that the instance reports; absent for a typed one. */
-  entry?: PathEntry
-  /** Typed by the user rather than found reporting. */
-  typed?: true
+  /** The first path using the slot that the instance reports. */
+  entry: PathEntry
+  /** Where the instance is among the entry's path segments. */
+  segment: number
 }
 
 /** Every string under a `path` key, in the order the document has them. */
@@ -242,25 +242,20 @@ function slotPaths(template: Template, slot: string): string[] {
   return [...new Set(using)]
 }
 
-/** The first path a slot is in, as the user reads it: `propulsion.<name>.revolutions`. */
-export function slotPattern(template: Template, slot: string): string {
-  return slotsOf(template).reduce(
-    (path, s) => path.replaceAll(placeholder(s.name), '<name>'),
-    slotPaths(template, slot)[0] ?? ''
-  )
+/** The first path a slot is in, its slots unfilled: `propulsion.${engine}.revolutions`. */
+export function slotPath(template: Template, slot: string): string {
+  return slotPaths(template, slot)[0] ?? ''
 }
 
 /**
  * What one slot of a template can be filled with: each instance reporting any
- * path the slot is in, showing that path's value, sorted by name; then each
- * typed name nothing reports, in the order typed. Other slots in the same
- * path match any segment.
+ * path the slot is in, showing that path's value, sorted by name. Other slots
+ * in the same path match any segment.
  */
 export function slotCandidates(
   template: Template,
   slot: string,
-  paths: readonly PathEntry[],
-  typed: readonly string[] = []
+  paths: readonly PathEntry[]
 ): SlotCandidate[] {
   const byPath = new Map(paths.map((p) => [p.path, p]))
   const slotted = new Set(slotsOf(template).map((s) => placeholder(s.name)))
@@ -278,16 +273,17 @@ export function slotCandidates(
         .slice(0, at)
         .map((s) => `${s}.`)
         .join('')
-      found.set(instance, { instance, label: instanceLabel(group, instance, entry, byPath), entry })
+      found.set(instance, {
+        instance,
+        label: instanceLabel(group, instance, entry, byPath),
+        entry,
+        segment: at
+      })
     }
   }
-  const reporting = [...found.values()].sort((a, b) =>
+  return [...found.values()].sort((a, b) =>
     a.instance < b.instance ? -1 : a.instance > b.instance ? 1 : 0
   )
-  const notReporting = [...new Set(typed)]
-    .filter((instance) => !found.has(instance))
-    .map((instance): SlotCandidate => ({ instance, label: instance, typed: true }))
-  return [...reporting, ...notReporting]
 }
 
 /**
@@ -341,6 +337,29 @@ export function instanceError(text: string): string | undefined {
 }
 
 /**
+ * Why a name cannot fill a slot, if it cannot. While the template leaves the
+ * source open, a slot in the signal path takes only an instance that
+ * reports, since the sources offered are those of the path it makes.
+ */
+export function slotError(
+  template: Template,
+  slot: Slot,
+  instance: string,
+  paths: readonly PathEntry[]
+): string | undefined {
+  const refused = instanceError(instance)
+  if (refused !== undefined) return refused
+  const needsSources =
+    template.open?.includes(SOURCE_PICK) === true && inWatchedPath(template, slot)
+  if (
+    needsSources &&
+    !slotCandidates(template, slot.name, paths).some((c) => c.instance === instance)
+  )
+    return `Nothing reports this ${slot.label.toLowerCase()} yet, so it has no sources to pick.`
+  return undefined
+}
+
+/**
  * An instance typed in for a template's one slot, for one that does not
  * report yet, naming the rule it already has from the template.
  */
@@ -377,17 +396,26 @@ export function labelsJoined(slots: readonly Slot[]): string {
   return words.length === 0 ? last : `${words.join(', ')} and ${last}`
 }
 
-/** The first reason the rows cannot continue, in rule order: a missing choice before a repeat. */
+/**
+ * The first reason the rows cannot continue, in rule order: a missing choice,
+ * then a refused name, before a repeat.
+ */
 export function rowsProblem(
   template: Template,
   sourceOpen: boolean,
-  picks: readonly TemplatePick[]
+  picks: readonly TemplatePick[],
+  paths: readonly PathEntry[] = []
 ): string | undefined {
+  const slots = slotsOf(template)
   for (const [i, pick] of picks.entries()) {
     const rule = String(i + 1)
-    const missing = slotsOf(template).find((slot) => picked(pick, slot.name) === undefined)
+    const missing = slots.find((slot) => picked(pick, slot.name) === undefined)
     if (missing !== undefined)
       return `Choose ${withArticle(missing.label.toLowerCase())} for rule ${rule}`
+    const refused = slots.find(
+      (slot) => slotError(template, slot, picked(pick, slot.name) ?? '', paths) !== undefined
+    )
+    if (refused !== undefined) return `Fix the ${refused.label.toLowerCase()} name for rule ${rule}`
     if (sourceOpen && picked(pick, SOURCE_PICK) === undefined)
       return `Choose a source for rule ${rule}`
   }

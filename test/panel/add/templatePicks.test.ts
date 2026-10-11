@@ -11,7 +11,8 @@ import {
   rowsProblem,
   ruleWatching,
   slotCandidates,
-  slotPattern,
+  slotError,
+  slotPath,
   templateTitle,
   typedCandidate,
   watchedPath,
@@ -640,9 +641,30 @@ describe('a template with two slots', () => {
     expect(watchedSlots(nested).map((s) => s.name)).toEqual(['battery', 'engine'])
   })
 
-  it('shows each slot’s first path with every slot as <name>', () => {
-    expect(slotPattern(alternator, 'battery')).toBe('electrical.batteries.<name>.voltage')
-    expect(slotPattern(alternator, 'engine')).toBe('propulsion.<name>.revolutions')
+  it('finds each slot’s first path, its slots unfilled', () => {
+    expect(slotPath(alternator, 'battery')).toBe('electrical.batteries.${battery}.voltage')
+    expect(slotPath(alternator, 'engine')).toBe('propulsion.${engine}.revolutions')
+  })
+
+  describe('why a slot’s name is refused', () => {
+    const bySource: Template = { ...alternator, open: ['source'] }
+    const reported = [voltage('start', 12.6)]
+    const battery = { name: 'battery', label: 'Battery' }
+    const engine = { name: 'engine', label: 'Engine' }
+
+    it('refuses what is not one path segment', () => {
+      expect(slotError(alternator, engine, 'aft.2', reported)).toMatch(/one path segment/)
+      expect(slotError(alternator, engine, 'aft', reported)).toBeUndefined()
+    })
+
+    it('refuses a signal slot’s name nothing reports while the source is open', () => {
+      expect(slotError(bySource, battery, 'windlass', reported)).toBe(
+        'Nothing reports this battery yet, so it has no sources to pick.'
+      )
+      expect(slotError(bySource, battery, 'start', reported)).toBeUndefined()
+      expect(slotError(bySource, engine, 'aft', reported)).toBeUndefined()
+      expect(slotError(alternator, battery, 'windlass', reported)).toBeUndefined()
+    })
   })
 
   describe('why the rows cannot continue', () => {
@@ -667,6 +689,24 @@ describe('a template with two slots', () => {
           same
         ])
       ).toBe('Choose a source for rule 3')
+    })
+
+    it('names a refused name, after a missing choice in its row and before the source', () => {
+      expect(rowsProblem(alternator, true, [{ battery: 'start', engine: 'aft.2' }])).toBe(
+        'Fix the engine name for rule 1'
+      )
+      expect(rowsProblem(alternator, false, [{ battery: 'a b' }])).toBe(
+        'Choose an engine for rule 1'
+      )
+      const bySource: Template = { ...alternator, open: ['source'] }
+      expect(
+        rowsProblem(
+          bySource,
+          true,
+          [{ battery: 'windlass', engine: 'main' }],
+          [voltage('start', 1)]
+        )
+      ).toBe('Fix the battery name for rule 1')
     })
 
     it('names the first two rows that are the same, else nothing', () => {
@@ -703,36 +743,30 @@ describe('a template with two slots', () => {
       value
     })
     const listed = (found: SlotCandidate[]) =>
-      found.map((c) => [c.instance, c.label, c.entry?.path, c.entry?.value, c.typed])
+      found.map((c) => [c.instance, c.label, c.entry.path, c.entry.value, c.segment])
 
     it('lists each slot’s instances from the paths using it, each with its value', () => {
       const reported = [revolutions('main', 30), voltage('start', 12.6)]
       expect(listed(slotCandidates(alternator, 'engine', reported))).toEqual([
-        ['main', 'main', 'propulsion.main.revolutions', 30, undefined]
+        ['main', 'main', 'propulsion.main.revolutions', 30, 1]
       ])
       expect(listed(slotCandidates(alternator, 'battery', reported))).toEqual([
-        ['start', 'start', 'electrical.batteries.start.voltage', 12.6, undefined]
+        ['start', 'start', 'electrical.batteries.start.voltage', 12.6, 2]
       ])
     })
 
     it('names an instance by the name its group reports, else the path’s display name', () => {
       expect(listed(slotCandidates(alternator, 'battery', boat))).toEqual([
-        ['house', 'House bank', 'electrical.batteries.house.voltage', 13.28, undefined],
-        [
-          'ruuvi-cockpit',
-          'ruuvi-cockpit',
-          'electrical.batteries.ruuvi-cockpit.voltage',
-          2.98,
-          undefined
-        ],
+        ['house', 'House bank', 'electrical.batteries.house.voltage', 13.28, 2],
+        ['ruuvi-cockpit', 'ruuvi-cockpit', 'electrical.batteries.ruuvi-cockpit.voltage', 2.98, 2],
         [
           'ruuvi-saloon',
           'Saloon RuuviTag battery',
           'electrical.batteries.ruuvi-saloon.voltage',
           3.01,
-          undefined
+          2
         ],
-        ['starter', 'starter', 'electrical.batteries.starter.voltage', 12.71, undefined]
+        ['starter', 'starter', 'electrical.batteries.starter.voltage', 12.71, 2]
       ])
     })
 
@@ -759,11 +793,11 @@ describe('a template with two slots', () => {
         }
       }
       expect(listed(slotCandidates(gatedOnCurrent, 'battery', boat)).slice(0, 1)).toEqual([
-        ['house', 'House bank', 'electrical.batteries.house.voltage', 13.28, undefined]
+        ['house', 'House bank', 'electrical.batteries.house.voltage', 13.28, 2]
       ])
       const currentOnly = boat.filter((p) => p.path.endsWith('.current'))
       expect(listed(slotCandidates(gatedOnCurrent, 'battery', currentOnly))).toEqual([
-        ['house', 'house', 'electrical.batteries.house.current', 4, undefined]
+        ['house', 'house', 'electrical.batteries.house.current', 4, 2]
       ])
     })
 
@@ -808,18 +842,10 @@ describe('a template with two slots', () => {
       const reported: PathEntry[] = [
         { path: 'propulsion.main.alternators.start.voltage', unit: volts, value: 14 }
       ]
-      expect(slotCandidates(nested, 'battery', reported).map((c) => c.instance)).toEqual(['start'])
-      expect(slotCandidates(nested, 'engine', reported).map((c) => c.instance)).toEqual(['main'])
-    })
-
-    it('adds each typed name nothing reports after the reporting ones, once', () => {
-      const reported = [voltage('start', 12.6)]
-      expect(
-        listed(slotCandidates(alternator, 'battery', reported, ['windlass', 'start', 'windlass']))
-      ).toEqual([
-        ['start', 'start', 'electrical.batteries.start.voltage', 12.6, undefined],
-        ['windlass', 'windlass', undefined, undefined, true]
-      ])
+      const at = (slot: string) =>
+        slotCandidates(nested, slot, reported).map((c) => [c.instance, c.segment])
+      expect(at('battery')).toEqual([['start', 3]])
+      expect(at('engine')).toEqual([['main', 1]])
     })
   })
 

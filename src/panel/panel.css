@@ -1405,10 +1405,15 @@ select.skar-input {
   font-weight: 650;
 }
 
-/* One select per slot, then Source: stacked on a phone, side by side from 768 px. */
+/*
+ * One field per slot, then Source: stacked on a phone, side by side from
+ * 768 px, top-aligned so the fields stay on one line whatever wraps above or
+ * below them.
+ */
 .skar-slot-cells {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  align-items: start;
   gap: 10px;
 }
 
@@ -1433,10 +1438,23 @@ select.skar-input:disabled {
   font-size: 0.8125rem;
 }
 
-.skar-slot-typed {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
+/* The path a slot's name goes into, and each option's, the name's segment marked. */
+.skar-combo-path {
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: var(--skar-muted);
+}
+
+.skar-combo-seg {
+  padding: 0 3px;
+  font-weight: 650;
+  color: var(--skar-text);
+  background: #e8eefb;
+  border-radius: 3px;
+}
+
+.skar-combo-line {
+  overflow-wrap: anywhere;
 }
 
 /* One line held while empty, so a message appearing does not move Continue. */
