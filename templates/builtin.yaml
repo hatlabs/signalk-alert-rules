@@ -228,27 +228,6 @@ templates:
           limit: { kind: fixed, value: 8 }
           duration: 30
 
-  # Counts running time from when the rule is created; resetting its total
-  # after the service starts the next interval.
-  - id: engine-service-due
-    description: >-
-      An engine has run 250 hours, a caution that service is due, and 275
-      hours, a warning that it is overdue.
-    open: [instance]
-    condition: serviceDue
-    rule:
-      name: Engine ${instance} service due
-      message: Engine ${instance} service is due
-      signal:
-        path: propulsion.${instance}.revolutions
-      detector:
-        type: accumulator
-        measure: time
-        while: { op: above, value: 0 }
-        steps:
-          - { limit: 900000, priority: caution }
-          - { limit: 990000, priority: warning }
-
   # Tanks. Levels slosh in a seaway, so each level must hold for a minute.
   - id: fuel-low
     description: >-

@@ -260,11 +260,6 @@ describe('the built-in templates', () => {
       'engine-temperature-high': [],
       'engine-oil-pressure-low': [],
       'alternator-not-charging': [],
-      'engine-service-due': [
-        ['main', 'propulsion.main.revolutions', { instance: 'main' }, 0],
-        ['port', 'propulsion.port.revolutions', { instance: 'port' }, 20],
-        ['starboard', 'propulsion.starboard.revolutions', { instance: 'starboard' }, 20]
-      ],
       'fuel-low': [],
       'holding-tank-full': [],
       'fresh-water-low': [['0', 'tanks.freshWater.0.currentLevel', { instance: '0' }, 0.6]],
