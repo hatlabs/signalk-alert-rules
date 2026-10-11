@@ -1368,8 +1368,9 @@ describe('rules from a template with two slots', () => {
       'Not reporting. Its rule shows No data until it does.',
       'No engine matches; the typed name is used as is.'
     ])
-    // Typing alone leaves the row's pick as it was.
-    expect(status().textContent).toBe('Choose an engine for rule 1')
+    // A valid name typed already enables Continue, so the status asks for nothing.
+    expect(status().textContent).toBe('')
+    expect(continueButton().disabled).toBe(false)
     fireEvent.blur(cell(1, 'Engine'))
     expect(status().textContent).toBe('')
     expect(described(cell(1, 'Engine'))).toEqual([
@@ -1433,10 +1434,11 @@ describe('rules from a template with two slots', () => {
     expect(screen.queryByRole('alert')).toBeNull()
     expect(status().textContent).toBe('Fix the engine name for rule 1')
     expect(continueButton().disabled).toBe(true)
-    // Checked again as the text changes, while the row keeps the refused name until committed.
+    // Checked again as the text changes; a valid name enables Continue before it is committed.
     type(1, 'Engine', 'aft')
     expect(cell(1, 'Engine').getAttribute('aria-invalid')).toBeNull()
-    expect(status().textContent).toBe('Fix the engine name for rule 1')
+    expect(status().textContent).toBe('')
+    expect(continueButton().disabled).toBe(false)
     fireEvent.blur(cell(1, 'Engine'))
     expect(status().textContent).toBe('')
     // An emptied field is an unchosen slot, not an error.
@@ -1745,8 +1747,8 @@ describe('rules from a template with two slots', () => {
       expect(continueButton().disabled).toBe(true)
       type(1, 'Solar array', 'aft')
       expect(continueButton().disabled).toBe(false)
-      // The status speaks of the rows as committed, so it changes only once the field is left.
-      expect(status().textContent).toBe('Choose a solar array for rule 1')
+      // With Continue enabled, the status asks for nothing.
+      expect(status().textContent).toBe('')
       await continueWith('Continue with 1 rule')
       fireEvent.click(screen.getByRole('button', { name: 'Create rule' }))
       await screen.findByRole('heading', { name: 'Solar aft not charging battery start' })

@@ -499,7 +499,9 @@ function SlotRows(props: TemplatePickerProps) {
   const pending = rows.map(pendingPick)
   const pendingProblem =
     paths.status === 'loading' ? undefined : rowsProblem(template, pending, reported)
-  const status = [removed === undefined ? undefined : `Rule ${String(removed)} removed.`, problem]
+  // The committed problem, so messages change on commit; none once Continue is enabled.
+  const shown = pendingProblem === undefined ? undefined : problem
+  const status = [removed === undefined ? undefined : `Rule ${String(removed)} removed.`, shown]
     .filter((s) => s !== undefined)
     .join(' ')
 
