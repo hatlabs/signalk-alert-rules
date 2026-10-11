@@ -9,7 +9,7 @@
 # {limit}, {duration} and {value} are filled in when the alert is sent.
 name: Alert Rules
 id: builtin
-version: 1.1.0
+version: 1.2.0
 description: Templates that ship with Alert Rules.
 templates:
   # Batteries. Lead-acid and LiFePO4 banks are usable down to different
@@ -331,8 +331,9 @@ templates:
   # Navigation.
   - id: depth-shallow
     description: >-
-      Under way above 2 kn, the depth below the transducer, extended along
-      its trend of the last 10 seconds, falls below 3 m within 30 seconds,
+      Under way above 2 kn in water shallower than 15 m, the depth below the
+      transducer, extended along its trend of the last 10 seconds, falls
+      below 3 m within 30 seconds,
       a warning, and below 2 m, an alarm. Set the limits from the boat's
       draft and where the transducer sits.
     condition: belowTransducerProjectedLow
@@ -350,12 +351,19 @@ templates:
         window: 10
         horizon: 30
       gates:
-        # 2 kn
+        # At anchor or in the dock the depth changes only with the tide and
+        # the swing, which a projection can mistake for shoaling. 2 kn.
         - signal:
             path: navigation.speedOverGround
           direction: above
           limit: { kind: fixed, value: 1.029 }
           duration: 10
+        # A sounder jumping between bottom echoes in deep water, 90 m to
+        # 60 m, gives a trend that projects far below the limits.
+        - signal:
+            path: environment.depth.belowTransducer
+          direction: below
+          limit: { kind: fixed, value: 15 }
 
   # Apparent wind is what an anemometer reports without any other input, and
   # at anchor it is the true wind.
