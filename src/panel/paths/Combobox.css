@@ -78,3 +78,32 @@
   margin-left: auto;
   color: var(--skar-muted);
 }
+
+.skar-path-picker-control {
+  position: relative;
+}
+
+.skar-path-picker-control > .skar-input {
+  padding-right: 2.25rem;
+}
+
+/* Spans the input's height at its end, so it reads as part of the input. */
+.skar-path-picker-chevron {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--skar-muted);
+  cursor: pointer;
+}
+
+.skar-path-picker-chevron:hover {
+  color: var(--skar-text);
+}
