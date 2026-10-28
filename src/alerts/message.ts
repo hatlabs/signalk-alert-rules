@@ -3,6 +3,7 @@
  * message with this module too, so it imports only types besides format.
  */
 import { formatDuration, formatNumber } from '../format.js'
+import type { DisplayConversion } from '../affine.js'
 import type { Rule } from '../model/rule.js'
 import type { SignalValue } from '../engine/signals.js'
 
@@ -26,6 +27,10 @@ export interface MessageFacts {
   limit?: number
   /** The signal's SI unit, as the path's `meta.units` names it. */
   units?: string
+  /** The conversion from `units` to the display unit; absent, numbers stay in SI. */
+  display?: DisplayConversion
+  /** The signal is a difference of its inputs, so its values convert without the offset. */
+  difference?: boolean
 }
 
 export interface RenderOptions {
@@ -38,21 +43,32 @@ export interface RenderOptions {
 }
 
 /**
- * A number in its SI unit. A plugin cannot read the display-unit
- * preferences: the server resolves them per user, only when it answers a
- * client. A message is the same for everyone anyway, so values stay in SI.
- * A ratio is the exception: as a percentage it needs no preference to read
- * naturally.
+ * How a number converts: a level through the whole conversion, a difference,
+ * rate or total through its scale alone, as an offset applies only to a level.
  */
-function quantity(value: number, units: string | undefined, suffix = ''): string {
-  const ratio = units === 'ratio'
-  const symbol = (ratio ? '%' : (units ?? '')) + suffix
-  const shown = formatNumber(ratio ? value * 100 : value)
-  return symbol === '' ? shown : `${shown} ${symbol}`
+type Quantity = 'level' | 'interval'
+
+/**
+ * A number in the display unit, or in SI when there is none. A ratio's SI
+ * unit has no symbol, as in the server's own `ratio` conversion, so without
+ * a display unit it reads as a bare fraction.
+ */
+function quantity(
+  value: number,
+  facts: MessageFacts,
+  kind: Quantity = facts.difference === true ? 'interval' : 'level',
+  suffix = ''
+): string {
+  const { units, display } = facts
+  const shown =
+    display === undefined ? value : value * display.scale + (kind === 'level' ? display.offset : 0)
+  const siSymbol = units === 'ratio' ? '' : (units ?? '')
+  const symbol = (display?.symbol ?? siSymbol) + suffix
+  return symbol === '' ? formatNumber(shown) : `${formatNumber(shown)} ${symbol}`
 }
 
-function valueText(value: SignalValue, units: string | undefined): string {
-  if (typeof value === 'number') return quantity(value, units)
+function valueText(value: SignalValue, facts: MessageFacts): string {
+  if (typeof value === 'number') return quantity(value, facts)
   if (typeof value === 'object') {
     return `${value.latitude.toFixed(5)}, ${value.longitude.toFixed(5)}`
   }
@@ -67,24 +83,24 @@ function valueText(value: SignalValue, units: string | undefined): string {
  */
 function limitText(rule: Rule, facts: MessageFacts): string | undefined {
   const d = rule.detector
-  const { units, step } = facts
+  const { step } = facts
   const own = step === undefined ? undefined : (d.steps ?? []).at(step)
   const limit = facts.limit ?? (own !== undefined && 'limit' in own ? own.limit : undefined)
   switch (d.type) {
     case 'sustained':
     case 'outside':
     case 'projection':
-      return limit === undefined ? undefined : quantity(limit, units)
+      return limit === undefined ? undefined : quantity(limit, facts)
     case 'slope':
-      return limit === undefined ? undefined : quantity(limit, units, '/s')
+      return limit === undefined ? undefined : quantity(limit, facts, 'interval', '/s')
     case 'count':
       return limit === undefined ? undefined : formatNumber(limit)
     case 'accumulator':
       if (limit === undefined) return undefined
-      return d.measure === 'time' ? formatDuration(limit) : quantity(limit, units, '·s')
+      return d.measure === 'time' ? formatDuration(limit) : quantity(limit, facts, 'interval', '·s')
     case 'match': {
       const value = own !== undefined && 'value' in own ? own.value : undefined
-      return value === undefined ? undefined : valueText(value, units)
+      return value === undefined ? undefined : valueText(value, facts)
     }
     case 'absence': {
       const within = own !== undefined && 'within' in own ? own.within : undefined
@@ -127,7 +143,7 @@ export function renderMessage(
         break
       }
       case 'value':
-        text = facts.value === undefined ? undefined : valueText(facts.value, facts.units)
+        text = facts.value === undefined ? undefined : valueText(facts.value, facts)
     }
     return text ?? MISSING
   })
