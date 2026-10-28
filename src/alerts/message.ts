@@ -2,7 +2,7 @@
  * Rule messages with their placeholders filled in. The webapp previews a
  * message with this module too, so it imports only types besides format.
  */
-import { formatDuration, formatNumber } from '../format.js'
+import { SECONDS_PER_MINUTE, formatDuration, formatNumber } from '../format.js'
 import type { DisplayConversion } from '../affine.js'
 import type { Rule } from '../model/rule.js'
 import type { SignalValue } from '../engine/signals.js'
@@ -92,7 +92,10 @@ function limitText(rule: Rule, facts: MessageFacts): string | undefined {
     case 'projection':
       return limit === undefined ? undefined : quantity(limit, facts)
     case 'slope':
-      return limit === undefined ? undefined : quantity(limit, facts, 'interval', '/s')
+      // Per minute, as the editor shows a slope: per second, a coolant's rise reads 0.0017 °C/s.
+      return limit === undefined
+        ? undefined
+        : quantity(limit * SECONDS_PER_MINUTE, facts, 'interval', '/min')
     case 'count':
       return limit === undefined ? undefined : formatNumber(limit)
     case 'accumulator':

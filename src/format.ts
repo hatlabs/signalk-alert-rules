@@ -24,6 +24,8 @@ export function formatNumber(value: number): string {
 }
 
 const MINUTE = 60
+/** The time base of a rate, shared by the editor's fields and the messages sent. */
+export const SECONDS_PER_MINUTE = MINUTE
 const HOUR = 3600
 
 /** Seconds in the largest unit that keeps the number readable: timers and running time. */

@@ -11,6 +11,7 @@
  * through the linear part alone.
  */
 import { affine, type DisplayConversion } from '../affine'
+import { SECONDS_PER_MINUTE } from '../format'
 
 /**
  * How a field converts: `absolute` through the full formula, `interval`
@@ -30,8 +31,6 @@ export interface DisplayUnit extends DisplayConversion {
   /** No display preference applies, so values are shown in the SI unit. */
   si: boolean
 }
-
-const SECONDS_PER_MINUTE = 60
 
 /**
  * Conversion leaves float noise: 95 °C would be stored as 368.15000000000003
