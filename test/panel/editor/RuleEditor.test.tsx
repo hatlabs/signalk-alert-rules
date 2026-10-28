@@ -3454,6 +3454,36 @@ describe('RuleEditor, the preview of {limit}', () => {
     expect(await previewOf(result.value)).toContain('“Coolant apart by more than 5 °C”')
   })
 
+  it('labels a combination’s limit with its first input’s unit where it has no display unit', async () => {
+    const result = validateRule({
+      name: 'Banks apart',
+      slug: 'banks-apart',
+      condition: 'banksApart',
+      message: 'Banks apart by more than {limit}',
+      signal: {
+        combinator: 'absDifference',
+        inputs: [
+          { path: 'electrical.batteries.house.voltage' },
+          { path: 'electrical.batteries.start.voltage' }
+        ]
+      },
+      detector: {
+        type: 'sustained',
+        direction: 'above',
+        steps: [{ limit: 0.5, priority: 'warning' }]
+      }
+    })
+    if (!result.ok) throw new Error(JSON.stringify(result.errors))
+    const volts = displayUnit({ units: 'V' })
+    const noDisplayUnit = withPaths(
+      { path: 'electrical.batteries.house.voltage', units: 'V', unit: volts, value: 12.4 },
+      { path: 'electrical.batteries.start.voltage', units: 'V', unit: volts, value: 12.6 }
+    )
+    expect(await previewOf(result.value, noDisplayUnit)).toContain(
+      '“Banks apart by more than 0.5 V”'
+    )
+  })
+
   /** Two shore power sources disagreeing about the range, the preferred one inside it. */
   const twoSources = withPaths({
     path: FREQUENCY,

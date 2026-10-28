@@ -285,6 +285,11 @@ export function RuleFields(props: RuleFieldsProps) {
   const single = form.signal.mode === 'single'
   const slot = form.signal.slots[0] ?? { path: '', source: '' }
   const entry = single ? live.entry(slot.path) : undefined
+  // As the plugin labels a value: a combination's units are its first input's that has them.
+  const inputUnits =
+    measure.kind === 'ratio'
+      ? undefined
+      : (entry?.units ?? (unitPath === undefined ? undefined : units.entry(unitPath)?.units))
   const wildcard = hasWildcard(form.signal)
   // A wildcard's first instance is not the rule's value, nor one input a combination's;
   // a pinned source's reading is, as the server evaluates only that source.
@@ -327,7 +332,7 @@ export function RuleFields(props: RuleFieldsProps) {
         ...(positional
           ? { units: 'm' }
           : {
-              ...(entry?.units === undefined ? {} : { units: entry.units }),
+              ...(inputUnits === undefined ? {} : { units: inputUnits }),
               ...(measure.unit.si || field ? {} : { display: measure.unit })
             }),
         difference: measure.kind === 'interval'
