@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { affine } from '../../src/panel/units'
+import { affine } from '../src/affine.js'
 // Copied unchanged from signalk-server 2.31.0, unitpreferences/: the unit
 // conversions the server ships, whose formulas it sends in meta.displayUnits.
-import custom from '../fixtures/signalk-server-units/custom-units-definitions.json'
-import standard from '../fixtures/signalk-server-units/standard-units-definitions.json'
+import custom from './fixtures/signalk-server-units/custom-units-definitions.json' with { type: 'json' }
+import standard from './fixtures/signalk-server-units/standard-units-definitions.json' with { type: 'json' }
 
 type Definitions = Record<string, { conversions: Record<string, { formula: string }> }>
 

@@ -44,6 +44,12 @@ export const POSITION_COMBINATORS: ReadonlySet<CombinatorKind> = new Set([
   'distance',
   'positionSpread'
 ])
+/** Combinators whose value is a difference of their inputs, with no zero of its own. */
+export const DIFFERENCE_COMBINATORS: ReadonlySet<CombinatorKind> = new Set([
+  'difference',
+  'absDifference',
+  'spread'
+])
 export const ANGULAR_COMBINATORS: ReadonlySet<CombinatorKind> = new Set([
   'difference',
   'absDifference',

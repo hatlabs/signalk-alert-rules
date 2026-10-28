@@ -125,6 +125,14 @@ describe('RuleEditor, from a path', () => {
     expect(description(textbox(/^Message/))).toContain('{volts} is sent as written.')
   })
 
+  it('previews the numbers in the display unit, as the plugin sends them', async () => {
+    renderEditor({ start: { path: 'propulsion.port.coolantTemperature', kind: 'above' } })
+    await formShown()
+    choose('Priority for step 1', 'alarm')
+    type(textbox('Limit for step 1'), '95')
+    expect(description(textbox(/^Message/))).toMatch(/Sends now: “.*95 °C.*81\.85 °C”/)
+  })
+
   it('keeps the preview to one line, its full text in its title and read out whole', async () => {
     renderEditor({ start: { path: HOUSE, kind: 'below' } })
     await formShown()
@@ -2891,6 +2899,18 @@ describe('RuleEditor, a field path', () => {
     expect(textbox('High limit for step 1')).toHaveProperty('value', '20')
   })
 
+  it("previews a field's value in SI, as the plugin sends it, while the limit is typed in degrees", async () => {
+    renderEditor({ start: { path: ROLL, kind: 'above' } })
+    await formShown()
+    choose('Priority for step 1', 'warning')
+    type(textbox('Limit for step 1'), '20')
+    expect(textbox('Limit for step 1').parentElement?.textContent).toContain('°')
+    // The generated text writes the limit as typed; {value} is filled in as sent.
+    expect(description(textbox(/^Message/))).toContain(
+      'Sends now: “Attitude roll above 20 °: 0.05 rad”'
+    )
+  })
+
   it("pins a field to one of its object's sources", async () => {
     const { api, onSaved } = renderEditor({ start: { path: ROLL, kind: 'above' } })
     await formShown()
@@ -3273,7 +3293,7 @@ describe('RuleEditor, the preview of {limit}', () => {
       ]
     })
     const rule = zoneLimited('propulsion.port.coolantTemperature', { direction: 'above' })
-    expect(await previewOf(rule, coolant)).toContain('“Past 363 K: 355 K”')
+    expect(await previewOf(rule, coolant)).toContain('“Past 89.85 °C: 81.85 °C”')
   })
 
   it('reads the zones from the limit’s own path when it names one', async () => {
@@ -3364,9 +3384,55 @@ describe('RuleEditor, the preview of {limit}', () => {
     )
   })
 
-  it('shows an outside rule’s limit in SI, as {value} and the server show it', async () => {
+  it('shows an outside rule’s limit in the display unit, as {value} and the plugin show it', async () => {
     const rule = outside([[353, 363]], 'propulsion.port.coolantTemperature')
-    expect(await previewOf(rule)).toContain('“Frequency beyond 353 K: 355 K”')
+    expect(await previewOf(rule)).toContain('“Frequency beyond 79.85 °C: 81.85 °C”')
+  })
+
+  it('shows a position combination’s limit in metres, as the plugin sends it', async () => {
+    const result = validateRule({
+      name: 'GNSS disagree',
+      slug: 'gnss-disagree',
+      condition: 'gnssDisagree',
+      message: 'GNSS apart by more than {limit}',
+      signal: {
+        combinator: 'positionSpread',
+        inputs: [
+          { path: 'navigation.position', source: 'gnss.bow' },
+          { path: 'navigation.position', source: 'gnss.stern' }
+        ]
+      },
+      detector: {
+        type: 'sustained',
+        direction: 'above',
+        steps: [{ limit: 10, priority: 'warning' }]
+      }
+    })
+    if (!result.ok) throw new Error(JSON.stringify(result.errors))
+    expect(await previewOf(result.value)).toContain('“GNSS apart by more than 10 m”')
+  })
+
+  it('shows a difference’s limit through the display unit’s scale alone', async () => {
+    const result = validateRule({
+      name: 'Coolant spread',
+      slug: 'coolant-spread',
+      condition: 'coolantSpread',
+      message: 'Coolant apart by more than {limit}',
+      signal: {
+        combinator: 'absDifference',
+        inputs: [
+          { path: 'propulsion.port.coolantTemperature' },
+          { path: 'propulsion.starboard.coolantTemperature' }
+        ]
+      },
+      detector: {
+        type: 'sustained',
+        direction: 'above',
+        steps: [{ limit: 5, priority: 'warning' }]
+      }
+    })
+    if (!result.ok) throw new Error(JSON.stringify(result.errors))
+    expect(await previewOf(result.value)).toContain('“Coolant apart by more than 5 °C”')
   })
 
   /** Two shore power sources disagreeing about the range, the preferred one inside it. */

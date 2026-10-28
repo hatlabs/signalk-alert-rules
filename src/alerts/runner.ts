@@ -32,8 +32,9 @@ import {
 } from './emitter.js'
 import { reconcile } from './reconcile.js'
 import { referencesOf } from './references.js'
+import type { DisplayConversion } from '../affine.js'
 import { renderMessage } from './message.js'
-import { signalUnits } from './messageUnits.js'
+import { unitSource, type UnitSource } from './messageUnits.js'
 import { errorMessage } from '../util.js'
 
 const INVALID_PATH = { reason: 'alertPathInvalid' } as const
@@ -56,6 +57,11 @@ export interface RunnerDeps extends EvaluatorContext, EmitterDeps {
   alerts: AlertsReader
   /** Wall time, for the raise timestamp in alert data and the times in rule states. */
   wallClock: () => Date
+  /**
+   * The admin's display unit for a path, which messages render their numbers
+   * in; undefined renders them in SI.
+   */
+  displayUnits: (path: string) => DisplayConversion | undefined
 }
 
 /** A rule's accumulator totals by instance segment, with the measure they were built under. */
@@ -484,9 +490,9 @@ export class RuleRunner {
     const current = this.entries.get(id) ?? rule
     const reached = this.evaluators.get(id)?.reached(segment)
     const instance = name === undefined ? undefined : { name, segment }
-    let units: string | undefined
+    let source: UnitSource | undefined
     try {
-      units = signalUnits(current.signal, instance, this.deps.meta)
+      source = unitSource(current.signal, instance, this.deps.meta)
     } catch {
       // A meta read that throws already fails the rule's start, which its
       // state reports; the message then goes without a unit rather than
@@ -497,7 +503,16 @@ export class RuleRunner {
     // the step at the alert's index is the best the rule can name. An adopted
     // alert whose input has not reported yet has no unit, and starts at 0.
     const step = reached?.step ?? (limit === undefined ? (reached?.index ?? 0) : undefined)
-    return renderMessage(current, { instance: name, value: reached?.value, step, limit, units })
+    const display = source?.path === undefined ? undefined : this.deps.displayUnits(source.path)
+    return renderMessage(current, {
+      instance: name,
+      value: reached?.value,
+      step,
+      limit,
+      units: source?.units,
+      display,
+      difference: source?.difference
+    })
   }
 
   private evidence(id: string, segment: string): () => boolean {

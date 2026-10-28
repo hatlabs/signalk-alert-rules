@@ -3,10 +3,12 @@ import { monotonic } from '../engine/clock.js'
 import type { PathMeta, TimeoutSettings } from '../engine/evaluator.js'
 import type { Zone } from '../engine/limits.js'
 import { canonicalSourceRef } from '../engine/sourceRefs.js'
+import { affine } from '../affine.js'
 import type { AlertsReader, CoreAlert } from './emitter.js'
+import type { DisplayConversion } from '../affine.js'
 import { deltaPath } from './paths.js'
 import type { RunnerDeps } from './runner.js'
-import { splitPointerPath } from '../model/pointerPath.js'
+import { isPointerPath, splitPointerPath } from '../model/pointerPath.js'
 import { isRecord, own } from '../util.js'
 
 // The published server-api types predate the core alerts API; these are the
@@ -87,6 +89,39 @@ function timeoutSettings(app: ServerAPI): TimeoutSettings | undefined {
   }
 }
 
+/**
+ * The server's display-unit lookup for plugins, under the admin's active
+ * preset. Servers before 2.34 have none, and messages then stay in SI.
+ */
+interface ServerWithDisplayUnits {
+  getDisplayUnits?: (path: string) => unknown
+}
+
+/**
+ * A path's display unit as a scale and an offset, or undefined to render SI.
+ * A field stays in SI: the server has no metadata for a field, so it resolves
+ * only the few fields its default categories name, and the editor, which
+ * resolves a field by its SI unit, would preview a different unit
+ * (https://github.com/SignalK/signalk-server/issues/3257).
+ */
+function displayUnits(app: ServerAPI, path: string): DisplayConversion | undefined {
+  const lookup = (app as ServerAPI & ServerWithDisplayUnits).getDisplayUnits
+  if (typeof lookup !== 'function') return undefined
+  if (isPointerPath(path)) return undefined
+  let answer: unknown
+  try {
+    answer = lookup.call(app, path)
+  } catch {
+    // A broken preset must not stop an alert's heartbeat; SI still reads.
+    return undefined
+  }
+  if (!isRecord(answer)) return undefined
+  const { formula, symbol } = answer
+  if (typeof formula !== 'string' || typeof symbol !== 'string') return undefined
+  const conversion = affine(formula)
+  return conversion === null ? undefined : { symbol, ...conversion }
+}
+
 /** The runner's view of the server, from the plugin's app. */
 export function serverDeps(app: ServerAPI, pluginId: string): RunnerDeps {
   const alerts = (app as ServerAPI & ServerWithAlerts).alerts
@@ -107,6 +142,7 @@ export function serverDeps(app: ServerAPI, pluginId: string): RunnerDeps {
       if (typeof units !== 'string') return meta
       return { ...meta, units }
     },
+    displayUnits: (path) => displayUnits(app, path),
     timeoutSettings: () => timeoutSettings(app),
     // `getPath('sources')` is the server's live tree; '/sources' would rebuild a copy per call.
     canonicalSource: (ref) => canonicalSourceRef(app.getPath('sources'), ref),

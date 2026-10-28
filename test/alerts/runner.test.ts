@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { PathValueState, Value } from '@signalk/server-api'
 import { HEARTBEAT_S, type AlertValue } from '../../src/alerts/emitter.js'
+import type { DisplayConversion } from '../../src/affine.js'
 import { RuleRunner } from '../../src/alerts/runner.js'
 import type { PathMeta } from '../../src/engine/evaluator.js'
 import type { Priority, Rule } from '../../src/model/rule.js'
@@ -119,6 +120,8 @@ function setup(
     subscriptions?: FakeSubscriptionManager
     /** Wall time advances with the clock; otherwise it stays at its start. */
     wall?: boolean
+    /** The admin's display units by path. */
+    display?: Record<string, DisplayConversion>
   } = {}
 ) {
   const sm = options.subscriptions ?? new FakeSubscriptionManager()
@@ -130,6 +133,7 @@ function setup(
       pluginId: PLUGIN,
       subscriptions: sm,
       meta: (path) => options.meta?.[path],
+      displayUnits: (path) => options.display?.[path],
       timeoutSettings: () => ({ enforce: true, useDefaults: true }),
       clock: () => now,
       wallClock: () => new Date(WALL_START + (options.wall === true ? now * 1000 : 0)),
@@ -1196,6 +1200,7 @@ describe('rule status', () => {
           pluginId: PLUGIN,
           subscriptions,
           meta: () => undefined,
+          displayUnits: () => undefined,
           timeoutSettings: () => undefined,
           clock: () => 0,
           wallClock: () => new Date(),
@@ -1670,6 +1675,43 @@ describe('message placeholders', () => {
     const state = runner.state('battery-low')
     expect(state).toMatchObject({ message: 'house below 12.2 V for 5 s: 12 V' })
     expect(state?.instances[0]).toMatchObject({ message: 'house below 12.2 V for 5 s: 12 V' })
+  })
+
+  it("renders the numbers in the admin's display unit for the path", () => {
+    const millivolts = { symbol: 'mV', scale: 1000, offset: 0 }
+    const { at, run, sent } = setup([bank], { meta: units, display: { [HOUSE]: millivolts } })
+    at(0, HOUSE, 12)
+    run(1, 5)
+    expect(messages(sent)).toEqual(['house below 12200 mV for 5 s: 12000 mV'])
+  })
+
+  it("renders a difference in the display unit's scale alone", () => {
+    const PORT = 'propulsion.port.coolantTemperature'
+    const STARBOARD = 'propulsion.starboard.coolantTemperature'
+    const spread = valid({
+      name: 'Coolant spread',
+      slug: 'coolant-spread',
+      condition: 'coolantSpread',
+      message: 'apart by {value}, over {limit}',
+      signal: {
+        combinator: 'absDifference',
+        inputs: [{ path: PORT }, { path: STARBOARD }]
+      },
+      detector: {
+        type: 'sustained',
+        direction: 'above',
+        steps: [{ limit: 5, priority: 'warning' }]
+      }
+    })
+    const fahrenheit = { symbol: '°F', scale: 1.8, offset: -459.67 }
+    const { at, run, sent } = setup([spread], {
+      meta: { [PORT]: { units: 'K' }, [STARBOARD]: { units: 'K' } },
+      display: { [PORT]: fahrenheit }
+    })
+    at(0, PORT, 360)
+    at(0, STARBOARD, 350)
+    run(1, 1)
+    expect(messages(sent)).toEqual(['apart by 18 °F, over 9 °F'])
   })
 
   it("a climb renders the new step's limit at once", () => {

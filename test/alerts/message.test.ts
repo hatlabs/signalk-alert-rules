@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { renderMessage } from '../../src/alerts/message.js'
-import { signalUnits } from '../../src/alerts/messageUnits.js'
+import { unitSource } from '../../src/alerts/messageUnits.js'
 import type { Rule } from '../../src/model/rule.js'
 import { validateRule } from '../../src/model/validate.js'
 
@@ -73,10 +73,10 @@ describe('renderMessage', () => {
     expect(renderMessage(rule, { value: 12.345678, step: 0, limit: 368.15 })).toBe('12.35 368.2')
   })
 
-  it('shows a ratio as a percentage', () => {
+  it('shows a ratio without a display unit as a bare fraction', () => {
     const rule = battery('{value} of {limit}')
     expect(renderMessage(rule, { value: 0.153, step: 0, limit: 0.2, units: 'ratio' })).toBe(
-      '15.3 % of 20 %'
+      '0.153 of 0.2'
     )
   })
 
@@ -218,20 +218,138 @@ describe('renderMessage', () => {
   })
 })
 
-describe('signalUnits', () => {
+describe('renderMessage in display units', () => {
+  const celsius = { symbol: '°C', scale: 1, offset: -273.15 }
+  const fahrenheit = { symbol: '°F', scale: 1.8, offset: -459.67 }
+  const coolant = (detector: unknown, message = '{value} past {limit}') =>
+    valid({
+      name: 'Coolant',
+      slug: 'coolant',
+      message,
+      signal: { path: 'propulsion.main.coolantTemperature' },
+      detector
+    })
+  const high = {
+    type: 'sustained',
+    direction: 'above',
+    steps: [{ limit: 368.15, priority: 'alarm' }]
+  }
+
+  it('converts a level through the whole formula and labels it with the display symbol', () => {
+    expect(
+      renderMessage(coolant(high), {
+        value: 370.15,
+        step: 0,
+        limit: 368.15,
+        units: 'K',
+        display: celsius
+      })
+    ).toBe('97 °C past 95 °C')
+    expect(
+      renderMessage(coolant(high), {
+        value: 368.15,
+        step: 0,
+        limit: 368.15,
+        units: 'K',
+        display: fahrenheit
+      })
+    ).toBe('203 °F past 203 °F')
+  })
+
+  it('converts a difference through the scale alone', () => {
+    expect(
+      renderMessage(coolant(high), {
+        value: 5,
+        step: 0,
+        limit: 2,
+        units: 'K',
+        display: fahrenheit,
+        difference: true
+      })
+    ).toBe('9 °F past 3.6 °F')
+  })
+
+  it('converts a slope rate and an accumulated total through the scale alone', () => {
+    const slope = coolant(
+      {
+        type: 'slope',
+        direction: 'rising',
+        window: 60,
+        steps: [{ limit: 0.05, priority: 'warning' }]
+      },
+      'rising faster than {limit}'
+    )
+    expect(renderMessage(slope, { step: 0, units: 'K', display: fahrenheit })).toBe(
+      'rising faster than 0.09 °F/s'
+    )
+    const integral = coolant(
+      { type: 'accumulator', measure: 'integral', steps: [{ limit: 100, priority: 'caution' }] },
+      'over {limit}'
+    )
+    expect(renderMessage(integral, { step: 0, units: 'K', display: celsius })).toBe('over 100 °C·s')
+  })
+
+  it("converts a match step's number as a level", () => {
+    const match = coolant(
+      { type: 'match', op: 'equals', steps: [{ value: 373.15, priority: 'warning' }] },
+      'at {limit}'
+    )
+    expect(renderMessage(match, { step: 0, units: 'K', display: celsius })).toBe('at 100 °C')
+  })
+
+  it('shows a ratio in its display unit and a count as a bare number', () => {
+    const fuel = valid({
+      name: 'Fuel',
+      slug: 'fuel',
+      message: '{value} below {limit}',
+      signal: { path: 'tanks.fuel.main.currentLevel' },
+      detector: {
+        type: 'sustained',
+        direction: 'below',
+        steps: [{ limit: 0.2, priority: 'alarm' }]
+      }
+    })
+    const percent = { symbol: '%', scale: 100, offset: 0 }
+    expect(
+      renderMessage(fuel, { value: 0.153, step: 0, limit: 0.2, units: 'ratio', display: percent })
+    ).toBe('15.3 % below 20 %')
+    // An admin who picks the ratio conversion gets the fraction.
+    const fraction = { symbol: '', scale: 1, offset: 0 }
+    expect(
+      renderMessage(fuel, { value: 0.153, step: 0, limit: 0.2, units: 'ratio', display: fraction })
+    ).toBe('0.153 below 0.2')
+    const count = valid({
+      name: 'Cycling',
+      slug: 'cycling',
+      message: 'more than {limit} times',
+      signal: { path: 'electrical.switches.bilge.state' },
+      detector: {
+        type: 'count',
+        event: { op: 'changesTo', value: true },
+        window: 3600,
+        steps: [{ limit: 6, priority: 'warning' }]
+      }
+    })
+    expect(renderMessage(count, { step: 0, units: 'K', display: celsius })).toBe(
+      'more than 6 times'
+    )
+  })
+})
+
+describe('unitSource', () => {
   const meta = (units: Record<string, string>) => (path: string) => ({ units: units[path] })
 
   it("reads a path's units, with the instance in place of the wildcard", () => {
     const signal = { path: 'electrical.batteries.*.voltage' }
     const units = meta({ 'electrical.batteries.house.voltage': 'V' })
-    expect(signalUnits(signal, { name: 'house', segment: 'house' }, units)).toBe('V')
-    expect(signalUnits(signal, undefined, units)).toBeUndefined()
+    expect(unitSource(signal, { name: 'house', segment: 'house' }, units)?.units).toBe('V')
+    expect(unitSource(signal, undefined, units)?.units).toBeUndefined()
   })
 
   it("reads a field's units, with the instance in place of a wildcard before the pointer", () => {
     const signal = { path: 'electrical.batteries.*#/voltage' }
     const units = meta({ 'electrical.batteries.house#/voltage': 'V' })
-    expect(signalUnits(signal, { name: 'house', segment: 'house' }, units)).toBe('V')
+    expect(unitSource(signal, { name: 'house', segment: 'house' }, units)?.units).toBe('V')
   })
 
   it("renders a field's value and limit in the field's units", () => {
@@ -242,17 +360,40 @@ describe('signalUnits', () => {
       signal: { path: 'navigation.attitude#/roll' },
       detector: { type: 'outside', steps: [{ low: -0.35, high: 0.35, priority: 'warning' }] }
     })
-    const units = signalUnits(heel.signal, undefined, meta({ 'navigation.attitude#/roll': 'rad' }))
+    const units = unitSource(
+      heel.signal,
+      undefined,
+      meta({ 'navigation.attitude#/roll': 'rad' })
+    )?.units
     expect(renderMessage(heel, { value: 0.4, step: 0, limit: 0.35, units })).toBe(
       'Roll 0.4 rad past 0.35 rad'
     )
   })
 
-  it('reads a combination’s units from its first input that has them', () => {
-    const units = meta({ b: 'K' })
+  it('names the path the units came from, and whether the signal is a difference', () => {
+    const units = meta({ 'electrical.batteries.house.voltage': 'V', b: 'K' })
+    expect(
+      unitSource(
+        { path: 'electrical.batteries.*.voltage' },
+        { name: 'house', segment: 'house' },
+        units
+      )
+    ).toEqual({ units: 'V', path: 'electrical.batteries.house.voltage', difference: false })
     const inputs = [{ path: 'a' }, { path: 'b' }]
-    expect(signalUnits({ combinator: 'difference', inputs }, undefined, units)).toBe('K')
-    expect(signalUnits({ combinator: 'ratio', inputs }, undefined, units)).toBeUndefined()
-    expect(signalUnits({ combinator: 'distance', inputs }, undefined, units)).toBe('m')
+    expect(unitSource({ combinator: 'difference', inputs }, undefined, units)).toEqual({
+      units: 'K',
+      path: 'b',
+      difference: true
+    })
+    expect(unitSource({ combinator: 'mean', inputs }, undefined, units)).toEqual({
+      units: 'K',
+      path: 'b',
+      difference: false
+    })
+    expect(unitSource({ combinator: 'distance', inputs }, undefined, units)).toEqual({
+      units: 'm',
+      difference: false
+    })
+    expect(unitSource({ combinator: 'ratio', inputs }, undefined, units)).toBeUndefined()
   })
 })

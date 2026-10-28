@@ -13,6 +13,7 @@ import {
 } from '../../../src/model/rule'
 import {
   ANGULAR_COMBINATORS,
+  DIFFERENCE_COMBINATORS,
   POSITION_COMBINATORS,
   TWO_INPUTS,
   validateRule
@@ -49,6 +50,7 @@ import {
 } from '../../../src/panel/editor/formModel'
 import type { PathEntry } from '../../../src/panel/paths/selfPaths'
 import {
+  DIFFERENCE_KINDS,
   NO_UNITS,
   POSITION_KINDS,
   unitLookup,
@@ -144,6 +146,7 @@ describe('the form model mirrors the rule model', () => {
   it('groups the combinators as the model does', () => {
     expect([...TWO_INPUT_KINDS].sort()).toEqual([...TWO_INPUTS].sort())
     expect([...POSITION_KINDS].sort()).toEqual([...POSITION_COMBINATORS].sort())
+    expect([...DIFFERENCE_KINDS].sort()).toEqual([...DIFFERENCE_COMBINATORS].sort())
     expect([...ANGULAR_KINDS].sort()).toEqual([...ANGULAR_COMBINATORS].sort())
   })
 })

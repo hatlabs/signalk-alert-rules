@@ -520,6 +520,7 @@ function run(scenario: Scenario): Result {
       pluginId: 'signalk-alert-rules',
       subscriptions: sm,
       meta: (path) => scenario.meta.get(path),
+      displayUnits: () => undefined,
       timeoutSettings: () => ({ enforce: true, useDefaults: true }),
       clock: () => now,
       alerts: { list: () => [] },

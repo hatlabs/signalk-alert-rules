@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { renderMessage } from '../../alerts/message'
+import { isPointerPath } from '../../model/pointerPath'
 import {
   FIELD_ZONES_ELSEWHERE_MESSAGE,
   FIELD_ZONES_LEVEL_MESSAGE,
@@ -9,7 +10,7 @@ import {
 } from '../../model/pointerPath'
 import { PathPicker } from '../paths/PathPicker'
 import { readingFrom, type PathList } from '../paths/selfPaths'
-import { matchedInstances, signalMeasure, type UnitLookup } from '../signalUnits'
+import { matchedInstances, POSITION_KINDS, signalMeasure, type UnitLookup } from '../signalUnits'
 import { ConditionFields, HoldField, KindField } from './ConditionFields'
 import { FieldErrors, Required, SelectField, TextField, valueKindOf } from './fields'
 import {
@@ -273,6 +274,14 @@ export function RuleFields(props: RuleFieldsProps) {
     }
   }
   const measure = signalMeasure(signalShape(form.signal), units)
+  // The plugin has no path to resolve a distance's display unit by, so it
+  // sends metres; the preview shows what it sends.
+  const positional = POSITION_KINDS.has(signalShape(form.signal).combinator ?? '')
+  // The plugin sends a field in SI, as the server has no display unit for a
+  // field (https://github.com/SignalK/signalk-server/issues/3257); it takes the
+  // unit from the first input that has one, as here.
+  const unitPath = signalShape(form.signal).paths.find((p) => units.entry(p)?.units !== undefined)
+  const field = unitPath !== undefined && isPointerPath(unitPath)
   const single = form.signal.mode === 'single'
   const slot = form.signal.slots[0] ?? { path: '', source: '' }
   const entry = single ? live.entry(slot.path) : undefined
@@ -315,7 +324,13 @@ export function RuleFields(props: RuleFieldsProps) {
         ...(limit === undefined ? {} : { limit }),
         ...(previewInstance === undefined ? {} : { instance: previewInstance }),
         ...(liveValue === undefined ? {} : { value: liveValue }),
-        ...(entry?.units === undefined ? {} : { units: entry.units })
+        ...(positional
+          ? { units: 'm' }
+          : {
+              ...(entry?.units === undefined ? {} : { units: entry.units }),
+              ...(measure.unit.si || field ? {} : { display: measure.unit })
+            }),
+        difference: measure.kind === 'interval'
       },
       { keepUnfilledLimit: previewResolvesLimit(result.rule) }
     )
