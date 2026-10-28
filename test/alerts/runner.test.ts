@@ -2026,7 +2026,7 @@ describe('message placeholders', () => {
       for (let t = 0; t <= 15; t++) at(t, TEMPERATURE, 300 + t)
       expect(sent.at(-1)?.[1]).toMatchObject({
         priority: 'alarm',
-        message: 'Rising faster than 0.1 K/s'
+        message: 'Rising faster than 6 K/min'
       })
       runner.update(
         valid({
@@ -2048,7 +2048,7 @@ describe('message placeholders', () => {
       expect(sent.length).toBeGreaterThan(before)
       expect(sent.at(-1)?.[1]).toMatchObject({
         priority: 'alarm',
-        message: 'Rising faster than 0.1 K/s'
+        message: 'Rising faster than 6 K/min'
       })
     })
   })

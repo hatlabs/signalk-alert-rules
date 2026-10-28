@@ -133,6 +133,17 @@ describe('RuleEditor, from a path', () => {
     expect(description(textbox(/^Message/))).toMatch(/Sends now: “.*95 °C.*81\.85 °C”/)
   })
 
+  it('previews a rate’s {limit} per minute, as the limit field reads it', async () => {
+    renderEditor({ start: { path: 'propulsion.port.coolantTemperature', kind: 'rate' } })
+    await formShown()
+    choose('Changing', 'rising')
+    type(textbox('Over the last'), '5')
+    choose('Priority for step 1', 'alarm')
+    type(textbox('Limit for step 1'), '0.5')
+    type(textbox(/^Message/), 'Rising over {limit}')
+    expect(description(textbox(/^Message/))).toContain('Sends now: “Rising over 0.5 °C/min”')
+  })
+
   it('keeps the preview to one line, its full text in its title and read out whole', async () => {
     renderEditor({ start: { path: HOUSE, kind: 'below' } })
     await formShown()

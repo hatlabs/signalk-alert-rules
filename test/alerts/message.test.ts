@@ -174,7 +174,7 @@ describe('renderMessage', () => {
         steps: [{ limit: 0.05, priority: 'warning' }]
       }
     })
-    expect(renderMessage(slope, { step: 0, units: 'K' })).toBe('rising faster than 0.05 K/s')
+    expect(renderMessage(slope, { step: 0, units: 'K' })).toBe('rising faster than 3 K/min')
 
     const accumulator = (measure: 'time' | 'integral') =>
       valid({
@@ -280,13 +280,30 @@ describe('renderMessage in display units', () => {
       'rising faster than {limit}'
     )
     expect(renderMessage(slope, { step: 0, units: 'K', display: fahrenheit })).toBe(
-      'rising faster than 0.09 °F/s'
+      'rising faster than 5.4 °F/min'
     )
     const integral = coolant(
       { type: 'accumulator', measure: 'integral', steps: [{ limit: 100, priority: 'caution' }] },
       'over {limit}'
     )
     expect(renderMessage(integral, { step: 0, units: 'K', display: celsius })).toBe('over 100 °C·s')
+  })
+
+  it('shows a ratio slope per minute in its display unit, or as a fraction without one', () => {
+    const slope = coolant(
+      {
+        type: 'slope',
+        direction: 'rising',
+        window: 60,
+        steps: [{ limit: 0.001, priority: 'warning' }]
+      },
+      'rising faster than {limit}'
+    )
+    const percent = { symbol: '%', scale: 100, offset: 0 }
+    expect(renderMessage(slope, { step: 0, units: 'ratio', display: percent })).toBe(
+      'rising faster than 6 %/min'
+    )
+    expect(renderMessage(slope, { step: 0, units: 'ratio' })).toBe('rising faster than 0.06 /min')
   })
 
   it("converts a match step's number as a level", () => {
