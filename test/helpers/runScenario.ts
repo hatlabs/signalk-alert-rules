@@ -25,6 +25,7 @@ export function runScenario(
       pluginId: 'signalk-alert-rules',
       subscriptions: sm,
       meta: (path) => scenario.meta?.[path],
+      displayUnits: () => undefined,
       timeoutSettings: () => ({ enforce: true, useDefaults: true }),
       clock: () => now,
       wallClock: () => new Date('2026-09-30T12:00:00Z'),

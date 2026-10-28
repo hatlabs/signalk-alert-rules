@@ -33,7 +33,12 @@ export interface Measure {
 /** A path the server has not reported: SI, with no unit known. */
 export const UNKNOWN_UNIT: DisplayUnit = displayUnit({})
 
-const DIFFERENCES = new Set(['difference', 'absDifference', 'spread'])
+/** The combinators whose value is a difference; a test keeps this equal to the model's. */
+export const DIFFERENCE_KINDS: ReadonlySet<string> = new Set([
+  'difference',
+  'absDifference',
+  'spread'
+])
 /** The combinators over positions; a test keeps this equal to the model's. */
 export const POSITION_KINDS: ReadonlySet<string> = new Set<CombinatorKind>([
   'distance',
@@ -125,7 +130,8 @@ export function signalMeasure(signal: SignalShape, lookup: UnitLookup): Measure 
   if (combinator === 'ratio') return { kind: 'ratio', unit: UNKNOWN_UNIT }
   const unit =
     signal.paths.map((p) => lookup.entry(p)?.unit).find((u) => u !== undefined) ?? UNKNOWN_UNIT
-  const kind = combinator !== undefined && DIFFERENCES.has(combinator) ? 'interval' : 'absolute'
+  const kind =
+    combinator !== undefined && DIFFERENCE_KINDS.has(combinator) ? 'interval' : 'absolute'
   return { kind, unit }
 }
 

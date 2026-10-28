@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { renderMessage } from '../../src/alerts/message.js'
-import { signalUnits } from '../../src/alerts/messageUnits.js'
+import { unitSource } from '../../src/alerts/messageUnits.js'
 import type { Rule } from '../../src/model/rule.js'
 import { validateRule } from '../../src/model/validate.js'
 
@@ -336,20 +336,20 @@ describe('renderMessage in display units', () => {
   })
 })
 
-describe('signalUnits', () => {
+describe('unitSource', () => {
   const meta = (units: Record<string, string>) => (path: string) => ({ units: units[path] })
 
   it("reads a path's units, with the instance in place of the wildcard", () => {
     const signal = { path: 'electrical.batteries.*.voltage' }
     const units = meta({ 'electrical.batteries.house.voltage': 'V' })
-    expect(signalUnits(signal, { name: 'house', segment: 'house' }, units)).toBe('V')
-    expect(signalUnits(signal, undefined, units)).toBeUndefined()
+    expect(unitSource(signal, { name: 'house', segment: 'house' }, units)?.units).toBe('V')
+    expect(unitSource(signal, undefined, units)?.units).toBeUndefined()
   })
 
   it("reads a field's units, with the instance in place of a wildcard before the pointer", () => {
     const signal = { path: 'electrical.batteries.*#/voltage' }
     const units = meta({ 'electrical.batteries.house#/voltage': 'V' })
-    expect(signalUnits(signal, { name: 'house', segment: 'house' }, units)).toBe('V')
+    expect(unitSource(signal, { name: 'house', segment: 'house' }, units)?.units).toBe('V')
   })
 
   it("renders a field's value and limit in the field's units", () => {
@@ -360,17 +360,40 @@ describe('signalUnits', () => {
       signal: { path: 'navigation.attitude#/roll' },
       detector: { type: 'outside', steps: [{ low: -0.35, high: 0.35, priority: 'warning' }] }
     })
-    const units = signalUnits(heel.signal, undefined, meta({ 'navigation.attitude#/roll': 'rad' }))
+    const units = unitSource(
+      heel.signal,
+      undefined,
+      meta({ 'navigation.attitude#/roll': 'rad' })
+    )?.units
     expect(renderMessage(heel, { value: 0.4, step: 0, limit: 0.35, units })).toBe(
       'Roll 0.4 rad past 0.35 rad'
     )
   })
 
-  it('reads a combination’s units from its first input that has them', () => {
-    const units = meta({ b: 'K' })
+  it('names the path the units came from, and whether the signal is a difference', () => {
+    const units = meta({ 'electrical.batteries.house.voltage': 'V', b: 'K' })
+    expect(
+      unitSource(
+        { path: 'electrical.batteries.*.voltage' },
+        { name: 'house', segment: 'house' },
+        units
+      )
+    ).toEqual({ units: 'V', path: 'electrical.batteries.house.voltage', difference: false })
     const inputs = [{ path: 'a' }, { path: 'b' }]
-    expect(signalUnits({ combinator: 'difference', inputs }, undefined, units)).toBe('K')
-    expect(signalUnits({ combinator: 'ratio', inputs }, undefined, units)).toBeUndefined()
-    expect(signalUnits({ combinator: 'distance', inputs }, undefined, units)).toBe('m')
+    expect(unitSource({ combinator: 'difference', inputs }, undefined, units)).toEqual({
+      units: 'K',
+      path: 'b',
+      difference: true
+    })
+    expect(unitSource({ combinator: 'mean', inputs }, undefined, units)).toEqual({
+      units: 'K',
+      path: 'b',
+      difference: false
+    })
+    expect(unitSource({ combinator: 'distance', inputs }, undefined, units)).toEqual({
+      units: 'm',
+      difference: false
+    })
+    expect(unitSource({ combinator: 'ratio', inputs }, undefined, units)).toBeUndefined()
   })
 })

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { ServerAPI } from '@signalk/server-api'
-import { signalUnits } from '../../src/alerts/messageUnits.js'
+import { unitSource } from '../../src/alerts/messageUnits.js'
 import { serverDeps } from '../../src/alerts/server.js'
 import { RuleEvaluator } from '../../src/engine/evaluator.js'
 import { validateRule } from '../../src/model/validate.js'
@@ -40,6 +40,66 @@ function app(extra: Record<string, unknown> = {}) {
   }
   return { app: fake as unknown as ServerAPI, handled }
 }
+
+describe("the admin's display units", () => {
+  const celsius = {
+    category: 'temperature',
+    targetUnit: 'C',
+    formula: 'value - 273.15',
+    inverseFormula: 'value + 273.15',
+    symbol: '°C'
+  }
+  const COOLANT = 'propulsion.main.coolantTemperature'
+
+  function resolving(result: (path: string) => unknown) {
+    const asked: string[] = []
+    const { app: a } = app({
+      getDisplayUnits: (path: string) => {
+        asked.push(path)
+        return result(path)
+      }
+    })
+    return { deps: serverDeps(a, 'signalk-alert-rules'), asked }
+  }
+
+  it("reads a path's display unit as a scale and an offset", () => {
+    const { deps, asked } = resolving(() => celsius)
+    expect(deps.displayUnits(COOLANT)).toEqual({ symbol: '°C', scale: 1, offset: -273.15 })
+    expect(asked).toEqual([COOLANT])
+  })
+
+  it.each(['navigation.attitude#/roll', 'environment.current#/drift'])(
+    'has none for the field %s, so its message stays in SI',
+    (field) => {
+      const { deps, asked } = resolving(() => celsius)
+      expect(deps.displayUnits(field)).toBeUndefined()
+      expect(asked).toEqual([])
+    }
+  )
+
+  it('has none on a server without getDisplayUnits', () => {
+    const { app: a } = app()
+    expect(serverDeps(a, 'signalk-alert-rules').displayUnits(COOLANT)).toBeUndefined()
+  })
+
+  it.each([
+    ['nothing', undefined],
+    ['a formula that is not affine', { ...celsius, formula: 'value ^ 2' }],
+    ['no symbol', { ...celsius, symbol: undefined }],
+    ['a formula that is not a string', { ...celsius, formula: 3 }],
+    ['not an object', 'C']
+  ])('has none when the server answers %s', (_, answer) => {
+    const { deps } = resolving(() => answer)
+    expect(deps.displayUnits(COOLANT)).toBeUndefined()
+  })
+
+  it('has none when the lookup throws', () => {
+    const { deps } = resolving(() => {
+      throw new Error('broken preset')
+    })
+    expect(deps.displayUnits(COOLANT)).toBeUndefined()
+  })
+})
 
 describe('server adapter', () => {
   it('emits alert deltas under the alerts prefix as the plugin', () => {
@@ -241,7 +301,7 @@ describe('server adapter', () => {
         cause: 'updateContract',
         contract: 'event'
       })
-      expect(signalUnits(rule.value.signal, undefined, fieldDeps.meta)).toBe('rad')
+      expect(unitSource(rule.value.signal, undefined, fieldDeps.meta)?.units).toBe('rad')
     })
   })
 })
