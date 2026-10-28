@@ -1,8 +1,10 @@
 /**
  * The message and name a new rule is given until the user writes their own:
  * written from the value, the condition and the limits as they are typed.
- * One limit is written as typed, in the display unit; several are written as
- * `{limit}`, which the server fills in with the limit of the step reached.
+ * A limit with a unit, a matched number included, is written as `{limit}`,
+ * which the server fills in, unit included, with the limit of the step
+ * reached; a count, an absence's window, matched text or true or false has no
+ * unit, so one is written as typed.
  */
 import { limitDirection, zoneLimitLevels, zonePath } from '../../engine/limits'
 import type { Rule } from '../../model/rule'
@@ -10,7 +12,6 @@ import type { SignalValue } from '../api'
 import { isWildcardPath, signalMeasure, type UnitLookup } from '../signalUnits'
 import { kindOf } from './conditionKinds'
 import {
-  isZoneLimited,
   signalShape,
   slugify,
   stepQuantity,
@@ -39,12 +40,13 @@ function eventVerb(event: EventForm, measure: Measure): string {
   }
 }
 
-function limitOf(form: RuleForm, measure: Measure): string {
+const LIMIT = '{limit}'
+
+/** The typed limit of a single step, for a limit with no unit; else `{limit}`. */
+function typedLimit(form: RuleForm, measure: Measure): string {
   const first = form.steps.at(0)
-  if (form.steps.length !== 1 || first === undefined || isZoneLimited(form.detector)) {
-    return '{limit}'
-  }
-  return stepLimitText(first, stepQuantity(form.detector), measure) ?? '{limit}'
+  if (form.steps.length !== 1 || first === undefined) return LIMIT
+  return stepLimitText(first, stepQuantity(form.detector), measure) ?? LIMIT
 }
 
 /** The message written from the form; empty until a value and a condition are chosen. */
@@ -54,45 +56,46 @@ export function generatedMessage(form: RuleForm, units: UnitLookup): string {
   if (subject === '' || kind === undefined) return ''
   const d = form.detector
   const measure = signalMeasure(signalShape(form.signal), units)
-  const limit = limitOf(form, measure)
+  const typed = typedLimit(form, measure)
   const within = (text: string | undefined) => (text === undefined ? '' : ` within ${text}`)
   switch (kind) {
     case 'below':
     case 'above': {
       const held = durationText(d.duration)
-      return `${subject} ${kind} ${limit}${held === undefined ? '' : ` for ${held}`}: {value}`
+      return `${subject} ${kind} ${LIMIT}${held === undefined ? '' : ` for ${held}`}: {value}`
     }
     case 'outside': {
-      // {limit} is the one limit passed, not the range, so only a typed range is written.
-      const range = limit === '{limit}' ? '' : ` ${limit}`
+      // {limit} is the one bound passed, not the range, so the range goes unsaid.
       const held = durationText(d.duration)
-      return `${subject} out of range${range}${held === undefined ? '' : ` for ${held}`}: {value}`
+      return `${subject} out of range${held === undefined ? '' : ` for ${held}`}: {value}`
     }
     case 'rate':
-      return `${subject} ${d.trend === '' ? 'changing' : d.trend} faster than ${limit}: {value}`
+      return `${subject} ${d.trend === '' ? 'changing' : d.trend} faster than ${LIMIT}: {value}`
     case 'projection':
-      return `${subject} ${d.trend === '' ? 'heading' : d.trend} to ${limit}${within(durationText(d.horizon))}: {value}`
+      return `${subject} ${d.trend === '' ? 'heading' : d.trend} to ${LIMIT}${within(durationText(d.horizon))}: {value}`
     case 'silent':
       return `${subject} has stopped reporting`
-    case 'state':
+    case 'state': {
+      const matched = form.steps.at(0)?.value.type === 'number' ? LIMIT : typed
       switch (d.matchOp) {
         case 'notEquals':
-          return `${subject} is not ${limit}`
+          return `${subject} is not ${matched}`
         case 'changesTo':
-          return `${subject} changed to ${limit}`
+          return `${subject} changed to ${matched}`
         case 'decreases':
           return `${subject} decreased`
         default:
-          return `${subject} is ${limit}`
+          return `${subject} is ${matched}`
       }
+    }
     case 'often': {
       const window = durationText(d.window)
-      return `${subject} ${eventVerb(d.event, measure)} more than ${limit} times${window === undefined ? '' : ` in ${window}`}`
+      return `${subject} ${eventVerb(d.event, measure)} more than ${typed} times${window === undefined ? '' : ` in ${window}`}`
     }
     case 'total':
-      return `${subject} total reached ${limit}`
+      return `${subject} total reached ${LIMIT}`
     case 'missing':
-      return `${subject} has not ${eventVerb(d.event, measure)} for ${limit}`
+      return `${subject} has not ${eventVerb(d.event, measure)} for ${typed}`
   }
 }
 

@@ -121,7 +121,7 @@ describe('Shell rule authoring', () => {
     expect(api.createRule).toHaveBeenCalledWith({
       name: 'Thruster battery low',
       slug: 'thruster-battery-low',
-      message: 'Bow thruster battery voltage below 11.8 V: {value}',
+      message: 'Bow thruster battery voltage below {limit}: {value}',
       signal: { path: 'electrical.batteries.bowThruster.voltage' },
       detector: {
         type: 'sustained',

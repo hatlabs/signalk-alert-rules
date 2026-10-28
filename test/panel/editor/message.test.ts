@@ -27,6 +27,7 @@ import type { PathEntry, Zone } from '../../../src/panel/paths/selfPaths'
 import { signalMeasure, unitLookup } from '../../../src/panel/signalUnits'
 import { FakeSubscriptionManager } from '../../helpers/FakeSubscriptionManager'
 import { displayUnit } from '../../../src/panel/units'
+import { units as reportedUnits } from '../reportedPaths'
 
 const volts = displayUnit({ units: 'V', displayUnits: { formula: 'value', symbol: 'V' } })
 const celsius = displayUnit({
@@ -58,13 +59,13 @@ function form(path: string, kind: ConditionKind, edit: (f: RuleForm) => void = (
 const step = (patch: Partial<StepForm>): StepForm => ({ ...emptyStep('warning'), ...patch })
 
 describe('the generated message', () => {
-  it('names the value by its display name, with the typed limit, duration and {value}', () => {
+  it('names the value by its display name, with {limit}, the duration and {value}', () => {
     const f = form('electrical.batteries.bowthruster.voltage', 'below', (f) => {
       f.steps = [step({ limit: '12.8' })]
       f.detector.duration = { amount: '30', unit: 's' }
     })
     expect(generatedMessage(f, units)).toBe(
-      'Bow thruster bank voltage below 12.8 V for 30 s: {value}'
+      'Bow thruster bank voltage below {limit} for 30 s: {value}'
     )
   })
 
@@ -72,7 +73,7 @@ describe('the generated message', () => {
     const f = form('propulsion.port.coolantTemperature', 'above', (f) => {
       f.steps = [step({ limit: '95' })]
     })
-    expect(generatedMessage(f, units)).toBe('Port coolant temperature above 95 °C: {value}')
+    expect(generatedMessage(f, units)).toBe('Port coolant temperature above {limit}: {value}')
   })
 
   it('says {limit} for several steps, the limit of the step reached', () => {
@@ -83,13 +84,13 @@ describe('the generated message', () => {
     expect(generatedMessage(f, units)).toBe('House voltage below {limit} for 30 s: {value}')
   })
 
-  it('says out of range, with the range of a single step as typed', () => {
+  it('says out of range without the range, which {limit} cannot hold', () => {
     const f = form('propulsion.port.coolantTemperature', 'outside', (f) => {
       f.steps = [step({ low: '60', high: '95' })]
       f.detector.duration = { amount: '30', unit: 's' }
     })
     expect(generatedMessage(f, units)).toBe(
-      'Port coolant temperature out of range 60 to 95 °C for 30 s: {value}'
+      'Port coolant temperature out of range for 30 s: {value}'
     )
     expect(generatedName(f, units)).toBe('Port coolant temperature out of range')
   })
@@ -111,11 +112,45 @@ describe('the generated message', () => {
     )
   })
 
+  it('says {limit} for a field of an object value, in the unit of its {value}', () => {
+    const f = form('navigation.attitude#/roll', 'above', (f) => {
+      f.steps = [step({ limit: '20' })]
+    })
+    expect(generatedMessage(f, reportedUnits)).toBe('Attitude roll above {limit}: {value}')
+  })
+
+  it('says {limit} for a total of the value over time', () => {
+    const f = form('electrical.batteries.house.voltage', 'total', (f) => {
+      f.detector.measure = 'integral'
+      f.steps = [step({ limit: '500' })]
+    })
+    expect(generatedMessage(f, units)).toBe('House voltage total reached {limit}')
+  })
+
+  it.each<['equals' | 'notEquals' | 'changesTo', string]>([
+    ['equals', 'Port coolant temperature is {limit}'],
+    ['notEquals', 'Port coolant temperature is not {limit}'],
+    ['changesTo', 'Port coolant temperature changed to {limit}']
+  ])('writes a number matched with %s as {limit}, since it has a unit', (op, message) => {
+    const f = form('propulsion.port.coolantTemperature', 'state', (f) => {
+      f.detector.matchOp = op
+      f.steps = [step({ value: { type: 'number', text: '95' } })]
+    })
+    expect(generatedMessage(f, units)).toBe(message)
+  })
+
+  it('writes a matched true or false as typed', () => {
+    const f = form('electrical.switches.bilgePump.state', 'state', (f) => {
+      f.steps = [step({ value: { type: 'true', text: '' } })]
+    })
+    expect(generatedMessage(f, units)).toBe('Bilge pump state is true')
+  })
+
   it('names the instance of a wildcard rule', () => {
     const f = form('electrical.batteries.*.voltage', 'below', (f) => {
       f.steps = [step({ limit: '12' })]
     })
-    expect(generatedMessage(f, units)).toBe('Voltage of {instance} below 12 V: {value}')
+    expect(generatedMessage(f, units)).toBe('Voltage of {instance} below {limit}: {value}')
   })
 
   it.each<[ConditionKind, (f: RuleForm) => void, string]>([
@@ -148,7 +183,7 @@ describe('the generated message', () => {
       (f) => {
         f.steps = [step({ duration: { amount: '250', unit: 'h' } })]
       },
-      'Depth below transducer total reached 250 h'
+      'Depth below transducer total reached {limit}'
     ],
     [
       'projection',
@@ -157,7 +192,7 @@ describe('the generated message', () => {
         f.steps = [step({ limit: '2.5' })]
         f.detector.horizon = { amount: '2', unit: 'min' }
       },
-      'Depth below transducer falling to 2.5 m within 2 min: {value}'
+      'Depth below transducer falling to {limit} within 2 min: {value}'
     ],
     [
       'rate',
@@ -165,7 +200,7 @@ describe('the generated message', () => {
         f.detector.trend = 'falling'
         f.steps = [step({ limit: '0.1' })]
       },
-      'Depth below transducer falling faster than 0.1 m/min: {value}'
+      'Depth below transducer falling faster than {limit}: {value}'
     ]
   ])('words a rule that alerts when %s', (kind, edit, expected) => {
     expect(generatedMessage(form('environment.depth.belowTransducer', kind, edit), units)).toBe(
@@ -200,7 +235,7 @@ describe('the generated message', () => {
     f.signal.slots[1].path = 'electrical.batteries.bowthruster.voltage'
     f.steps = [step({ limit: '1' })]
     expect(generatedMessage(f, units)).toBe(
-      'Difference of house voltage and bow thruster bank voltage above 1 V: {value}'
+      'Difference of house voltage and bow thruster bank voltage above {limit}: {value}'
     )
   })
 })
@@ -227,7 +262,7 @@ describe('withGenerated', () => {
     expect(written).toMatchObject({
       name: 'Bow thruster bank voltage low',
       slug: 'bow-thruster-bank-voltage-low',
-      message: 'Bow thruster bank voltage below 12.8 V: {value}'
+      message: 'Bow thruster bank voltage below {limit}: {value}'
     })
     const edited = { ...written, message: 'Mine', messageFollows: false }
     edited.steps = [step({ limit: '12' })]
@@ -263,12 +298,16 @@ describe('toSavedRule', () => {
 
   it('saves the written message while the message is empty', () => {
     const result = toSavedRule(stored(''), units)
-    expect(result.ok && result.rule.message).toBe('Bow thruster bank voltage below 12.8 V: {value}')
+    expect(result.ok && result.rule.message).toBe(
+      'Bow thruster bank voltage below {limit}: {value}'
+    )
   })
 
   it('saves the written message while the message is only spaces', () => {
     const result = toSavedRule(stored('   '), units)
-    expect(result.ok && result.rule.message).toBe('Bow thruster bank voltage below 12.8 V: {value}')
+    expect(result.ok && result.rule.message).toBe(
+      'Bow thruster bank voltage below {limit}: {value}'
+    )
   })
 
   it('saves a typed message as typed', () => {
