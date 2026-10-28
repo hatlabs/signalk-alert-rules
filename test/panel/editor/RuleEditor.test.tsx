@@ -98,19 +98,23 @@ describe('RuleEditor, from a path', () => {
     expect(steps?.[0]?.limit).toBeCloseTo(368.15)
   })
 
-  it('writes the message from the limit until the message is edited', async () => {
+  it('writes the message with {limit} from the form until the message is edited', async () => {
     renderEditor({ start: { path: HOUSE, kind: 'below' } })
     await formShown()
     fillBelow('11.8')
     expect(textbox(/^Message/)).toHaveProperty(
       'value',
-      'House battery voltage below 11.8 V: {value}'
+      'House battery voltage below {limit}: {value}'
     )
     expect(textbox(/^Name/)).toHaveProperty('value', 'House battery voltage low')
-    type(textbox('Limit for step 1'), '12')
-    expect(textbox(/^Message/)).toHaveProperty('value', 'House battery voltage below 12 V: {value}')
+    type(textbox('For at least'), '2')
+    choose('For at least unit', 'min')
+    expect(textbox(/^Message/)).toHaveProperty(
+      'value',
+      'House battery voltage below {limit} for 2 min: {value}'
+    )
     type(textbox(/^Message/), 'House battery is low')
-    type(textbox('Limit for step 1'), '11.5')
+    type(textbox('For at least'), '5')
     expect(textbox(/^Message/)).toHaveProperty('value', 'House battery is low')
   })
 
@@ -165,14 +169,18 @@ describe('RuleEditor, from a path', () => {
     type(message, 'Mine')
     type(message, '')
     expect(message).toHaveProperty('value', '')
-    expect(message).toHaveProperty('placeholder', 'House battery voltage below 11.8 V: {value}')
+    expect(message).toHaveProperty('placeholder', 'House battery voltage below {limit}: {value}')
     expect(message.getAttribute('aria-required')).toBeNull()
     expect(description(message)).toContain(
       'While empty, sends: “House battery voltage below 11.8 V: 13.31 V”'
     )
-    type(textbox('Limit for step 1'), '12')
+    type(textbox('For at least'), '2')
+    choose('For at least unit', 'min')
     expect(message).toHaveProperty('value', '')
-    expect(message).toHaveProperty('placeholder', 'House battery voltage below 12 V: {value}')
+    expect(message).toHaveProperty(
+      'placeholder',
+      'House battery voltage below {limit} for 2 min: {value}'
+    )
     // A keystroke in the empty field is the user's own message, not the written one extended.
     type(message, 'H')
     expect(message).toHaveProperty('value', 'H')
@@ -180,7 +188,7 @@ describe('RuleEditor, from a path', () => {
     create()
     await saved(onSaved)
     expect(api.createRule.mock.calls[0]?.[0].message).toBe(
-      'House battery voltage below 12 V: {value}'
+      'House battery voltage below {limit} for 2 min: {value}'
     )
   })
 
@@ -190,7 +198,7 @@ describe('RuleEditor, from a path', () => {
     fillBelow('11.8')
     const message = textbox(/^Message/)
     type(message, '  ')
-    expect(message).toHaveProperty('placeholder', 'House battery voltage below 11.8 V: {value}')
+    expect(message).toHaveProperty('placeholder', 'House battery voltage below {limit}: {value}')
     expect(message.getAttribute('aria-required')).toBeNull()
     expect(description(message)).toContain(
       'While empty, sends: “House battery voltage below 11.8 V: 13.31 V”'
@@ -198,7 +206,7 @@ describe('RuleEditor, from a path', () => {
     create()
     await saved(onSaved)
     expect(api.createRule.mock.calls[0]?.[0].message).toBe(
-      'House battery voltage below 11.8 V: {value}'
+      'House battery voltage below {limit}: {value}'
     )
   })
 
@@ -2916,9 +2924,9 @@ describe('RuleEditor, a field path', () => {
     choose('Priority for step 1', 'warning')
     type(textbox('Limit for step 1'), '20')
     expect(textbox('Limit for step 1').parentElement?.textContent).toContain('°')
-    // The generated text writes the limit as typed; {value} is filled in as sent.
+    // The generated text writes {limit}, so the limit reads in SI as {value} does.
     expect(description(textbox(/^Message/))).toContain(
-      'Sends now: “Attitude roll above 20 °: 0.05 rad”'
+      'Sends now: “Attitude roll above 0.3491 rad: 0.05 rad”'
     )
   })
 
